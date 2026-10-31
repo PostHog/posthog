@@ -192,7 +192,7 @@ class TestPullRequestOrigin(BaseTest):
             ).render()
 
         project = f"/project/{self.team.id}"
-        assert f"[issue 1](http://localhost:8010{project}/error_tracking/01a0a561-54a4)" in section
+        assert f"[issue 1](http://localhost:8010{project}/error-tracking/01a0a561-54a4)" in section
         assert "settings?x=1" not in section
         assert "run:1:finding:2" not in section
         assert "- Scout: `signals-scout-error-tracking`" in section

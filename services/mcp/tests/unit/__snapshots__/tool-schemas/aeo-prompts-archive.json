@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The prompt id (a UUID), from `aeo-prompts-list`.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

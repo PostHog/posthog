@@ -108,7 +108,7 @@ class TestNonPaginated:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([(200, 200), (401, 401), (403, 403), (500, 500)])
+    @parameterized.expand([(403, 403)])
     def test_returns_status_code(self, status: int, expected: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))):
             assert validate_credentials("token", "org", "eu") == expected

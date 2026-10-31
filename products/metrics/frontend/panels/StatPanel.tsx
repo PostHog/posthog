@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { flattenSeriesRows } from './metricsReduce'
 import { thresholdColor } from './metricsThresholds'
-import { formatMetricValue } from './metricsUnits'
+import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
 
@@ -43,12 +43,15 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
             row.metricName ||
             fallbackName
         const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
+        const data = row.series.points.map((p) => p.value ?? 0)
+        // The headline shows the hovered sparkline point, so it shares one scale with every point.
+        const formatValue = metricValuesFormatter(row.series.unit ?? undefined, [...data, value ?? 0])
         return (
             <MetricCard
                 key={index}
                 title={single ? null : name}
                 value={value ?? undefined}
-                data={row.series.points.map((p) => p.value ?? 0)}
+                data={data}
                 labels={row.series.points.map((p) => p.time)}
                 formatLabel={(time) => dayjs(time).tz(timezone).format('D MMM HH:mm')}
                 // The time shows only on hover. A blank caption at rest keeps its row, so the
@@ -56,7 +59,7 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 restingSubtitle={' '}
                 theme={theme}
                 color={color}
-                formatValue={(v) => formatMetricValue(v, row.series.unit ?? undefined)}
+                formatValue={formatValue}
                 headlineClassName="whitespace-nowrap text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl"
                 changeInline
                 sparklineFill={single}

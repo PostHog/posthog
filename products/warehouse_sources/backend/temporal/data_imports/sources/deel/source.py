@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
+    codebase_detection = detect(env=("^DEEL_",))
+
     supported_versions = (DEEL_API_VERSION_V2, DEEL_API_VERSION_2026_01_01)
     default_version = DEEL_API_VERSION_2026_01_01
     api_docs_url = "https://developer.deel.com/api/api-versioning"
@@ -62,7 +65,7 @@ class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
 Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (`people:read`, `contracts:read`, `accounting:read`, `timesheets:read`, `time-off:read`, `legal-entity:read`, `organizations:read`, `groups:read`, `global-payroll:read`, `payslips:read`, `it-seats:read`, `it-service-requests:read`, `equities:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
             iconPath="/static/services/deel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/deel",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

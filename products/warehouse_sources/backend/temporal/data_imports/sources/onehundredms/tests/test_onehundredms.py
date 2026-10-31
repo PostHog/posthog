@@ -3,7 +3,6 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -77,9 +76,3 @@ def test_invalid_pagination_fails_instead_of_silently_losing_data(
     assert result.params("start") == ["saved-cursor"]
     assert result.saved_states == []
     assert result.final_state == OneHundredMsResumeConfig(cursor="saved-cursor")
-
-
-def test_unknown_table_is_rejected(config: OneHundredMsSourceConfig) -> None:
-    result = SourceDriver(OneHundredMsSource(), config).run("missing", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

@@ -1,4 +1,3 @@
-import uuid
 import datetime as dt
 from typing import Any, cast
 
@@ -38,6 +37,8 @@ from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
     check_hogql_batch_exports_enabled,
+    fetch_facade_page,
+    parse_path_uuid,
 )
 
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
@@ -398,12 +399,11 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return super().get_throttles()
 
     def dangerously_get_object(self) -> contracts.FileDownloadRun:
-        # This replaces the queryset read only. The facade scopes the read to the team, and the
-        # object permissions run on the contract as they ran on the model. `logs` reads the run here.
-        try:
-            run_id = uuid.UUID(str(self.kwargs["pk"]))
-        except ValueError:
-            raise NotFound()
+        # The mixin's get_object() reads through a queryset, which this view does not have, so the
+        # run is read through the facade instead. That skips the mixin's team filter and object
+        # permission check, so both happen here: the facade filters by team, and
+        # check_object_permissions runs on the contract. `logs` reads the run through here too.
+        run_id = parse_path_uuid(self.kwargs["pk"])
         try:
             run = batch_exports_api.get_file_download_run(self.team_id, run_id)
         except contracts.FileDownloadNotFoundError as e:
@@ -412,17 +412,12 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         return run
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        # The facade slices the page, so the paginator gets its state set directly instead of a queryset.
         paginator = cast(LimitOffsetPagination, self.paginator)
-        limit = paginator.get_limit(request)
-        offset = paginator.get_offset(request)
-        # PAGE_SIZE gives every request a limit.
-        assert limit is not None
-        runs, count = batch_exports_api.list_file_download_runs(self.team_id, offset=offset, limit=limit)
-        paginator.request = request
-        paginator.limit = limit
-        paginator.offset = offset
-        paginator.count = count
+        runs = fetch_facade_page(
+            paginator,
+            request,
+            lambda offset, limit: batch_exports_api.list_file_download_runs(self.team_id, offset=offset, limit=limit),
+        )
         return paginator.get_paginated_response(ListOutputSerializer(runs, many=True).data)
 
     @extend_schema(

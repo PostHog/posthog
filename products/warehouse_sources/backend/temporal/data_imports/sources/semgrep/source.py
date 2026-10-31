@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SemgrepSource(ResumableSource[SemgrepSourceConfig, SemgrepResumeConfig]):
+    codebase_detection = detect(env=("^SEMGREP_",), pypi=("semgrep",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -44,7 +47,7 @@ class SemgrepSource(ResumableSource[SemgrepSourceConfig, SemgrepResumeConfig]):
             name=ExternalDataSourceType.SEMGREP,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Semgrep",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["sast", "sca", "appsec"],
             caption="""Enter your Semgrep API token to sync your static analysis data — deployments, projects, code (SAST) and supply chain (SCA) findings, and secrets — into the PostHog Data warehouse.
 

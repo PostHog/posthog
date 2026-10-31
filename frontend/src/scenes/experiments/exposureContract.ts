@@ -25,7 +25,6 @@ import { Experiment } from '~/types'
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
 export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
 export const EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY = '$feature_flag_response'
-export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend
@@ -37,6 +36,17 @@ export function resolvedExposureEvent(
     fallbackEvent: string = EXPOSURE_DEFAULT_EVENT
 ): string {
     return experiment.resolved_exposure_event || fallbackEvent
+}
+
+/**
+ * Whether the experiment's analysis excludes test accounts. Mirrors the backend's
+ * `resolve_filter_test_accounts`: criteria without the key mean the default, not an opt-out. An
+ * experiment stored before creation set the key has none, and so does one whose criteria an
+ * update replaced without it. A surface that reads absence as false counts different people than
+ * the results do.
+ */
+export function resolveFilterTestAccounts(exposureCriteria: ExperimentExposureCriteria | null | undefined): boolean {
+    return exposureCriteria?.filterTestAccounts ?? true
 }
 
 export function exposureEventLabel(event: string): string {

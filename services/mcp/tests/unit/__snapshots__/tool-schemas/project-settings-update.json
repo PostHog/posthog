@@ -318,7 +318,6 @@
                 }
             ]
         },
-        "correlation_config": {},
         "customer_analytics_config": {
             "properties": {
                 "account_group_type_index": {
@@ -340,12 +339,13 @@
                     "items": {
                         "properties": {
                             "id": {
-                                "description": "Project-scoped custom property or relationship definition UUID.",
+                                "description": "Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.",
+                                "maxLength": 64,
                                 "type": "string"
                             },
                             "kind": {
-                                "description": "Definition type for this default pinned account property.\n\n* `custom_property` - Custom property\n* `relationship` - Relationship",
-                                "enum": ["custom_property", "relationship"],
+                                "description": "Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n* `custom_property` - Custom property\n* `relationship` - Relationship\n* `account_field` - Account field",
+                                "enum": ["custom_property", "relationship", "account_field"],
                                 "type": "string"
                             }
                         },
@@ -418,6 +418,24 @@
         },
         "feature_flag_policy_config": {
             "properties": {
+                "blocked_hosts": {
+                    "description": "Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.",
+                    "items": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "type": "array"
+                },
+                "blocked_ips": {
+                    "description": "IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.",
+                    "items": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "type": "array"
+                },
                 "require_tags": {
                     "description": "When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.",
                     "type": "boolean"
@@ -500,6 +518,17 @@
                     "type": "null"
                 }
             ]
+        },
+        "logo_media_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
         },
         "logs_settings": {},
         "marketing_analytics_config": {
@@ -1039,6 +1068,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -1145,6 +1175,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -1204,6 +1235,28 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "cohort_deleted": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort is deleted or does not exist."
+                                                                },
+                                                                "cohort_missing": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored."
+                                                                },
                                                                 "cohort_name": {
                                                                     "anyOf": [
                                                                         {
@@ -1259,6 +1312,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -1336,6 +1390,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -1491,6 +1546,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -2057,6 +2113,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -2163,6 +2220,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -2222,6 +2280,28 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "cohort_deleted": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort is deleted or does not exist."
+                                                                },
+                                                                "cohort_missing": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored."
+                                                                },
                                                                 "cohort_name": {
                                                                     "anyOf": [
                                                                         {
@@ -2277,6 +2357,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -2354,6 +2435,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -2509,6 +2591,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -3092,6 +3175,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -3198,6 +3282,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -3257,6 +3342,28 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "cohort_deleted": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort is deleted or does not exist."
+                                                                },
+                                                                "cohort_missing": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored."
+                                                                },
                                                                 "cohort_name": {
                                                                     "anyOf": [
                                                                         {
@@ -3312,6 +3419,7 @@
                                                                                 "in",
                                                                                 "not_in",
                                                                                 "is_cleaned_path_exact",
+                                                                                "is_cleaned_path_not_exact",
                                                                                 "flag_evaluates_to",
                                                                                 "semver_eq",
                                                                                 "semver_neq",
@@ -3389,6 +3497,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -3544,6 +3653,7 @@
                                                                         "in",
                                                                         "not_in",
                                                                         "is_cleaned_path_exact",
+                                                                        "is_cleaned_path_not_exact",
                                                                         "flag_evaluates_to",
                                                                         "semver_eq",
                                                                         "semver_neq",
@@ -4300,6 +4410,36 @@
                     "enum": ["off", "opt_out", "opt_in"],
                     "type": "string"
                 },
+                "email_utm_params": {
+                    "description": "Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.",
+                    "properties": {
+                        "utm_campaign": {
+                            "description": "Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        },
+                        "utm_content": {
+                            "description": "Default utm_content. Empty uses the email step name. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        },
+                        "utm_medium": {
+                            "description": "Default utm_medium. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        },
+                        "utm_source": {
+                            "description": "Default utm_source. Supports Liquid variables.",
+                            "maxLength": 500,
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                "email_utm_tags_enabled": {
+                    "description": "Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults.",
+                    "type": "boolean"
+                },
                 "marketing_frequency_cap_max_messages": {
                     "anyOf": [
                         {
@@ -4325,6 +4465,30 @@
                         }
                     ],
                     "description": "Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off."
+                },
+                "replay_vision_scan_rate_limit_per_day": {
+                    "anyOf": [
+                        {
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How many Replay Vision scans one workflow can request in a rolling 24 hours. Null uses the default of 100; zero pauses scans for every workflow in the project. Support raises the limit above 500."
+                },
+                "replay_vision_scan_team_rate_limit_per_day": {
+                    "anyOf": [
+                        {
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How many Replay Vision scans all workflows in the project request together in a rolling 24 hours. Null uses the default of 500; zero pauses scans for the project. Support raises the limit above 2500."
                 },
                 "workflow_task_rate_limit_per_day": {
                     "anyOf": [

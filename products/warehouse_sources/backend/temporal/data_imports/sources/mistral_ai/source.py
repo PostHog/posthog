@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConfig]):
+    codebase_detection = detect(
+        env=("^MISTRAL_", "^MISTRAL_API_KEY$"), npm=("@mistralai/mistralai",), pypi=("mistralai",)
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.mistral.ai/api/"
@@ -48,7 +53,7 @@ class MistralAISource(ResumableSource[MistralAISourceConfig, MistralAIResumeConf
             name=ExternalDataSourceType.MISTRALAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mistral AI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Mistral AI API key to sync your Mistral AI platform data into the PostHog Data warehouse.
 
 You can create an API key in [La Plateforme](https://console.mistral.ai/api-keys).""",

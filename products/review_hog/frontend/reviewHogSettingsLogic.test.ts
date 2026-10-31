@@ -615,6 +615,43 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values).toMatchObject({ reviewsPage: null, reviewsFailed: true, initialLoadFailed: false })
     })
 
+    it('turns a feature flag 403 into one page state and stops sending requests', async () => {
+        const requestedPaths: string[] = []
+        const gated = ({ request }: { request: Request }): [number, Record<string, string>] => {
+            requestedPaths.push(new URL(request.url).pathname)
+            return [403, { type: 'authentication_error', code: 'feature_flag_required', detail: 'Not enabled.' }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/review_hog/reviews/table/': gated,
+                '/api/projects/:team_id/review_hog/reviews/perspective_stats/': gated,
+                '/api/projects/:team_id/review_hog/settings/': gated,
+                '/api/projects/:team_id/review_hog/perspectives/': gated,
+                '/api/projects/:team_id/review_hog/blind_spots/': gated,
+                '/api/projects/:team_id/review_hog/validators/': gated,
+                '/api/projects/:team_id/review_hog/resolution/': gated,
+            },
+        })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['markFeatureFlagGated'])
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions([
+                'loadSettingsFailure',
+                'loadReviewsFailure',
+                'loadPerspectiveStatsFailure',
+                'loadDeepSkillStatsFailure',
+            ])
+        expect(logic.values).toMatchObject({ featureFlagGated: true, initialLoadFailed: false, reviewsFailed: false })
+
+        const requestCount = requestedPaths.length
+        await expectLogic(logic, () => {
+            document.dispatchEvent(new Event('visibilitychange'))
+        }).toDispatchActions(['loadReviewsSuccess'])
+        expect(requestedPaths).toHaveLength(requestCount)
+    })
+
     it('checks the list immediately when the tab becomes visible again', async () => {
         // The poll interval is paused while hidden and resumes with a full interval still to wait,
         // which reads as stale exactly when the user comes back to look.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import random
+import hashlib
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -21,8 +23,10 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalReport,
     SignalReportAction,
@@ -70,6 +74,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _team_configs,
     background_sample_bucket,
     max_enabled_scouts_for_team,
+    parse_background_lanes,
     resolve_max_enabled_scouts,
 )
 from products.signals.backend.temporal.agentic.scout_coordinator import (
@@ -95,6 +100,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _slot_anchor,
     _stamp_dispatched_runs,
     _start_delay_seconds,
+    _tick_capacity_properties,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -769,6 +775,63 @@ def test_parse_background(payload, expected):
     assert _parse_background(payload) == expected
 
 
+_ANOMALY = "signals-scout-anomaly-detection"
+_LEGACY_LANE = BackgroundEnrollment(True, _GENERAL, frozenset({1}), None, DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK)
+_ANOMALY_LANE = BackgroundEnrollment(
+    True,
+    _ANOMALY,
+    frozenset({2}),
+    360,
+    DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+    audience=SignalScoutBackgroundBand.Audience.SET_UP,
+    require_precheck=True,
+)
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ({}, None),
+        ({"background": {"enabled": True, "team_ids": [1]}}, (_LEGACY_LANE,)),
+        (
+            {
+                "background": {"enabled": True, "team_ids": [9]},
+                "background_lanes": [
+                    {"skill_name": _GENERAL, "enabled": True, "team_ids": [1]},
+                    {
+                        "skill_name": _ANOMALY,
+                        "enabled": True,
+                        "audience": "set_up",
+                        "team_ids": [2],
+                        "interval_minutes": 360,
+                        "require_precheck": True,
+                    },
+                ],
+            },
+            (_LEGACY_LANE, _ANOMALY_LANE),
+        ),
+        ({"background_lanes": []}, ()),
+        # Each of these must not read as removed lanes, because a removed lane pauses its configs.
+        ({"background_lanes": {"skill_name": _GENERAL}}, None),
+        ({"background_lanes": [{"skill_name": _GENERAL, "team_ids": [1]}, {"team_ids": [2]}]}, None),
+        ({"background_lanes": [{"skill_name": _GENERAL, "team_ids": "nope"}]}, None),
+        ({"background_lanes": [{"skill_name": _GENERAL, "audience": "everyone"}]}, None),
+        ({"background_lanes": [{"skill_name": _GENERAL}, {"skill_name": _GENERAL}]}, None),
+    ],
+)
+def test_parse_background_lanes(payload, expected):
+    assert parse_background_lanes(payload) == expected
+
+
+@pytest.mark.parametrize("team_id", [1, 2, 12345])
+def test_background_sample_bucket_salt(team_id):
+    def bucket(salt: str) -> int:
+        return int.from_bytes(hashlib.sha256(salt.encode()).digest()[:8], "big") % 100
+
+    assert background_sample_bucket(team_id, _GENERAL) == bucket(f"signals-scout-background:{team_id}")
+    assert background_sample_bucket(team_id, _ANOMALY) == bucket(f"signals-scout-background:{_ANOMALY}:{team_id}")
+
+
 @pytest.mark.parametrize(
     "budget,runs_last_24h,expected",
     [
@@ -795,6 +858,14 @@ def _background(
     return BackgroundEnrollment(enabled, _GENERAL, frozenset(team_ids), 720, max_new, bands or {}, backoff, budget)
 
 
+def _lanes(*lanes: BackgroundEnrollment | None) -> tuple[BackgroundEnrollment, ...] | None:
+    return None if lanes == (None,) else tuple(lane for lane in lanes if lane is not None)
+
+
+def _backoffs(backoff: BackgroundBackoff | None) -> dict[str, BackgroundBackoff]:
+    return {_GENERAL: backoff} if backoff is not None else {}
+
+
 _WEEK_MINUTES = 7 * 24 * 60
 _BACKOFF = BackgroundBackoff(factor=2, max_interval_minutes=90 * 24 * 60)
 
@@ -811,7 +882,7 @@ class TestBackgroundEnrollment:
     def test_creates_only_the_background_config_on_consented_teams(self):
         approved, unapproved = self._team(), self._team(approved=False)
 
-        _collect_planned_runs(_NO_ENROLLMENT, background=_background({approved.id, unapproved.id}))
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(_background({approved.id, unapproved.id})))
 
         configs = list(SignalScoutConfig.all_teams.filter(team__in=[approved, unapproved]))
         assert [(c.team_id, c.skill_name, c.managed_by, c.run_interval_minutes) for c in configs] == [
@@ -822,10 +893,10 @@ class TestBackgroundEnrollment:
         teams = [self._team(), self._team()]
         background = _background({t.id for t in teams}, max_new=1)
 
-        _collect_planned_runs(_NO_ENROLLMENT, background=background)
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(background))
         assert SignalScoutConfig.all_teams.filter(team__in=teams).count() == 1
 
-        _collect_planned_runs(_NO_ENROLLMENT, background=background)
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(background))
         assert SignalScoutConfig.all_teams.filter(team__in=teams).count() == 2
 
     @pytest.mark.parametrize(
@@ -835,6 +906,7 @@ class TestBackgroundEnrollment:
             (False, "enabled", False),  # consent withdrawn after setup
             (True, "disabled", False),  # kill switch
             (True, "absent", False),  # explicit enrollment alone never runs a background config
+            (True, "requires_missing_precheck", False),  # the general scout ships no default pre-check
         ],
     )
     def test_dispatch_is_gated_on_consent_and_the_block(self, approved, block, expect_dispatch):
@@ -842,12 +914,19 @@ class TestBackgroundEnrollment:
         with team_scope(team.id, canonical=True):
             _create_skill(team, _GENERAL)
             _create_config(team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
-        background = None if block == "absent" else _background({team.id}, enabled=block == "enabled")
+        background = (
+            None
+            if block == "absent"
+            else dataclasses.replace(
+                _background({team.id}, enabled=block != "disabled"),
+                require_precheck=block == "requires_missing_precheck",
+            )
+        )
         enrollment = Enrollment(wildcard=False, explicit={team.id}, skip=set())
 
         with patch("products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs") as seed:
             seed.return_value = {_GENERAL}
-            planned = _collect_planned_runs(enrollment, background=background)
+            planned = _collect_planned_runs(enrollment, background_lanes=_lanes(background))
 
         expected = [PlannedRun(team_id=team.id, skill_name=_GENERAL)] if expect_dispatch else []
         assert planned == expected
@@ -858,7 +937,7 @@ class TestBackgroundEnrollment:
             background_config = _create_config(team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
             user_config = _create_config(team, "signals-scout-errors")
 
-        _collect_planned_runs(_NO_ENROLLMENT, background=_background(set(), enabled=False))
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(_background(set(), enabled=False)))
 
         background_config.refresh_from_db()
         user_config.refresh_from_db()
@@ -866,17 +945,68 @@ class TestBackgroundEnrollment:
         assert background_config.pause_reason == SignalScoutConfig.PauseReason.BACKGROUND_REMOVED
         assert user_config.status == SignalScoutConfig.Status.ACTIVE
 
-        _collect_planned_runs(_NO_ENROLLMENT, background=_background({team.id}))
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(_background({team.id})))
 
         background_config.refresh_from_db()
         assert background_config.status == SignalScoutConfig.Status.ACTIVE
         assert background_config.enabled is True
 
-    def _banded_teams(self, band: int, count: int) -> list[Team]:
+    def test_each_lane_pauses_only_its_own_configs(self):
+        general_team, anomaly_team = self._team(), self._team()
+        with team_scope(general_team.id, canonical=True):
+            general_config = _create_config(general_team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
+        with team_scope(anomaly_team.id, canonical=True):
+            anomaly_config = _create_config(anomaly_team, _ANOMALY, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
+        general_lane = _background({general_team.id}, enabled=False)
+        anomaly_lane = dataclasses.replace(general_lane, skill_name=_ANOMALY, team_ids=frozenset({anomaly_team.id}))
+
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(general_lane, anomaly_lane))
+
+        general_config.refresh_from_db()
+        anomaly_config.refresh_from_db()
+        assert (general_config.status, anomaly_config.status) == (
+            SignalScoutConfig.Status.ACTIVE,
+            SignalScoutConfig.Status.ACTIVE,
+        )
+
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(general_lane))
+
+        general_config.refresh_from_db()
+        anomaly_config.refresh_from_db()
+        assert general_config.status == SignalScoutConfig.Status.ACTIVE
+        assert anomaly_config.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+        assert anomaly_config.pause_reason == SignalScoutConfig.PauseReason.BACKGROUND_REMOVED
+
+    @pytest.mark.parametrize("with_second_lane", [False, True])
+    def test_each_lane_samples_its_own_audience(self, with_second_lane):
+        (not_set_up_team,) = self._banded_teams(1, 1)
+        (set_up_team,) = self._banded_teams(1, 1, audience=SignalScoutBackgroundBand.Audience.SET_UP)
+        bands = {1: BackgroundBand(percent=100, interval_minutes=None)}
+        general_lane = _background(set(), bands=bands)
+        anomaly_lane = dataclasses.replace(
+            general_lane, skill_name=_ANOMALY, audience=SignalScoutBackgroundBand.Audience.SET_UP
+        )
+
+        lanes = _lanes(general_lane, anomaly_lane) if with_second_lane else _lanes(general_lane)
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=lanes)
+
+        created = set(
+            SignalScoutConfig.all_teams.filter(team__in=[not_set_up_team, set_up_team]).values_list(
+                "team_id", "skill_name"
+            )
+        )
+        expected = {(not_set_up_team.id, _GENERAL)}
+        if with_second_lane:
+            expected.add((set_up_team.id, _ANOMALY))
+        assert created == expected
+
+    def _banded_teams(
+        self, band: int, count: int, audience: str = SignalScoutBackgroundBand.Audience.NOT_SET_UP
+    ) -> list[Team]:
         teams = [self._team() for _ in range(count)]
         now = timezone.now()
         for team in teams:
-            SignalScoutBackgroundBand.all_teams.create(team=team, band=band, computed_at=now)
+            SignalScoutBackgroundBand.all_teams.create(team=team, band=band, audience=audience, computed_at=now)
         return teams
 
     def test_band_sampling_keeps_earlier_picks_as_the_percent_rises(self):
@@ -885,7 +1015,7 @@ class TestBackgroundEnrollment:
 
         def sampled(percent: int) -> set[int]:
             bands = {2: BackgroundBand(percent=percent, interval_minutes=20160)}
-            _collect_planned_runs(_NO_ENROLLMENT, background=_background(set(), max_new=100, bands=bands))
+            _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(_background(set(), max_new=100, bands=bands)))
             return set(
                 SignalScoutConfig.all_teams.filter(
                     team__in=teams, status=SignalScoutConfig.Status.ACTIVE, skill_name=_GENERAL
@@ -915,7 +1045,7 @@ class TestBackgroundEnrollment:
             )
 
         bands = {1: BackgroundBand(percent=0, interval_minutes=None)}
-        _collect_planned_runs(_NO_ENROLLMENT, background=_background({hand_picked.id}, bands=bands))
+        _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(_background({hand_picked.id}, bands=bands)))
 
         for config in (banded_config, taken_over_config, hand_picked_config):
             config.refresh_from_db()
@@ -940,8 +1070,8 @@ class TestBackgroundEnrollment:
         self, team: Team, config: SignalScoutConfig, background: BackgroundEnrollment, at: datetime, *, runs: bool
     ) -> bool:
         with time_machine.travel(at, tick=False):
-            planned = _collect_planned_runs(_NO_ENROLLMENT, background=background)
-            _stamp_dispatched_runs(planned, dispatched_at=at, backoff=background.backoff)
+            planned = _collect_planned_runs(_NO_ENROLLMENT, background_lanes=_lanes(background))
+            _stamp_dispatched_runs(planned, dispatched_at=at, backoffs=_backoffs(background.backoff))
         dispatched = PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned
         if dispatched and runs:
             self._record_run(team, config, at + timedelta(minutes=1))
@@ -1005,7 +1135,7 @@ class TestBackgroundEnrollment:
             patch("products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.capture") as capture,
         ):
             planned = _collect_planned_runs(
-                Enrollment(wildcard=False, explicit={person_team.id}, skip=set()), background=background
+                Enrollment(wildcard=False, explicit={person_team.id}, skip=set()), background_lanes=_lanes(background)
             )
 
         assert [
@@ -1013,10 +1143,16 @@ class TestBackgroundEnrollment:
             for team in (never_run_team, engaged_team, backed_off_team)
         ] == expected
         assert PlannedRun(team_id=person_team.id, skill_name="signals-scout-errors") in planned
-        properties = capture.call_args.kwargs["properties"]
+        (properties,) = [
+            c.kwargs["properties"]
+            for c in capture.call_args_list
+            if c.kwargs["event"] == "signals_scout_background_tick"
+        ]
         assert {
-            key: properties[key] for key in ("due", "dispatched", "deferred", "runs_last_24h", "never_run_due")
+            key: properties[key]
+            for key in ("skill_name", "due", "dispatched", "deferred", "runs_last_24h", "never_run_due")
         } == {
+            "skill_name": _GENERAL,
             "due": 3,
             "dispatched": sum(expected),
             "deferred": 3 - sum(expected),
@@ -1086,8 +1222,10 @@ class TestBackgroundEnrollment:
                 return_value={_GENERAL},
             ),
         ):
-            planned = _collect_planned_runs(enrollment, background=_background({team.id}, backoff=backoff))
-            _stamp_dispatched_runs(planned, dispatched_at=at, backoff=backoff)
+            planned = _collect_planned_runs(
+                enrollment, background_lanes=_lanes(_background({team.id}, backoff=backoff))
+            )
+            _stamp_dispatched_runs(planned, dispatched_at=at, backoffs=_backoffs(backoff))
 
         assert (PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned) is expect_dispatch
         config.refresh_from_db()
@@ -1111,10 +1249,10 @@ class TestBackgroundEnrollment:
                     ),
                     pytest.raises(RuntimeError),
                 ):
-                    _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+                    _stamp_dispatched_runs(planned, dispatched_at=at, backoffs=_backoffs(_BACKOFF))
             else:
-                _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
-            _stamp_dispatched_runs(planned, dispatched_at=at, backoff=_BACKOFF)
+                _stamp_dispatched_runs(planned, dispatched_at=at, backoffs=_backoffs(_BACKOFF))
+            _stamp_dispatched_runs(planned, dispatched_at=at, backoffs=_backoffs(_BACKOFF))
 
         config.refresh_from_db()
         assert config.background_backoff_level == 1
@@ -2588,6 +2726,32 @@ def test_daily_budget_allocation(default_cfg, runs_today, due_skills, expected):
     assert sorted(d.skill_name for d in selected) == sorted(expected)
 
 
+@pytest.mark.parametrize(
+    "default_cfg,runs_today,global_cap,due_count,expected",
+    [
+        ({"max_runs_per_tick": 1}, {}, None, 3, ("per_tick", 1, 2, 0)),
+        # Daily headroom 1 is tighter than the per-tick cap 2, so the daily budget is what binds.
+        ({"max_runs_per_tick": 2, "max_runs_per_day": 3}, {7: 2}, None, 3, ("per_day", 1, 2, 0)),
+        # A spent budget still reads as the daily cap, not the per-tick cap.
+        ({"max_runs_per_day": 3}, {7: 3}, None, 2, ("per_day", 0, 2, 0)),
+        ({}, {}, 1, 3, ("global", 1, 2, 2)),
+        ({}, {}, None, 2, (None, 2, 0, 0)),
+    ],
+)
+def test_capacity_telemetry_names_the_binding_cap(default_cfg, runs_today, global_cap, due_count, expected):
+    due = [_due_run(7, f"signals-scout-{i}", i * 3600) for i in range(due_count)]
+    selected = _allocate_tick_budget(due, {}, default_cfg, runs_today, global_cap)
+
+    fleet, (project,) = _tick_capacity_properties(due, selected, {}, default_cfg, runs_today, global_cap, {7: 4})
+
+    assert (
+        project["deferred_reason"],
+        project["dispatched"],
+        project["deferred"],
+        fleet["deferred_global"],
+    ) == expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_daily_budget_bounds_dispatch_end_to_end(ateam):
@@ -2658,6 +2822,31 @@ async def test_seed_failure_does_not_abort_tick(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_team_deleted_during_the_tick_is_skipped(ateam, aother_team):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-gone")
+
+    def _seed_other():
+        with team_scope(aother_team.id, canonical=True):
+            _create_skill(aother_team, "signals-scout-kept")
+
+    await database_sync_to_async(_seed_other)()
+    real_register = register_missing_configs
+
+    def _register(team_id, *args, **kwargs):
+        if team_id == ateam.id:
+            raise TeamScopeError(f"Team {team_id} not found on default DB")
+        return real_register(team_id, *args, **kwargs)
+
+    with patch(
+        "products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs", side_effect=_register
+    ):
+        planned = await _run_activity()
+
+    assert {(p.team_id, p.skill_name) for p in planned} == {(aother_team.id, "signals-scout-kept")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.real_canonical_sync
 async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     # Enrolling a team seeds the canonical fleet; the coordinator then auto-registers a
@@ -2665,7 +2854,9 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
     await database_sync_to_async(sync_canonical_skills)(ateam)
     seeded = await database_sync_to_async(
         lambda: set(
-            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-").values_list("name", flat=True)
+            LLMSkill.objects.filter(team=ateam, name__startswith="signals-scout-")
+            .exclude(name__in=SYSTEM_SCOUT_NAMES)
+            .values_list("name", flat=True)
         )
     )()
     assert seeded
@@ -2676,6 +2867,7 @@ async def test_enrolled_team_registers_and_runs_canonical_fleet(ateam):
         lambda: set(SignalScoutConfig.all_teams.filter(team=ateam).values_list("skill_name", flat=True))
     )()
     assert config_names == seeded
+    assert config_names.isdisjoint(SYSTEM_SCOUT_NAMES)
     assert {p.skill_name for p in planned} == seeded
 
 

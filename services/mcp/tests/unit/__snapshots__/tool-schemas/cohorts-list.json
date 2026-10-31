@@ -5,6 +5,10 @@
             "description": "Return a basic payload that omits the `query`, `groups`, `last_error_message`, and `experiment_set` fields (`filters` is kept). Useful for pickers that only need id/name/count.",
             "type": "boolean"
         },
+        "created_by_id": {
+            "description": "Optional. Return only cohorts created by the user with this id.",
+            "type": "number"
+        },
         "hide_behavioral_cohorts": {
             "description": "Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.",
             "type": "boolean"
@@ -19,6 +23,11 @@
         },
         "search": {
             "description": "Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.",
+            "type": "string"
+        },
+        "type": {
+            "description": "Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.",
+            "enum": ["dynamic", "static"],
             "type": "string"
         }
     },

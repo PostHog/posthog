@@ -55,7 +55,10 @@ function ChangeValue({ value }: { value: string[] }): JSX.Element {
 
 function renderChangeValue(change: DashboardFilterChange): JSX.Element {
     return (
-        <div className="flex flex-wrap items-center gap-1 break-words">
+        // Metric variable values come from queries over customer data, so copying them captures no text.
+        <div
+            className={`${change.label === 'Metric variables' ? 'ph-no-capture ' : ''}flex flex-wrap items-center gap-1 break-words`}
+        >
             <span className="min-w-0 text-muted-alt">
                 <ChangeValue value={change.previousValue} />
             </span>

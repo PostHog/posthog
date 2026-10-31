@@ -9,8 +9,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { BillingType } from '~/types'
+import { BillingType, StartupProgramLabel, UserType } from '~/types'
 
 import type { OrganizationType } from '../../../../frontend/src/types'
 import * as api from '../generated/api'
@@ -18,6 +19,12 @@ import * as api from '../generated/api'
 export type LegalDocumentType = 'BAA' | 'DPA'
 export type DPAMode = 'pretty' | 'lawyer' | 'fairytale' | 'tswift'
 export type LegalDocumentStatus = 'submitted_for_signature' | 'signed'
+export type BaaBlockReason = 'startup_program' | 'no_qualifying_addon'
+
+export const BAA_BLOCK_REASON_MESSAGES: Record<BaaBlockReason, string> = {
+    startup_program: "BAAs aren't covered by startup program credits. Contact us to discuss options.",
+    no_qualifying_addon: 'Subscribe to Boost, Scale, or Enterprise to generate a BAA',
+}
 
 export interface LegalDocumentCreator {
     first_name: string
@@ -65,6 +72,8 @@ export interface legalDocumentsLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationId: string // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
+    user: UserType | null // userLogic
+    baaBlockReason: BaaBlockReason | null
     deletingId: string | null
     existingDocumentOfCurrentType: LegalDocument | null
     existingDocumentTypes: Set<LegalDocumentType>
@@ -169,6 +178,11 @@ export interface legalDocumentsLogicActions {
 export interface legalDocumentsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasQualifyingBaaAddon: (billing: BillingType | null) => boolean
+        baaBlockReason: (
+            billing: BillingType | null,
+            user: UserType | null,
+            hasQualifyingBaaAddon: boolean
+        ) => BaaBlockReason | null
         isOnQualifyingAddonTrial: (billing: BillingType | null) => boolean
         isOnEnterpriseStandardTrial: (billing: BillingType | null) => boolean
         isDpaModeSubmittable: (legalDocument: LegalDocumentFormValues) => boolean
@@ -195,6 +209,8 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
             ['currentOrganization', 'currentOrganizationId', 'isAdminOrOwner'],
             billingLogic,
             ['billing'],
+            userLogic,
+            ['user'],
         ],
         actions: [organizationLogic, ['loadCurrentOrganizationSuccess']],
     })),
@@ -326,6 +342,22 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 return billing.products.some((product) =>
                     product.addons?.some((addon) => BAA_ADDON_TYPES.has(addon.type) && !!addon.subscribed)
                 )
+            },
+        ],
+        // Startup program organizations always pay with credits, and credits do not
+        // cover a BAA, whatever addon they hold. YC organizations keep BAA access.
+        // Staff who impersonate a startup organization that pays for a BAA generate it on its behalf.
+        baaBlockReason: [
+            (s) => [s.billing, s.user, s.hasQualifyingBaaAddon],
+            (
+                billing: BillingType | null,
+                user: UserType | null,
+                hasQualifyingBaaAddon: boolean
+            ): BaaBlockReason | null => {
+                if (billing?.startup_program_label === StartupProgramLabel.Startup && !user?.is_impersonated) {
+                    return 'startup_program'
+                }
+                return hasQualifyingBaaAddon ? null : 'no_qualifying_addon'
             },
         ],
         isOnQualifyingAddonTrial: [

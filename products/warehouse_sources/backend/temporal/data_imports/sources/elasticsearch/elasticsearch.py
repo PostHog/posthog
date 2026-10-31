@@ -141,6 +141,43 @@ def list_indices(host: str, auth: ElasticsearchAuth) -> list[str]:
     return sorted(index for index in indices if index and not index.startswith("."))
 
 
+def list_data_streams(host: str, auth: ElasticsearchAuth) -> list[str]:
+    """List non-hidden, non-system data streams.
+
+    Their backing indices are hidden and dot-prefixed, so `list_indices` never returns them.
+    Best-effort: clusters before 7.9 have no data stream API, and credentials without
+    `view_index_metadata` can't list streams, so both yield no streams instead of failing discovery.
+    """
+    response = _get_session(auth).get(f"{normalize_host(host)}/_data_stream", timeout=REQUEST_TIMEOUT_SECONDS)
+    if not response.ok:
+        return []
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return []
+
+    streams = body.get("data_streams") if isinstance(body, dict) else None
+    names = [
+        stream.get("name") or ""
+        for stream in streams or []
+        if isinstance(stream, dict) and not stream.get("hidden") and not stream.get("system")
+    ]
+    return sorted(name for name in names if name and not name.startswith("."))
+
+
+def is_data_stream(session: requests.Session, base_url: str, name: str) -> bool:
+    # A plain index answers 404 here, and a cluster without the data stream API answers 400 or 404.
+    response = session.get(f"{base_url}/_data_stream/{quote(name)}", timeout=REQUEST_TIMEOUT_SECONDS)
+    if not response.ok:
+        return False
+    try:
+        body = response.json()
+    except requests.exceptions.JSONDecodeError:
+        return False
+    streams = body.get("data_streams") if isinstance(body, dict) else None
+    return any(isinstance(stream, dict) and stream.get("name") == name for stream in streams or [])
+
+
 def _collect_float_paths(properties: dict[str, Any], prefix: str, paths: set[str]) -> None:
     """Walk an Elasticsearch mapping's `properties` tree, recording dotted paths of float-typed fields."""
     for name, spec in properties.items():
@@ -235,10 +272,15 @@ def _build_post_fn(
     return post
 
 
-def _page_items(data: dict[str, Any], float_paths: set[str]) -> tuple[list, list[dict[str, Any]]]:
+def _page_items(
+    data: dict[str, Any], float_paths: set[str], include_index: bool = False
+) -> tuple[list, list[dict[str, Any]]]:
     """Split a scroll response into its raw hits and the coerced `_source` rows."""
     hits = ((data.get("hits") or {}).get("hits")) or []
     items = [{**(hit.get("_source") or {}), "_id": hit["_id"]} for hit in hits]
+    if include_index:
+        for item, hit in zip(items, hits):
+            item["_index"] = hit.get("_index")
     if float_paths:
         for item in items:
             coerce_float_fields(item, float_paths)
@@ -258,6 +300,7 @@ def get_rows(
     auth: ElasticsearchAuth,
     index: str,
     logger: FilteringBoundLogger,
+    include_index: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     session = _get_session(auth)
     base_url = normalize_host(host)
@@ -275,7 +318,7 @@ def get_rows(
 
     try:
         while True:
-            hits, items = _page_items(data, float_paths)
+            hits, items = _page_items(data, float_paths, include_index)
 
             if items:
                 yield items
@@ -296,6 +339,9 @@ def elasticsearch_source(
     index: str,
     logger: FilteringBoundLogger,
 ) -> SourceResponse:
+    # A data stream only keeps `_id` unique within one backing index, so its rows carry the
+    # backing index and key on both.
+    data_stream = is_data_stream(_get_session(auth), normalize_host(host), index)
     return SourceResponse(
         name=index,
         items=lambda: get_rows(
@@ -303,8 +349,9 @@ def elasticsearch_source(
             auth=auth,
             index=index,
             logger=logger,
+            include_index=data_stream,
         ),
-        primary_keys=["_id"],
+        primary_keys=["_index", "_id"] if data_stream else ["_id"],
         partition_count=1,
         partition_size=1,
         sort_mode="asc",

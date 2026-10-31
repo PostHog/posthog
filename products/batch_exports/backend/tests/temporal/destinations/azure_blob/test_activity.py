@@ -6,7 +6,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import AnyBatchExportModel, BatchExportEventsCustomModel
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     AzureBlobInsertInputs,
     azure_blob_default_fields,
@@ -76,10 +76,10 @@ async def test_activity_exports_model_to_azure_blob(
 ):
     """Test that events, persons, and sessions are exported to Azure Blob Storage."""
     batch_export_model = None
-    if isinstance(model, BatchExportModel):
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     batch_export_id = str(uuid.uuid4())
 

@@ -34,8 +34,8 @@ def test_gate_stays_closed_when_a_required_scope_is_missing(workspace_integratio
 
 @pytest.mark.parametrize(
     "gate",
-    [feature_flags.is_slack_app_agent_design_enabled, feature_flags.is_slack_app_project_picker_enabled],
-    ids=["agent design", "project picker"],
+    [feature_flags.is_slack_app_agent_design_enabled],
+    ids=["agent design"],
 )
 @pytest.mark.parametrize(
     ("distinct_id", "expected_identity"),
@@ -60,3 +60,20 @@ def test_user_keyed_gate_resolves_against_the_acting_user(
     assert feature_enabled.call_args.args[1] == expected_identity
     assert feature_enabled.call_args.kwargs["person_properties"] == {"region": "DEV"}
     assert feature_enabled.call_args.kwargs["groups"] == {"organization": str(org.id)}
+
+
+@pytest.mark.parametrize(
+    ("plan_rollout_on", "slack_flag_on", "expected"),
+    [(True, True, True), (False, True, False), (True, False, False)],
+    ids=["both on", "plan rollout off", "slack flag off"],
+)
+def test_byos_gate_depends_on_the_plan_rollout_flag(workspace_integration, plan_rollout_on, slack_flag_on, expected):
+    # A Slack run marked for a plan whose rollout is off fails when it starts, so the Slack
+    # flag alone must never open the gate.
+    def feature_enabled(key, *args, **kwargs):
+        if key == feature_flags.SLACK_APP_BYOS_FLAG:
+            return slack_flag_on
+        return plan_rollout_on
+
+    with patch("posthoganalytics.feature_enabled", side_effect=feature_enabled):
+        assert feature_flags.is_slack_app_byos_enabled(workspace_integration, "user-1") is expected

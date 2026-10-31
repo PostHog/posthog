@@ -18,7 +18,6 @@ import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
@@ -30,6 +29,7 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues, hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -45,6 +45,7 @@ import {
     handleTrendsChartClick,
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
+import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
@@ -115,6 +116,7 @@ export function TrendsBarChart({
         isStickiness,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         getTrendsColor,
         getTrendsHidden,
@@ -129,9 +131,14 @@ export function TrendsBarChart({
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
@@ -158,17 +165,21 @@ export function TrendsBarChart({
     const getAggregatedDisplayLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getAggregatedDisplayLabelFn(r, {
+                querySource,
+                actionNames,
                 stackBreakdowns,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
             }),
-        [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [querySource, actionNames, stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -176,6 +187,8 @@ export function TrendsBarChart({
                 seriesIdentification,
             }),
         [
+            querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -184,23 +197,29 @@ export function TrendsBarChart({
         ]
     )
 
+    const isSeriesHighlighted = context?.isSeriesHighlighted
+    const getColor = useMemo(
+        () => withHighlightedSeries(getTrendsColor, indexedResults ?? [], isSeriesHighlighted),
+        [getTrendsColor, indexedResults, isSeriesHighlighted]
+    )
+
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-                getColor: getTrendsColor,
+                getColor,
                 getHidden: getTrendsHidden,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
                 stackBreakdowns,
                 getDisplayLabel: getAggregatedDisplayLabel,
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-            getColor: getTrendsColor,
+            getColor,
             // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
             // instead of being dropped here, so the legend can restore them.
             getHidden: undefined,
             getLabel,
-            buildMeta: buildTrendsSeriesMeta,
+            buildMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
         // Bands are keyed by these strings, so they must be unique per point. Display labels
@@ -216,7 +235,7 @@ export function TrendsBarChart({
     }, [
         isAggregated,
         indexedResults,
-        getTrendsColor,
+        getColor,
         getTrendsHidden,
         isStickiness,
         currentPeriodResult?.days,
@@ -224,6 +243,7 @@ export function TrendsBarChart({
         stackBreakdowns,
         getAggregatedDisplayLabel,
         getLabel,
+        buildMeta,
         applyMultipleYAxes,
     ])
 
@@ -458,6 +478,7 @@ export function TrendsBarChart({
                 theme={theme}
                 tooltip={renderTooltip}
                 onPointClick={canHandleClick ? onPointClick : undefined}
+                onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
                 className="BarGraph"
                 dataAttr="trend-bar-value-graph"
                 onError={handleChartError}
@@ -475,6 +496,7 @@ export function TrendsBarChart({
                     />
                 )}
                 {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {context?.chartOverlay}
             </BarChart>
         )
     }
@@ -500,6 +522,7 @@ export function TrendsBarChart({
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-bar-graph"
@@ -524,6 +547,7 @@ export function TrendsBarChart({
                     previousSeriesKey={previousSeriesKey}
                 />
             )}
+            {context?.chartOverlay}
         </TimeSeriesBarChart>
     )
 }

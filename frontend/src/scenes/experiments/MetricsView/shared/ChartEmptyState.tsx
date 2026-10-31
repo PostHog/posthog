@@ -1,17 +1,11 @@
 import { IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
-import { isLegacyExperimentQuery } from 'scenes/experiments/utils'
-
-import { LegacyErrorChecklist } from 'products/experiments/frontend/legacy'
-
 import { MetricErrorState } from '../new/MetricErrorState'
-import { ErrorChecklist } from './ErrorChecklist'
 
 interface ChartEmptyStateProps {
     height: number
     experimentStarted: boolean
-    metric: any
     error?: any
     query?: Record<string, any>
     onRetry?: () => void
@@ -23,7 +17,6 @@ export function ChartEmptyState({
     height,
     experimentStarted,
     error,
-    metric,
     query,
     onRetry,
     retryDisabledReason,
@@ -49,38 +42,19 @@ export function ChartEmptyState({
         return null
     }
 
-    const isLegacyMetric = isLegacyExperimentQuery(metric)
-    /**
-     * if it's a legacy metric, use the legacy error checklist
-     */
-    if (isLegacyMetric) {
-        return (
-            // eslint-disable-next-line react/forbid-dom-props
-            <div className="flex items-center justify-center w-full" style={{ height: `${height}px` }}>
-                <LegacyErrorChecklist error={error} metric={metric} />
-            </div>
-        )
-    }
-
     return (
         <div
             className="flex items-center justify-center w-full"
             // eslint-disable-next-line react/forbid-dom-props
-            style={error ? { minHeight: `${height}px` } : { height: `${height}px` }}
+            style={{ minHeight: `${height}px` }}
         >
-            {error.hasDiagnostics ? (
-                <ErrorChecklist error={error} metric={metric} />
-            ) : (
-                // Use rich error state for all other errors
-                <MetricErrorState
-                    error={error}
-                    metric={metric}
-                    query={query}
-                    onRetry={onRetry}
-                    retryDisabledReason={retryDisabledReason}
-                    height={height}
-                />
-            )}
+            <MetricErrorState
+                error={error}
+                query={query}
+                onRetry={onRetry}
+                retryDisabledReason={retryDisabledReason}
+                height={height}
+            />
         </div>
     )
 }

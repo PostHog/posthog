@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class IntruderSource(ResumableSource[IntruderSourceConfig, IntruderResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -50,7 +53,7 @@ class IntruderSource(ResumableSource[IntruderSourceConfig, IntruderResumeConfig]
             name=ExternalDataSourceType.INTRUDER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Intruder",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Intruder API access token to pull your attack-surface and vulnerability data into the PostHog Data warehouse.
 
 Create an access token under **My account > API Access Tokens** in your [Intruder account](https://portal.intruder.io/). The token is shown only once, so copy it immediately. API scanning of targets requires the appropriate Intruder plan license.""",

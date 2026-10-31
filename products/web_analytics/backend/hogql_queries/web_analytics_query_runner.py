@@ -1,6 +1,7 @@
 import typing
 from abc import ABC
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from math import ceil
 from time import perf_counter
 from typing import Any, Optional, Union
@@ -25,6 +26,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebNotableChangesQuery,
     WebOverviewQuery,
+    WebPageDirectoryQuery,
     WebPageURLSearchQuery,
     WebStatsTableQuery,
     WebVitalsPathBreakdownQuery,
@@ -43,7 +45,6 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import User
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
@@ -93,6 +94,7 @@ WebQueryNode = Union[
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebAgentAnalyticsQuery,
+    WebPageDirectoryQuery,
     WebBotsTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
@@ -111,10 +113,28 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
     bypass_warehouse_access_control: bool = False
+    # The oldest `computed_at` across every lazy precompute ensure that this runner served from.
+    # A response that combines several windows (current and compare periods) is only as fresh as its stalest window.
+    lazy_precompute_computed_at: Optional[datetime] = None
 
     def __init__(self, *args: Any, bypass_warehouse_access_control: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+
+    def record_lazy_precompute_computed_at(self, computed_at: datetime) -> None:
+        if self.lazy_precompute_computed_at is None or computed_at < self.lazy_precompute_computed_at:
+            self.lazy_precompute_computed_at = computed_at
+
+    def lazy_precompute_stale(self) -> Optional[bool]:
+        # The lazy modules mark serve-stale reads via tag_queries(precompute_stale=True)
+        # before executing the read; surfacing it on the response lets clients (and the
+        # frontend's 'query completed' telemetry) see it too. None when served fresh.
+        return True if get_query_tag_value("precompute_stale") else None
+
+    def lazy_precompute_computed_at_iso(self) -> Optional[str]:
+        if self.lazy_precompute_computed_at is None:
+            return None
+        return self.lazy_precompute_computed_at.astimezone(UTC).isoformat()
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()

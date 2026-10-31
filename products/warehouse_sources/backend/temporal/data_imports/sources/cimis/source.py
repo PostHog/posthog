@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CimisSource(SimpleSource[CimisSourceConfig]):
+    codebase_detection = detect(env=("^CIMIS_",))
+
     # get_schemas iterates a static endpoint catalog with no I/O, so the table list is safe to surface
     # in public docs without credentials.
     lists_tables_without_credentials = True
@@ -49,7 +52,7 @@ class CimisSource(SimpleSource[CimisSourceConfig]):
             name=ExternalDataSourceType.CIMIS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CIMIS",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull California weather and reference evapotranspiration (ETo) data from the [California Irrigation Management Information System (CIMIS)](https://cimis.water.ca.gov/) into the PostHog Data warehouse.
 
 CIMIS is a free service. Register for a free account and create a **web-services appKey** in your [CIMIS account](https://et.water.ca.gov/Account/Login), then paste it below.
@@ -70,6 +73,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
                     ),
                     SourceFieldInputConfig(
                         name="targets",
+                        sync_setting=True,
                         label="Targets (station numbers)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -78,6 +82,7 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
                     ),
                     SourceFieldSelectConfig(
                         name="unit_of_measure",
+                        sync_setting=True,
                         label="Unit of measure",
                         required=False,
                         defaultValue="E",

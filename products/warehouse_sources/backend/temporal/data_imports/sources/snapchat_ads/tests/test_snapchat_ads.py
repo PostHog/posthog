@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any, Optional, cast
@@ -7,14 +8,21 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration, OauthIntegration
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
+    SourceDriver,
     always,
     scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snapchatads import (
+    SnapchatAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import (
     SNAPCHAT_ADS_CONFIG,
@@ -311,7 +319,6 @@ class TestNonRetryableErrors:
         [
             # Real requests HTTPError strings from Snapchat's Marketing API.
             "404 Client Error: Not Found for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
-            "401 Client Error: Unauthorized for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
             "403 Client Error: Forbidden for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
         ]
     )
@@ -324,6 +331,9 @@ class TestNonRetryableErrors:
         [
             "500 Server Error: Internal Server Error for url: https://adsapi.snapchat.com/v1/stats",
             "429 Client Error: Too Many Requests for url: https://adsapi.snapchat.com/v1/stats",
+            # An expired access token, or a burst of rejections on Snapchat's side. The next attempt
+            # refreshes the token, so this must not disable the schema.
+            "401 Client Error: Unauthorized for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
         ]
     )
     def test_transient_errors_stay_retryable(self, error_msg: str) -> None:
@@ -538,6 +548,90 @@ class TestBreakdownEndpointConfig:
             "start_time",
             *self._DIMENSION_COLUMNS[report_dimension],
         ]
+
+
+def _snapchat_integration(*, refreshed_seconds_ago: int, **config: Any) -> Integration:
+    return Integration(
+        kind="snapchat",
+        config={"expires_in": 3600, "refreshed_at": int(time.time()) - refreshed_seconds_ago, **config},
+        sensitive_config={"access_token": "old-token", "refresh_token": "refresh-token"},
+    )
+
+
+class TestSourceForPipelineTokenRefresh:
+    @parameterized.expand(
+        [
+            ("fresh_token", 60, {}, "new-token", False, "old-token"),
+            ("expired_token", 7200, {}, "new-token", True, "new-token"),
+            ("expired_token_refresh_fails", 7200, {}, None, True, "old-token"),
+            (
+                "expired_token_in_refresh_backoff",
+                7200,
+                {"refresh_next_attempt_at": 2**40},
+                "new-token",
+                False,
+                "old-token",
+            ),
+        ]
+    )
+    def test_sync_sends_a_refreshed_token(
+        self,
+        _name: str,
+        refreshed_seconds_ago: int,
+        config: dict[str, Any],
+        minted_token: str | None,
+        expect_refresh: bool,
+        expected_token: str,
+    ) -> None:
+        integration = _snapchat_integration(refreshed_seconds_ago=refreshed_seconds_ago, **config)
+        refreshes: list[bool] = []
+
+        def fake_refresh(oauth: OauthIntegration) -> None:
+            refreshes.append(True)
+            if minted_token is not None:
+                oauth.integration.sensitive_config["access_token"] = minted_token
+                oauth.integration.config["refreshed_at"] = int(time.time())
+
+        source = SnapchatAdsSource()
+        with (
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch.object(OauthIntegration, "refresh_access_token", fake_refresh),
+        ):
+            result = SourceDriver(
+                source, SnapchatAdsSourceConfig(snapchat_integration_id=1, ad_account_id="acct-example")
+            ).run("campaigns", always(ScriptedResponse(json={"request_status": "SUCCESS", "campaigns": []})))
+
+        assert result.raised is None
+        assert bool(refreshes) is expect_refresh
+        assert {r.headers["authorization"] for r in result.requests} == {f"Bearer {expected_token}"}
+
+    @parameterized.expand(
+        [
+            ("already_terminal", {"refresh_terminal": True}, False),
+            ("terminal_after_refresh", {}, True),
+        ]
+    )
+    def test_dead_refresh_token_disables_the_schema(
+        self, _name: str, config: dict[str, Any], terminal_after_refresh: bool
+    ) -> None:
+        integration = _snapchat_integration(refreshed_seconds_ago=7200, **config)
+
+        def fake_refresh(oauth: OauthIntegration) -> None:
+            if terminal_after_refresh:
+                oauth.integration.config["refresh_terminal"] = True
+
+        source = SnapchatAdsSource()
+        with (
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch.object(OauthIntegration, "refresh_access_token", fake_refresh),
+        ):
+            result = SourceDriver(
+                source, SnapchatAdsSourceConfig(snapchat_integration_id=1, ad_account_id="acct-example")
+            ).run("campaigns", always(ScriptedResponse(json={"request_status": "SUCCESS", "campaigns": []})))
+
+        assert result.raised is not None
+        assert result.requests == []
+        assert error_message_matches(str(result.raised), source.get_non_retryable_errors())
 
 
 class TestValidateCredentials:

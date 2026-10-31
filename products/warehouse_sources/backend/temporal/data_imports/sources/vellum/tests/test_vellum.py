@@ -85,27 +85,65 @@ class TestRetries:
 
 
 class TestExecutionEventsFanOut:
-    def test_injects_parent_id_into_every_row(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "workflow_execution_events",
+                "workflow_deployment_id",
+                "/v1/workflow-deployments",
+                "/v1/workflow-deployments/{}/execution-events",
+                [
+                    {"span_id": "s1", "start": "2026-01-01T00:00:00Z"},
+                    {"span_id": "s2", "start": "2026-01-02T00:00:00Z"},
+                ],
+            ),
+            (
+                "workflow_deployment_releases",
+                "workflow_deployment_id",
+                "/v1/workflow-deployments",
+                "/v1/workflow-deployments/{}/releases",
+                [{"id": "r1", "created": "2026-01-01T00:00:00Z"}, {"id": "r2", "created": "2026-01-02T00:00:00Z"}],
+            ),
+            (
+                "workflow_deployment_release_tags",
+                "workflow_deployment_id",
+                "/v1/workflow-deployments",
+                "/v1/workflow-deployments/{}/release-tags",
+                [{"name": "LATEST", "release": {"id": "r1"}}, {"name": "LATEST", "release": {"id": "r2"}}],
+            ),
+            (
+                "prompt_deployment_release_tags",
+                "prompt_deployment_id",
+                "/v1/deployments",
+                "/v1/deployments/{}/release-tags",
+                [{"name": "PRODUCTION", "release": {"id": "r1"}}, {"name": "PRODUCTION", "release": {"id": "r2"}}],
+            ),
+        ]
+    )
+    def test_injects_parent_id_into_every_row(
+        self,
+        endpoint: str,
+        parent_id_field: str,
+        parent_path: str,
+        child_path: str,
+        child_rows: list[dict[str, Any]],
+    ) -> None:
         # The parent id completes the composite key; without it rows from different deployments that
-        # share a span id would collide and every merge would multi-match.
+        # share a span id or tag name would collide and every merge would multi-match.
         result = _run(
-            "workflow_execution_events",
+            endpoint,
             [
                 _resp(results=[{"id": "A"}, {"id": "B"}], count=2),
-                _resp(results=[{"span_id": "s1", "start": "2026-01-01T00:00:00Z"}], count=1),
-                _resp(results=[{"span_id": "s2", "start": "2026-01-02T00:00:00Z"}], count=1),
+                _resp(results=[child_rows[0]], count=1),
+                _resp(results=[child_rows[1]], count=1),
             ],
         )
 
         assert result.rows == [
-            {"workflow_deployment_id": "A", "span_id": "s1", "start": "2026-01-01T00:00:00Z"},
-            {"workflow_deployment_id": "B", "span_id": "s2", "start": "2026-01-02T00:00:00Z"},
+            {parent_id_field: "A", **child_rows[0]},
+            {parent_id_field: "B", **child_rows[1]},
         ]
-        assert result.paths == [
-            "/v1/workflow-deployments",
-            "/v1/workflow-deployments/A/execution-events",
-            "/v1/workflow-deployments/B/execution-events",
-        ]
+        assert result.paths == [parent_path, child_path.format("A"), child_path.format("B")]
 
     def test_non_404_error_propagates(self) -> None:
         # Any non-404 child error must fail the whole sync rather than be silently swallowed.
@@ -148,6 +186,9 @@ class TestSourceResponse:
             ("document_indexes", ["id"], "created"),
             ("documents", ["id"], None),
             ("workflow_execution_events", ["workflow_deployment_id", "span_id"], "start"),
+            ("workflow_deployment_releases", ["workflow_deployment_id", "id"], "created"),
+            ("workflow_deployment_release_tags", ["workflow_deployment_id", "name"], None),
+            ("prompt_deployment_release_tags", ["prompt_deployment_id", "name"], None),
         ]
     )
     def test_primary_keys_and_partitioning(

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EventeeSource(SimpleSource[EventeeSourceConfig]):
+    codebase_detection = detect(env=("^EVENTEE_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://publiceventeeapi.docs.apiary.io/"
@@ -49,7 +52,7 @@ class EventeeSource(SimpleSource[EventeeSourceConfig]):
             name=ExternalDataSourceType.EVENTEE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Eventee",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Eventee API token to pull your event's content into the PostHog Data warehouse.
 
 Generate a token in your Eventee admin dashboard under **Settings → Features**. The token is scoped to a single event, so connect one source per event you want to import.

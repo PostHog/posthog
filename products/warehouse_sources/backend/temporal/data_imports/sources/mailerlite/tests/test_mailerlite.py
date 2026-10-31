@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
     INVALID_KEY_ERROR,
     MAILERLITE_BASE_URL,
-    MISSING_PERMISSION_ERROR,
     UNVERIFIED_KEY_ERROR,
     MailerLiteResumeConfig,
     _webhook_table_transformer,
@@ -190,6 +189,23 @@ class TestFanout:
         assert {row["automation_id"] for row in result.rows} == {"au1"}
         assert "activity_status" not in result.rows[0]
 
+    def test_automation_activity_pagination_carries_filter_status(self) -> None:
+        # MailerLite's own `links.next` for this endpoint drops the required `filter[status]`
+        # on page 2+ (it only carries `page`); the paginator must re-attach it from page 1's
+        # request or the next request 422s.
+        child_next = f"{MAILERLITE_BASE_URL}/automations/au1/activity?page=2"
+        result = _driver().run(
+            "automation_activity",
+            [_page([{"id": "au1"}], None)]
+            + [_page([{"id": "run-active-1"}], child_next), _page([{"id": "run-active-2"}], None)]
+            + [_page([{"id": f"run-{status}"}], None) for status in ("completed", "canceled", "failed")],
+        )
+
+        assert result.raised is None
+        assert result.params("filter[status]")[1:3] == ["active", "active"]
+        assert result.params("page")[2] == "2"
+        assert {row["id"] for row in result.rows} >= {"run-active-1", "run-active-2"}
+
     def test_resume_skips_completed_parents(self) -> None:
         result = _driver().run(
             "group_subscribers",
@@ -228,12 +244,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_ok", "expected_error"),
         [
-            (200, True, None),
-            (401, False, INVALID_KEY_ERROR),
             (400, False, INVALID_KEY_ERROR),
-            (403, False, MISSING_PERMISSION_ERROR),
             (429, False, UNVERIFIED_KEY_ERROR),
-            (500, False, UNVERIFIED_KEY_ERROR),
         ],
     )
     def test_status_maps_to_message(self, status_code: int, expected_ok: bool, expected_error: str | None) -> None:

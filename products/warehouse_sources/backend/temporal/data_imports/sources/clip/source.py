@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -39,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClipSource(ResumableSource[ClipSourceConfig, ClipResumeConfig]):
+    codebase_detection = detect(script_hosts=("sdk.clip.mx",))
+
     lists_tables_without_credentials = True
     api_docs_url = "https://developer.clip.mx/reference/transactions"
 
@@ -128,6 +131,7 @@ class ClipSource(ResumableSource[ClipSourceConfig, ClipResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -136,5 +140,5 @@ class ClipSource(ResumableSource[ClipSourceConfig, ClipResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

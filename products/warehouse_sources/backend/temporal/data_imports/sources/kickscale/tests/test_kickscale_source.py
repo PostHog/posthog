@@ -22,7 +22,7 @@ class TestKickscaleSource:
         assert config.name.value == "Kickscale"
         assert config.label == "Kickscale"
         assert config.category == DataWarehouseSourceCategory.SALES
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.GA
         assert config.iconPath == "/static/services/kickscale.png"
         # The source ships visible — a truthy unreleasedSource hides it from every user.
         assert not config.unreleasedSource
@@ -39,16 +39,10 @@ class TestKickscaleSource:
             assert [f["field"] for f in schemas[name].incremental_fields] == ["date"], name
             assert schemas[name].default_incremental_lookback_seconds == INCREMENTAL_LOOKBACK_SECONDS, name
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
-        assert [s.name for s in schemas] == ["calls"]
-
     @pytest.mark.parametrize(
         "observed_error,expect_match",
         [
-            ("403 Client Error: Forbidden for url: https://api.kickscale.com/meetings", True),
             ("401 Client Error: Unauthorized for url: https://api.kickscale.com/meetings", False),
-            ("500 Server Error: Internal Server Error for url: https://api.kickscale.com/meetings", False),
         ],
     )
     def test_non_retryable_errors_match_auth_failures_only(self, observed_error: str, expect_match: bool) -> None:

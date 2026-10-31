@@ -63,6 +63,13 @@ def create_default_modifiers_for_team(
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
+            # A modifier removed from the schema can stay stored on a project, and the model rejects unknown fields.
+            if key not in HogQLQueryModifiers.model_fields:
+                continue
+            # The events table is switched per project by CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, which every
+            # reader of the table checks. A stored modifier would switch the HogQL readers alone.
+            if key == "useNewEventsSchema":
+                continue
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid
@@ -87,6 +94,20 @@ def create_default_modifiers_for_team(
 
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
+
+    if modifiers.materializeRepeatedCTEs is None and is_cloud():
+        from posthog.ph_client import (
+            feature_enabled_or_false,  # noqa: PLC0415 -- keeps the analytics client off django.setup's import path
+        )
+
+        if feature_enabled_or_false(
+            "hogql-materialize-repeated-ctes",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.materializeRepeatedCTEs = True
 
     from products.web_analytics.backend.hogql_queries.cookieless_flag import (  # noqa: PLC0415 - keeps posthog.schema off the django.setup() import path
         resolve_cookieless_traffic_is_regular_modifier,

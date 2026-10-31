@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class NugetSource(ResumableSource[NugetSourceConfig, NugetResumeConfig]):
+    codebase_detection = detect(env=("^NUGET_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -43,7 +46,7 @@ class NugetSource(ResumableSource[NugetSourceConfig, NugetResumeConfig]):
             name=ExternalDataSourceType.NUGET,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="NuGet",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["dotnet", ".net", "csharp", "package registry"],
             caption="""Track adoption of .NET libraries over time: package metadata, per-version download counts, and publish/delete events for the NuGet packages you care about.
 
@@ -56,6 +59,7 @@ The public NuGet V3 API allows anonymous read access, so no API key is needed. E
                 [
                     SourceFieldInputConfig(
                         name="package_ids",
+                        sync_setting=True,
                         label="Package IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

@@ -65,9 +65,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, record
 
 from posthog.api.services.query import _run_query_runner
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
 from posthog.event_usage import EventSource
@@ -91,6 +91,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.event.new_events_schema import get_events_route
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -225,6 +226,24 @@ class TestQueryRunner(BaseTest):
 
     def setup_test_query_runner_class(self, base: type[QueryRunner] = QueryRunner):
         return setup_test_query_runner_class(base)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_run_pins_its_events_route_for_lookups(self, events_json: bool) -> None:
+        TestQueryRunner = self.setup_test_query_runner_class()
+        routes: list[HogQLQueryModifiers | None] = []
+
+        def calculate(_runner: QueryRunner) -> TheTestBasicQueryResponse:
+            routes.append(get_events_route())
+            return TheTestBasicQueryResponse(results=[])
+
+        runner = TestQueryRunner(
+            query={"some_attr": "bla"}, team=self.team, modifiers=HogQLQueryModifiers(useNewEventsSchema=events_json)
+        )
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert routes == [HogQLQueryModifiers(useNewEventsSchema=events_json)]
+        assert get_events_route() is None
 
     def test_sync_warning_attach_preserves_other_warning_kinds(self):
         # The accumulator attach replaces the response's warnings with the collected sync warnings.
@@ -693,7 +712,11 @@ class TestQueryRunner(BaseTest):
         self.assertEqual(first.query, HogQLQuery(query="SELECT 1"))
         self.assertEqual(first.get_cache_key(), second.get_cache_key())
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_payload(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
@@ -812,8 +835,7 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_payload_week_interval(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization, week_start_day=WeekStartDay.MONDAY)
+        team = Team.objects.create(organization=self.organization, week_start_day=WeekStartDay.MONDAY)
         runner = TestQueryRunner(query={"some_attr": "bla", "tags": {"scene": "foo", "productKey": "bar"}}, team=team)
         runner.query_date_range = QueryDateRange(
             team=team, date_range=None, interval=IntervalType.WEEK, now=datetime.now()
@@ -822,16 +844,28 @@ class TestQueryRunner(BaseTest):
         cache_payload = runner.get_cache_payload()
         assert cache_payload["week_start_day"] == WeekStartDay.MONDAY
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_cache_key(self):
+    def _cache_key_with_fixed_payload_team_id(self, runner: QueryRunner) -> str:
+        payload = runner.get_cache_payload()
+        payload["team_id"] = 42
+        with mock.patch.object(runner, "get_cache_payload", return_value=payload):
+            return runner.get_cache_key()
+
+    @parameterized.expand([("new_team", False), ("existing_team", True)])
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
+    def test_cache_key(self, _name: str, existing_team: bool) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
+        if existing_team and not Team.objects.filter(pk=42).exists():
+            Team.objects.create(pk=42, organization=self.organization)
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_13361de10d0c3c79451b288eb57ca1147331e86a8b8e63a0a815adf5a2d7bcbb"
 
     def test_cache_key_ignores_query_log_tags(self):
         # Query log tags are metadata, so they must never partition the cache. Web
@@ -840,39 +874,46 @@ class TestQueryRunner(BaseTest):
         # reading the same cache entry as the untagged one, or every preset user would
         # miss the cache on every load and the warm set would double.
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
 
         untagged = TestQueryRunner(query={"some_attr": "bla"}, team=team)
         tagged = TestQueryRunner(query={"some_attr": "bla", "tags": {"presetId": "abc123"}}, team=team)
 
         assert tagged.get_cache_key() == untagged.get_cache_key()
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
         class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore[misc, valid-type]
             pass
 
-        # set the pk directly as it affects the hash in the _cache_key call
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
 
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_9dcfced89edfbfcd1e0fd380380c7a5e4a9957386fc22172c1b83548a9af6d02"
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False,
+        PERSON_ON_EVENTS_V2_OVERRIDE=False,
+        CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+    )
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
-        team = Team.objects.create(pk=42, organization=self.organization)
+        team = Team.objects.create(organization=self.organization)
         team.timezone = "Europe/Vienna"
         team.save()
 
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
-        cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
+        cache_key = self._cache_key_with_fixed_payload_team_id(runner)
+        assert cache_key == f"cache_{team.pk}_580a20072d3930f66666356574843255ba9418ff58cc0fc92d019bf8bf1cf972"
 
     def test_query_identity_splits_the_query_from_how_it_is_answered(self) -> None:
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -902,9 +943,8 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_hit_and_fresh_events_carry_one_identity(self) -> None:
         runner_class = setup_test_query_runner_class()
-        self.team.modifiers = {"useNewEventsSchema": True}
-        self.team.save()
         with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
             mock.patch(
                 "posthog.hogql_queries.query_runner.create_default_modifiers_for_user", side_effect=_add_user_modifier
             ),
@@ -1932,6 +1972,29 @@ class TestSharedInsightsExecutionMode(BaseTest):
         expected = sharing_configuration.pk if is_shared_viewer else None
         assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_async_payload_pins_a_resolved_native_table(self, mock_enqueue: mock.MagicMock) -> None:
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
+            direct = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            direct.query = direct.query.model_copy(update={"connectionId": "direct"})
+            with mock.patch.object(HogQLQueryRunner, "_validate_direct_connection"):
+                direct.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+                assert mock_enqueue.call_args.kwargs["query_json"] == direct.query.model_dump()
+                assert "useNewEventsSchema" not in direct.get_cache_payload()["hogql_modifiers"]
+            runner = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+        with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False):
+            worker = HogQLQueryRunner(query=mock_enqueue.call_args.kwargs["query_json"], team=self.team)
+            runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+            legacy = HogQLQueryRunner(query=HogQLQuery(query="SELECT 1"), team=self.team)
+            legacy.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=self.user)
+
+        assert worker.modifiers.useNewEventsSchema is True
+        assert worker.get_cache_key() == runner.get_cache_key()
+        assert mock_enqueue.call_args.kwargs["query_json"] == legacy.query.model_dump()
+        assert legacy.get_cache_key() != runner.get_cache_key()
+        assert "useNewEventsSchema" not in legacy.get_cache_payload()["hogql_modifiers"]
+
 
 @pytest.mark.ee
 class TestQueryRunnerAccessControlFingerprint(BaseTest):
@@ -2120,6 +2183,18 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
                 False,
             ),
             ("saved view over a system table", "select * from notebook_view", {"notebook"}, False),
+            (
+                "system table with a warehouse scope",
+                "select * from system.data_modeling_views",
+                {"warehouse_view"},
+                False,
+            ),
+            (
+                "saved view over a system table with a warehouse scope",
+                "select * from tables_view",
+                {"warehouse_table"},
+                False,
+            ),
         ]
     )
     def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
@@ -2138,6 +2213,11 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             team=self.team,
             name="notebook_view",
             query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tables_view",
+            query={"kind": "HogQLQuery", "query": "select name from system.data_warehouse_tables"},
         )
         query = {"kind": "HogQLQuery", "query": sql}
         shared_runner = HogQLQueryRunner(query=query, team=self.team, user=_shared_link_user(self.team))
@@ -2759,6 +2839,16 @@ class TestQuerySingleFlightRunner(BaseTest):
         return QuerySingleFlight(
             runner.get_cache_key(), budget_for_limit_context(runner.limit_context), runner.single_flight_variant()
         )
+
+    @parameterized.expand([("tagged", None), ("passed_to_the_runner", ClickHouseUser.ALERTS_PLATFORM_INSIGHT)])
+    def test_runs_as_another_clickhouse_user_do_not_share_a_flight(self, _name, runner_user):
+        runner_class = setup_test_query_runner_class()
+        default = self._flight_of(runner_class(query={"some_attr": "bla"}, team=self.team))
+        other = runner_class(query={"some_attr": "bla"}, team=self.team, ch_user=runner_user or ClickHouseUser.DEFAULT)
+        with tags_context(ch_user=None if runner_user else ClickHouseUser.ALERTS_PLATFORM_INSIGHT):
+            flight = self._flight_of(other)
+
+        assert flight.lock_key != default.lock_key
 
     @parameterized.expand([("success", None), ("failure", ClickHouseQueryTimeOut), ("interrupted", _LeaderInterrupted)])
     def test_leader_releases_the_flight(self, _name, error_class):

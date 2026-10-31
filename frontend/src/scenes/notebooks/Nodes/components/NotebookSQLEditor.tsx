@@ -201,7 +201,7 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
                 isFirstSeed &&
                 !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)
             ) {
-                runQuery(editorSourceQuery.source.query)
+                runQuery(editorSourceQuery.source.query, undefined, true)
             }
             return
         }
@@ -259,7 +259,7 @@ function useNotebookQuerySQLEditorOutputSync<T extends { query: QuerySchema }>({
         setQueryInput(editorSourceQuery.source.query)
         setSourceQuery(editorSourceQuery)
         if (isFirstSeed && !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)) {
-            runQuery(editorSourceQuery.source.query)
+            runQuery(editorSourceQuery.source.query, undefined, true)
         }
     }, [editorSourceQuery, lastRunQuery, runQuery, setQueryInput, setSourceQuery, tabId])
 

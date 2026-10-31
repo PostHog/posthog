@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TavusSource(ResumableSource[TavusSourceConfig, TavusResumeConfig]):
+    codebase_detection = detect(env=("^TAVUS_",))
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://docs.tavus.io"
@@ -50,7 +53,7 @@ class TavusSource(ResumableSource[TavusSourceConfig, TavusResumeConfig]):
             name=ExternalDataSourceType.TAVUS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Tavus",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Tavus API key to pull your Tavus data into the PostHog Data warehouse.
 
 You can generate an API key in the [Tavus Developer Portal](https://platform.tavus.io/api-keys). This single key grants read access to your videos, replicas, personas, conversations, and memory stores.

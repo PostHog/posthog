@@ -34,6 +34,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const artifactsTabEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     const skin = useThreadSkin()
     const piAcpEnabled = useFeatureFlag('PI_ACP')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (taskNotFound && !task) {
         return <NotFound object="task" />
@@ -61,7 +62,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             isActiveCreation ? undefined : (
                 <TaskHeaderActionsSkeleton />
             )
-        ) : skin === 'quill' ? (
+        ) : skin === 'quill' || todayRailNav ? (
             <QuillTaskHeaderActions
                 desktopUrl={hasDesktopAccess ? urls.codeTaskLink(task.id) : null}
                 prUrl={prUrl}

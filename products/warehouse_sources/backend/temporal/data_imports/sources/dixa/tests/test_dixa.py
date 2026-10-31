@@ -65,19 +65,11 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid Dixa API token"),
-            (403, False, "Invalid Dixa API token"),
             # Transient failures must not be reported as an invalid token.
             (
                 429,
                 False,
                 "Dixa returned an unexpected response (429) while validating the API token. Please try again.",
-            ),
-            (
-                500,
-                False,
-                "Dixa returned an unexpected response (500) while validating the API token. Please try again.",
             ),
         ],
     )

@@ -16,6 +16,11 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
+PROJECT="${COMPOSE_PROJECT_NAME:-posthog}"
+# Later steps that run docker compose directly then target this project, not one named after the checkout folder.
+if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "COMPOSE_PROJECT_NAME=${PROJECT}" >> "$GITHUB_ENV"
+fi
 WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
 WAIT_RETRY_TIMEOUT="${WAIT_FOR_DOCKER_RETRY_TIMEOUT:-120}"
 COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
@@ -58,9 +63,9 @@ compose() {
                 compose_args+=(-f "$compose_file")
             fi
         done
-        env -u COMPOSE_FILE docker compose "${compose_args[@]}" "$@"
+        env -u COMPOSE_FILE docker compose -p "$PROJECT" "${compose_args[@]}" "$@"
     else
-        docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
+        docker compose -p "$PROJECT" -f "$DEFAULT_COMPOSE_FILE" "$@"
     fi
 }
 

@@ -45,6 +45,8 @@ logger = structlog.get_logger(__name__)
 # the product. owners_yaml is a distribution the production venv installs, so it lives under the repo
 # root's packages/ rather than beside the engine.
 ENGINE_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent"
+# The default policy files ship inside the engine directory, so the engine merges a repository's files onto them.
+_ENGINE_DEFAULTS_SUBDIR = "defaults"
 OWNERS_PACKAGE_DIR = Path(__file__).resolve().parents[4] / "packages" / "owners-yaml" / "owners_yaml"
 
 # The same layout the sandbox checkout uses (STAMPHOG_SANDBOX_ENGINE_DIR, STAMPHOG_SANDBOX_OWNERS_DIR),
@@ -167,12 +169,20 @@ def fetch_folder_policy_files(
 
 
 def engine_source_files() -> dict[str, str]:
-    """The engine's Python modules by file name, without its tests."""
+    """The engine's Python modules and its shipped default policy files, by path under the engine directory."""
     if not ENGINE_DIR.is_dir():
         raise RuntimeError(f"engine source dir not found: {ENGINE_DIR}")
-    return {
+    modules = {
         path.name: path.read_text() for path in sorted(ENGINE_DIR.glob("*.py")) if not path.name.startswith("test_")
     }
+    defaults = {
+        f"{_ENGINE_DEFAULTS_SUBDIR}/{path.name}": path.read_text()
+        for path in sorted((ENGINE_DIR / _ENGINE_DEFAULTS_SUBDIR).iterdir())
+        if path.is_file()
+    }
+    if f"{_ENGINE_DEFAULTS_SUBDIR}/policy.yml" not in defaults:
+        raise RuntimeError(f"engine source dir {ENGINE_DIR} is missing its default policy")
+    return {**modules, **defaults}
 
 
 def owners_package_files() -> dict[str, str]:
@@ -183,14 +193,18 @@ def owners_package_files() -> dict[str, str]:
 
 
 def _write_tree(root: Path, policy_files: Mapping[str, str]) -> None:
+    # The engine finds the repo root by its `.stamphog/` directory, and a repository with no policy
+    # files of its own writes nothing there.
+    (root / ".stamphog").mkdir(parents=True, exist_ok=True)
     for relative_path, content in policy_files.items():
         target = root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
     for subdir, files in ((_ENGINE_SUBDIR, engine_source_files()), (_OWNERS_SUBDIR, owners_package_files())):
-        (root / subdir).mkdir(parents=True, exist_ok=True)
         for name, content in files.items():
-            (root / subdir / name).write_text(content)
+            target = root / subdir / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
 
 
 # What the interpreter itself needs to start, and nothing the engine could read as input. A Python
@@ -204,6 +218,8 @@ def _child_environment(root: Path, extra: Mapping[str, str]) -> dict[str, str]:
         # The engine asks git for the policy commit when it renders the review body. The tree is not a
         # repository, and this stops git from walking up into one that encloses the temp dir.
         "GIT_CEILING_DIRECTORIES": str(root.parent),
+        # The tree holds the PR head's folder files, so a `.stamphog/` among them must not become the root.
+        "STAMPHOG_REPO_ROOT": str(root),
         **extra,
     }
 

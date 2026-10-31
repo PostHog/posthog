@@ -1,7 +1,9 @@
 """Shadow-scheduler tick loop: leader election, refresh, due scan, decisions.
 
 Every pod runs the same loop; the tick sentinel single-flights each tick across
-the fleet, so followers only heartbeat. The scheduler writes decisions and
+the fleet, so followers only heartbeat. The fleet-wide refresh runs in a
+separate loop with its own sentinel and connection, so a slow refresh never
+delays the drain of due schedules. The scheduler writes decisions and
 metrics but starts no syncs — Temporal schedules stay the only thing that runs
 work while shadow mode is compared against them.
 """
@@ -10,6 +12,7 @@ from __future__ import annotations
 
 import time
 import asyncio
+import contextlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -93,6 +96,11 @@ TICKS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+REFRESH_FAILURES_TOTAL = Counter(
+    "warehouse_pg_scheduler_refresh_failures_total",
+    "Refresh loop iterations that raised",
+)
+
 
 @frozen
 class ShadowSchedulerConfig:
@@ -131,22 +139,58 @@ class ShadowScheduler:
             claim_limit=self._config.claim_limit,
             decision_retention_days=self._config.decision_retention_days,
         )
+        refresh_task = asyncio.create_task(self._refresh_loop(shutdown))
+        try:
+            while not shutdown.is_set():
+                started = time.monotonic()
+                try:
+                    await self._tick(health_reporter)
+                except Exception:
+                    # No health report on a failed tick: a pod that cannot complete
+                    # ticks should trip the liveness timeout and restart.
+                    TICKS_TOTAL.labels(outcome="error").inc()
+                    logger.exception("scheduler_tick_failed")
+                await self._wait_for_next_cycle(shutdown, started)
+        finally:
+            # A refresh can run for minutes. Stopping it part way is safe because
+            # the upserts are idempotent and the stale-row delete runs last.
+            refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await refresh_task
+        logger.info("scheduler_stopped", owner_token=self._owner_token)
+
+    async def _wait_for_next_cycle(self, shutdown: asyncio.Event, started: float) -> None:
+        remainder = self._config.tick_interval_seconds - (time.monotonic() - started)
+        if remainder > 0:
+            try:
+                await asyncio.wait_for(shutdown.wait(), timeout=remainder)
+            except TimeoutError:
+                pass
+
+    async def _refresh_loop(self, shutdown: asyncio.Event) -> None:
+        # This loop does not report health. Liveness follows the tick loop only,
+        # so a pod whose ticks stop still restarts while its refresh keeps paging.
         while not shutdown.is_set():
             started = time.monotonic()
             try:
-                await self._tick(health_reporter)
+                await self._refresh_if_due()
             except Exception:
-                # No health report on a failed tick: a pod that cannot complete
-                # ticks should trip the liveness timeout and restart.
-                TICKS_TOTAL.labels(outcome="error").inc()
-                logger.exception("scheduler_tick_failed")
-            remainder = self._config.tick_interval_seconds - (time.monotonic() - started)
-            if remainder > 0:
-                try:
-                    await asyncio.wait_for(shutdown.wait(), timeout=remainder)
-                except TimeoutError:
-                    pass
-        logger.info("scheduler_stopped", owner_token=self._owner_token)
+                REFRESH_FAILURES_TOTAL.inc()
+                logger.exception("scheduler_refresh_failed")
+            await self._wait_for_next_cycle(shutdown, started)
+
+    async def _refresh_if_due(self) -> bool:
+        async with await psycopg.AsyncConnection.connect(self._config.database_url, autocommit=True) as conn:
+            refresh_won = await JobsTable.try_acquire_sentinel_slot(
+                conn,
+                lane=SCHEDULER_LANE,
+                group_key=REFRESH_SLOT_KEY,
+                owner_token=self._owner_token,
+                ttl_seconds=self._config.refresh_interval_seconds,
+            )
+            if refresh_won:
+                await self._refresh(conn)
+            return refresh_won
 
     async def _tick(self, health_reporter: Callable[[], None]) -> None:
         async with await psycopg.AsyncConnection.connect(self._config.database_url, autocommit=True) as conn:
@@ -162,18 +206,6 @@ class ShadowScheduler:
                 health_reporter()
                 return
 
-            # Refresh before the due scan so a schema created or re-cadenced
-            # moments ago is judged on this tick, not the next refresh.
-            refresh_won = await JobsTable.try_acquire_sentinel_slot(
-                conn,
-                lane=SCHEDULER_LANE,
-                group_key=REFRESH_SLOT_KEY,
-                owner_token=self._owner_token,
-                ttl_seconds=self._config.refresh_interval_seconds,
-            )
-            if refresh_won:
-                await self._refresh(conn, health_reporter)
-
             # Drain the backlog in claim_limit batches, one transaction each, so
             # a backlog larger than one claim does not make every fire late.
             drain_started = time.monotonic()
@@ -182,21 +214,25 @@ class ShadowScheduler:
             decisions_inserted = 0
             duplicate_windows = 0
             missed_windows = 0
+            lease_lost = False
             while True:
                 outcome = await self._drain_batch(conn)
+                health_reporter()
+                if outcome is None:
+                    lease_lost = True
+                    break
                 batches += 1
                 due += outcome.due
                 decisions_inserted += outcome.decisions_inserted
                 duplicate_windows += outcome.duplicate_windows
                 missed_windows += outcome.missed_windows
-                health_reporter()
                 if outcome.due < self._config.claim_limit:
                     break
                 if time.monotonic() - drain_started >= self._config.drain_budget_seconds:
                     break
 
             DUE_PER_TICK.observe(due)
-            TICKS_TOTAL.labels(outcome="leader").inc()
+            TICKS_TOTAL.labels(outcome="leader_lease_lost" if lease_lost else "leader").inc()
             logger.info(
                 "scheduler_tick",
                 due=due,
@@ -204,12 +240,19 @@ class ShadowScheduler:
                 duplicate_windows=duplicate_windows,
                 missed_windows=missed_windows,
                 batches=batches,
-                refreshed=refresh_won,
+                lease_lost=lease_lost,
             )
 
-    async def _drain_batch(self, conn: psycopg.AsyncConnection) -> DrainBatchOutcome:
-        now_epoch = int(time.time())
+    async def _drain_batch(self, conn: psycopg.AsyncConnection) -> DrainBatchOutcome | None:
+        """Run one claim/evaluate/advance transaction. None means the tick slot is no longer ours."""
         async with conn.transaction():
+            # The lock holds off a new leader until this batch commits, so two pods
+            # never drain at the same time, also when this batch outlives the slot.
+            if not await JobsTable.lock_live_lease(
+                conn, lane=SCHEDULER_LANE, group_key=TICK_SLOT_KEY, owner_token=self._owner_token
+            ):
+                return None
+            now_epoch = int(time.time())
             due = await SchedulerStateTable.claim_due(conn, kind=SYNC_EXTRACT_KIND, limit=self._config.claim_limit)
             result = await evaluate_due(conn, due, now_epoch)
             inserted_records, refused = await SchedulerStateTable.insert_decisions(conn, list(result.records))
@@ -263,7 +306,7 @@ class ShadowScheduler:
             missed_windows=inserted_missed_windows,
         )
 
-    async def _refresh(self, conn: psycopg.AsyncConnection, health_reporter: Callable[[], None]) -> None:
+    async def _refresh(self, conn: psycopg.AsyncConnection) -> None:
         started = time.monotonic()
         # DB-clock cutoff: upserts stamp refreshed_at with now() server-side, so
         # the stale-row delete must compare against the same clock.
@@ -287,9 +330,6 @@ class ShadowScheduler:
             upserts = self._build_upserts(page, now_epoch)
             await SchedulerStateTable.upsert_states(conn, upserts)
             in_scope += len(upserts)
-            # A full refresh can outlast the liveness timeout; a pod that keeps
-            # paging is healthy, and a stuck one still stops reporting.
-            health_reporter()
 
         deleted = await SchedulerStateTable.delete_states_not_refreshed_since(conn, SYNC_EXTRACT_KIND, refresh_start)
         pruned = await SchedulerStateTable.prune_decisions(

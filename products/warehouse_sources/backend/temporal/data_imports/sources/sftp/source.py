@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^SFTP_",), npm=("ssh2-sftp-client",), pypi=("pysftp",), go=("github.com/pkg/sftp",)
+    )
+
     api_docs_url = "https://datatracker.ietf.org/doc/html/draft-ietf-secsh-filexfer-02"
 
     @property
@@ -101,7 +106,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
             docsUrl="https://posthog.com/docs/cdp/sources/sftp",
             iconPath="/static/services/sftp.svg",
             keywords=["ssh file transfer", "ssh", "files"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -181,6 +186,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                     ),
                     SourceFieldInputConfig(
                         name="path",
+                        sync_setting=True,
                         label="Folder",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -189,6 +195,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                     ),
                     SourceFieldInputConfig(
                         name="file_pattern",
+                        sync_setting=True,
                         label="File pattern (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -201,6 +208,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                     ),
                     SourceFieldSelectConfig(
                         name="file_format",
+                        sync_setting=True,
                         label="File format",
                         required=True,
                         defaultValue="infer",
@@ -213,6 +221,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                     ),
                     SourceFieldInputConfig(
                         name="csv_delimiter",
+                        sync_setting=True,
                         label="CSV delimiter (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -222,6 +231,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="combine_files",
+                        sync_setting=True,
                         label="Combine every file into one table?",
                         caption=(
                             "Turn this on when the folder holds files that share the same columns, such as a "

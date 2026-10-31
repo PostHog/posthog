@@ -1,5 +1,5 @@
 import { IconTarget } from '@posthog/icons'
-import { Badge, Button } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
 import { ProductSetupPopover } from 'lib/components/ProductSetup'
 import { useProductSetupButton } from 'lib/components/ProductSetup/useProductSetupButton'
@@ -11,7 +11,6 @@ export function TodayTopBarQuickStartButton(): JSX.Element | null {
         isOpen,
         isDismissed,
         remainingCount,
-        shouldShowSetup,
         toggle,
         close,
         setSelectedProduct,
@@ -21,9 +20,8 @@ export function TodayTopBarQuickStartButton(): JSX.Element | null {
         return null
     }
 
-    const minimized = isDismissed && !isOpen
-    // The count stays while the guide is open, so the trigger does not change shape under the pointer.
-    const showCount = (shouldShowSetup || minimized) && remainingCount > 0
+    const hasTasksLeft = remainingCount > 0
+    const tasksLeft = `${remainingCount} ${remainingCount === 1 ? 'task' : 'tasks'} left`
 
     return (
         <ProductSetupPopover
@@ -34,21 +32,28 @@ export function TodayTopBarQuickStartButton(): JSX.Element | null {
         >
             <Button
                 variant="outline"
-                size={minimized ? 'icon' : 'default'}
-                aria-label={minimized ? 'Quick start' : undefined}
+                size="icon"
+                indicator={hasTasksLeft ? 'default' : undefined}
+                aria-label={hasTasksLeft ? `Quick start, ${tasksLeft}` : 'Quick start'}
                 aria-pressed={isOpen}
-                className="shrink-0 aria-pressed:bg-[var(--fill-selected)]"
+                // The menu covers the tooltip, so the tooltip stays off while the menu is open.
+                tooltip={
+                    isOpen ? null : (
+                        <div className="flex flex-col gap-0.5">
+                            <span className="font-medium">Quick start</span>
+                            <span>A checklist of tasks to set up PostHog.</span>
+                            {hasTasksLeft && <span>{tasksLeft}</span>}
+                        </div>
+                    )
+                }
+                className="shrink-0 [--quill-button-indicator-ring:var(--chrome)] aria-pressed:bg-[var(--fill-selected)]"
                 onClick={toggle}
                 // pinned: autocapture data-attr shared with the title-row trigger
-                data-attr={minimized ? 'global-product-setup-button-minimized' : 'global-product-setup-button'}
+                data-attr={
+                    isDismissed && !isOpen ? 'global-product-setup-button-minimized' : 'global-product-setup-button'
+                }
             >
                 <IconTarget />
-                {!minimized && 'Quick start'}
-                {showCount && (
-                    <Badge variant="warning" translate="no">
-                        {remainingCount}
-                    </Badge>
-                )}
             </Button>
         </ProductSetupPopover>
     )

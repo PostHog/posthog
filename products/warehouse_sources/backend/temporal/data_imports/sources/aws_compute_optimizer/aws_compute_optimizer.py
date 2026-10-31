@@ -1,7 +1,7 @@
 import re
 import json
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import requests
@@ -14,11 +14,16 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_compute_optimizer.settings import (
     API_VERSION,
+    DEFAULT_LOOKBACK_DAYS,
     DEFAULT_REGION,
     ENDPOINTS,
     ERROR_MESSAGES,
     PAGE_SIZE,
+    PROJECTED_METRICS_PERIOD_SECONDS,
+    PROJECTED_METRICS_STAT,
     TARGET_PREFIXES,
+    Endpoint,
+    ProjectedMetricsFanout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -42,6 +47,8 @@ TRANSPORT_RETRY = BoundedRetry(
 class AwsComputeOptimizerResumeConfig:
     next_token: str | None = None
     complete: bool = False
+    # Unprocessed (ARN, lookback days) parents of a projected metrics page. next_token is the page after them.
+    pending: tuple[tuple[str, int], ...] = ()
 
 
 class AwsComputeOptimizerError(Exception):
@@ -135,11 +142,15 @@ class AwsComputeOptimizerClient:
         return result
 
 
+def _column(key: str) -> str:
+    return _CAMEL_BOUNDARY.sub("_", key).lower()
+
+
 def normalize_row(item: dict[str, Any], region: str) -> dict[str, Any]:
     def flatten(obj: dict[str, Any], prefix: str = "") -> dict[str, Any]:
         row: dict[str, Any] = {}
         for key, value in obj.items():
-            column = prefix + _CAMEL_BOUNDARY.sub("_", key).lower()
+            column = prefix + _column(key)
             if isinstance(value, dict):
                 row.update(flatten(value, column + "_"))
             else:
@@ -152,6 +163,103 @@ def normalize_row(item: dict[str, Any], region: str) -> dict[str, Any]:
         row["last_refresh_timestamp"] = datetime.fromtimestamp(timestamp, tz=UTC)
     row["region"] = region
     return row
+
+
+def projected_metric_rows(
+    result: dict[str, Any], arn_column: str, arn: str, result_key: str, region: str
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for option in result.get(result_key) or []:
+        option_columns = {_column(key): value for key, value in option.items() if key != "projectedMetrics"}
+        for metric in option.get("projectedMetrics") or []:
+            # Each metric holds parallel lists: `values` for EC2, `upperBoundValues` and `lowerBoundValues` for ECS.
+            series = {
+                _column(key).removesuffix("s"): value
+                for key, value in metric.items()
+                if key not in {"name", "timestamps"} and isinstance(value, list)
+            }
+            for index, timestamp in enumerate(metric.get("timestamps") or []):
+                rows.append(
+                    {
+                        arn_column: arn,
+                        **option_columns,
+                        "metric_name": metric.get("name"),
+                        "timestamp": datetime.fromtimestamp(timestamp, tz=UTC),
+                        **{column: values[index] if index < len(values) else None for column, values in series.items()},
+                        "region": region,
+                    }
+                )
+    return rows
+
+
+def projected_metrics_payload(
+    fanout: ProjectedMetricsFanout, arn: str, lookback_days: int, end: datetime
+) -> dict[str, Any]:
+    return {
+        fanout.arn_field: arn,
+        "stat": PROJECTED_METRICS_STAT,
+        "period": PROJECTED_METRICS_PERIOD_SECONDS,
+        "startTime": int((end - timedelta(days=lookback_days)).timestamp()),
+        "endTime": int(end.timestamp()),
+    }
+
+
+def get_projected_metric_rows(
+    client: AwsComputeOptimizerClient,
+    settings: Endpoint,
+    fanout: ProjectedMetricsFanout,
+    manager: ResumableSourceManager[AwsComputeOptimizerResumeConfig],
+    state: AwsComputeOptimizerResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    parent = ENDPOINTS[fanout.parent]
+    arn_column = _column(fanout.arn_field)
+    token = state.next_token
+    # The cursor keeps the unprocessed parents themselves, because a refetched page can drop or reorder resources.
+    pending = tuple((str(arn), int(lookback)) for arn, lookback in state.pending)
+    fetch_page = not pending
+    seen_tokens: set[str] = {token} if token else set()
+    end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    while True:
+        if fetch_page:
+            payload: dict[str, Any] = {"maxResults": PAGE_SIZE}
+            if token:
+                payload["nextToken"] = token
+            page = client.request(parent.operation, payload)
+            token = page.get("nextToken") or None
+            if token is not None:
+                if token in seen_tokens:
+                    raise ValueError("AWS Compute Optimizer repeated a pagination token. Restart the sync.")
+                seen_tokens.add(token)
+            pending = tuple(
+                (item[fanout.arn_field], int(item.get(fanout.lookback_field) or DEFAULT_LOOKBACK_DAYS))
+                for item in page.get(parent.result_key) or []
+                if item.get(fanout.arn_field)
+            )
+            if not pending:
+                manager.save_state(AwsComputeOptimizerResumeConfig(next_token=token, complete=token is None))
+                manager.safe_point()
+        fetch_page = True
+        for index, (arn, lookback) in enumerate(pending):
+            rows: list[dict[str, Any]] = []
+            try:
+                result = client.request(settings.operation, projected_metrics_payload(fanout, arn, lookback, end))
+            except AwsComputeOptimizerError as error:
+                # The resource can disappear between the recommendation listing and this request.
+                if error.code != "ResourceNotFoundException":
+                    raise
+            else:
+                rows = projected_metric_rows(result, arn_column, arn, settings.result_key, client.region)
+            remaining = pending[index + 1 :]
+            manager.save_state(
+                AwsComputeOptimizerResumeConfig(
+                    next_token=token, pending=remaining, complete=token is None and not remaining
+                )
+            )
+            if rows:
+                yield rows
+            manager.safe_point()
+        if token is None:
+            return
 
 
 def get_rows(
@@ -168,6 +276,9 @@ def get_rows(
     seen_tokens: set[str] = {token} if token else set()
     client = AwsComputeOptimizerClient(config, api_version)
     try:
+        if settings.fanout is not None:
+            yield from get_projected_metric_rows(client, settings, settings.fanout, manager, state)
+            return
         while True:
             payload: dict[str, Any] = {"maxResults": PAGE_SIZE}
             if token:
@@ -198,12 +309,28 @@ def validate_credentials(
         client = AwsComputeOptimizerClient(config, api_version)
     except ValueError as error:
         return False, str(error)
-    operation = ENDPOINTS[schema_name].operation if schema_name is not None else "GetEnrollmentStatus"
+    operation = "GetEnrollmentStatus"
     try:
-        result = client.request(operation, {"maxResults": 1} if schema_name is not None else {})
-        if schema_name is None and result.get("status") != "Active":
-            return False, "Enable AWS Compute Optimizer for this account and wait until enrollment is active."
+        if schema_name is None:
+            result = client.request(operation, {})
+            if result.get("status") != "Active":
+                return False, "Enable AWS Compute Optimizer for this account and wait until enrollment is active."
+        else:
+            settings = ENDPOINTS[schema_name]
+            fanout = settings.fanout
+            # Projected metrics need a resource ARN, so take one from the recommendation listing they fan out from.
+            parent = ENDPOINTS[fanout.parent] if fanout else settings
+            operation = parent.operation
+            result = client.request(operation, {"maxResults": 1})
+            items = result.get(parent.result_key) or []
+            arn = items[0].get(fanout.arn_field) if fanout and items else None
+            if fanout and arn:
+                operation = settings.operation
+                end = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+                client.request(operation, projected_metrics_payload(fanout, arn, 1, end))
     except AwsComputeOptimizerError as error:
+        if error.code == "ResourceNotFoundException" and schema_name is not None:
+            return True, None
         if error.code in {"AccessDenied", "AccessDeniedException"}:
             if schema_name is None:
                 return True, None

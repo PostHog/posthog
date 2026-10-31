@@ -1,6 +1,20 @@
 import { escapeHogQLString } from '~/queries/utils'
 
-import type { EvaluationConfig, EvaluationOutputConfig, EvaluationRunsFilter } from './types'
+import type {
+    EvaluationConfig,
+    EvaluationOutputConfig,
+    EvaluationOutputType,
+    EvaluationRunsFilter,
+    EvaluationSettleStrategy,
+} from './types'
+
+/** The strategy a trace or session evaluation settles with. Rows without one use the backend's default for their target. */
+export function settleStrategy(
+    strategy: EvaluationSettleStrategy | undefined,
+    target: 'trace' | 'session'
+): EvaluationSettleStrategy {
+    return strategy ?? (target === 'session' ? 'inactivity' : 'fixed_window')
+}
 
 // Most-recent runs fetched for an evaluation's runs table and its result badges
 export const EVALUATION_RUNS_QUERY_LIMIT = 250
@@ -10,16 +24,28 @@ export const EVALUATION_RUNS_QUERY_LIMIT = 250
 // JSON bool as the string 'true' (where a numeric literal throws), while Boolean-registered teams
 // still compare correctly against the string form. Reading the property directly rather than via
 // JSONExtractString keeps the lookup on the properties_group_ai column and its bloom filter index.
-// Same reasoning as the predicates in posthog/temporal/ai_observability/eval_reports/output_types.py.
+// Same reasoning as the predicates in products/ai_observability/backend/models/evaluation_outcomes.py.
 export const EVALUATION_RESULT_TRUE_HOGQL = "properties.$ai_evaluation_result = 'true'"
 const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false'"
 
 // A skipped run was never graded, but an evaluation that disallows N/A still emits result=false
 // alongside skipped=true, so any count that doesn't exclude skips reads them as failures. Mirrors
-// _NOT_SKIPPED_PREDICATE in posthog/temporal/ai_observability/eval_reports/output_types.py, which
+// NOT_SKIPPED_PREDICATE in products/ai_observability/backend/models/evaluation_outcomes.py, which
 // the report metrics already apply — without this the two surfaces disagree about the same runs.
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
+
+export function booleanOutputConfigError(config: EvaluationOutputConfig): string | null {
+    const threshold = config.decision_threshold
+    if (threshold != null && (!Number.isFinite(threshold) || threshold < 0 || threshold > 1)) {
+        return 'Enter a decision threshold between 0% and 100%.'
+    }
+    return null
+}
+
+export function clearInvalidDecisionThreshold(config: EvaluationOutputConfig): EvaluationOutputConfig {
+    return booleanOutputConfigError(config) ? { ...config, decision_threshold: null } : config
+}
 
 export function numericOutputConfigError(config: EvaluationOutputConfig, requiresBounds = false): string | null {
     const { min, max, step } = config
@@ -48,6 +74,18 @@ export function numericOutputConfigError(config: EvaluationOutputConfig, require
 export const EVALUATION_NUMERIC_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'numeric' AND properties.$ai_evaluation_numeric_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
 export const EVALUATION_BOOLEAN_GRADED_HOGQL = `(isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type = 'boolean') AND properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
 export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evaluation_numeric_result), ${EVALUATION_NUMERIC_GRADED_HOGQL})`
+// A skipped sentiment run has no label, so it leaves both sides of the ratio.
+export const EVALUATION_SENTIMENT_GRADED_HOGQL = `lower(properties.$ai_sentiment_label) IN ('positive', 'neutral', 'negative')`
+
+export function evaluationGradedHogQL(outputType: string): string {
+    return outputType === 'categorical'
+        ? EVALUATION_CATEGORICAL_GRADED_HOGQL
+        : outputType === 'numeric'
+          ? EVALUATION_NUMERIC_GRADED_HOGQL
+          : outputType === 'sentiment'
+            ? EVALUATION_SENTIMENT_GRADED_HOGQL
+            : EVALUATION_BOOLEAN_GRADED_HOGQL
+}
 
 export function numericEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
     const rule = evaluation.output_config.passing_rule
@@ -227,4 +265,13 @@ export function categoricalEvaluationsPassedHogQL(
     const indexes = rules.map((_, index) => index + 1).join(', ')
     const passingCategories = `arrayElement([${categories}], transform(properties.$ai_evaluation_id, [${ids}], [${indexes}], 0))`
     return `properties.$ai_evaluation_id IN (${ids}) AND if(empty(${EVALUATION_CATEGORIES_HOGQL}), empty(${passingCategories}), hasAll(${passingCategories}, ${EVALUATION_CATEGORIES_HOGQL}))`
+}
+
+/** What a decision model returns for each result type, since it writes no reasoning. */
+export function decisionModelHint(outputType: EvaluationOutputType): string {
+    return outputType === 'categorical'
+        ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
+        : outputType === 'numeric'
+          ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
+          : 'This decision model returns a probability without written reasoning. The decision threshold determines whether the result is true.'
 }

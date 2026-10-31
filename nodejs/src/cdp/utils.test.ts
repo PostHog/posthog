@@ -174,6 +174,13 @@ describe('Utils', () => {
             expect(getSensitiveValues(hogFunction, { connection: value })).toContain('nested-private-key')
         })
 
+        it('masks the bare token of every secret dictionary entry, whatever the header name', () => {
+            const hogFunction: any = { inputs_schema: [{ key: 'secret_headers', type: 'dictionary', secret: true }] }
+            expect(
+                getSensitiveValues(hogFunction, { secret_headers: { 'X-Custom-Auth': 'Bearer sk_live_abc' } })
+            ).toContain('sk_live_abc')
+        })
+
         it('masks a credential-named input that the stored schema leaves non-secret', () => {
             const hogFunction: any = { inputs_schema: [{ key: 'apiKey', type: 'string', secret: false }] }
             expect(getSensitiveValues(hogFunction, { apiKey: 'stale-schema-key' })).toEqual(['stale-schema-key'])

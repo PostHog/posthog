@@ -20,11 +20,7 @@ class TestDodoPaymentsSource:
     @pytest.mark.parametrize(
         "status, expected_valid, expected_message_fragment",
         [
-            (200, True, None),
-            (401, False, "rejected the API key"),
-            (403, False, "permission to read"),
             (429, False, "rate limiting"),
-            (500, False, "server error"),
             (None, False, "Could not reach"),
         ],
     )

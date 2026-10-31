@@ -11,6 +11,7 @@ import {
     defaultAggregationForField,
     getBIDataSourceKey,
     getBIChartFit,
+    getBIResultDimensions,
     getBIDropTarget,
     getBIFieldId,
     getBISortOptions,
@@ -63,6 +64,121 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    it.each(
+        [ChartDisplayType.ActionsTable, ChartDisplayType.ActionsLineGraph, ChartDisplayType.ScatterPlot]
+            .flatMap((chartType) => [
+                { chartType, name: 'repeated dimensions', rows: [eventField, eventField, eventField] },
+                {
+                    chartType,
+                    name: 'an expression containing a percent sign',
+                    rows: [{ ...eventField, expression: "if(event LIKE 'page%', 'page', 'other')" }],
+                },
+            ])
+            .concat(
+                ['true', 'FALSE', 'null', 'team_id'].map((expression) => ({
+                    chartType: ChartDisplayType.ActionsTable,
+                    name: `the reserved alias ${expression}`,
+                    rows: [{ ...eventField, expression }],
+                }))
+            )
+    )('binds $name to supported distinct result columns in $chartType', ({ chartType, rows }) => {
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: eventField.source,
+            chartType,
+            rows,
+        }
+        const result = buildBIQuery(config)!
+        const columns = getBIResultDimensions(config).map(({ column }) => column)
+        expect(new Set(columns).size).toBe(rows.length)
+        expect(result.query).toContain(`GROUP BY\n    ${columns.join(',\n    ')}`)
+        for (const [index, column] of columns.entries()) {
+            expect(column).not.toContain('%')
+            expect(['true', 'false', 'null', 'team_id']).not.toContain(column.toLowerCase())
+            expect(result.query).toContain(`${rows[index].expression} AS ${column}`)
+            expect(result.node.tableSettings?.columns).toContainEqual(expect.objectContaining({ column }))
+        }
+        if (chartType !== ChartDisplayType.ScatterPlot) {
+            expect(result.node.chartSettings?.xAxis?.column).toBe(columns[0])
+        }
+        const comparison = buildBIQuery({
+            ...config,
+            chartType: ChartDisplayType.ActionsTable,
+            dateRange: { date_from: 'mStart' },
+            compareFilter: { compare: true },
+        })!
+        expect(comparison.query).toContain(`GROUP BY ${[...columns, 'bi_comparison'].join(', ')}`)
+    })
+
+    it.each(['measure', 'custom measure', 'filter', 'custom filter'] as const)(
+        'keeps generated dimension aliases from shadowing a source identifier in a %s',
+        (reference) => {
+            const sourceField = { ...revenueField, name: 'bi_row_event', expression: 'bi_row_event' }
+            const config: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                source: eventField.source,
+                rows: [eventField, eventField],
+                values: reference.includes('measure')
+                    ? [
+                          reference === 'measure'
+                              ? { field: sourceField, aggregation: 'sum' }
+                              : {
+                                    field: sourceField,
+                                    aggregation: 'custom',
+                                    customExpression: 'sum(bi_row_event)',
+                                },
+                      ]
+                    : [],
+                filters: reference.includes('filter')
+                    ? [
+                          reference === 'filter'
+                              ? { field: sourceField, operator: 'greater_than', value: '0' }
+                              : {
+                                    field: sourceField,
+                                    operator: 'custom',
+                                    value: '',
+                                    customExpression: 'bi_row_event > 0',
+                                },
+                      ]
+                    : [],
+            }
+            const result = buildBIQuery(config)!
+            const columns = getBIResultDimensions(config).map(({ column }) => column)
+            expect(new Set(columns).size).toBe(2)
+            expect(columns).not.toContain('bi_row_event')
+            expect(result.query).not.toMatch(/event AS bi_row_event[,\n]/)
+            expect(result.query).toContain(reference.includes('measure') ? 'sum(bi_row_event)' : 'bi_row_event > 0')
+            for (const column of columns) {
+                expect(result.query).toContain(`event AS ${column}`)
+                expect(result.node.tableSettings?.columns).toContainEqual(expect.objectContaining({ column }))
+            }
+        }
+    )
+
+    test.each(['month', 'quarter', 'day_of_week'] as const)(
+        'uses numeric %s date parts for scatter axes',
+        (datePart) => {
+            const result = buildBIQuery({
+                ...DEFAULT_BI_CONFIG,
+                source: timestampField.source,
+                rows: [{ ...timestampField, datePart }],
+                chartType: ChartDisplayType.ScatterPlot,
+            })!
+            expect(result.node.chartSettings?.xAxis?.column).not.toBe('count')
+            expect(result.node.chartSettings?.yAxis).toEqual([{ column: 'count' }])
+            expect(
+                getBIChartFit(
+                    {
+                        ...DEFAULT_BI_CONFIG,
+                        source: timestampField.source,
+                        rows: [{ ...timestampField, datePart }],
+                        chartType: ChartDisplayType.ScatterPlot,
+                    },
+                    ChartDisplayType.ScatterPlot
+                ).fits
+            ).toBe(true)
+        }
+    )
     it.each(['month', 'quarter', 'year'] as const)(
         'aligns %s comparison buckets with calendar arithmetic',
         (dateBucket) => {
@@ -136,20 +252,31 @@ describe('BI editor query generation', () => {
         expect(ambiguous.query).not.toContain("AS 'plan.tier'")
     })
 
-    it('maps warehouse dates and dashboard properties to unbucketed worksheet fields', () => {
+    it('keeps direct connection tables flat and maps dashboard filters to unbucketed worksheet fields', () => {
         const source = { table: 'orders', connectionId: 'example-connection' }
         const result = buildBIQuery({
             ...DEFAULT_BI_CONFIG,
             source,
             dateField: { ...timestampField, source, expression: 'created_at', dateBucket: 'month' },
             dateRange: { date_from: '-30d' },
-            rows: [{ ...eventField, source, name: 'plan', expression: 'subscription_plan' }],
+            chartType: ChartDisplayType.ActionsTable,
+            rows: [
+                { ...eventField, source, name: 'plan', expression: 'subscription_plan' },
+                { ...eventField, source, name: 'region', expression: 'region' },
+            ],
+            columns: [{ ...eventField, source, name: 'channel', expression: 'channel' }],
         })!
-        expect(result.query).toContain("{filters((created_at) AS 'timestamp', (subscription_plan) AS 'plan')}")
+        expect(result.query).toContain("(created_at) AS 'timestamp', (subscription_plan) AS 'plan'")
+        expect(result.query).not.toContain('toJSONString')
+        expect(result.query).not.toContain('GROUPING SETS')
         expect(result.node.source.connectionId).toBe(source.connectionId)
         expect(result.node.source.filters?.dateRange?.date_from).toBe('-30d')
     })
     test.each<{ filter: BIFilter; expected: string | null }>([
+        { filter: { field: eventField, operator: 'equals', value: '', values: [''] }, expected: "event = ''" },
+        { filter: { field: eventField, operator: 'not_equals', value: '', values: [''] }, expected: "event != ''" },
+        { filter: { field: eventField, operator: 'equals', value: '', values: [] }, expected: null },
+        { filter: { field: eventField, operator: 'equals', value: '' }, expected: null },
         {
             filter: { field: eventField, operator: 'in', value: '', values: ["sign'up", 'a,b', ''] },
             expected: "event IN ('sign\\'up', 'a,b', '')",
@@ -276,7 +403,7 @@ describe('BI editor query generation', () => {
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
             'SELECT',
-            '    event,',
+            '    event AS event,',
             '    sum(properties.revenue) AS sum_revenue',
             'FROM events',
             'WHERE',
@@ -314,6 +441,12 @@ describe('BI editor query generation', () => {
                     yAxis: [{ column: 'sum_revenue' }],
                     xAxisLabel: 'event',
                     leftYAxisSettings: { label: 'SUM(revenue)' },
+                },
+                tableSettings: {
+                    columns: [
+                        { column: 'event', settings: { display: { label: 'event' } } },
+                        { column: 'sum_revenue' },
+                    ],
                 },
             },
         })
@@ -417,22 +550,37 @@ describe('BI editor query generation', () => {
         expect(result.query).toContain(`properties.$browser AS ${seriesBreakdownColumn}`)
     })
 
-    it.each([100, 1000, 10000, 50000] as const)(
-        'maps every BI row and column dimension to pivot table axes with limit %i',
-        (limit) => {
+    it.each([
+        ...([100, 1000, 10000, 50000] as const).map((limit) => ({
+            limit,
+            repeated: false,
+            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+        })),
+        { limit: 100 as const, repeated: true, chartType: ChartDisplayType.TwoDimensionalHeatmap },
+        { limit: 100 as const, repeated: false, chartType: ChartDisplayType.ActionsTable },
+    ])(
+        'maps every BI row and column dimension to pivot table axes in $chartType with limit $limit (repeated: $repeated)',
+        ({ limit, repeated, chartType }) => {
+            const secondRow = repeated ? eventField : timestampField
+            const secondColumn = repeated ? browserField : countryField
             const result = buildBIQuery({
                 source: { table: 'events' },
-                chartType: ChartDisplayType.TwoDimensionalHeatmap,
-                rows: [eventField, timestampField],
-                columns: [browserField, countryField],
+                chartType,
+                rows: [eventField, secondRow],
+                columns: [browserField, secondColumn],
                 values: [{ field: revenueField, aggregation: 'sum' }],
                 filters: [],
                 limit,
             })
 
-            expect(result?.query).toContain('event AS bi_row_event, timestamp AS bi_row_timestamp_2')
+            expect(result?.query).toContain(
+                `event AS bi_row_event, ${secondRow.expression} AS bi_row_${secondRow.name}_2`
+            )
             expect(result?.query).toContain('properties.$browser AS bi_column_browser')
-            expect(result?.query).toContain('properties.$geoip_country_name AS bi_column_country_2')
+            expect(result?.query).toContain(`${secondColumn.expression} AS bi_column_${secondColumn.name}_2`)
+            expect(result?.query).toContain(
+                `GROUP BY GROUPING SETS ((bi_row_event, bi_row_${secondRow.name}_2, bi_column_browser, bi_column_${secondColumn.name}_2)`
+            )
             expect(result?.query).toMatch(/toJSONString\(tuple\(.*\)\) AS bi_rows/)
             expect(result?.query).toMatch(/toJSONString\(tuple\(.*\)\) AS bi_columns/)
             expect(result?.query).toContain(`LIMIT ${limit}`)
@@ -441,8 +589,8 @@ describe('BI editor query generation', () => {
                     xAxisColumn: 'bi_columns',
                     yAxisColumn: 'bi_rows',
                     valueColumn: 'sum_revenue',
-                    xAxisLabel: 'browser / country',
-                    yAxisLabel: 'event / timestamp',
+                    xAxisLabel: `browser / ${secondColumn.name}`,
+                    yAxisLabel: `event / ${secondRow.name}`,
                 },
             })
         }
@@ -485,7 +633,7 @@ describe('BI editor query generation', () => {
         expect(result?.query).toEqual(
             [
                 'SELECT',
-                '    event,',
+                '    event AS event,',
                 '    count(*) AS count',
                 'FROM events',
                 'WHERE',
@@ -644,12 +792,16 @@ describe('BI editor query generation', () => {
         })
 
         expect(result?.query).toContain(`${dateBucketFunction}(timestamp)`)
+        expect(result?.query).toContain(`${dateBucketFunction}(timestamp) AS "${dateBucketFunction}(timestamp)"`)
     })
 
     test.each([
         ['id', 'integer', 'count'],
         ['uuid', 'string', 'count'],
         ['events_id', 'integer', 'count'],
+        ['person_id', 'string', 'count'],
+        ['distinct_id', 'string', 'count'],
+        ['user_id', 'integer', 'count'],
         ['revenue', 'float', 'sum'],
         ['event', 'string', 'count_distinct'],
     ] as const)('uses %s fields with type %s as a %s value', (name, type, aggregation) => {
@@ -772,13 +924,13 @@ describe('BI editor query generation', () => {
     const userIdField: BIField = { ...revenueField, id: 'warehouse:events:user_id', name: 'user_id', type: 'integer' }
 
     test.each([
-        ['userId', false],
-        ['accountId', false],
-        ['userID', false],
-        ['accountUuid', false],
-        ['accountUUID', false],
-        ['USER_ID', false],
-        ['UUID', false],
+        ['userId', true],
+        ['accountId', true],
+        ['userID', true],
+        ['accountUuid', true],
+        ['accountUUID', true],
+        ['USER_ID', true],
+        ['UUID', true],
         ['grid', true],
         ['paid', true],
     ])('classifies numeric field %s as a measure: %s', (name, isMeasure) => {
@@ -819,7 +971,7 @@ describe('BI editor query generation', () => {
         ['a measure dropped on rows becomes a value', revenueField, 'rows', revenueField, 'values'],
         ['a measure dropped on columns becomes a value', revenueField, 'columns', revenueField, 'values'],
         ['a measure dropped on filters stays a filter', revenueField, 'filters', revenueField, 'filters'],
-        ['a numeric identifier stays a dimension', userIdField, 'rows', userIdField, 'rows'],
+        ['a numeric identifier becomes a measure', userIdField, 'rows', userIdField, 'values'],
         [
             'a timestamp on rows is bucketed by day',
             timestampField,

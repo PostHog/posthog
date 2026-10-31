@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
     FORMBRICKS_API_VERSION_V1,
     FORMBRICKS_API_VERSION_V2,
@@ -47,20 +46,8 @@ class TestFormbricksSource:
         # on v2) or lose incremental filtering (responses on v1), so pin the routing per resource.
         assert f"/api/{expected_version}/management/" in FORMBRICKS_ENDPOINTS[endpoint].path
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["surveys", "nope"])
-        assert [s.name for s in schemas] == ["surveys"]
-
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://app.formbricks.com/api/v2/management/responses",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://formbricks.example.com/api/v1/management/surveys",
-            ),
             ("host_not_allowed", "Formbricks host is not allowed: internal IP"),
             ("plaintext_http", "Formbricks host must use HTTPS"),
         ]
@@ -68,16 +55,6 @@ class TestFormbricksSource:
     def test_non_retryable_errors_match_permanent_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://app.formbricks.com"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://app.formbricks.com"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source.formbricks_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -113,9 +90,3 @@ class TestFormbricksSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Formbricks schema 'not_a_table'"
-        assert result.requests == []

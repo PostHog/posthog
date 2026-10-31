@@ -10,21 +10,27 @@
 
 ## Deployment workflow
 
-The `user_defined_function.xml` deployed to ClickHouse is now pulled automatically from the `master` branch of this repo by ansible (`posthog-cloud-infra/ansible/roles/clickhouse/tasks/setup_udfs.yml`).
-It downloads `posthog/user_scripts/latest_user_defined_function.xml` and deploys it as ClickHouse's `user_defined_function.xml`.
+Cloud ClickHouse does not read the `master` branch of this repo.
+Ansible (`posthog-cloud-infra/ansible/roles/clickhouse/tasks/setup_udfs.yml`) downloads this repo at the commit pinned in `posthog_udfs_revision` (`ansible/roles/clickhouse/defaults/main.yml`).
+It copies that commit's `posthog/user_scripts` to the ClickHouse nodes, installs its `latest_user_defined_function.xml` as ClickHouse's `user_defined_function.xml`, and reloads the functions.
+A merge here changes nothing in cloud ClickHouse until the pin moves.
 
 For revertible cloud deploys:
 
 1. Develop using the binary files at the top level of `user_scripts` (see section above), with schema defined in `docker/clickhouse/user_defined_function.xml`
 2. When ready to deploy, increment the version in `posthog/udf_versioner.py` and run it. This generates versioned binaries and `latest_user_defined_function.xml`
-3. Land a PR with the updated `user_scripts` folder — include both the new version folder (e.g. `v12/`) and the regenerated `latest_user_defined_function.xml`. **Do not** include the `UDF_VERSION` bump in this PR — that goes in a separate PR (step 5)
-4. The binaries and XML should be automatically deployed to ClickHouse on the next config run. Verify in metabase by running `SELECT aggregate_funnel_vXX()`. An "invalid arguments" error means the function is registered. An "unknown function" error means the deploy hasn't taken effect yet. **Make sure to do this for both EU and US**
-5. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION` in `posthog/udf_versioner.py` to the new version. This switches the posthog query builder to use the new UDF
+3. Land a PR with the updated `user_scripts` folder — include both the new version folder (e.g. `v12/`) and the regenerated `latest_user_defined_function.xml`. **Do not** include the `UDF_VERSION` bump in this PR — that goes in a separate PR (step 6). Check that git keeps the wrappers, binaries and Python scripts in the version folder executable (mode `100755`), because local, CI and self-hosted ClickHouse run them directly
+4. In `posthog-cloud-infra`, bump `posthog_udfs_revision` to a `master` commit that includes the PR from step 3. Merging that change deploys the pinned `user_scripts` to every ClickHouse environment at once. The bump also ships every other `user_scripts` change since the previous pin, and the unversioned utility UDFs take effect immediately, so list those changes in the infra PR
+5. Verify in metabase by running `SELECT aggregate_funnel_vXX()`. An "invalid arguments" error means the function is registered. An "unknown function" error means the deploy hasn't taken effect yet. Also run a valid funnel query against the new version. Registration alone does not check the launcher or binary. **Make sure to do this for both EU and US**
+6. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION` in `posthog/udf_versioner.py` to the new version. This switches the posthog query builder to use the new UDF
 
 ## Design decisions
 
+- Each replay slot holds the events of its own step, optional steps included. Optional matches never change funnel counts, because the duplicate-event check only sees required steps.
+- Unversioned binaries use the current event layout. Replay queries must use that layout even while cloud queries select an older UDF version.
 - We tried writing the UDFs in Python, but this cause ClickHouse nodes to crash as the garbage collector could not keep up. As such we're now writing the functions in Rust.
 - We're using `cross-rs` to compile the binaries - it's a cross platfrom rust compiler.
+- `Cross.toml` pins the build images, which link against glibc 2.23. Check the highest version a new binary needs with `objdump -T <binary> | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`.
 
 ## Troubleshooting
 

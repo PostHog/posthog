@@ -1,3 +1,23 @@
+from posthog.models.github_integration_base import GitHubIntegrationBase
+
+
+def canonical_github_pull_request_url(url: str) -> str | None:
+    parsed = GitHubIntegrationBase.parse_pull_request_url(url)
+    return f"https://github.com/{parsed.repository.lower()}/pull/{parsed.number}" if parsed else None
+
+
+def normalize_verified_pull_request_urls(value: object) -> list[object]:
+    urls = value if isinstance(value, list) else []
+    normalized: list[object] = []
+    for url in urls:
+        if url not in normalized:
+            normalized.append(url)
+        canonical = canonical_github_pull_request_url(url) if isinstance(url, str) else None
+        if canonical is not None and canonical not in normalized:
+            normalized.append(canonical)
+    return normalized
+
+
 def read_pr_urls(output: object) -> list[str]:
     if not isinstance(output, dict):
         return []

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -40,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SevenShiftsSource(ResumableSource[SevenShiftsSourceConfig, SevenShiftsResumeConfig]):
+    codebase_detection = detect(env=("^(SEVEN_SHIFTS|SEVENSHIFTS)_",))
+
     lists_tables_without_credentials = True
     supported_versions = ("2026-01-01",)
     default_version = "2026-01-01"
@@ -103,7 +106,7 @@ class SevenShiftsSource(ResumableSource[SevenShiftsSourceConfig, SevenShiftsResu
             label="7shifts",
             iconPath="/static/services/sevenshifts.png",
             caption="Create an access token in 7shifts under Settings > Developer Tools. Enter the matching company ID.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

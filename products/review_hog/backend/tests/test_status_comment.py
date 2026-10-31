@@ -13,18 +13,28 @@ from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 
-from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.reviewer.artefact_content import (
+    ReviewIssueFinding,
+    TurnMarkerArtefact,
+    ValidationVerdict,
+)
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
-from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
+from products.review_hog.backend.reviewer.persistence import (
+    persist_chunk_set,
+    persist_findings,
+    persist_verdict,
+    upsert_review_report,
+)
 from products.review_hog.backend.reviewer.progress import SnapshotStats, TurnStats, run_outcome_markers
-from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
     FinalizeStatusCommentInput,
     _splice_resolution_row,
@@ -44,6 +54,7 @@ from products.review_hog.backend.reviewer.status_comment import (
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 from products.review_hog.backend.temporal.activities import _fail_run
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 _MODULE = "products.review_hog.backend.reviewer.status_comment"
 _REQUEST = f"{_MODULE}.github_api_request"
@@ -509,6 +520,41 @@ class TestFinalizeStatusComment(BaseTest):
         assert body.startswith("### PostHog Review · Standard · couldn't finish reviewing ")
         assert "1 kept, 0 dismissed" in body
 
+    def test_a_failed_rerun_after_an_unpublished_turn_names_the_step_it_died_in(
+        self, mock_request: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        _wire_auth(mock_integration)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        report.status_comment_id = 555
+        report.run_count = 1
+        report.head_sha = report.completed_head_sha = "a" * 40
+        report.save(update_fields=["status_comment_id", "run_count", "head_sha", "completed_head_sha"])
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=TurnMarkerArtefact(
+                head_sha=report.head_sha,
+                run_index=2,
+                review_mode=REVIEW_MODE_FULL,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+                review_design=REVIEW_DESIGN_PIPELINE,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        persist_chunk_set(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha=report.head_sha,
+            chunks=ChunksList(chunks=[Chunk(chunk_id=0, files=[FileInfo(filename="a.py")])]),
+        )
+
+        _fail_run(self.team.id, report_id, review_mode=REVIEW_MODE_FULL)
+
+        body = mock_request.call_args.kwargs["json"]["body"]
+        assert 'The review failed at "Pick perspectives".' in body
+
 
 _DONE_BODY = f"### reviewed\n\n| Step | Status | Result |\n|---|---|---|\n| Publish | done | 1 posted |\n\n{status_marker('rid')}"
 _OLD_BODY = (
@@ -675,7 +721,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         patched = mock_request.call_args_list[1].kwargs["json"]["body"]
         assert status_marker(str(report.id)) in patched
 
-    @patch(f"{_MODULE}.Integration")
+    @patch(f"{_MODULE}.IntegrationManager")
     def test_pinned_integration_row_skips_the_selection_probe(
         self,
         mock_integration_model: MagicMock,
@@ -703,7 +749,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         )
 
         mock_integration.first_for_team_repository.assert_not_called()
-        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=self.team.id)
+        mock_integration_model.github.oauth.get.assert_called_once_with(self.team.id, 42)
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
 
 

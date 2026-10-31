@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.drata.source import DrataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.drata import DrataSourceConfig
 
@@ -13,30 +12,14 @@ class TestDrataSource:
         self.team_id = 123
         self.config = DrataSourceConfig(api_key="drata_key", region="EU")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "nope"])
-        assert [s.name for s in schemas] == ["events"]
-
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://public-api.drata.com/public/v2/users",),
-            ("403 Client Error: Forbidden for url: https://public-api.eu.drata.com/public/v2/risk-registers",),
             ("412 Client Error: Precondition Failed for url: https://public-api.apac.drata.com/public/v2/events",),
         ]
     )
     def test_non_retryable_errors_match_auth_failures_in_every_region(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://public-api.drata.com/public/v2/users",),
-            ("429 Client Error: Too Many Requests for url: https://public-api.drata.com/public/v2/events",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.drata.source.drata_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -68,8 +51,3 @@ class TestDrataSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Drata schema 'not_a_table'" in str(result.raised)

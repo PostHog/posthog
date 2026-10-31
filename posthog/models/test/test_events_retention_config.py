@@ -7,6 +7,8 @@ from parameterized import parameterized
 from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
     TeamEventsRetentionConfig,
+    configured_events_retention,
+    count_configured_events_retention,
     effective_events_retention,
 )
 from posthog.models.organization import Organization
@@ -94,3 +96,26 @@ class TestEventsRetentionConfig(BaseTest):
             (self.organization.id, cleared.id): 13,
             (other_org.id, own_value.id): 24,
         }
+
+    def test_configured_retention_lists_teams_with_a_value_or_an_org_config(self) -> None:
+        OrganizationEventsRetentionConfig.objects.create(
+            organization=self.organization, min_events_retention_months=12, max_events_retention_months=24
+        )
+        own_value = Team.objects.create(organization=self.organization, name="Own value")
+        TeamEventsRetentionConfig.objects.create(team=own_value, events_retention_months=18)
+        other_org = Organization.objects.create(name="No config")
+        Team.objects.create(organization=other_org, name="Keeps everything")
+        cleared = Team.objects.create(organization=other_org, name="Cleared")
+        TeamEventsRetentionConfig.objects.create(team=cleared, events_retention_months=None)
+        overrides = Team.objects.create(organization=other_org, name="Overrides")
+        TeamEventsRetentionConfig.objects.create(team=overrides, events_retention_months=6)
+
+        retention = [
+            (item.team_id, item.team_months, item.months) for item in configured_events_retention(offset=0, limit=10)
+        ]
+
+        assert count_configured_events_retention() == 3
+        assert sorted(retention) == sorted([(self.team.id, None, None), (own_value.id, 18, 18), (overrides.id, 6, 6)])
+        assert [item.team_id for item in configured_events_retention(offset=1, limit=2)] == [
+            team_id for team_id, _, _ in retention[1:3]
+        ]

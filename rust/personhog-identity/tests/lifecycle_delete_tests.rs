@@ -8,14 +8,16 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
-use common::TestContext;
+use common::{RecordingSink, TestContext};
 use personhog_common::partitioning::partition_for_person;
 use tonic::{Request, Status};
 use uuid::Uuid;
 
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::publish::messages::DistinctIdRow;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePersonsRequest};
@@ -23,6 +25,10 @@ use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePerso
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
     fn lifecycle_service(&self) -> PersonHogLifecycleService {
+        self.lifecycle_service_with(OutboxWrites::Disabled)
+    }
+
+    fn lifecycle_service_with(&self, outbox_writes: OutboxWrites) -> PersonHogLifecycleService {
         let engine = Arc::new(self.engine());
         let leader = Arc::new(SimLeader::new(self.pool.clone(), self.tables.clone()));
         PersonHogLifecycleService::new(
@@ -30,7 +36,8 @@ impl TestContext {
             leader.clone(),
             self.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
-            common::NUM_PARTITIONS,
+            common::changelog(),
+            outbox_writes,
         )
     }
 
@@ -167,7 +174,8 @@ fn outcomes(
 #[tokio::test]
 async fn delete_destroys_the_person_and_its_satellite_rows() {
     let ctx = TestContext::new().await;
-    let service = ctx.lifecycle_service();
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let service = ctx.lifecycle_service_with(OutboxWrites::Enabled);
 
     let person_id = ctx.insert_person_with_distinct_id("victim-primary").await;
     sqlx::query(
@@ -200,11 +208,12 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
     );
 
     // The person: tombstoned at sealed + 1 (the fence sealed version 0),
-    // scrubbed.
+    // scrubbed, and the response reports the committed version.
     let (is_deleted, version, properties) = ctx.person_state(person_id).await;
     assert!(is_deleted);
     assert_eq!(version, 1);
     assert_eq!(properties, "{}");
+    assert_eq!(response.results[0].person_version, Some(version));
 
     // The mappings: tombstoned one version above their previous one.
     assert_eq!(ctx.pdi_state("victim-primary").await, (true, 1));
@@ -234,6 +243,33 @@ async fn delete_destroys_the_person_and_its_satellite_rows() {
         .collect();
     assert_eq!(moved_ids.len(), 2);
     assert!(moved_ids.contains(&"victim-primary") && moved_ids.contains(&"victim-extra"));
+
+    // One publish pass resolves the op's pointer to the tombstones at their
+    // tombstoned versions, flagged deleted and still owned by the victim's
+    // uuid, never as live rows.
+    let sink = RecordingSink::default();
+    ctx.publisher(sink.clone(), 100)
+        .drain_once()
+        .await
+        .expect("publish pass");
+    let victim_uuid: Uuid = sqlx::query_scalar("SELECT uuid FROM posthog_person WHERE id = $1")
+        .bind(person_id)
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+    let mut published = sink.rows_for_team(ctx.team_id);
+    published.sort_by(|a, b| a.distinct_id.cmp(&b.distinct_id));
+    assert_eq!(
+        published,
+        [("victim-extra", 2), ("victim-primary", 1)].map(|(did, version)| DistinctIdRow {
+            person_id: victim_uuid,
+            team_id: ctx.team_id,
+            distinct_id: did.to_string(),
+            version,
+            is_deleted: 1,
+        })
+    );
+    assert!(ctx.outbox_rows().await.is_empty(), "the pointer is deleted");
 
     ctx.cleanup().await.expect("cleanup");
 }
@@ -562,7 +598,8 @@ impl FencedHarness {
             leader.clone(),
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
-            common::NUM_PARTITIONS,
+            common::changelog(),
+            OutboxWrites::Disabled,
         );
         Self {
             ctx,
@@ -618,6 +655,7 @@ async fn fenced_delete_seals_the_exact_version_and_produces_the_death_document()
     let (is_deleted, version, _) = h.ctx.person_state(person_id).await;
     assert!(is_deleted);
     assert_eq!(version, 1, "fenced seal must not add the pre-fence margin");
+    assert_eq!(outcome.results[0].person_version, Some(1));
     let docs = h.leader.death_documents();
     assert_eq!(docs.len(), 1);
     assert_eq!(docs[0].person_id, person_id);
@@ -790,6 +828,156 @@ async fn a_fenced_victim_rejects_writes_until_the_op_completes() {
         .await
         .expect_err("a destroyed person rejects writes");
     assert_eq!(destroyed.code(), tonic::Code::NotFound);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_direct_postgres_write_between_seal_and_unmap_cannot_outrank_the_tombstone() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("fenced-raced-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    let row = h.step(op_id).await.expect("marked -> sealed");
+    assert_eq!(row.step, "sealed");
+
+    // The fence stops leader writes only: a writer on the Postgres path
+    // moves the row three versions past the seal (0) before the unmap.
+    sqlx::query("UPDATE posthog_person SET version = version + 3 WHERE team_id = $1 AND id = $2")
+        .bind(h.ctx.team_id as i32)
+        .bind(person_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("direct write");
+
+    h.step(op_id).await.expect("sealed -> unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+
+    // The tombstone clears the slipped write, not just the seal, and the
+    // death document and the outcome carry that same version.
+    let (is_deleted, version, _) = h.ctx.person_state(person_id).await;
+    assert!(is_deleted);
+    assert_eq!(version, 4, "tombstone must outrank the direct write");
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].version, 4);
+    assert_eq!(
+        FencedHarness::outcome(&row).results[0].person_version,
+        Some(4)
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn each_victim_of_a_batch_carries_its_own_tombstone_version() {
+    let h = FencedHarness::new().await;
+    let raced_id = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-raced-{}", Uuid::now_v7()))
+        .await;
+    let quiet_id = h
+        .ctx
+        .create_person_via_stub(&format!("fenced-quiet-{}", Uuid::now_v7()))
+        .await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[raced_id, quiet_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    h.step(op_id).await.expect("marked -> sealed");
+
+    sqlx::query("UPDATE posthog_person SET version = version + 3 WHERE team_id = $1 AND id = $2")
+        .bind(h.ctx.team_id as i32)
+        .bind(raced_id)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("direct write");
+
+    h.step(op_id).await.expect("sealed -> unmapped");
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+
+    let (_, raced_version, _) = h.ctx.person_state(raced_id).await;
+    let (_, quiet_version, _) = h.ctx.person_state(quiet_id).await;
+    assert_eq!(raced_version, 4);
+    assert_eq!(quiet_version, 1);
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 2);
+    let death_version = |person_id: i64| {
+        docs.iter()
+            .find(|doc| doc.person_id == person_id)
+            .expect("a death document per victim")
+            .version
+    };
+    assert_eq!(death_version(raced_id), 4);
+    assert_eq!(death_version(quiet_id), 1);
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].person_version, Some(4));
+    assert_eq!(outcome.results[1].person_version, Some(1));
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_op_unmapped_by_a_pre_tombstone_version_build_completes_at_the_seal() {
+    let h = FencedHarness::new().await;
+    let distinct_id = format!("pre-tombstone-upgrade-{}", Uuid::now_v7());
+    let person_id = h.ctx.create_person_via_stub(&distinct_id).await;
+
+    let op_id = Uuid::now_v7();
+    h.engine
+        .create_or_attach(
+            &h.driver,
+            op_id,
+            h.ctx.team_id,
+            &FencedHarness::request(&[person_id]),
+        )
+        .await
+        .expect("create op");
+    h.step(op_id).await.expect("started -> marked");
+    h.step(op_id).await.expect("marked -> sealed");
+    let row = h.step(op_id).await.expect("sealed -> unmapped");
+    assert_eq!(row.step, "unmapped");
+
+    sqlx::query(
+        "UPDATE lifecycle_op_person SET sealed = sealed - 'tombstone_version' WHERE op_id = $1",
+    )
+    .bind(op_id)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("strip like a pre-tombstone-version build");
+
+    let row = h.step(op_id).await.expect("unmapped -> completed");
+    assert!(row.completed_at.is_some());
+    let outcome = FencedHarness::outcome(&row);
+    assert_eq!(outcome.results[0].outcome, "deleted");
+    assert_eq!(
+        outcome.results[0].person_version, None,
+        "an old unmap recorded no version to report"
+    );
+    let docs = h.leader.death_documents();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].version, 1, "the leader falls back to sealed + 1");
 
     h.ctx.cleanup().await.expect("cleanup");
 }

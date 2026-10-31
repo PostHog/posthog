@@ -1,3 +1,5 @@
+import json
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -7,12 +9,20 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    EmailDomainSetupRecordKind,
+    EmailDomainSetupRecordStatus,
+    EmailDomainSetupRecordType,
+    EmailDomainSetupStatus,
+    EmailDomainSetupStepKey,
+    EmailDomainSetupStepState,
     EmailDraftFallbackReason,
     EmailDraftOrigin,
     HogFlowBatchJobState,
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    SetupStepKey,
+    WorkflowImportNoteLevel,
     WorkflowProposalStatus,
 )
 
@@ -23,6 +33,13 @@ if TYPE_CHECKING:
 
 @frozen
 class WorkflowSummary:
+    id: str
+    name: str
+    status: str
+
+
+@frozen
+class CohortDependentWorkflow:
     id: str
     name: str
     status: str
@@ -44,11 +61,42 @@ class WorkflowActivitySummary:
 
 
 @frozen
+class OwnedWorkflowHealth:
+    """A live workflow one person created: its runs over the last 7 days and what waits on its owner."""
+
+    workflow_id: UUID
+    name: str
+    succeeded: int
+    failed: int
+    email_sending_paused: bool
+    pending_suggestions: int
+
+
+@frozen
 class WorkflowTaskDailyLimits:
     """A team's daily caps on tasks created by workflows. None means the default cap applies."""
 
     per_workflow: int | None
     per_team: int | None
+
+
+@frozen
+class WorkflowVisionScanDailyLimits:
+    """A team's daily caps on Replay Vision scans requested by workflows. None means the default cap applies."""
+
+    per_workflow: int | None
+    per_team: int | None
+
+
+@frozen
+class RealtimeAudienceCohort:
+    """A realtime cohort a batch audience sends to from the realtime pipeline's membership."""
+
+    id: int
+    name: str
+    ready: bool
+    # False when the realtime pipeline doesn't run for the cohort's project, so it never becomes ready.
+    can_finish: bool
 
 
 @frozen
@@ -88,6 +136,38 @@ class WorkflowSchedule:
     next_run_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+@frozen
+class SendCalendarBatchJob:
+    """One batch run, with only the fields the send calendar shows."""
+
+    id: UUID
+    status: HogFlowBatchJobState
+    created_at: datetime
+
+
+@frozen
+class SendCalendarFlow:
+    """An active, scheduled email workflow, with only the fields a send calendar card shows.
+
+    The email fields come from the first email step. ``audience_properties`` and ``audience_type``
+    come from a batch trigger's filters, and ``email_to`` only from a schedule trigger, which has no
+    audience. ``batch_jobs`` holds only the runs inside the requested range.
+    """
+
+    id: UUID
+    name: str | None
+    origin_product: str | None
+    created_by: "User | None"
+    user_access_level: str | None
+    trigger_type: str
+    audience_properties: list[dict[str, Any]]
+    audience_type: str | None
+    email_to: str | None
+    message_category_id: str | None
+    schedules: tuple[WorkflowSchedule, ...]
+    batch_jobs: tuple[SendCalendarBatchJob, ...]
 
 
 class WorkflowScheduleNotFound(Exception):
@@ -144,6 +224,17 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class RealtimeCohortStatus:
+    """How far a realtime cohort audience is from having its membership calculated."""
+
+    id: int
+    name: str
+    # A CohortRealtimeState value: "ready", "building", "rebuilding" or "needs_attention".
+    state: str
+    percent_complete: int | None
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -151,6 +242,10 @@ class AudienceSize:
     total: int
     limit: int
     dedupe_key: str | None
+    # Set when the audience is one realtime cohort. A send waits until that cohort is ready.
+    realtime_cohort: RealtimeCohortStatus | None = None
+    # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
+    realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
 
 
 @frozen
@@ -336,6 +431,86 @@ class EmailDomainVerification(TypedDict):
     dnsRecords: list[EmailDomainDnsRecord]
 
 
+@frozen
+class EmailDomainStatusRecord:
+    kind: EmailDomainSetupRecordKind
+    hostname: str
+    type: EmailDomainSetupRecordType
+    value: str
+    priority: int | None = None
+    status: EmailDomainSetupRecordStatus = EmailDomainSetupRecordStatus.PENDING
+
+
+@frozen
+class EmailDomainStatusStep:
+    key: EmailDomainSetupStepKey
+    state: EmailDomainSetupStepState
+
+
+@frozen
+class EmailDomainCheck:
+    """What the email provider and public DNS report for a sending domain, read without changing either."""
+
+    status: EmailDomainSetupStatus
+    steps: tuple[EmailDomainStatusStep, ...]
+    records: tuple[EmailDomainStatusRecord, ...]
+    every_dns_lookup_answered: bool = True
+
+    @property
+    def is_verified(self) -> bool:
+        return self.status == EmailDomainSetupStatus.VERIFIED
+
+    # The Django cache pickles what it stores, so the check goes in as a JSON string of plain values.
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "status": self.status.value,
+                "steps": [{"key": step.key.value, "state": step.state.value} for step in self.steps],
+                "records": [
+                    {
+                        "kind": record.kind.value,
+                        "hostname": record.hostname,
+                        "type": record.type.value,
+                        "value": record.value,
+                        "priority": record.priority,
+                        "status": record.status.value,
+                    }
+                    for record in self.records
+                ],
+                "every_dns_lookup_answered": self.every_dns_lookup_answered,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, raw: str) -> "EmailDomainCheck":
+        data = json.loads(raw)
+        return cls(
+            status=EmailDomainSetupStatus(data["status"]),
+            steps=tuple(
+                EmailDomainStatusStep(
+                    key=EmailDomainSetupStepKey(step["key"]), state=EmailDomainSetupStepState(step["state"])
+                )
+                for step in data["steps"]
+            ),
+            records=tuple(
+                EmailDomainStatusRecord(
+                    kind=EmailDomainSetupRecordKind(record["kind"]),
+                    hostname=str(record["hostname"]),
+                    type=EmailDomainSetupRecordType(record["type"]),
+                    value=str(record["value"]),
+                    priority=None if record["priority"] is None else int(record["priority"]),
+                    status=EmailDomainSetupRecordStatus(record["status"]),
+                )
+                for record in data["records"]
+            ),
+            every_dns_lookup_answered=bool(data["every_dns_lookup_answered"]),
+        )
+
+
+class EmailProviderUnavailableError(Exception):
+    """The email provider could not be reached or refused the read, so the domain's state is unknown."""
+
+
 class TwilioPhoneNumber(TypedDict):
     """The fields callers read. The Twilio payload has more keys."""
 
@@ -348,6 +523,26 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class TeamUtmDefaults:
+    enabled: bool
+    params: dict[str, str]
+
+
+@frozen
+class FlowUtmUpdate:
+    actions: list[dict[str, Any]] | None
+    draft_actions: list[dict[str, Any]] | None
+    emails_updated: int
+    emails_turned_on: int
+
+
+@frozen
+class UtmDefaultsWriteResult:
+    write: "WorkflowWriteResult"
+    plan: FlowUtmUpdate
 
 
 @frozen
@@ -448,9 +643,22 @@ class Workflow:
     email_sending_paused_by: str
     email_sending_resumed_at: datetime | None
     user_access_level: str | None
+    # Tag names, sorted.
+    tags: tuple[str, ...] = ()
     # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
+
+
+@frozen
+class SuggestionsSample:
+    """Whether the live version has sent enough email for the suggestions scout to judge it."""
+
+    reached: bool
+    # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
+    tracked_sends: int
+    required_sends: int
+    version_live_since: datetime
 
 
 @frozen
@@ -469,6 +677,41 @@ class WorkflowRef:
     trigger_type: str | None
     trigger_filters: dict[str, Any]
     variables: list[dict[str, Any]] | None
+    # Read from the published steps, not the draft.
+    has_email_step: bool
+
+
+# Engagement tracking and message assets key on this id, so it stays stable across versions.
+TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
+
+
+@frozen
+class TransactionalEmailContent:
+    """What a transactional email's workflow sends, taken from the message template it was made from."""
+
+    message_template_id: UUID
+    name: str
+    subject: str
+    preheader: str
+    html: str
+    text: str
+    # None uses the project's default sender on create, and keeps the workflow's sender on update.
+    from_integration_id: int | None
+    message_category_id: UUID | None
+    # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
+    sensitive: bool = False
+    # Empty values use the sender's own address, name and default reply-to.
+    from_email: str = ""
+    from_name: str = ""
+    reply_to: str = ""
+
+
+class TransactionalEmailSenderUnavailable(Exception):
+    """No verified email sender: neither the requested one nor the project's default."""
+
+
+class TransactionalEmailContentInvalid(Exception):
+    """The content has no subject or no body, so the workflow could not send it."""
 
 
 class WorkflowNotFound(Exception):
@@ -495,6 +738,9 @@ class WorkflowListQuery:
     broadcast_eligible: bool = False
     broadcast_statuses: frozenset[str] = frozenset()
     suggestions_first: bool = False
+    # A workflow matches when it carries at least one of these tags.
+    tags: frozenset[str] = frozenset()
+    latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -654,6 +900,114 @@ class EmailDesignRenderFailed(Exception):
     pass
 
 
+# pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
+LifecycleStage = Literal["signup", "onboarding", "trial", "purchase", "churn_risk", "failure", "support", "other"]
+# The step chips a suggestion card shows.
+OutlineKind = Literal["email", "sms", "push", "slack", "webhook", "delay", "wait_until", "branch", "split", "action"]
+DataSuggestionsStatus = Literal["ready", "generating", "ai_not_approved", "unavailable"]
+
+
+@frozen
+class DataSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    trigger_event: str
+    weekly_count: int
+    stage: LifecycleStage
+    step_outline: tuple[OutlineKind, ...]
+    # Prepared ahead of time with its workflow already built, so a click creates the draft without a model call.
+    premade: bool = False
+
+
+@frozen
+class DataSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[DataSuggestion, ...]
+    # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
+    events: tuple[str, ...] = ()
+    # Whether most of the project's app events come from its mobile SDKs. Kept with the cards for the same reason.
+    mobile_first: bool = False
+
+
+DataSuggestionBuildStatus = Literal["ready", "building", "failed"]
+
+
+@frozen
+class MissingInput:
+    """A setting the draft leaves blank and the team must fill before enabling, like a webhook URL."""
+
+    step_id: str
+    step_name: str
+    field: str
+
+
+@frozen
+class BuiltSuggestion:
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready.
+    workflow: dict[str, Any] | None = None
+    uses_saved_template: bool = False
+    # Set only when the build saved the draft itself.
+    workflow_id: str | None = None
+    missing_inputs: tuple[MissingInput, ...] = ()
+
+
+@frozen
+class EventWorkflowsBuild:
+    """Draft workflows built in the background for events a team picked, one per event at most."""
+
+    status: DataSuggestionBuildStatus
+    # Set only when the status is ready. Each id is a saved draft that never runs until enabled.
+    workflow_ids: tuple[str, ...] = ()
+
+
+@frozen
+class PreparedIdeas:
+    """What `prepare_workflow_ideas` did for one project."""
+
+    status: DataSuggestionsStatus
+    stored: tuple[str, ...] = ()
+    failed_builds: int = 0
+
+
+class DataSuggestionNotFound(Exception):
+    """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+# not_yet: did one event but not the next one. regulars: did one event often. lapsed: did it before, not lately.
+AudienceKind = Literal["not_yet", "regulars", "lapsed"]
+
+
+@frozen
+class AudienceSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    kind: AudienceKind
+    event: str
+    # The event the audience has not done yet. Set only for not_yet.
+    missing_event: str | None
+    window_days: int
+    # How many times the event must happen in the window. Set only for regulars.
+    min_count: int | None
+    # People in the audience with an email address, counted when the suggestion was made.
+    reachable_count: int
+    cohort_filters: dict[str, Any]
+
+
+@frozen
+class AudienceSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[AudienceSuggestion, ...]
+
+
+class WorkflowIdeaAlreadyResolved(Exception):
+    """The premade idea was already used."""
+
+
 class EmailDraftSourceNotFound(Exception):
     """The project has no entity with that ID for the requested source."""
 
@@ -672,3 +1026,143 @@ class EmailDraft:
     text: str
     generated_by: EmailDraftOrigin
     fallback_reason: EmailDraftFallbackReason | None = None
+
+
+@frozen
+class SetupStep:
+    """One messaging setup step and whether the project has done it."""
+
+    key: SetupStepKey
+    done: bool
+
+
+@frozen
+class ImportNote:
+    """What an import changed or left out of a workflow, for the team to review before enabling it."""
+
+    level: WorkflowImportNoteLevel
+    message: str
+    # The workflow step the note is about, or None for the whole workflow.
+    step_id: str | None = None
+    step_name: str | None = None
+
+
+@frozen
+class TranslatedWorkflow:
+    source_id: str
+    name: str
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@frozen
+class CampaignSource:
+    """A Customer.io automation as its Journeys UI API returns it, with the templates its messages use."""
+
+    campaign: dict[str, Any]
+    actions: list[dict[str, Any]]
+    templates: dict[str, dict[str, Any]]
+
+
+@frozen
+class ImportSender:
+    """A PostHog email sender that an imported email sends from."""
+
+    integration_id: int
+    email: str
+    name: str
+
+
+@frozen
+class ImportCategory:
+    """The PostHog message category that stands in for a Customer.io subscription topic."""
+
+    id: str
+    category_type: str
+
+
+@frozen
+class ImportSegment:
+    name: str
+    # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
+    type: str
+
+
+@frozen
+class ImportOptions:
+    # Customer.io snippet name to its content, inlined wherever a message includes the snippet.
+    snippets: dict[str, str]
+    # Customer.io segment id to the PostHog cohort that stands in for it.
+    segment_cohorts: dict[str, int]
+    # Customer.io layout id to its HTML, which wraps the email body at `{{ content }}`.
+    layouts: dict[str, str] = field(default_factory=dict)
+    # Customer.io sender identity id to its email address.
+    sender_addresses: dict[str, str] = field(default_factory=dict)
+    # Lower-cased email address to the team's PostHog sender for it.
+    senders: dict[str, ImportSender] = field(default_factory=dict)
+    # Customer.io subscription topic id to the PostHog category made from it.
+    topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
+    # Customer.io segment id to its name and type.
+    segments: dict[str, ImportSegment] = field(default_factory=dict)
+
+
+@frozen
+class ImportContent:
+    """Automations with the content PostHog read for them, and the options to translate them with."""
+
+    sources: list[CampaignSource]
+    options: ImportOptions
+    # Per campaign id, what went wrong reading its content from Customer.io.
+    fetch_notes: dict[str, tuple[ImportNote, ...]]
+    fetched: bool
+
+
+@dataclass(frozen=False)
+class SnippetRoom:
+    """How many more bytes of snippet content one import request may inline, shared by every automation in it.
+
+    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    """
+
+    remaining: int = 5_000_000
+
+
+@frozen
+class RehostedWorkflow:
+    """An imported workflow whose email images point at copies in the team's media library."""
+
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@dataclass(frozen=False)
+class ImageBudget:
+    """How many more email images one import request may copy, and until when, shared by every automation in it."""
+
+    remaining: int = 100
+    # A `time.monotonic()` value. Downloads still running then are dropped, so a slow host can't hold the request.
+    deadline: float = field(default_factory=lambda: time.monotonic() + 60)
+    # False when the caller's token can't write to the media library, so nothing is copied.
+    can_upload: bool = True
+
+
+@frozen
+class PreviousImport:
+    """The earlier import of a source object, when there is one."""
+
+    record_id: UUID | None
+    hog_flow_id: UUID | None
+    hog_flow_is_draft: bool
+    hog_flow_created_by_id: int | None = None
+
+
+@frozen
+class WorkflowImportRecord:
+    id: UUID
+    source: str
+    source_id: str
+    source_name: str
+    hog_flow_id: UUID | None
+    notes: tuple[dict[str, Any], ...]
+    updated_at: datetime
+    hog_flow_created_by_id: int | None = None

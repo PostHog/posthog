@@ -8,10 +8,6 @@ class TestKandjiSource:
         self.team_id = 123
         self.config = KandjiSourceConfig(api_token="tok", subdomain="accuhive", region="us")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["devices"])
-        assert [s.name for s in schemas] == ["devices"]
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — powers the public docs table list.
         assert self.source.lists_tables_without_credentials is True

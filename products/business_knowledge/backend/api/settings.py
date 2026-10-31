@@ -20,19 +20,25 @@ from .. import learning_settings
 from .serializers import BusinessKnowledgeSettingsSerializer, BusinessKnowledgeSettingsUpdateSerializer
 
 
+def canonical_user_access_control(view: TeamAndOrgViewSetMixin) -> UserAccessControl:
+    """Access control for rows the parent project owns, so a child environment's own grant does not apply."""
+    team = view.team.parent_team or view.team
+    return UserAccessControl(user=cast(User, view.request.user), team=team, organization_id=view.organization_id)
+
+
 class CanonicalTeamTokenPermission(BasePermission):
-    """A token scoped only to a child environment cannot touch the parent-owned setting."""
+    """A child environment reaches parent-owned rows only when the caller can reach the parent project."""
 
     def has_permission(self, request: Request, view: Any) -> bool:
-        authenticator = getattr(request, "successful_authenticator", None)
-        if authenticator is None:
-            return True
-        scoped_teams = get_authenticator_scoped_team_ids(authenticator)
-        if not scoped_teams:
-            return True
         canonical_id = view.team.parent_team_id or view.team.id
-        if canonical_id not in scoped_teams:
+        authenticator = getattr(request, "successful_authenticator", None)
+        scoped_teams = get_authenticator_scoped_team_ids(authenticator) if authenticator is not None else None
+        if scoped_teams and canonical_id not in scoped_teams:
             self.message = f"API key does not have access to the requested project: ID {canonical_id}."
+            return False
+        # Core permissions check membership of the child only, and resource rules fall back to a default grant.
+        if view.team.parent_team_id and not canonical_user_access_control(view).has_project_access:
+            self.message = "You don't have access to the project."
             return False
         return True
 
@@ -62,8 +68,7 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
         # AccessControlPermission reads its resource-level check from here. Bind it to the
         # canonical team: the config row belongs to the parent project, so a child environment's
         # own `business_knowledge` grant must not read or change it when the parent grants `none`.
-        team = self.team.parent_team or self.team
-        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
+        return canonical_user_access_control(self)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Combined GET+PATCH is neither list nor partial_update, so the default

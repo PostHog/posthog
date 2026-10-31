@@ -1,6 +1,7 @@
 import json
 import random
 from datetime import timedelta
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,6 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import ActionsNode, FunnelsQuery, InsightVizNode
 
 from posthog.models import Person, PropertyDefinition
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 
 from products.actions.backend.models.action import Action

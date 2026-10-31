@@ -16,7 +16,3 @@ class TestSpaceliftSource:
         # Retargeting the account subdomain must force re-entering the API secret,
         # otherwise a PATCH could redirect the stored secret to an attacker's host.
         assert self.source.connection_host_fields == ["account_name"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["runs", "stacks"])
-        assert {schema.name for schema in schemas} == {"runs", "stacks"}

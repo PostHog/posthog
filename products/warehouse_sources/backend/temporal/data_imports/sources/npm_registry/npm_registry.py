@@ -80,6 +80,10 @@ def _downloads_url(package: str, start: date, end: date) -> str:
     return f"{NPM_DOWNLOADS_BASE_URL}/downloads/range/{start.isoformat()}:{end.isoformat()}/{_encode_package(package)}"
 
 
+def _version_downloads_url(package: str) -> str:
+    return f"{NPM_DOWNLOADS_BASE_URL}/versions/{_encode_package(package)}/last-week"
+
+
 def _registry_url(package: str) -> str:
     return f"{NPM_REGISTRY_BASE_URL}/{_encode_package(package)}"
 
@@ -197,6 +201,27 @@ def _iter_downloads(
         manager.save_state(NpmRegistryResumeConfig(package_index=package_index, window_start=window_start.isoformat()))
 
 
+def _iter_version_downloads(
+    session: requests.Session, package: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    # An unknown package returns 200 with an empty `downloads` map, not a 404.
+    document = _fetch_json(session, _version_downloads_url(package), logger, DOWNLOADS_REQUEST_TIMEOUT_SECONDS)
+    if document is None:
+        return
+
+    counts = document.get("downloads")
+    if not isinstance(counts, dict):
+        return
+
+    rows = [
+        {"package": package, "version": version, "downloads": downloads}
+        for version, downloads in counts.items()
+        if isinstance(downloads, int)
+    ]
+    if rows:
+        yield rows
+
+
 def _first_license(licenses: Any) -> str | None:
     """Old package manifests (pre ~2015) used a `licenses: [{"type": ...}]` array instead of the
     modern single `license` string field."""
@@ -272,6 +297,8 @@ def get_rows(
                 resume_window_start, should_use_incremental_field, db_incremental_field_last_value
             )
             yield from _iter_downloads(session, package, index, logger, resumable_source_manager, window_start)
+        elif endpoint == "VersionDownloads":
+            yield from _iter_version_downloads(session, package, logger)
         else:
             yield from _iter_versions(session, package, logger)
 

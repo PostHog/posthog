@@ -11,7 +11,9 @@ matters. Refusals are raised as the error types defined here — the caller deci
 response they become.
 """
 
+import re
 from collections.abc import Collection, Sequence
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet
@@ -20,13 +22,12 @@ from django.utils.timezone import now
 from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
-from posthog.user_permissions import UserPermissions
+from posthog.models.user_home_settings import UserHomeSettings
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -47,6 +48,10 @@ class DashboardNotEditable(Exception):
     def __init__(self, dashboard_id: int) -> None:
         super().__init__(str(dashboard_id))
         self.dashboard_id = dashboard_id
+
+
+class DashboardNotViewable(Exception):
+    """The requester may not view this dashboard."""
 
 
 class CannotAddToDashboard(DashboardNotEditable):
@@ -93,6 +98,65 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
     )
 
 
+@dataclass(frozen=True)
+class DashboardInsightTile:
+    insight_short_id: str
+    filters_overrides: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class DashboardInsights:
+    dashboard_id: int
+    name: str | None
+    filters: dict[str, Any]
+    variables: dict[str, Any] | None
+    tiles: tuple[DashboardInsightTile, ...]
+
+
+def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> DashboardInsights | None:
+    homepage = UserHomeSettings.objects.filter(team=team, user=user).values_list("homepage", flat=True).first()
+    match = re.search(r"/dashboard/(\d+)", str((homepage or {}).get("pathname") or ""))
+    dashboard_id = int(match.group(1)) if match else team.primary_dashboard_id
+    if dashboard_id is None:
+        return None
+    return dashboard_insights(team=team, user=user, dashboard_id=dashboard_id, limit=limit)
+
+
+def dashboard_insights(*, team: "Team", user: User, dashboard_id: int, limit: int) -> DashboardInsights | None:
+    return _dashboard_insights(team, user, dashboard_id, limit)
+
+
+def dashboard_insight_tile(*, team: "Team", user: User, dashboard_id: int, short_id: str) -> DashboardInsights | None:
+    found = _dashboard_insights(team, user, dashboard_id, 1, short_id=short_id)
+    return found if found is not None and found.tiles else None
+
+
+def _dashboard_insights(
+    team: "Team", user: User, dashboard_id: int, limit: int, short_id: str | None = None
+) -> DashboardInsights | None:
+    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
+    access = UserAccessControl(user=user, team=team)
+    if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
+        return None
+    insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
+    if short_id is not None:
+        insight_tiles = insight_tiles.filter(insight__short_id=short_id)
+    tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
+    return DashboardInsights(
+        dashboard_id=dashboard.id,
+        name=dashboard.name,
+        filters=dashboard.filters or {},
+        variables=dashboard.variables or None,
+        tiles=tuple(
+            DashboardInsightTile(
+                insight_short_id=tile.insight.short_id, filters_overrides=tile.filters_overrides or None
+            )
+            for tile in tiles[:limit]
+            if tile.insight is not None
+        ),
+    )
+
+
 def viewable_dashboard_ref(dashboard_id: int, *, team: "Team", user: User) -> DashboardRef | None:
     """The dashboard as a ref when it is live in this team and the user may view it, else None.
 
@@ -135,6 +199,74 @@ def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     return _refs_in_given_order(dashboard_ids)
 
 
+def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict[int, tuple[DashboardRef, ...]]:
+    """The listed dashboards each insight of this team sits on, oldest tile first, in one query.
+
+    Deleted tiles, dashboards and insights do not count. An insight on no such dashboard has no key.
+    """
+    rows = (
+        DashboardTile.objects.filter(dashboard__team_id=team_id, insight_id__in=insight_ids, insight__deleted=False)
+        .exclude(dashboard__creation_mode=Dashboard.CreationMode.UNLISTED)
+        .order_by("insight_id", "id")
+        .values_list("insight_id", "dashboard_id", "dashboard__name")
+    )
+    refs: dict[int, list[DashboardRef]] = {}
+    for insight_id, dashboard_id, name in rows:
+        refs.setdefault(insight_id, []).append(DashboardRef(id=dashboard_id, name=name))
+    return {insight_id: tuple(dashboards) for insight_id, dashboards in refs.items()}
+
+
+def insight_ids_on_dashboards_accessed_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    """Insights with a live tile on a live dashboard of these teams that someone opened since the given time.
+
+    One query. Any access counts: the app, the API, a shared link, or an embed.
+    """
+    if not team_ids:
+        return set()
+    return set(
+        DashboardTile.objects.filter(
+            dashboard__team_id__in=team_ids, dashboard__last_accessed_at__gte=since, insight_id__isnull=False
+        )
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
+
+
+def dashboard_exists(dashboard_id: int) -> bool:
+    """Whether a live dashboard has this id, in any team.
+
+    A request field that names a dashboard checks this first, and the team check follows.
+    """
+    # The caller compares the dashboard's team with its own right after this lookup.
+    # nosemgrep: idor-lookup-without-team
+    return Dashboard.objects.filter(pk=dashboard_id).exists()
+
+
+def viewable_dashboard_id(*, team_id: int, dashboard_id: int, user_access_control: UserAccessControl) -> int:
+    """The id of a live dashboard of this team that the user may view.
+
+    Raises `DashboardNotFound` when the team has no live dashboard with this id, and
+    `DashboardNotViewable` when object-level access rules hide it from the user.
+    """
+    dashboard = Dashboard.objects.filter(team_id=team_id, pk=dashboard_id).first()
+    if dashboard is None:
+        raise DashboardNotFound(str(dashboard_id))
+    if not user_access_control.check_access_level_for_object(dashboard, "viewer"):
+        raise DashboardNotViewable(str(dashboard_id))
+    return dashboard.id
+
+
+def live_tile_insight_ids(dashboard_id: int) -> list[int]:
+    """Ids of the insights on this dashboard's live tiles, leaving out deleted insights."""
+    # The caller resolved this id through a team-scoped dashboard lookup first.
+    # nosemgrep: idor-lookup-without-team
+    return list(
+        DashboardTile.objects.filter(
+            dashboard_id=dashboard_id, insight_id__isnull=False, insight__deleted=False
+        ).values_list("insight_id", flat=True)
+    )
+
+
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
     """Which of these ids are not a live dashboard of this team, in the order they were given.
 
@@ -152,10 +284,11 @@ def active_tile_count(dashboard_id: int) -> int:
     return DashboardTile.objects.filter(dashboard_id=dashboard_id).exclude(deleted=True).count()
 
 
-def tile_ids_prefetch() -> Prefetch:
-    """Prefetch of an insight's tiles carrying only the columns a basic insight payload renders."""
+def tile_ids_prefetch(lookup: str = "dashboard_tiles") -> Prefetch:
+    """Prefetch of an insight's tiles carrying only the columns a basic insight payload renders.
+    `lookup` is the path from the queryset's model to the insight's tiles."""
     return Prefetch(
-        "dashboard_tiles",
+        lookup,
         queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
     )
 
@@ -207,21 +340,72 @@ def hide_tiles_for_insights(insight_ids: Collection[int]) -> None:
     DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
 
 
-def restore_tiles_for_insights(insight_ids: Collection[int], *, user_permissions: UserPermissions) -> None:
+def _dashboard_edit_access_by_team(
+    dashboards: Collection[Dashboard], user_access_control: UserAccessControl | None
+) -> dict[int, UserAccessControl]:
+    """Resolve dashboard edit access against each dashboard's own team.
+
+    A tile's dashboard can belong to a sibling environment's team in the same project, and the
+    request-scoped UserAccessControl is bound to the requesting team. Resolving a sibling's
+    dashboard through it reads the wrong team's rules and can skip a dashboard the requester may
+    edit. `for_team_ids` returns one instance per dashboard team with the same user and
+    organization, so project scope is preserved.
+    """
+    if user_access_control is None:
+        return {}
+    return user_access_control.for_team_ids({dashboard.team_id for dashboard in dashboards})
+
+
+def insights_with_dashboard_edit_access(
+    insight_ids: Collection[int], *, user_access_control: UserAccessControl, project_id: int
+) -> set[int]:
+    tiles = list(
+        DashboardTile.objects_including_soft_deleted.filter(
+            insight_id__in=insight_ids, dashboard__team__project_id=project_id, dashboard__deleted=False
+        ).select_related("dashboard")
+    )
+    access_by_team = _dashboard_edit_access_by_team([tile.dashboard for tile in tiles], user_access_control)
+    editable: set[int] = set()
+    linked: set[int] = set()
+    limited_dashboards: dict[int, bool] = {}
+    editable_dashboards: dict[int, bool] = {}
+    for tile in tiles:
+        if tile.insight_id is None:
+            continue
+        access = access_by_team[tile.dashboard.team_id]
+        if tile.dashboard_id not in limited_dashboards:
+            limited_dashboards[tile.dashboard_id] = access.has_object_access_limit("dashboard", str(tile.dashboard_id))
+        limited = limited_dashboards[tile.dashboard_id]
+        # Hidden restricted tiles retain their policy; removed unrestricted tiles cannot grant access.
+        if tile.deleted and not limited:
+            continue
+        linked.add(tile.insight_id)
+        if tile.dashboard_id not in editable_dashboards:
+            editable_dashboards[tile.dashboard_id] = not limited or access.check_access_level_for_object(
+                tile.dashboard, "editor"
+            )
+        if editable_dashboards[tile.dashboard_id]:
+            editable.add(tile.insight_id)
+    return editable | (set(insight_ids) - linked)
+
+
+def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_control: UserAccessControl) -> None:
     """Re-activate soft-deleted tiles of these insights, on live dashboards the requester may edit.
 
     Run inside the caller's transaction: it is one half of restoring the insights themselves.
-    Mirrors the per-dashboard CAN_EDIT check membership updates apply, so a restore can't force an
-    insight back onto a dashboard the requester can only view. Tiles removed before the delete may
-    also reappear; acceptable for the immediate-undo case this backs.
+    Tiles removed before the delete may also reappear; acceptable for the immediate-undo case
+    this backs.
     """
-    candidate_tiles = DashboardTile.objects_including_soft_deleted.filter(
-        insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
-    ).select_related("dashboard")
+    candidate_tiles = list(
+        DashboardTile.objects_including_soft_deleted.filter(
+            insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
+        ).select_related("dashboard")
+    )
+    access_by_team = _dashboard_edit_access_by_team([tile.dashboard for tile in candidate_tiles], user_access_control)
     restorable_tile_ids = [
         tile.id
         for tile in candidate_tiles
-        if user_permissions.dashboard(tile.dashboard).effective_privilege_level == PrivilegeLevel.CAN_EDIT
+        if access_by_team[tile.dashboard.team_id].check_access_level_for_object(tile.dashboard, "editor")
     ]
     if restorable_tile_ids:
         DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(deleted=False)
@@ -257,7 +441,6 @@ def plan_insight_tile_placement(
     team_id: int,
     query: Any,
     user: User,
-    user_permissions: UserPermissions,
     user_access_control: UserAccessControl | None,
 ) -> InsightTilePlacement:
     """Check that an insight carrying `query` may be placed on these dashboards.
@@ -269,15 +452,17 @@ def plan_insight_tile_placement(
     # nosemgrep: idor-lookup-without-team (team check below)
     found = {dashboard.id: dashboard for dashboard in Dashboard.objects.filter(id__in=dashboard_ids)}
     dashboards = [found[dashboard_id] for dashboard_id in dict.fromkeys(dashboard_ids) if dashboard_id in found]
+    access_by_team = _dashboard_edit_access_by_team(dashboards, user_access_control)
     for dashboard in dashboards:
-        # Adding a tile is an edit of the dashboard, so a restricted dashboard the requester
-        # can't edit must not be writable here either.
-        if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
-            raise CannotAddToDashboard(dashboard.id)
         if dashboard.team_id != team_id:
             raise DashboardNotFound
-        # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
+        # Adding a tile is an edit of the dashboard.
+        if user_access_control is not None and not access_by_team[dashboard.team_id].check_access_level_for_object(
+            dashboard, "editor"
+        ):
+            raise CannotAddToDashboard(dashboard.id)
+        # The dashboard's public link or subscription must not expose a query the editor can't run.
+        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -287,7 +472,6 @@ def update_insight_dashboard_membership(
     dashboard_ids: Sequence[int],
     query: Any,
     user: User,
-    user_permissions: UserPermissions,
     user_access_control: UserAccessControl | None,
 ) -> MembershipChange | None:
     """Move an insight on and off dashboards until it sits on exactly `dashboard_ids`.
@@ -317,17 +501,19 @@ def update_insight_dashboard_membership(
 
     added_dashboard_ids: list[int] = []
     # nosemgrep: idor-lookup-without-team (team check after lookup)
-    for dashboard in Dashboard.objects.filter(id__in=ids_to_add):
-        # Does the requester have permission to add to this dashboard? If it is restricted, the
-        # patch would otherwise make the insight restricted too.
-        if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
-            raise CannotAddToDashboard(dashboard.id)
-
+    add_dashboards = list(Dashboard.objects.filter(id__in=ids_to_add))
+    add_access_by_team = _dashboard_edit_access_by_team(add_dashboards, user_access_control)
+    for dashboard in add_dashboards:
         if dashboard.team != insight.team:
             raise DashboardNotFound
 
-        # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
+        if user_access_control is not None and not add_access_by_team[dashboard.team_id].check_access_level_for_object(
+            dashboard, "editor"
+        ):
+            raise CannotAddToDashboard(dashboard.id)
+
+        # The dashboard's public link or subscription must not expose a query the editor can't run.
+        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
 
         tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
         if tile.deleted:
@@ -339,8 +525,12 @@ def update_insight_dashboard_membership(
     removed_dashboard_ids: list[int] = []
     if ids_to_remove:
         # nosemgrep: idor-lookup-without-team (team check after lookup)
-        for dashboard in Dashboard.objects.filter(id__in=ids_to_remove):
-            if user_permissions.dashboard(dashboard).effective_privilege_level != PrivilegeLevel.CAN_EDIT:
+        remove_dashboards = list(Dashboard.objects.filter(id__in=ids_to_remove))
+        remove_access_by_team = _dashboard_edit_access_by_team(remove_dashboards, user_access_control)
+        for dashboard in remove_dashboards:
+            if user_access_control is not None and not remove_access_by_team[
+                dashboard.team_id
+            ].check_access_level_for_object(dashboard, "editor"):
                 raise CannotRemoveFromDashboard(dashboard.id)
 
         # Capture the still-active tiles before soft-deleting so the caller can report one
@@ -361,15 +551,18 @@ __all__ = [
     "CannotRemoveFromDashboard",
     "DashboardNotEditable",
     "DashboardNotFound",
+    "DashboardNotViewable",
     "DashboardRef",
     "DashboardTileBasicSerializer",
     "InsightTilePlacement",
     "MembershipChange",
     "active_tile_count",
+    "dashboard_exists",
     "dashboard_refs",
     "hide_tiles_for_insights",
     "insight_has_listed_tile",
     "insight_ids_on_dashboard",
+    "live_tile_insight_ids",
     "plan_insight_tile_placement",
     "restore_tiles_for_insights",
     "tile_for_insight_on_dashboard",
@@ -378,4 +571,5 @@ __all__ = [
     "tile_permissions_prefetch",
     "unknown_dashboard_ids",
     "update_insight_dashboard_membership",
+    "viewable_dashboard_id",
 ]

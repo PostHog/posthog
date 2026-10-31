@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::event_restrictions::Pipeline;
 use crate::ordering::OrderingGuarantee;
-use crate::pipeline::{self, Address, Lane};
+use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane};
 use crate::v1::context::RequestContext;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -61,16 +61,19 @@ impl Destination {
     }
 
     pub fn address(&self) -> Address {
-        let lane = |pipeline, lane| Address::Lane { pipeline, lane };
         match self {
-            Self::AnalyticsMain => lane(pipeline::Pipeline::Analytics, Lane::Main),
-            Self::AnalyticsHistorical => lane(pipeline::Pipeline::Analytics, Lane::Historical),
-            Self::AnalyticsOverflow => lane(pipeline::Pipeline::Analytics, Lane::Overflow),
-            Self::AiMain => lane(pipeline::Pipeline::Ai, Lane::Main),
-            Self::AiOverflow => lane(pipeline::Pipeline::Ai, Lane::Overflow),
-            Self::ErrorTrackingMain => lane(pipeline::Pipeline::ErrorTracking, Lane::Main),
-            Self::HeatmapsMain => lane(pipeline::Pipeline::Heatmaps, Lane::Main),
-            Self::ClientWarningsMain => lane(pipeline::Pipeline::Warnings, Lane::Main),
+            Self::AnalyticsMain => Address::Lane(PipelineLane::Analytics(AnalyticsLane::Main)),
+            Self::AnalyticsHistorical => {
+                Address::Lane(PipelineLane::Analytics(AnalyticsLane::Historical))
+            }
+            Self::AnalyticsOverflow => {
+                Address::Lane(PipelineLane::Analytics(AnalyticsLane::Overflow))
+            }
+            Self::AiMain => Address::Lane(PipelineLane::Ai(AiLane::Main)),
+            Self::AiOverflow => Address::Lane(PipelineLane::Ai(AiLane::Overflow)),
+            Self::ErrorTrackingMain => Address::Lane(PipelineLane::ErrorTracking(BasicLane::Main)),
+            Self::HeatmapsMain => Address::Lane(PipelineLane::Heatmaps(BasicLane::Main)),
+            Self::ClientWarningsMain => Address::Lane(PipelineLane::Warnings(BasicLane::Main)),
             Self::Dlq => Address::Dlq,
             Self::Custom(topic) => Address::Custom(topic.clone()),
         }
@@ -118,25 +121,19 @@ mod destination_tests {
     }
 
     #[rstest::rstest]
-    #[case(Destination::AnalyticsMain, Some(V0Destination::AnalyticsMain))]
-    #[case(
-        Destination::AnalyticsHistorical,
-        Some(V0Destination::AnalyticsHistorical)
-    )]
-    #[case(Destination::AnalyticsOverflow, Some(V0Destination::AnalyticsOverflow))]
-    #[case(Destination::Dlq, Some(V0Destination::Dlq))]
-    #[case(Destination::Custom("admin_topic".into()), Some(V0Destination::Custom("admin_topic".into())))]
-    #[case(Destination::ErrorTrackingMain, Some(V0Destination::ErrorTrackingMain))]
-    #[case(Destination::HeatmapsMain, Some(V0Destination::HeatmapsMain))]
-    #[case(
-        Destination::ClientWarningsMain,
-        Some(V0Destination::ClientWarningsMain)
-    )]
-    #[case(Destination::AiMain, Some(V0Destination::AiMain))]
-    #[case(Destination::AiOverflow, Some(V0Destination::AiOverflow))]
+    #[case(Destination::AnalyticsMain, V0Destination::AnalyticsMain)]
+    #[case(Destination::AnalyticsHistorical, V0Destination::AnalyticsHistorical)]
+    #[case(Destination::AnalyticsOverflow, V0Destination::AnalyticsOverflow)]
+    #[case(Destination::Dlq, V0Destination::Dlq)]
+    #[case(Destination::Custom("admin_topic".into()), V0Destination::Custom("admin_topic".into()))]
+    #[case(Destination::ErrorTrackingMain, V0Destination::ErrorTrackingMain)]
+    #[case(Destination::HeatmapsMain, V0Destination::HeatmapsMain)]
+    #[case(Destination::ClientWarningsMain, V0Destination::ClientWarningsMain)]
+    #[case(Destination::AiMain, V0Destination::AiMain)]
+    #[case(Destination::AiOverflow, V0Destination::AiOverflow)]
     fn address_matches_the_v0_destination(
         #[case] destination: Destination,
-        #[case] expected: Option<V0Destination>,
+        #[case] expected: V0Destination,
     ) {
         let v0 = V0Destination::for_address(destination.address());
         assert_eq!(v0, expected);

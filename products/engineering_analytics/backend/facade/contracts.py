@@ -677,6 +677,34 @@ class PRLLMSpend:
     input_tokens: int
     output_tokens: int
     generations: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
+    peak_context_tokens: int
+
+
+@dataclass(frozen=True)
+class AuthorPRLLMSpend:
+    number: int
+    title: str
+    state: PRState
+    head_branch: str
+    created_at: datetime
+    llm_spend: PRLLMSpend | None
+
+
+@dataclass(frozen=True)
+class AuthorLLMSpendList:
+    items: list[AuthorPRLLMSpend]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
+class LLMSpendCoverage:
+    cost_usd: float
+    attributed_cost_usd: float
+    generations: int
+    attributed_generations: int
 
 
 @dataclass(frozen=True)
@@ -882,14 +910,12 @@ class TrunkQuarantinedTest:
     # Repo-relative path of the test's file, empty when neither the repository nor Trunk places it.
     file: str
     owner_team: str
-    # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
+    # Trunk's health verdict on the test, e.g. 'flaky' or 'broken'.
     status: str
-    # How the quarantine was applied, e.g. 'AUTO_QUARANTINE'.
-    quarantine_setting: str
     quarantined_at: datetime
     age_days: int
     overdue: bool
-    # The Trunk app's page for this test; None when the source has no org slug or the row no id.
+    # The Trunk app's page for this test; None when the row has no URL and no org slug or test id.
     trunk_url: str | None
 
 
@@ -1384,6 +1410,22 @@ class ReadyToMergeBucket:
     p50_seconds: float | None
 
 
+@dataclass(frozen=True)
+class RevertShareBucket:
+    """One time bucket of reverts among the repo's merges: PRs merged in the bucket whose title
+    names a revert (``logic/reverts.py``), over every PR merged in it, all authors and bots
+    included. Keyed on the revert's own merge time, not on the change it undid. Empty buckets are
+    zero-filled with 0 merges and a None share, so a quiet stretch is never shown as 0% reverted.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on merge time.
+    bucket_start: datetime
+    merged_pr_count: int
+    reverting_pr_count: int
+    # None when nothing merged in the bucket.
+    revert_share: float | None
+
+
 class DeliveryStage(LabeledStrEnum):
     """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
 
@@ -1444,6 +1486,13 @@ class RepoOverview:
     # so cost-per-merge ratios use the same denominator as the cost series' bucket-local merges.
     merged_pr_count: int
     merged_pr_count_prev: int
+    # Merged PRs whose title names a revert (logic/reverts.py), counted when the revert merges, not
+    # when the change it undid did. Same population as merged_pr_count.
+    reverting_pr_count: int
+    reverting_pr_count_prev: int
+    # reverting_pr_count / merged_pr_count. None when nothing merged.
+    revert_share: float | None
+    revert_share_prev: float | None
     # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
     median_open_to_merge_seconds: float | None
     median_open_to_merge_seconds_prev: float | None
@@ -1462,6 +1511,9 @@ class RepoOverview:
     # changes show up as their own delta instead of hiding inside the total.
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
+    # The slice of billable_minutes whose jobs ran on the Depot CI engine, not on GitHub Actions.
+    depot_ci_billable_minutes: float | None
+    depot_ci_billable_minutes_prev: float | None
     # Merge-queue landing stats, over merged PRs with at least one corroborated gate run
     # (logic/merge_queue.py). All authors, bots included: these measure the queue's mechanics,
     # not author behavior.
@@ -1530,6 +1582,11 @@ class RepoOverview:
     ready_to_merge_series: list[ReadyToMergeBucket]
     # Bucket width of `ready_to_merge_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     ready_to_merge_series_granularity: str
+    # Revert trend: reverting merges over all merges per bucket (all authors, bots included), oldest
+    # first, zero-filled, bucketed by `revert_share_series_granularity`. Empty buckets carry a None share.
+    revert_share_series: list[RevertShareBucket]
+    # Bucket width of `revert_share_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    revert_share_series_granularity: str
     # Bots and drafts excluded, unlike the headline counts above.
     delivery_pipeline: DeliveryPipeline
 
@@ -2039,6 +2096,8 @@ class PullRequestFrictionBreakdown:
     pushes_after_approval: int | None
     # None when the pull request never entered the merge queue.
     queue_seconds: float | None
+    # Gate attempts with a failed workflow run. A failed run of a check the queue does not require
+    # leaves the pull request queued, so this is an upper bound on queue removals, not a count of them.
     kickout_count: int | None
 
 

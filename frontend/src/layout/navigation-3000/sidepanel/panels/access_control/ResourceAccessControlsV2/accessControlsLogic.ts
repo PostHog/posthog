@@ -19,12 +19,12 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
+import { captureAccessControlEvent, resourceLabel } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { membersLogic } from '~/models/membersLogic'
 import {
     APIScopeObject,
     AccessControlDefaultsResponse,
@@ -44,7 +44,7 @@ import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLog
 import type { AccessControlUIVersion } from '../../../../../../lib/utils/accessControlUtils'
 import type { AccessControlResponseType, AccessControlUpdateType, RoleType } from '../../../../../../types'
 import { accessControlLogic } from '../accessControlLogic'
-import { isResourceRolledOut, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
+import { isResourceShownInAccessControls, resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { AccessDetailSubject, AccessDetailSubjectScope, parseAccessDetailOptions } from './accessDetailLogic'
 import {
@@ -774,16 +774,16 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 const rows = defaults
                     ? Object.keys(defaults.resource_access_levels)
                           .filter((resource) =>
-                              isResourceRolledOut(resource as AccessControlResourceType, featureFlags)
+                              isResourceShownInAccessControls(resource as AccessControlResourceType, featureFlags)
                           )
                           .map((resource) => ({
                               key: resource as APIScopeObject,
-                              label: toSentenceCase(pluralizeResource(resource as APIScopeObject)),
+                              label: resourceLabel(resource as APIScopeObject),
                           }))
                     : // Fallback to list of all resources while loading
                       resources.map((resource) => ({
                           key: resource,
-                          label: toSentenceCase(pluralizeResource(resource)),
+                          label: resourceLabel(resource),
                       }))
                 return rows.sort((a, b) => a.label.localeCompare(b.label))
             },

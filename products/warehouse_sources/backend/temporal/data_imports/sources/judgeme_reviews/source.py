@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JudgeMeReviewsSource(ResumableSource[JudgeMeReviewsSourceConfig, JudgeMeReviewsResumeConfig]):
+    codebase_detection = detect(env=("^(JUDGE_ME_REVIEWS|JUDGEMEREVIEWS)_",), script_hosts=("cdnwidget.judge.me",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://judge.me/api/docs"
 
@@ -45,7 +48,7 @@ class JudgeMeReviewsSource(ResumableSource[JudgeMeReviewsSourceConfig, JudgeMeRe
             name=ExternalDataSourceType.JUDGEMEREVIEWS,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Judge.me Reviews",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your shop domain and private API token to pull your Judge.me product reviews into the PostHog Data warehouse.
 
 You can find your private API token under **Settings → Integrations → Judge.me API** in the [Judge.me admin](https://judge.me). Use the **private** token — the public token cannot read reviews. The shop domain is your store's `myshopify.com` domain (e.g. `example.myshopify.com`).

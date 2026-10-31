@@ -2,7 +2,6 @@ import {
     MakeLogicType,
     actions,
     afterMount,
-    beforeUnmount,
     connect,
     getContext,
     kea,
@@ -19,14 +18,15 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { todayViewsLogic } from '~/layout/today/todayViewsLogic'
 import { Breadcrumb, SidePanelTab, UserType } from '~/types'
 
 import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
@@ -208,13 +208,6 @@ export interface canvasSceneLogicActions {
         canvasId: string
         tab: import('../sidePanel/canvasPanelTabs').CanvasPanelTab
     } // canvasSidePanelLogic
-    setOpenCanvasBuilding: (
-        canvasId: string,
-        building: boolean | null
-    ) => {
-        building: boolean | null
-        canvasId: string
-    } // todayViewsLogic
     buildAction: (
         action: CanvasBuildActionActionEnumApi,
         buildId: string
@@ -422,7 +415,13 @@ export interface canvasSceneLogicMeta {
             isGenerating: boolean,
             buildStatus: CanvasBuildStatus
         ) => boolean
-        breadcrumbs: (canvas: CanvasApi | null, space: CanvasSpace | null, arg: string) => Breadcrumb[]
+        breadcrumbs: (
+            canvas: CanvasApi | null,
+            space: CanvasSpace | null,
+            arg: string,
+            searchParams: Record<string, any>,
+            featureFlags: FeatureFlagsSet
+        ) => Breadcrumb[]
     }
 }
 
@@ -452,14 +451,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             ['user'],
         ],
         // Connecting keeps the Views sidebar's logic mounted, so it knows this canvas's state when it opens.
-        actions: [
-            canvasNewLogic,
-            ['clearStartHandoff'],
-            canvasSidePanelLogic,
-            ['openTab'],
-            todayViewsLogic,
-            ['setOpenCanvasBuilding'],
-        ],
+        actions: [canvasNewLogic, ['clearStartHandoff'], canvasSidePanelLogic, ['openTab']],
     })),
     actions({
         renameCanvas: (name: string) => ({ name }),
@@ -806,20 +798,37 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 !!view && (isGenerating || buildStatus === 'building'),
         ],
         breadcrumbs: [
-            (s) => [s.canvas, s.space, (_, props: CanvasSceneLogicProps) => props.id],
-            (canvas: CanvasApi | null, space: CanvasSpace | null, id: string): Breadcrumb[] => [
-                ...(space
-                    ? [{ key: 'canvas-space', name: canvasSpaceLabel(space), path: urls.taskSpace(space.id) }]
-                    : []),
-                { key: ['CanvasDetail', id], name: canvas?.name ?? 'Canvas' },
+            (s) => [
+                s.canvas,
+                s.space,
+                (_, props: CanvasSceneLogicProps) => props.id,
+                router.selectors.searchParams,
+                featureFlagLogic.selectors.featureFlags,
             ],
+            (
+                canvas: CanvasApi | null,
+                space: CanvasSpace | null,
+                id: string,
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
+            ): Breadcrumb[] => {
+                // The Analytics list that opened the canvas names the way back, like the dashboard scene allows.
+                const backLink = analyticsBackLink(searchParams, featureFlags)
+                return [
+                    ...(backLink
+                        ? [{ key: backLink.url, name: backLink.name, path: backLink.url }]
+                        : space
+                          ? [{ key: 'canvas-space', name: canvasSpaceLabel(space), path: urls.taskSpace(space.id) }]
+                          : []),
+                    { key: ['CanvasDetail', id], name: canvas?.name ?? 'Canvas' },
+                ]
+            },
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         reportBusy: () => {
             if (cache.reportedBusy !== values.busy) {
                 cache.reportedBusy = values.busy
-                actions.setOpenCanvasBuilding(props.id, values.busy)
             }
         },
         loadViewSuccess: ({ view }) => {
@@ -973,8 +982,6 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             try {
                 const canvas = await canvasesPartialUpdate(String(values.currentProjectId), props.id, { name: trimmed })
                 actions.canvasUpdated(canvas)
-                // The Views sidebar lists canvases by name.
-                todayViewsLogic.findMounted()?.actions.loadRecentViews()
             } catch (error) {
                 toast.error({
                     title: "Couldn't rename the canvas",
@@ -1044,7 +1051,6 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 const unrestored = await restoreCanvasTasks(projectId, restoreTasks)
                 actions.canvasUpdated(updated)
                 actions.loadSpace()
-                todayViewsLogic.findMounted()?.actions.loadRecentViews()
                 captureCanvasAction('visibility_change', { ...properties, channel_id: spaceId, success: true })
                 toast.success(
                     visibility
@@ -1202,8 +1208,5 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         actions.loadView()
         actions.loadBuilds()
         actions.syncSidePanel()
-    }),
-    beforeUnmount(({ actions, props }) => {
-        actions.setOpenCanvasBuilding(props.id, null)
     }),
 ])

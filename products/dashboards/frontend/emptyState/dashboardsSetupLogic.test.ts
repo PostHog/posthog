@@ -49,6 +49,28 @@ describe('dashboardsSetupLogic', () => {
         expect(productSetupStatusLogic({ productKey: ProductKey.DASHBOARDS }).values.status).toBe('has-data')
     })
 
+    it.each(['single', 'bulk'] as const)(
+        'returns to setup after the last visible dashboard is deleted through %s deletion',
+        async (method) => {
+            listSpy.mockResolvedValueOnce({ count: 1, results: [] }).mockImplementation(async (_, params) => ({
+                count: params?.exclude_generated ? 0 : 1,
+                results: [],
+            }))
+            const logic = dashboardsSetupLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(productSetupStatusLogic({ productKey: ProductKey.DASHBOARDS }).values.status).toBe('has-data')
+
+            if (method === 'bulk') {
+                dashboardsModel.actions.bulkDeleteDashboardsSuccess({ deleted: [1], skipped: [] })
+            } else {
+                dashboardsModel.actions.deleteDashboardSuccess({ id: 1, name: 'Last', deleted: true } as any)
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            expect(productSetupStatusLogic({ productKey: ProductKey.DASHBOARDS }).values.status).toBe('needs-setup')
+        }
+    )
+
     it('fails open to unknown when the count query fails before any answer', async () => {
         listSpy.mockRejectedValue(new Error('network down'))
         const logic = dashboardsSetupLogic()

@@ -10,6 +10,17 @@ ui_apps:
         type: detail
         view_prop: data
         link_prop: openLink
+    explain-chart:
+        type: custom
+        app_name: PostHog Chart Explanation
+        description: A trends chart with the moments that stand out highlighted, explained one chapter at a time.
+        render_ui:
+            component_import: ../components/ExplainChart
+            view_component: ExplainChart
+            view_prop: data
+            data_type: ExplainChartData
+            link_prop: openLink
+            app_prop: app
 tools:
     elements-stats-retrieve:
         operation: elements_stats_retrieve
@@ -28,6 +39,7 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
+        reads_ingested_data: events
     insight-create:
         operation: insights_create
         enabled: true
@@ -51,7 +63,8 @@ tools:
 
             Put the insight definition in `query.source`, under the wrapper node that matches it. Use
 
-            `InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:
+            `InsightVizNode` for a product analytics chart, `DataVisualizationNode` for a SQL visualization, and
+            `DataTableNode` with an `EventsQuery` source for a table of individual events:
 
 
             ```json
@@ -61,10 +74,21 @@ tools:
 
             ```
 
+            Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
+            so a query you just ran through one of the `query-*` tools can be passed straight through.
 
-            A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
 
-            wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
+            A saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`,
+            replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}`
+            placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in
+            `query.source.filters.dateRange`, for example `{"date_from": "-30d"}`. A fixed window ignores the date
+            picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and
+            test-account filters. For a table without a `timestamp` column, bind its date column with
+            `{filters(created_at AS timestamp)}`.
+
+
+            Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
+            `InsightVizNode`.
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:
@@ -125,7 +149,9 @@ tools:
             pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
             newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
             already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
-            nothing about alerts. Wait for the user to accept before creating an alert.
+            nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual
+            changes, check the final saved insight once if browser access is already available. Skip browser checks for
+            small edits.
         exclude_params:
             - query
         include_params:
@@ -143,7 +169,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -223,7 +249,10 @@ tools:
         description: >
             Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
-            tool with the same identifier if you want to see the recomputed results.
+            tool with the same identifier if you want to see the recomputed results. Query uses the same format as
+            insight-create. Replacing query replaces the entire definition; include all filters and visualization
+            settings you want to retain. After substantial visual changes, check the final saved insight once if browser
+            access is already available. Skip browser checks for small edits.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
@@ -263,7 +292,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result

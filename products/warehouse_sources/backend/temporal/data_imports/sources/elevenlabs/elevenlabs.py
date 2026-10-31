@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
@@ -16,12 +16,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs.settings import (
     ELEVENLABS_ENDPOINTS,
@@ -30,9 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elevenlabs
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
 REDACTED = "[REDACTED]"
-# Webhook tools can carry literal credentials in their configured request headers, and executions echo
-# the headers that were sent. Warehouse readers must not be able to read them back.
-SECRET_BEARING_ENDPOINTS = frozenset({"tools", "tool_executions"})
 
 
 @dataclasses.dataclass
@@ -84,6 +81,25 @@ def _redact_tool_secrets(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _redact_phone_number_secrets(row: dict[str, Any]) -> dict[str, Any]:
+    # `provider_config` is the deprecated alias of `outbound_trunk`, so both carry the same SIP headers.
+    for key in ("outbound_trunk", "provider_config"):
+        trunk = row.get(key)
+        if isinstance(trunk, dict) and "headers" in trunk:
+            trunk["headers"] = _redact_header_values(trunk["headers"])
+    return row
+
+
+# Webhook tools can carry literal credentials in their configured request headers, executions echo the
+# headers that were sent, and SIP trunks can send custom auth headers on each call. Warehouse readers
+# must not be able to read them back.
+SECRET_REDACTORS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+    "tools": _redact_tool_secrets,
+    "tool_executions": _redact_tool_secrets,
+    "phone_numbers": _redact_phone_number_secrets,
+}
+
+
 def _build_params(
     config: ElevenLabsEndpointConfig,
     should_use_incremental_field: bool,
@@ -96,7 +112,7 @@ def _build_params(
     API keeps the time-window filter alongside the cursor), so pagination terminates at `has_more`
     rather than re-walking full history each incremental run.
     """
-    params: dict[str, Any] = {} if config.page_size is None else {"page_size": config.page_size}
+    params: dict[str, Any] = {} if config.page_size is None else {config.page_size_param: config.page_size}
     params.update(config.extra_params)
 
     if (
@@ -163,6 +179,8 @@ class ElevenLabsCursorPaginator(BasePaginator):
 
 
 def _paginator(config: ElevenLabsEndpointConfig) -> BasePaginator:
+    if config.page_number_param is not None:
+        return PageNumberPaginator(base_page=1, page_param=config.page_number_param)
     if config.cursor_param is None or config.cursor_response_key is None:
         return SinglePagePaginator()
     return ElevenLabsCursorPaginator(config.cursor_param, config.cursor_response_key)
@@ -182,13 +200,35 @@ def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
     }
 
 
+_INVALID_API_KEY_MESSAGE = (
+    "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
+    "ElevenLabs account settings, then try again."
+)
+
+_PAYMENT_REQUIRED_MESSAGE = (
+    "Your ElevenLabs account is out of credits, or this data needs a plan upgrade. Check your "
+    "ElevenLabs billing and plan, then try again."
+)
+
+
+def _is_missing_permission(response: Response) -> bool:
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(detail, dict) and detail.get("status") == "missing_permissions"
+
+
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     """Probe the API key. 200 => valid. 401 => invalid key. 403 => valid key missing a scope.
 
-    At source-create (`schema_name=None`) a 403 is accepted: users may grant only the scopes for the
-    endpoints they want, so a missing scope must not block connecting. When probing a specific schema
-    a 403 is a genuine per-table scope error and is surfaced. Sync-time 403s are handled separately by
-    `get_non_retryable_errors`.
+    ElevenLabs also answers a valid key that lacks a scope with a 401 whose body carries
+    `detail.status == "missing_permissions"`, so that 401 is a missing scope too, not an invalid key.
+
+    At source-create (`schema_name=None`) a missing scope is accepted: users may grant only the scopes
+    for the endpoints they want, so a missing scope must not block connecting. When probing a specific
+    schema it is a genuine per-table scope error and is surfaced. Sync-time 403s are handled separately
+    by `get_non_retryable_errors`.
 
     Any other status (429, 5xx, or an unexpected code) means the key was never actually verified, so
     validation fails rather than saving an unverified key as valid — the user can retry a transient blip.
@@ -198,36 +238,39 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     if config is not None and config.fanout is not None:
         config = ELEVENLABS_ENDPOINTS[config.fanout.parent_name]
     probe_path = config.path if config else "/v1/user"
-    # Bake the probe's page_size into the URL: validate_via_probe issues a bare GET with no params.
-    url = f"{ELEVENLABS_BASE_URL}{probe_path}{'?page_size=1' if config and config.page_size else ''}"
+    # Bake the probe's page_size into the URL: the probe issues a bare GET with no params.
+    url = f"{ELEVENLABS_BASE_URL}{probe_path}{f'?{config.page_size_param}=1' if config and config.page_size else ''}"
 
     # Don't follow redirects: requests preserves the custom `xi-api-key` header across a cross-origin
     # 3xx, so a redirect off the fixed API host could replay the key to another origin.
-    _ok, status = validate_via_probe(
-        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
-        url,
-        headers=_get_headers(api_key),
-    )
-
-    if status is None:
+    try:
+        response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
+            url, headers=_get_headers(api_key), timeout=10.0, allow_redirects=False
+        )
+    except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
         return False, "Could not reach the ElevenLabs API. Please try again."
+
+    status = response.status_code
     if status == 200:
         return True, None
-    if status == 401:
-        return (
-            False,
-            "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
-            "ElevenLabs account settings, then try again.",
-        )
-    if status == 403:
+    if status == 403 or (status == 401 and _is_missing_permission(response)):
         if schema_name is None:
             return True, None
-        return False, f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`."
-    # A 4xx other than the 401/403 above (a 400 is what users actually hit) is a deterministic client
-    # error: the key was rejected and retrying sends the same request, so treat it as an invalid key
-    # rather than a transient "try again". 429 is a rate limit and stays retryable below.
+        return False, (
+            f"Your ElevenLabs API key is missing the permission required to sync `{schema_name}`. "
+            "Grant it on the key in your ElevenLabs account settings, then try again."
+        )
+    if status == 401:
+        return False, _INVALID_API_KEY_MESSAGE
+    if status == 402:
+        # Payment required is a billing/plan problem, not a bad key — retrying or rotating the key
+        # can't fix it. Sync-time 402s are handled separately by `get_non_retryable_errors`.
+        return False, _PAYMENT_REQUIRED_MESSAGE
+    # A 4xx other than the 401/402/403 above (a 400 is what users actually hit) is a deterministic
+    # client error: the key was rejected and retrying sends the same request, so treat it as an
+    # invalid key rather than a transient "try again". 429 is a rate limit and stays retryable below.
     if 400 <= status < 500 and status != 429:
-        return False, "Invalid ElevenLabs API key"
+        return False, _INVALID_API_KEY_MESSAGE
     # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
     # can retry, rather than saving a source that only fails on its first sync.
     return False, f"Could not verify the ElevenLabs API key (status {status}). Please try again."
@@ -281,11 +324,11 @@ def elevenlabs_source(
                 },
                 child_endpoint_extra={"paginator": _paginator(config), "data_selector": config.items_key},
                 child_params_extra=params,
-                page_size_param="page_size",
+                page_size_param=config.page_size_param,
             ),
         )
-        if endpoint in SECRET_BEARING_ENDPOINTS:
-            resource.add_map(_redact_tool_secrets)
+        if endpoint in SECRET_REDACTORS:
+            resource.add_map(SECRET_REDACTORS[endpoint])
         return SourceResponse(
             name=endpoint,
             items=lambda: resource,
@@ -330,8 +373,8 @@ def elevenlabs_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
-    if endpoint in SECRET_BEARING_ENDPOINTS:
-        resource.add_map(_redact_tool_secrets)
+    if endpoint in SECRET_REDACTORS:
+        resource.add_map(SECRET_REDACTORS[endpoint])
 
     return SourceResponse(
         name=endpoint,

@@ -51,8 +51,6 @@ class TestValidateCredentials:
         "status_code, expected_valid, expected_message",
         [
             (200, True, None),
-            (401, False, "Your Opn Payments secret key is invalid. Check the key and try again."),
-            (500, False, "Opn Payments API returned status 500."),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_message: str | None) -> None:

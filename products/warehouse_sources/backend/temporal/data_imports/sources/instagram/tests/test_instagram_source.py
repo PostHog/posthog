@@ -97,6 +97,10 @@ class TestInstagramSource:
             f"{PERMISSION_ERROR_PREFIX}: status=400, code=10, message=Application does not have permission",
             "Failed to refresh the Instagram connection",
             "Integration not found: 7",
+            "Instagram API error: status=400, code=100, message=Unsupported get request. Object with ID "
+            "'17841400000000000' does not exist, cannot be loaded due to missing permissions, or does not "
+            "support this operation. Please read the Graph API documentation at "
+            "https://developers.facebook.com/docs/graph-api",
         ],
     )
     def test_auth_and_scope_failures_stop_the_source_instead_of_retrying(self, observed_error: str) -> None:
@@ -211,7 +215,7 @@ class TestInstagramSource:
         assert result.response is not None and result.response.name == "media"
         assert result.paths == [f"/{pinned_version}/{ACCOUNT_ID}/media"]
         assert result.requests[0].headers["authorization"] == "Bearer refreshed-token"
-        assert result.params("since") == ["1717200000"]
+        assert result.params("since") == ["1704067200"]
 
     def test_a_full_refresh_run_never_forwards_a_watermark(self) -> None:
         with mock.patch.object(InstagramSource, "_access_token", return_value="tok"):

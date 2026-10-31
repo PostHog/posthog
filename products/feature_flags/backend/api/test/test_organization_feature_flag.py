@@ -30,7 +30,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.api.organization_feature_flag import (
     EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING,
     MAX_COPY_FLAGS_TARGET_PROJECTS,
@@ -639,7 +639,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         )
 
         # The following instances must remain linked to the existing flag after overwriting it
-        experiment = Experiment.objects.create(team=self.team_2, created_by=self.user, feature_flag_id=existing_flag.id)
+        experiment_id = create_experiment(
+            team_id=self.team_2.id, feature_flag_id=existing_flag.id, created_by_id=self.user.id
+        )
         survey = Survey.objects.create(team=self.team, created_by=self.user, linked_flag=existing_flag)
         feature = EarlyAccessFeature.objects.create(
             team=self.team,
@@ -730,7 +732,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         # Linked instances must remain linked
         assert flag_response["created_by"]["id"] == self.user.id
-        assert experiment.id == flag_response["experiment_set"][0]
+        assert experiment_id == flag_response["experiment_set"][0]
         assert str(survey.id) == flag_response["surveys"][0]["id"]
         assert str(feature.id) == flag_response["features"][0]["id"]
         assert analytics_dashboard.id == flag_response["analytics_dashboards"][0]
@@ -848,8 +850,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         existing_deleted_flag.save()
 
         # Experiments restrict deleting soft-deleted flags
-        Experiment.objects.create(
-            team=target_project_2, created_by=self.user, feature_flag_id=existing_deleted_flag2.id
+        create_experiment(
+            team_id=target_project_2.id, feature_flag_id=existing_deleted_flag2.id, created_by_id=self.user.id
         )
 
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -1502,6 +1504,34 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
                 traverse(next_cohort, index + 1)
 
         traverse(destination_head_cohort, 0)
+
+    def test_copy_feature_flag_fails_for_target_when_cohort_includes_deleted_cohort(self):
+        deleted_cohort = Cohort.objects.create(team=self.team, name="deleted child", deleted=True)
+        head_cohort = Cohort.objects.create(
+            team=self.team,
+            name="head",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "id", "type": "cohort", "value": deleted_cohort.pk}],
+                }
+            },
+        )
+        self.feature_flag_to_copy.filters = {
+            "groups": [{"properties": [{"key": "id", "type": "cohort", "value": head_cohort.pk}]}]
+        }
+        self.feature_flag_to_copy.save()
+
+        response = self._post_copy_flag(self.feature_flag_to_copy)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual(body["success"], [])
+        self.assertEqual(len(body["failed"]), 1)
+        self.assertEqual(body["failed"][0]["project_id"], self.team_2.id)
+        self.assertIn("cohort_does_not_exist", body["failed"][0]["error_message"])
+        self.assertFalse(Cohort.objects.filter(team_id=self.team_2.id).exists())
+        self.assertFalse(FeatureFlag.objects.filter(team_id=self.team_2.id, key=self.feature_flag_key).exists())
 
     def test_copy_feature_flag_destination_cohort_not_overridden(self):
         cohort_name = "cohort-1"
@@ -2775,7 +2805,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             key=source_dependency.key,
             deleted=True,
         )
-        Experiment.objects.create(team=self.team_2, created_by=self.user, feature_flag_id=blocked_tombstone.id)
+        create_experiment(team_id=self.team_2.id, feature_flag_id=blocked_tombstone.id, created_by_id=self.user.id)
 
         response = self._post_copy_flag(
             flag_to_copy,

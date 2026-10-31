@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PrintifySource(ResumableSource[PrintifySourceConfig, PrintifyResumeConfig]):
+    codebase_detection = detect(env=("^PRINTIFY_",))
+
     api_docs_url = "https://developers.printify.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -45,7 +48,7 @@ class PrintifySource(ResumableSource[PrintifySourceConfig, PrintifyResumeConfig]
             name=ExternalDataSourceType.PRINTIFY,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Printify",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Printify personal access token to pull your print-on-demand data into the PostHog Data warehouse.
 
 You can generate a token under **My Profile → Connections** in [Printify](https://printify.com). The token needs the `shops.read`, `products.read`, `orders.read`, `uploads.read`, `webhooks.read`, and `catalog.read` scopes. Personal access tokens expire after one year.

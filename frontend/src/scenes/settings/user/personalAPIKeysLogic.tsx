@@ -9,6 +9,7 @@ import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
@@ -39,6 +40,30 @@ export type EditingKeyFormValues = Pick<
 > & {
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
+    expiration?: KeyExpirationOption
+}
+
+/** `keep` leaves an edited key's expiry as it is. The day counts start when the form is saved. */
+export type KeyExpirationOption = 'keep' | 'never' | '1' | '7' | '30' | '90' | '365'
+
+export function isExpired(expiresAt: string | null | undefined, now: dayjs.Dayjs = dayjs()): boolean {
+    return !!expiresAt && !dayjs(expiresAt).isAfter(now)
+}
+
+/** The `expires_at` to send for the chosen option, or undefined to leave it unchanged. */
+export function expiresAtForOption(
+    expiration: KeyExpirationOption | undefined,
+    now: dayjs.Dayjs = dayjs()
+): string | null | undefined {
+    switch (expiration) {
+        case undefined:
+        case 'keep':
+            return undefined
+        case 'never':
+            return null
+        default:
+            return now.add(Number(expiration), 'day').toISOString()
+    }
 }
 
 /** A picker row for a personal API key, with the scope it stands for so the search can match it. */
@@ -182,7 +207,11 @@ export interface personalAPIKeysLogicActions {
     resetScopes: () => {
         value: true
     }
-    rollKey: (id: PersonalAPIKeyType['id']) => {
+    rollKey: (
+        id: PersonalAPIKeyType['id'],
+        expiresAt?: string | null
+    ) => {
+        expiresAt: string | null | undefined
         id: string
     }
     rollKeyFailure: (
@@ -195,11 +224,13 @@ export interface personalAPIKeysLogicActions {
     rollKeySuccess: (
         keys: PersonalAPIKeyType[],
         payload?: {
+            expiresAt: string | null | undefined
             id: string
         }
     ) => {
         keys: PersonalAPIKeyType[]
         payload?: {
+            expiresAt: string | null | undefined
             id: string
         }
     }
@@ -331,7 +362,8 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         }),
         updateKey: (data: Partial<Pick<PersonalAPIKeyType, 'label' | 'scopes'>>) => data,
         deleteKey: (id: PersonalAPIKeyType['id']) => ({ id }),
-        rollKey: (id: PersonalAPIKeyType['id']) => ({ id }),
+        // `expiresAt` undefined keeps the key's current expiry; null removes it.
+        rollKey: (id: PersonalAPIKeyType['id'], expiresAt?: string | null) => ({ id, expiresAt }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         setScopeGroupAccess: (keys: string[], level: ScopeAccessLevel) => ({ keys, level }),
         resetScopes: true,
@@ -372,13 +404,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     await api.personalApiKeys.delete(id)
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
                 },
-                rollKey: async ({ id }) => {
+                rollKey: async ({ id, expiresAt }) => {
                     const origKey = values.keys.find((filteredKey) => filteredKey.id == id)
                     if (!origKey) {
                         return values.keys
                     }
 
-                    const rolledKey = await api.personalApiKeys.roll(id)
+                    const rolledKey = await api.personalApiKeys.roll(
+                        id,
+                        expiresAt !== undefined ? { expires_at: expiresAt } : {}
+                    )
                     actions.showRollKeySuccessDialog(rolledKey, origKey.mask_value)
 
                     // avoid persisting the raw value in state
@@ -407,6 +442,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 scoped_organizations: [],
                 scoped_teams: [],
                 access_type: undefined,
+                expiration: 'never',
             } as EditingKeyFormValues,
             errors: ({ label, access_type, scopes, scoped_organizations, scoped_teams }) => ({
                 label: !label ? 'Your personal API key needs a label' : undefined,
@@ -439,7 +475,13 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         const [object] = scope.split(':')
                         return !!object && allowed.has(object)
                     }) ?? []
-                const sanitizedPayload = { ...payload, scopes: sanitizedScopes }
+                const { expiration, ...rest } = payload
+                const expiresAt = expiresAtForOption(expiration)
+                const sanitizedPayload = {
+                    ...rest,
+                    scopes: sanitizedScopes,
+                    ...(expiresAt !== undefined ? { expires_at: expiresAt } : {}),
+                }
 
                 const key =
                     values.editingKeyId === 'new'
@@ -758,6 +800,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                           : id !== 'new'
                             ? 'all'
                             : undefined,
+                    expiration: key?.expires_at ? 'keep' : 'never',
                 }
 
                 actions.resetEditingKey(formValues)

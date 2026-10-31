@@ -1,6 +1,8 @@
 import { IconSearch } from '@posthog/icons'
 import {
     Button,
+    Card,
+    CardGroup,
     Empty,
     EmptyDescription,
     EmptyHeader,
@@ -8,12 +10,9 @@ import {
     InputGroup,
     InputGroupAddon,
     InputGroupInput,
-    Item,
-    ItemContent,
-    ItemDescription,
-    ItemGroup,
-    ItemTitle,
     Skeleton,
+    Text,
+    cn,
 } from '@posthog/quill-primitives'
 
 import type { WizardProgramApi } from '../generated/api.schemas'
@@ -88,31 +87,52 @@ export function WizardProgramList({
                         </Empty>
                     )
                 ) : (
-                    <ItemGroup combined>
-                        {programs.map((program) => (
-                            <Item
-                                key={program.id}
-                                variant="pressable"
-                                className={
-                                    selectedProgram?.id === program.id
-                                        ? 'z-[1] border-ring bg-fill-selected shadow-none'
-                                        : 'shadow-none'
-                                }
-                                render={<button type="button" onClick={() => onSelect(program)} />}
-                            >
-                                <ItemContent>
-                                    <ItemTitle>{program.name}</ItemTitle>
-                                    <ItemDescription>{program.description}</ItemDescription>
-                                </ItemContent>
-                                <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-                                    {program.supported_environments
-                                        .filter((environment) => WIZARD_LOCAL_RUNS_VISIBLE || environment === 'cloud')
-                                        .map((environment) => (environment === 'cloud' ? 'Cloud' : 'Local'))
-                                        .join(' · ')}
-                                </span>
-                            </Item>
-                        ))}
-                    </ItemGroup>
+                    <CardGroup>
+                        {programs.map((program) => {
+                            const selected = selectedProgram?.id === program.id
+                            return (
+                                <Card key={program.id} size="sm" className="p-0">
+                                    <button
+                                        type="button"
+                                        onClick={() => onSelect(program)}
+                                        aria-pressed={selected}
+                                        className={cn(
+                                            'flex w-full min-w-0 cursor-pointer items-center gap-3 px-3 py-2.5 text-start hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30',
+                                            selected && 'bg-fill-selected hover:bg-fill-selected'
+                                        )}
+                                    >
+                                        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                            <Text
+                                                size="sm"
+                                                weight="medium"
+                                                render={<span />}
+                                                className="block truncate"
+                                            >
+                                                {program.name}
+                                            </Text>
+                                            <Text size="xs" variant="muted" render={<span />} className="block">
+                                                {program.description}
+                                            </Text>
+                                        </span>
+                                        <Text
+                                            size="xs"
+                                            variant="muted"
+                                            render={<span />}
+                                            className="shrink-0 whitespace-nowrap"
+                                        >
+                                            {program.supported_environments
+                                                .filter(
+                                                    (environment) =>
+                                                        WIZARD_LOCAL_RUNS_VISIBLE || environment === 'cloud'
+                                                )
+                                                .map((environment) => (environment === 'cloud' ? 'Cloud' : 'Local'))
+                                                .join(' · ')}
+                                        </Text>
+                                    </button>
+                                </Card>
+                            )
+                        })}
+                    </CardGroup>
                 )}
             </div>
         </div>

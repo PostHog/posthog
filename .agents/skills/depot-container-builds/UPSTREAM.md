@@ -3,7 +3,7 @@
 Vendored from [depot/skills](https://github.com/depot/skills) — used by PostHog's container-image CI/CD (`depot/build-push-action`, `depot/setup-action`).
 
 - Source: `skills/depot-container-builds/SKILL.md`
-- Commit: [`81795ab`](https://github.com/depot/skills/tree/81795abf98f81fb112cda35720e19b2aa3efa640/skills/depot-container-builds) (2026-09-01)
+- Commit: [`71f008d`](https://github.com/depot/skills/tree/71f008de4dbfa8625ece3df85019bc914b9399a0/skills/depot-container-builds) (2026-10-15)
 - License: none in upstream at this commit; README documents `cp SKILL.md` install.
 
 ## Local additions

@@ -15,7 +15,6 @@ import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
-import { MaybePhaiOnboarding } from 'scenes/max/components/MaybePhaiOnboarding'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -26,10 +25,9 @@ import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { traceDialogOpenLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogOpenLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
-import { navigationLogic } from './navigation/navigationLogic'
-import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
 
 // The session player modal anchors the entire replay player graph; loading it only when a
 // recording is opened keeps that graph out of the chunk every logged-in page downloads.
@@ -46,10 +44,22 @@ const LogsViewerModal = lazyWithRetry(() =>
     }))
 )
 
+const TraceDialog = lazyWithRetry(() =>
+    import('products/tracing/frontend/components/TraceDialog/TraceDialog').then((m) => ({
+        default: m.TraceDialog,
+    }))
+)
+
 // The compose ticket modal anchors the support rich text editor (tiptap and prosemirror).
 const ComposeTicketModal = lazyWithRetry(() =>
     import('products/conversations/frontend/components/ComposeTicket/ComposeTicketModal').then((m) => ({
         default: m.ComposeTicketModal,
+    }))
+)
+
+const MaybePhaiOnboarding = lazyWithRetry(() =>
+    import('scenes/max/components/MaybePhaiOnboarding').then((m) => ({
+        default: m.MaybePhaiOnboarding,
     }))
 )
 
@@ -61,13 +71,13 @@ export function GlobalModals(): JSX.Element {
     // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
     const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
     const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
+    const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
+    const shouldRenderTraceDialog = useKeepMountedWhileOpen(isTraceDialogOpen)
     const { isOpen: isComposeTicketModalOpen } = useValues(composeTicketLogic)
     const shouldRenderComposeTicketModal = useKeepMountedWhileOpen(isComposeTicketModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
-    const { isConfigureHomeModalOpen } = useValues(navigationLogic)
-    const { hideConfigureHomeModal } = useActions(navigationLogic)
 
     return (
         <>
@@ -86,6 +96,11 @@ export function GlobalModals(): JSX.Element {
                     <LogsViewerModal />
                 </Suspense>
             ) : null}
+            {shouldRenderTraceDialog ? (
+                <Suspense fallback={null}>
+                    <TraceDialog />
+                </Suspense>
+            ) : null}
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
             <HedgehogMode />
@@ -95,10 +110,11 @@ export function GlobalModals(): JSX.Element {
             <LinkToModal />
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
-            <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
             <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
-            <MaybePhaiOnboarding />
+            <Suspense fallback={null}>
+                <MaybePhaiOnboarding />
+            </Suspense>
             {shouldRenderComposeTicketModal ? (
                 <Suspense fallback={null}>
                     <ComposeTicketModal />

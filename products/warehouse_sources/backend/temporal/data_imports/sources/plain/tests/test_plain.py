@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -7,9 +8,11 @@ import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
+    SourceDriver,
     always,
     scripted_network,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.plain import PlainSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plain import (
     _datetime_to_plain_iso8601,
     _fetch_paginated_endpoint,
@@ -22,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plain.plai
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plain.queries import VIEWER_QUERY
+from products.warehouse_sources.backend.temporal.data_imports.sources.plain.source import PlainSource
 
 
 class TestFlattenNode:
@@ -80,6 +84,73 @@ class TestFlattenNode:
         assert result["firstInboundMessageAt"] == "2024-01-01T01:00:00Z"
         assert result["lastOutboundMessageAt"] is None
 
+    @pytest.mark.parametrize(
+        "node,expected",
+        [
+            (
+                {"id": "co_1", "accountOwner": {"id": "u_1"}, "deletedBy": None, "deletedAt": None},
+                {"accountOwnerId": "u_1", "deletedByType": None, "deletedById": None, "deletedAt": None},
+            ),
+            (
+                {
+                    "id": "co_2",
+                    "accountOwner": None,
+                    "deletedBy": {"actorType": "MachineUserActor", "machineUserId": "mu_1"},
+                },
+                {"accountOwnerId": None, "deletedByType": "MachineUserActor", "deletedById": "mu_1"},
+            ),
+            (
+                {"id": "lt_1", "parentLabelType": None, "archivedBy": None},
+                {"parentLabelTypeId": None, "archivedByType": None, "archivedById": None},
+            ),
+            (
+                {
+                    "id": "lt_2",
+                    "parentLabelType": {"id": "lt_1"},
+                    "archivedBy": {"actorType": "UserActor", "userId": "u_1"},
+                },
+                {"parentLabelTypeId": "lt_1", "archivedByType": "UserActor", "archivedById": "u_1"},
+            ),
+            (
+                {"id": "disc_1", "agent": None, "channelDetails": None},
+                {"agentId": None, "channelType": None},
+            ),
+            (
+                {
+                    "id": "disc_2",
+                    "agent": {"id": "mu_1"},
+                    "channelDetails": {"channelType": "ThreadDiscussionSlackChannelDetails"},
+                },
+                {"agentId": "mu_1", "channelType": "ThreadDiscussionSlackChannelDetails"},
+            ),
+            (
+                {"id": "cs_1", "template": {"type": "CSAT", "questionText": "How did we do?"}},
+                {"templateType": "CSAT", "templateQuestionText": "How did we do?"},
+            ),
+            (
+                {"id": "we_1", "manuallyTriggeredBy": None},
+                {"manuallyTriggeredByType": None, "manuallyTriggeredById": None},
+            ),
+        ],
+    )
+    def test_flattens_nullable_references_into_stable_columns(self, node, expected):
+        result = _flatten_node(node)
+
+        assert {key: result[key] for key in expected} == expected
+        assert (
+            not {
+                "accountOwner",
+                "parentLabelType",
+                "deletedBy",
+                "archivedBy",
+                "agent",
+                "channelDetails",
+                "template",
+                "manuallyTriggeredBy",
+            }
+            & result.keys()
+        )
+
 
 class TestFlattenTimelineEntry:
     def test_email_entry(self):
@@ -133,10 +204,6 @@ class TestFlattenTimelineEntry:
 
 
 class TestPlainSourcePipeline:
-    def test_unknown_endpoint_raises(self):
-        with pytest.raises(ValueError, match="Unknown Plain endpoint: made_up"):
-            plain_source(api_key="k", endpoint_name="made_up", logger=mock.MagicMock())
-
     def test_returns_source_response_with_partition_metadata(self):
         response = plain_source(api_key="k", endpoint_name="customers", logger=mock.MagicMock())
 
@@ -349,3 +416,89 @@ class TestFetchTimelineEntriesStreaming:
         assert [e["id"] for e in pages[0]] == ["te_1"]
         # Threads query first, then TIMELINE_ENTRIES_QUERY after we've seen the first edge — no second threads page expected.
         assert "ThreadIdsList" in executed_queries[0]
+
+
+def _connection_page(endpoint: str, ids: list[str], end_cursor: str | None) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "data": {
+                endpoint: {
+                    "edges": [
+                        {"node": {"id": node_id, "createdAt": {"iso8601": "2024-01-01T00:00:00Z"}}} for node_id in ids
+                    ],
+                    "pageInfo": {"hasNextPage": end_cursor is not None, "endCursor": end_cursor},
+                }
+            }
+        }
+    )
+
+
+def _run(endpoint: str, script: list[ScriptedResponse], **inputs: Any):
+    return SourceDriver(PlainSource(), PlainSourceConfig(api_key="plainApiKey_test")).run(endpoint, script, **inputs)
+
+
+class TestLookupEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint,operation",
+        [
+            ("companies", "PaginatedCompanies"),
+            ("tenants", "PaginatedTenants"),
+            ("users", "PaginatedUsers"),
+            ("label_types", "PaginatedLabelTypes"),
+            ("customer_groups", "PaginatedCustomerGroups"),
+            ("customer_surveys", "PaginatedCustomerSurveys"),
+            ("discussions", "PaginatedDiscussions"),
+            ("workflow_executions", "PaginatedWorkflowExecutions"),
+        ],
+    )
+    def test_walks_pages_until_has_next_page_is_false(self, endpoint, operation):
+        result = _run(
+            endpoint,
+            [_connection_page(endpoint, ["a", "b"], "cursor_1"), _connection_page(endpoint, ["c"], None)],
+        )
+
+        assert [row["id"] for row in result.rows] == ["a", "b", "c"]
+        assert result.rows[0]["createdAt"] == "2024-01-01T00:00:00Z"
+        bodies = [request.json() for request in result.requests]
+        assert all(f"query {operation}(" in body["query"] for body in bodies)
+        assert [body["variables"].get("after") for body in bodies] == [None, "cursor_1"]
+
+    @pytest.mark.parametrize(
+        "endpoint,incremental,expected_filter",
+        [
+            ("companies", True, {"updatedAt": {"after": "2024-03-01T12:00:00Z"}}),
+            ("tenants", True, {"updatedAt": {"after": "2024-03-01T12:00:00Z"}}),
+            ("companies", False, None),
+            ("tenants", False, None),
+        ],
+    )
+    def test_incremental_sync_sends_updated_at_filter(self, endpoint, incremental, expected_filter):
+        inputs: dict[str, Any] = (
+            {"incremental_field": "updatedAt", "db_incremental_field_last_value": datetime(2024, 3, 1, 12, tzinfo=UTC)}
+            if incremental
+            else {}
+        )
+
+        result = _run(endpoint, [_connection_page(endpoint, ["a"], None)], **inputs)
+
+        body = result.requests[0].json()
+        assert body["variables"].get("filter") == expected_filter
+        assert "$filter" in body["query"]
+
+    @pytest.mark.parametrize(
+        "endpoint,expected_sort_mode",
+        [
+            ("customers", None),
+            ("threads", None),
+            ("timeline_entries", None),
+            ("companies", "desc"),
+            ("tenants", "desc"),
+            ("users", None),
+            ("label_types", None),
+        ],
+    )
+    def test_source_for_pipeline_sets_sort_mode(self, endpoint, expected_sort_mode):
+        result = _run(endpoint, [_connection_page(endpoint, ["a"], None)])
+
+        assert result.response is not None
+        assert result.response.sort_mode == expected_sort_mode

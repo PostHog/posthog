@@ -1,4 +1,10 @@
-import { EventsHeatMapDataResult, InsightVizNode, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
+import {
+    AnyEntityNode,
+    EventsHeatMapDataResult,
+    InsightVizNode,
+    NodeKind,
+    TrendsQueryResponse,
+} from '~/queries/schema/schema-general'
 
 import {
     CalendarHeatmapAdapter,
@@ -272,22 +278,38 @@ describe('insight export adapters', () => {
             ])
         })
 
-        it('uses custom_name when available', () => {
+        it.each<[string, AnyEntityNode, string]>([
+            [
+                'a custom name',
+                { kind: NodeKind.EventsNode, event: 'pageview', custom_name: 'Page Views' },
+                'Page Views',
+            ],
+            ['a name other than the event', { kind: NodeKind.EventsNode, event: 'pageview', name: 'Views' }, 'Views'],
+            [
+                'the label when the name matches it',
+                { kind: NodeKind.EventsNode, event: 'pageview', name: 'pageview' },
+                'pageview',
+            ],
+        ])('names the series by %s', (_, node, expected) => {
             const response: TrendsQueryResponse = {
                 results: [
                     {
                         label: 'pageview',
-                        action: { custom_name: 'Page Views' } as any,
+                        order: 0,
                         data: [10, 15],
                         labels: ['2024-01-01', '2024-01-02'],
                     },
                 ],
             }
+            const renamedQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: { kind: NodeKind.TrendsQuery, series: [node] },
+            }
 
-            const adapter = new TrendsAdapter(response, trendsQuery)
+            const adapter = new TrendsAdapter(response, renamedQuery)
             const result = adapter.toTableData()
 
-            expect(result[0]).toEqual(['Date', 'Page Views'])
+            expect(result[0]).toEqual(['Date', expected])
         })
 
         it('includes compare_label when present', () => {

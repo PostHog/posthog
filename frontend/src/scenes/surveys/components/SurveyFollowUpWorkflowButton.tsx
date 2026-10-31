@@ -6,7 +6,10 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { SurveyEventName } from '~/types'
 
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
@@ -29,6 +32,7 @@ function surveyFollowUpTrigger(surveyId: string): WorkflowTriggerConfig {
 }
 
 export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string }): JSX.Element {
+    const accessDisabledReason = messageAudienceAccessDisabledReason()
     return (
         <ButtonPrimitive
             menuItem
@@ -39,10 +43,12 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
                     urlForNewWorkflowWithTrigger(
                         surveyFollowUpTrigger(surveyId),
                         SOURCE,
-                        draftMessage({ kind: 'survey_responded' })
+                        draftMessage({ kind: 'survey_responded' }),
+                        { source: 'survey', source_id: surveyId }
                     )
                 )
             }}
+            disabledReasons={accessDisabledReason ? { [accessDisabledReason]: true } : {}}
             data-attr="survey-start-follow-up-workflow"
         >
             <IconSend />

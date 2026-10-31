@@ -107,3 +107,7 @@ user overlap.
 Run `posthog:query-lifecycle` on the same event. A distribution shift often reflects a
 mix change — an influx of new free-tier users can pull p75 order value down while
 no existing user changed behavior.
+
+## Next
+
+Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.

@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +28,11 @@ import {
     sourceWizardLogic,
     WIZARD_DESTINATION_STEP,
 } from '../sourceWizardLogic'
+
+type Deferred = {
+    resolve: (schemas: ExternalDataSourceSyncSchema[]) => void
+    reject: (error: unknown) => void
+}
 
 function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
     // Fills the fields the wizard endpoint always sends but no case here exercises, so each
@@ -1350,12 +1357,14 @@ describe('sourceWizardLogic', () => {
             }) as ExternalDataSourceSyncSchema
 
         const mountRequiredTablesWizard = (
-            requiredTables: string[]
+            requiredTables: string[],
+            requiredTableSyncType?: 'full_refresh'
         ): { logic: ReturnType<typeof sourceWizardLogic>; onComplete: jest.Mock; unmount: () => void } => {
             const onComplete = jest.fn()
             const logic = sourceWizardLogic({
                 availableSources: { Github: githubSource },
                 requiredTables,
+                requiredTableSyncType,
                 onComplete,
             })
             const unmount = logic.mount()
@@ -1367,38 +1376,49 @@ describe('sourceWizardLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('syncs every repo-qualified row the credentials can read', async () => {
-            // Multi-repo sources name their rows `owner/repo.endpoint`, so an exact-match lookup
-            // for `issues` finds nothing and the wizard bails before creating the source. The
-            // payload forces should_sync on, so an unreadable row must not reach it.
-            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
-                apiSchema('posthog/posthog.issues'),
-                apiSchema('posthog/posthog-js.issues'),
-                apiSchema('posthog/posthog.commits'),
-                apiSchema('posthog/private.issues', { permission_error: 'Requires the "Issues" permission' }),
-            ] as ExternalDataSourceSyncSchema[])
-            const create = jest
-                .spyOn(api.externalDataSources, 'create')
-                .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
-            const createWebhook = jest.spyOn(api.externalDataSources, 'createWebhook')
+        it.each([undefined, 'full_refresh'] as const)(
+            'syncs readable repo-qualified rows with sync override %s',
+            async (requiredTableSyncType) => {
+                // Multi-repo sources name their rows `owner/repo.endpoint`, so an exact-match lookup
+                // for `issues` finds nothing and the wizard bails before creating the source. The
+                // payload forces should_sync on, so an unreadable row must not reach it.
+                jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue([
+                    apiSchema('posthog/posthog.issues', { sync_type: 'incremental' }),
+                    apiSchema('posthog/posthog-js.issues', { sync_type: 'incremental' }),
+                    apiSchema('posthog/posthog.commits'),
+                    apiSchema('posthog/private.issues', { permission_error: 'Requires the "Issues" permission' }),
+                ] as ExternalDataSourceSyncSchema[])
+                const create = jest
+                    .spyOn(api.externalDataSources, 'create')
+                    .mockResolvedValue({ id: 'source-1' } as Awaited<ReturnType<typeof api.externalDataSources.create>>)
+                const createWebhook = jest.spyOn(api.externalDataSources, 'createWebhook')
 
-            const { logic, onComplete, unmount } = mountRequiredTablesWizard(['issues'])
+                const { logic, onComplete, unmount } = mountRequiredTablesWizard(['issues'], requiredTableSyncType)
 
-            try {
-                await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
+                try {
+                    await expectLogic(logic, () => logic.actions.getDatabaseSchemas()).toFinishAllListeners()
 
-                expect(create).toHaveBeenCalledTimes(1)
-                expect(create.mock.calls[0][0].payload?.schemas).toEqual([
-                    expect.objectContaining({ name: 'posthog/posthog.issues', should_sync: true }),
-                    expect.objectContaining({ name: 'posthog/posthog-js.issues', should_sync: true }),
-                ])
-                // Poll-synced tables need no webhook, so completion must not wait on one.
-                expect(createWebhook).not.toHaveBeenCalled()
-                expect(onComplete).toHaveBeenCalled()
-            } finally {
-                unmount()
+                    expect(create).toHaveBeenCalledTimes(1)
+                    expect(create.mock.calls[0][0].payload?.schemas).toEqual([
+                        expect.objectContaining({
+                            name: 'posthog/posthog.issues',
+                            should_sync: true,
+                            sync_type: requiredTableSyncType ?? 'incremental',
+                        }),
+                        expect.objectContaining({
+                            name: 'posthog/posthog-js.issues',
+                            should_sync: true,
+                            sync_type: requiredTableSyncType ?? 'incremental',
+                        }),
+                    ])
+                    // Poll-synced tables need no webhook, so completion must not wait on one.
+                    expect(createWebhook).not.toHaveBeenCalled()
+                    expect(onComplete).toHaveBeenCalled()
+                } finally {
+                    unmount()
+                }
             }
-        })
+        )
 
         // Both leave the required table unsatisfied, so neither may create a source that reports
         // setup as complete: the first would sync nothing, the second would queue a 403 sync.
@@ -1633,6 +1653,60 @@ describe('sourceWizardLogic', () => {
 
                 logic.actions.selectConnector(null)
                 expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        const sentrySource = buildSourceConfig({ name: 'Sentry' })
+        const rejectProbe = (d: Deferred): void => d.reject({ status: 400, data: { message: 'Bad key.' } })
+        const resolveProbe = (d: Deferred): void => d.resolve([{ table: 'charges' } as ExternalDataSourceSyncSchema])
+
+        it.each([
+            { outcome: 'rejects', picked: 'another source', switchTo: [sentrySource], settle: rejectProbe },
+            { outcome: 'resolves', picked: 'another source', switchTo: [sentrySource], settle: resolveProbe },
+            {
+                outcome: 'rejects',
+                picked: 'the same source again',
+                switchTo: [sentrySource, stripeSource],
+                settle: rejectProbe,
+            },
+            {
+                outcome: 'resolves',
+                picked: 'the same source again',
+                switchTo: [sentrySource, stripeSource],
+                settle: resolveProbe,
+            },
+        ])('ignores a probe that $outcome after $picked is picked', async ({ switchTo, settle }) => {
+            const deferred = {} as Deferred
+            jest.spyOn(api.externalDataSources, 'database_schema').mockReturnValue(
+                new Promise<ExternalDataSourceSyncSchema[]>((resolve, reject) =>
+                    Object.assign(deferred, { resolve, reject })
+                )
+            )
+            const toastError = jest.spyOn(lemonToast, 'error')
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource, Sentry: sentrySource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                logic.actions.setStep(2)
+                logic.actions.getDatabaseSchemas()
+                for (const source of switchTo) {
+                    logic.actions.selectConnector(source)
+                }
+                expect(logic.values.isLoading).toBe(false)
+                settle(deferred)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values).toMatchObject({
+                    currentStep: 2,
+                    connectError: null,
+                    databaseSchema: [],
+                    isLoading: false,
+                })
+                expect(toastError).not.toHaveBeenCalled()
             } finally {
                 unmount()
             }

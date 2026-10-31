@@ -1,33 +1,60 @@
 import json
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError, connection, transaction
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
+
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
+from products.alerts_platform.backend.facade.contracts import (
+    DeliveryPath,
+    IncidentAction,
+    PlatformConfigurationSnapshot,
+    SourceKind,
+)
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
+from products.logs.backend.alert_creation import MAX_ALERTS_PER_TEAM
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_alert_backfill import (
+    backfill_platform_alert_configurations,
+    disable_platform_alert_configurations,
+    follow_logs_alert,
+    platform_upsert_of,
+)
+from products.logs.backend.platform_cutover import cut_over_team, hand_over
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
-    MAX_ALERTS_PER_TEAM,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     LogsAlertViewSet,
 )
+from products.logs.backend.tasks.tasks import follow_logs_alert_task
 
 PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
 
@@ -44,6 +71,11 @@ def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: 
         "resource_attributes": {},
         "attributes_map_str": {},
     }
+
+
+# Where a request-side delivery meets Temporal and the transports, which the tests stand in for.
+_WEB_START = "products.alerts_platform.backend.temporal.web_start"
+_NATIVE_PAGERDUTY_DELIVER = "products.alerts_platform.backend.delivery.pagerduty.PagerDutyTransport.deliver"
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -150,6 +182,43 @@ class TestLogsAlertAPI(APIBaseTest):
         assert len(results) == 2
         assert results[0]["name"] == "Alert 2"
         assert results[1]["name"] == "Alert 1"
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_a_platform_owned_alert_reports_the_platform_state(self, action: str) -> None:
+        now = datetime.now(UTC)
+        alerts = [
+            LogsAlertConfiguration.objects.create(
+                team=self.team,
+                name=f"Errors {i}",
+                filters={"severityLevels": ["error"]},
+                next_check_at=now + timedelta(minutes=3),
+                last_notified_at=now - timedelta(days=1),
+            )
+            for i in range(2)
+        ]
+        cut_over_team(self.team.id, now=now)
+        platform_due_at = now + timedelta(minutes=7)
+        with team_scope(self.team.id):
+            for alert in alerts:
+                copy_id = platform_testing.copy_of(alert.id).id
+                platform_testing.start_firing(copy_id, team_id=self.team.id, at=now)
+                platform_testing.set_due_at(copy_id, platform_due_at)
+
+        with CaptureQueriesContext(connection) as queries:
+            if action == "list":
+                response = self.client.get(self.base_url)
+                rows = response.json()["results"]
+            else:
+                response = self.client.get(f"{self.base_url}{alerts[0].id}/")
+                rows = [response.json()]
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["state"], row["next_check_at"]) for row in rows] == [
+            ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
+        ] * len(rows)
+        # One for the runtime and one for the history's ids, whatever the page size.
+        platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
+        assert len(platform_reads) == 2
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
@@ -378,6 +447,80 @@ class TestLogsAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filters"
 
+    @parameterized.expand(
+        [
+            ("created_in_a_team_running_logs_on_the_platform", "create", "running", True),
+            ("created_in_a_team_outside_the_sample", "create", "not_backfilled", None),
+            ("turned_back_on_in_a_team_running_logs_on_the_platform", "enable", "running", True),
+            ("turned_back_on_after_the_team_was_switched_off", "enable", "switched_off", False),
+        ]
+    )
+    def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
+        self, _name: str, write: str, team_run: str, copy_enabled: bool | None
+    ) -> None:
+        self._create_via_api(name="Already on the platform")
+        dormant = self._create_via_api(name="Turned back on", enabled=False)
+        if team_run != "not_backfilled":
+            backfill_platform_alert_configurations(team_id=self.team.id)
+        if team_run == "switched_off":
+            disable_platform_alert_configurations(team_id=self.team.id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if write == "create":
+                alert_id = self._create_via_api(name="New alert")["id"]
+            else:
+                alert_id = dormant["id"]
+                response = self.client.patch(f"{self.base_url}{alert_id}/", {"enabled": True}, format="json")
+                assert response.status_code == status.HTTP_200_OK, response.json()
+
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
+        assert (copy.enabled if copy else None) is copy_enabled
+
+    def test_a_copy_an_operator_retired_by_name_stays_off_when_its_alert_comes_back_on(self) -> None:
+        self._create_via_api(name="Already on the platform")
+        retired = self._create_via_api(name="Retired by the rollout")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+        disable_platform_alert_configurations(alert_ids=[UUID(retired["id"])])
+
+        url = f"{self.base_url}{retired['id']}/"
+        with self.captureOnCommitCallbacks(execute=True):
+            assert self.client.patch(url, {"enabled": False}, format="json").status_code == status.HTTP_200_OK
+            assert self.client.patch(url, {"enabled": True}, format="json").status_code == status.HTTP_200_OK
+
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        assert {str(view.legacy_configuration_id): view.enabled for view in copies}[retired["id"]] is False
+
+    def test_a_copy_that_fails_is_handed_to_celery_to_retry(self) -> None:
+        self._create_via_api(name="Already on the platform")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+        alert_id = self._create_via_api(name="New alert", enabled=False)["id"]
+        LogsAlertConfiguration.objects.filter(id=alert_id).update(enabled=True)
+
+        with (
+            patch(
+                "products.logs.backend.platform_alert_backfill.upsert_if_running",
+                side_effect=OperationalError("connection reset"),
+            ),
+            pytest.raises(Retry),
+        ):
+            follow_logs_alert_task.apply(args=[self.team.id, alert_id])
+        # Celery's eager mode stops at the retry, so the second attempt runs by hand.
+        retried = follow_logs_alert_task.apply(args=[self.team.id, alert_id])
+
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        assert retried.state == "SUCCESS"
+        assert {str(view.legacy_configuration_id): view.enabled for view in copies}.get(alert_id) is True
+
     # --- first_enabled_at stamping ---
 
     def test_first_enabled_at_stamped_on_first_enable(self):
@@ -573,7 +716,7 @@ class TestLogsAlertAPI(APIBaseTest):
             )
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
-        with patch("products.logs.backend.presentation.views.alerts_api.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
+        with patch("products.logs.backend.alert_creation.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
             response = self.client.post(
                 self.base_url,
                 self._valid_payload(name="Boundary"),
@@ -665,27 +808,29 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("disable", lambda: {"enabled": False}, True, "disabled"),
+            ("disable", lambda: {"enabled": False}, True, "disabled", "source"),
             (
                 "snooze",
                 lambda: {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()},
                 True,
                 "snoozed",
+                "source",
             ),
-            ("threshold_change", lambda: {"threshold_count": 50}, True, "config_changed"),
-            ("filter_change", lambda: {"filters": {"severityLevels": ["warn"]}}, True, "config_changed"),
-            ("window_change", lambda: {"window_minutes": 10}, True, None),
-            ("rename", lambda: {"name": "Renamed"}, True, None),
-            ("disable_without_pagerduty", lambda: {"enabled": False}, False, None),
+            ("threshold_change", lambda: {"threshold_count": 50}, True, "config_changed", "source"),
+            ("filter_change", lambda: {"filters": {"severityLevels": ["warn"]}}, True, "config_changed", "source"),
+            ("window_change", lambda: {"window_minutes": 10}, True, None, "source"),
+            ("rename", lambda: {"name": "Renamed"}, True, None, "source"),
+            ("disable_without_pagerduty", lambda: {"enabled": False}, False, None, "source"),
+            ("disable_owned_by_the_platform", lambda: {"enabled": False}, True, None, "platform"),
         ]
     )
     def test_leaving_firing_through_the_api_closes_the_incident(
-        self, _name, make_payload, has_pagerduty, expected_reason
+        self, _name, make_payload, has_pagerduty, expected_reason, owner
     ):
         created = self._create_via_api()
         if has_pagerduty:
             self._add_pagerduty_destination(created["id"])
-        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing")
+        LogsAlertConfiguration.objects.filter(pk=created["id"]).update(state="firing", owner=owner)
         payload = make_payload()
 
         with (
@@ -1054,6 +1199,40 @@ class TestLogsAlertAPI(APIBaseTest):
         body = response.content.decode()
         assert "password" not in body
         assert "token=secret" not in body
+
+    def test_reading_an_alert_marks_only_the_destination_with_a_customized_function(self) -> None:
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        ids_by_url = {}
+        for url in (
+            "https://stock.example.com/hook",
+            "https://edited.example.com/hook",
+            "https://refused.example.com/hook",
+        ):
+            response = self.client.post(
+                self._destinations_url(created["id"]), {"type": "webhook", "webhook_url": url}, format="json"
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            ids_by_url[url] = set(response.json()["hog_function_ids"])
+        edited = HogFunction.objects.get(id=sorted(ids_by_url["https://edited.example.com/hook"])[0])
+        edited.masking = {"ttl": 3600, "hash": "{event.event}", "threshold": None}
+        edited.save(update_fields=["masking"])
+        for refused in HogFunction.objects.filter(id__in=ids_by_url["https://refused.example.com/hook"]):
+            inputs = refused.inputs or {}
+            inputs["url"]["value"] = "http://refused.example.com/hook"
+            refused.inputs = inputs
+            refused.save(update_fields=["inputs"])
+
+        customized_by_ids = {
+            frozenset(destination["hog_function_ids"]): destination["message_customized"]
+            for destination in self._read_destinations(created["id"])
+        }
+
+        assert customized_by_ids == {
+            frozenset(str(i) for i in ids_by_url["https://stock.example.com/hook"]): False,
+            frozenset(str(i) for i in ids_by_url["https://edited.example.com/hook"]): True,
+            frozenset(str(i) for i in ids_by_url["https://refused.example.com/hook"]): False,
+        }
 
     def test_reading_an_alert_redacts_a_malformed_stored_webhook_url(self) -> None:
         self._sync_destination_templates()
@@ -1472,6 +1651,54 @@ class TestLogsAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Only broken alerts can be reset." in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("both_broken_inside_the_shadow", "broken", "broken", False, status.HTTP_200_OK),
+            ("platform_broke_after_the_shadow", "broken", "not_firing", False, status.HTTP_200_OK),
+            ("broke_while_firing", "broken", "not_firing", True, status.HTTP_200_OK),
+            ("only_the_frozen_logs_row_is_broken", "not_firing", "broken", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_reset_of_a_platform_owned_alert_clears_the_platform_copy(
+        self,
+        _name: str,
+        state_at_cutover: str,
+        logs_state_after: str,
+        fired_before_breaking: bool,
+        expected_status: int,
+    ) -> None:
+        now = datetime.now(UTC)
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Errors",
+            filters={"severityLevels": ["error"]},
+            state=state_at_cutover,
+            consecutive_failures=5 if state_at_cutover == "broken" else 0,
+            next_check_at=now + timedelta(minutes=3),
+        )
+        cut_over_team(self.team.id, now=now)
+        LogsAlertConfiguration.objects.filter(pk=alert.id).update(state=logs_state_after)
+        if fired_before_breaking:
+            with team_scope(self.team.id):
+                platform_testing.start_firing(platform_testing.copy_of(alert.id).id, team_id=self.team.id, at=now)
+
+        response = self.client.post(self._reset_url(str(alert.id)))
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status != status.HTTP_200_OK:
+            return
+        assert (response.json()["state"], response.json()["consecutive_failures"]) == ("not_firing", 0)
+        with team_scope(self.team.id):
+            copy = platform_testing.copy_of(alert.id)
+            platform_alert = platform_testing.alert_for(copy.id)
+        assert platform_alert is not None
+        assert (platform_alert.state, platform_alert.firing_started_at, copy.consecutive_failures) == (
+            "not_firing",
+            None,
+            0,
+        )
+        assert self.client.post(self._reset_url(str(alert.id))).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_reset_other_teams_alert_returns_404(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
@@ -2130,6 +2357,551 @@ class TestLogsAlertAPI(APIBaseTest):
                 f"offset={offset_min}min: expected {expected_count}, got {rolling_by_offset.get(offset_min)}"
             )
 
+    # --- Alerts the platform owns ---
+
+    def _owned_by_the_platform(self, **overrides) -> dict:
+        created = self._create_via_api(**overrides)
+        with transaction.atomic():
+            alert = LogsAlertConfiguration.objects.select_for_update().get(pk=created["id"])
+            assert hand_over(alert, timezone.now())
+        return created
+
+    def _copy(self, alert_id: str) -> PlatformConfigurationSnapshot:
+        with team_scope(self.team.id):
+            return platform_testing.copy_of(UUID(alert_id))
+
+    def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
+        created = self._owned_by_the_platform()
+        copy = self._copy(created["id"])
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            platform_edit = self.client.patch(
+                f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/",
+                {"name": "Edited on the platform", "grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+                format="json",
+            )
+        logs_edit = self.client.patch(f"{self.base_url}{created['id']}/", {"threshold_count": 50}, format="json")
+
+        assert platform_edit.status_code == status.HTTP_200_OK, platform_edit.json()
+        assert logs_edit.status_code == status.HTTP_200_OK, logs_edit.json()
+        assert logs_edit.json()["name"] == "Edited on the platform"
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=copy.id
+            )
+        assert view is not None
+        assert (view.name, view.source_config["condition"]["threshold_count"], view.grouping.keys) == (
+            "Edited on the platform",
+            50,
+            ("service_name",),
+        )
+
+    @parameterized.expand(
+        [
+            ("backfill", lambda stale: upsert_configuration(platform_upsert_of(stale))),
+            ("delayed_follow", follow_logs_alert),
+        ]
+    )
+    def test_a_snapshot_read_before_a_disable_does_not_turn_the_copy_back_on(self, _name: str, write: Any) -> None:
+        created = self._owned_by_the_platform()
+        stale = LogsAlertConfiguration.objects.get(pk=created["id"])
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        write(stale)
+
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                configuration_id=self._copy(created["id"]).id,
+            )
+        assert view is not None and view.enabled is False
+
+    def test_the_platform_api_refuses_an_edit_of_an_environments_alert(self) -> None:
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        alert = LogsAlertConfiguration.objects.create(
+            team=environment,
+            name="Environment errors",
+            filters={"severityLevels": ["error"]},
+            threshold_count=10,
+            owner="platform",
+        )
+        # The copy lands on the project, as every copy of an environment's alert does.
+        with team_scope(self.team.id):
+            copy = platform_testing.create_configuration(**{**asdict(platform_upsert_of(alert)), "owner": "platform"})
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/",
+                {"name": "Renamed", "enabled": False},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        alert.refresh_from_db()
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=copy.id
+            )
+        assert view is not None
+        assert (alert.name, alert.enabled, view.name, view.enabled) == (
+            "Environment errors",
+            True,
+            "Environment errors",
+            True,
+        )
+
+    def _create_on_the_platform(self, body: dict, team_id: int | None = None) -> Any:
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            return self.client.post(f"/api/projects/{team_id or self.team.id}/platform_alerts/", body, format="json")
+
+    def test_the_platform_api_creates_both_rows_with_every_default_stored(self) -> None:
+        response = self._create_on_the_platform(
+            {
+                "source_kind": "logs",
+                "source_config": {
+                    "filters": {"serviceNames": ["api"]},
+                    "condition": {"threshold_count": 5, "threshold_operator": "above", "window_minutes": 10},
+                },
+                "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        created = response.json()
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            read = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/").json()
+        assert read == created
+        assert {
+            key: created[key] for key in ("name", "enabled", "owner", "evaluation_periods", "cooldown_minutes")
+        } == {
+            "name": "Untitled alert",
+            "enabled": True,
+            "owner": "platform",
+            "evaluation_periods": 1,
+            "cooldown_minutes": 0,
+        }
+        assert created["grouping"] == {
+            "mode": "by_result_labels",
+            "keys": ["service_name"],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        alert = LogsAlertConfiguration.objects.get(pk=created["legacy_configuration_id"])
+        assert (alert.platform_owned, alert.filters, alert.threshold_count, alert.window_minutes, alert.created_by) == (
+            True,
+            {"serviceNames": ["api"]},
+            5,
+            10,
+            self.user,
+        )
+        assert ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=created["id"], activity="created", user=self.user
+        ).exists()
+
+    @parameterized.expand(
+        [
+            ("logs_write_only", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("logs_read_only", ["alert:write", "logs:read"], status.HTTP_403_FORBIDDEN),
+            ("alert_and_logs_write", ["alert:write", "logs:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_a_platform_create_needs_write_access_to_alerts_and_logs(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}")
+
+        response = self._create_on_the_platform(
+            {
+                "source_kind": "logs",
+                "source_config": {
+                    "filters": {"severityLevels": ["error"]},
+                    "condition": {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5},
+                },
+            }
+        )
+
+        assert response.status_code == expected, response.json()
+        assert LogsAlertConfiguration.objects.filter(team=self.team).exists() == (expected == status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("unservable_kind", {"source_kind": "insight"}, None, False, status.HTTP_400_BAD_REQUEST, "source_kind"),
+            (
+                "enabled_without_filters",
+                {"source_config": {"filters": {}}},
+                None,
+                False,
+                status.HTTP_400_BAD_REQUEST,
+                "source_config",
+            ),
+            ("over_the_cap", {}, 0, False, status.HTTP_400_BAD_REQUEST, None),
+            ("environment_url", {}, None, True, status.HTTP_409_CONFLICT, None),
+        ]
+    )
+    def test_a_refused_platform_create_writes_neither_row(
+        self,
+        _name: str,
+        overrides: dict,
+        cap: int | None,
+        on_an_environment: bool,
+        expected: int,
+        field: str | None,
+    ) -> None:
+        condition = {"threshold_count": 1, "threshold_operator": "above", "window_minutes": 5}
+        body = {"source_kind": "logs", "source_config": {"filters": {"severityLevels": ["error"]}}, **overrides}
+        body["source_config"] = {**body["source_config"], "condition": condition}
+        environment = (
+            Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+            if on_an_environment
+            else None
+        )
+
+        with patch("products.logs.backend.alert_creation.MAX_ALERTS_PER_TEAM", cap if cap is not None else 20):
+            response = self._create_on_the_platform(body, team_id=environment.id if environment else None)
+
+        assert response.status_code == expected, response.json()
+        assert response.json()["attr"] == field
+        assert not LogsAlertConfiguration.objects.exists()
+        with team_scope(self.team.id):
+            assert list_configurations(team_id=self.team.id, source_kinds=["logs"], limit=1, offset=0).total == 0
+
+    def test_a_new_alert_in_a_team_the_platform_has_begun_taking_over_starts_on_the_platform(self) -> None:
+        self._owned_by_the_platform()
+
+        created = self._create_via_api(name="Added after the cutover")
+
+        assert created["platform_owned"] is True
+        assert LogsAlertConfiguration.objects.get(pk=created["id"]).platform_owned
+        assert self._copy(created["id"]).owner == "platform"
+
+    def _copy_grouping_keys(self, alert_id: str) -> tuple[str, ...]:
+        with team_scope(self.team.id):
+            view = get_configuration(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], configuration_id=self._copy(alert_id).id
+            )
+        assert view is not None
+        return view.grouping.keys
+
+    def test_grouping_set_on_the_logs_page_regroups_the_platform_copy(self) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+
+        temporal = MagicMock(start_workflow=AsyncMock())
+
+        with (
+            patch(f"{_WEB_START}.async_connect", AsyncMock(return_value=temporal)),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"{self.base_url}{created['id']}/",
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (delivery,) = [call.args[1] for call in temporal.start_workflow.call_args_list]
+        assert delivery.incident_actions == {"": IncidentAction.RESOLVE}
+        assert response.json()["grouping"]["keys"] == ["service_name"]
+        assert self._copy_grouping_keys(created["id"]) == ("service_name",)
+        with team_scope(self.team.id):
+            assert platform_testing.alert_for(copy.id) is None
+            platform_testing.start_firing(
+                copy.id, team_id=self.team.id, at=datetime.now(UTC), grouping_key='{"service_name":"api"}'
+            )
+        assert self.client.get(f"{self.base_url}{created['id']}/").json()["state"] == "firing"
+
+    @parameterized.expand(
+        [
+            ("cut_over", True, "severity_text", status.HTTP_201_CREATED),
+            ("not_cut_over", False, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("cut_over_unknown_key", True, "host", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, key: str, expected_status: int) -> None:
+        if cut_over:
+            self._owned_by_the_platform()
+        alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
+
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            assert self._copy_grouping_keys(response.json()["id"]) == (key,)
+        else:
+            assert response.json()["attr"] == "grouping"
+            assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
+
+    @parameterized.expand(
+        [
+            ("source_owned_grouped", False, {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}),
+            ("unknown_key", True, {"grouping": {"mode": "by_result_labels", "keys": ["host"]}}),
+            (
+                "below_threshold",
+                True,
+                {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}, "threshold_operator": "below"},
+            ),
+        ]
+    )
+    def test_a_grouping_the_alert_cannot_take_is_rejected(
+        self, _name: str, platform_owned: bool, payload: dict
+    ) -> None:
+        created = self._owned_by_the_platform() if platform_owned else self._create_via_api()
+
+        response = self.client.patch(f"{self.base_url}{created['id']}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "grouping"
+        assert LogsAlertConfiguration.objects.get(pk=created["id"]).threshold_operator == "above"
+        if platform_owned:
+            assert self._copy_grouping_keys(created["id"]) == ()
+
+    @parameterized.expand(
+        [
+            ("as_read", None),
+            ("with_its_own_cap", {"mode": "single", "max_instances": 50}),
+        ]
+    )
+    def test_a_source_owned_alert_accepts_the_single_grouping_it_reads(self, _name: str, grouping: dict | None) -> None:
+        created = self._create_via_api()
+
+        response = self.client.put(
+            f"{self.base_url}{created['id']}/",
+            self._valid_payload(grouping=grouping or created["grouping"]),
+            format="json",
+        )
+
+        assert created["grouping"] == {
+            "mode": "single",
+            "keys": [],
+            "max_instances": 100,
+            "on_overflow": "degrade_visible",
+        }
+        assert created["platform_owned"] is False
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_turning_a_broken_platform_alert_off_and_on_on_the_logs_page_revives_it(self) -> None:
+        created = self._owned_by_the_platform()
+        with team_scope(self.team.id):
+            platform_testing.set_check_status(self._copy(created["id"]).id, "broken")
+
+        for enabled in (False, True):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": enabled}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert self._copy(created["id"]).check_status == "ok"
+
+    def _firing_on_the_platform_with_pagerduty(self) -> tuple[dict, PlatformConfigurationSnapshot]:
+        created = self._owned_by_the_platform()
+        self._add_pagerduty_destination(created["id"])
+        copy = self._copy(created["id"])
+        started = datetime(2026, 10, 1, 9, tzinfo=UTC)
+        with team_scope(self.team.id):
+            platform_testing.start_firing(copy.id, team_id=self.team.id, at=started)
+            # Due now, as a copy is while a check of it runs.
+            platform_testing.set_due_at(copy.id, datetime.now(UTC) - timedelta(minutes=1))
+        return created, copy
+
+    @parameterized.expand(
+        [
+            ("logs_disable", "logs", lambda: {"enabled": False}),
+            ("logs_snooze", "logs", lambda: {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()}),
+            ("logs_threshold_change", "logs", lambda: {"threshold_count": 50}),
+            ("logs_unsnooze_threshold_change", "logs", lambda: {"snooze_until": None, "threshold_count": 50}),
+            ("platform_disable", "platform", lambda: {"enabled": False}),
+        ]
+    )
+    def test_an_edit_that_ends_a_platform_firing_resolves_its_incident(
+        self, _name: str, route: str, make_payload: Any
+    ) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+        temporal = MagicMock(start_workflow=AsyncMock())
+        url = (
+            f"{self.base_url}{created['id']}/"
+            if route == "logs"
+            else f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/"
+        )
+
+        with (
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+            patch(f"{_WEB_START}.async_connect", AsyncMock(return_value=temporal)),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(url, make_payload(), format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (delivery,) = [call.args[1] for call in temporal.start_workflow.call_args_list]
+        assert (delivery.incident_actions, delivery.sends_messages, delivery.destination_alert_id) == (
+            {"": IncidentAction.RESOLVE},
+            False,
+            created["id"],
+        )
+        with team_scope(self.team.id):
+            instance = platform_testing.alert_for(copy.id)
+        assert instance is not None and (instance.state, instance.firing_started_at) == ("not_firing", None)
+        # A check already running when the edit landed finds the row no longer due, and a snooze runs
+        # no check until it ends.
+        next_check_at = self._copy(created["id"]).next_check_at
+        earliest = datetime.now(UTC) + (timedelta(minutes=59) if _name == "logs_snooze" else timedelta(0))
+        assert next_check_at is not None and next_check_at > earliest
+
+    def _customize_destinations(self) -> None:
+        # A destination edited after it was created keeps sending through its HogFunction.
+        for function in HogFunction.objects.filter(team=self.team, deleted=False):
+            HogFunctionRevision.objects.for_team(self.team.id).create(
+                team=self.team,
+                hog_function=function,
+                version=1,
+                content={
+                    "hog": function.hog,
+                    "inputs_schema": function.inputs_schema,
+                    "inputs": function.inputs,
+                    "filters": function.filters,
+                    "mappings": function.mappings,
+                    "masking": function.masking,
+                },
+            )
+            HogFunction.objects.filter(pk=function.pk).update(version=2, hog=f"// edited\n{function.hog}")
+
+    @parameterized.expand(
+        [
+            ("logs_disable", "logs", lambda: {"enabled": False}, "hog_function"),
+            ("logs_threshold_change", "logs", lambda: {"threshold_count": 50}, "hog_function"),
+            ("platform_disable", "platform", lambda: {"enabled": False}, "hog_function"),
+            ("logs_delete", "logs", None, "hog_function"),
+            # The resolve takes the path its trigger took, though the destination changed since.
+            ("logs_disable_after_a_native_trigger", "logs", lambda: {"enabled": False}, "native"),
+        ]
+    )
+    def test_ending_a_firing_with_a_customized_destination_sends_one_close(
+        self, _name: str, route: str, make_payload: Any, closed_via: str
+    ) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+        if closed_via == "native":
+            with team_scope(self.team.id):
+                platform_testing.start_firing(
+                    copy.id,
+                    team_id=self.team.id,
+                    at=datetime(2026, 10, 1, 9, tzinfo=UTC),
+                    delivered_via=DeliveryPath.NATIVE,
+                )
+        self._customize_destinations()
+        url = (
+            f"{self.base_url}{created['id']}/"
+            if route == "logs"
+            else f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/"
+        )
+
+        with (
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+            # Sends the resolve inline, so the test sees which path delivered it.
+            patch(f"{_WEB_START}.async_connect", AsyncMock(side_effect=RuntimeError("temporal unreachable"))),
+            patch(_NATIVE_PAGERDUTY_DELIVER, return_value=None) as native,
+            patch("products.logs.backend.platform_alert_legacy_events.emit_alert_internal_events") as emit,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = (
+                self.client.delete(url)
+                if make_payload is None
+                else self.client.patch(url, make_payload(), format="json")
+            )
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
+        emitted = [
+            (event.event_name, event.properties["alert_id"])
+            for call in emit.call_args_list
+            for event in call.kwargs["events"]
+        ]
+        if closed_via == "native":
+            assert (emitted, native.call_count) == ([], 1)
+        else:
+            assert (emitted, native.call_count) == ([("$logs_alert_incident_closed", created["id"])], 0)
+
+    def test_shortening_a_snooze_on_the_logs_page_brings_the_next_platform_check_forward(self) -> None:
+        created = self._owned_by_the_platform()
+
+        for snooze in (timedelta(hours=24), timedelta(minutes=30)):
+            response = self.client.patch(
+                f"{self.base_url}{created['id']}/",
+                {"snooze_until": (datetime.now(UTC) + snooze).isoformat()},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        next_check_at = self._copy(created["id"]).next_check_at
+        assert next_check_at is not None and next_check_at < datetime.now(UTC) + timedelta(minutes=31)
+
+    def test_a_resolve_is_sent_inline_when_temporal_cannot_start_it(self) -> None:
+        created, _copy = self._firing_on_the_platform_with_pagerduty()
+
+        with (
+            patch(f"{_WEB_START}.async_connect", AsyncMock(side_effect=RuntimeError("temporal unreachable"))),
+            patch(f"{_WEB_START}.deliver_evaluation") as deliver_evaluation,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
+        assert request.incident_actions == {"": IncidentAction.RESOLVE}
+
+    def _delete_through(self, route: str, alert_id: str) -> Any:
+        if route == "logs":
+            return self.client.delete(f"{self.base_url}{alert_id}/")
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            return self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self._copy(alert_id).id}/")
+
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_a_platform_firing_resolves_its_incident_while_its_destinations_exist(self, route: str) -> None:
+        created, _copy = self._firing_on_the_platform_with_pagerduty()
+        destinations_when_sent: list[int] = []
+
+        def deliver(request: Any) -> None:
+            destinations_when_sent.append(HogFunction.objects.filter(team=self.team, deleted=False).count())
+
+        with patch(f"{_WEB_START}.deliver_evaluation", side_effect=deliver) as deliver_evaluation:
+            response = self._delete_through(route, created["id"])
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        (request,) = [call.args[0] for call in deliver_evaluation.call_args_list]
+        assert request.incident_actions == {"": IncidentAction.RESOLVE}
+        assert destinations_when_sent[0] > 0
+
+    def test_a_platform_delete_after_a_handback_refuses_and_keeps_the_logs_row(self) -> None:
+        created = self._owned_by_the_platform()
+        # The state a rollback leaves when it hands the alert back after the platform read its owner.
+        LogsAlertConfiguration.objects.filter(id=created["id"]).update(owner="source")
+
+        response = self._delete_through("platform", created["id"])
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+
+    @parameterized.expand([("logs",), ("platform",)])
+    def test_deleting_an_alert_the_platform_owns_deletes_both_rows(self, route: str) -> None:
+        created = self._owned_by_the_platform()
+        copy_id = self._copy(created["id"]).id
+
+        response = self._delete_through(route, created["id"])
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=str(copy_id), activity="deleted", user=self.user
+        ).exists()
+        with team_scope(self.team.id):
+            assert (
+                list_configurations(
+                    team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+                ).configurations
+                == ()
+            )
+
 
 class TestSimulateEvaluatorParity(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
@@ -2623,3 +3395,335 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         url = f"{self.base_url}{uuid4()}/reset/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code == 403, response.json()
+
+
+# (kind, state_before, state_after, result_count, threshold_breached, error_message) of the events
+# `_record_events_history` leaves.
+_ERRORED = ("check", "firing", "errored", None, False, "Query timed out")
+_DISABLED = ("disable", "not_firing", "not_firing", None, False, None)
+_FIRED = ("check", "not_firing", "firing", 150, True, None)
+_LOGS_ERRORED = ("check", "not_firing", "errored", None, False, "Logs stack timeout")
+
+
+class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.now = datetime.now(UTC)
+        self.alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="Errors",
+            filters={"severityLevels": ["error"]},
+            last_checked_at=self.now - timedelta(hours=2),
+            next_check_at=self.now + timedelta(minutes=3),
+        )
+        self._logs_event(
+            LogsAlertEvent.Kind.CHECK, hours_ago=3, state_after="errored", error_message="Logs stack timeout"
+        )
+        [cutover] = cut_over_team(self.team.id, now=self.now)
+        assert cutover.skipped is None
+
+    def _logs_event(self, kind: str, *, hours_ago: float, state_after: str, error_message: str | None = None) -> None:
+        event = LogsAlertEvent.objects.create(
+            alert=self.alert,
+            kind=kind,
+            threshold_breached=False,
+            state_before="not_firing",
+            state_after=state_after,
+            error_message=error_message,
+        )
+        LogsAlertEvent.objects.filter(pk=event.pk).update(created_at=self.now - timedelta(hours=hours_ago))
+
+    def _rows(self, action: str) -> list[dict[str, Any]]:
+        if action == "list":
+            response = self.client.get(self.base_url)
+            assert response.status_code == status.HTTP_200_OK
+            return response.json()["results"]
+        response = self.client.get(f"{self.base_url}{self.alert.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        return [response.json()]
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_timeline_and_last_check_come_from_platform_history(self, action: str) -> None:
+        def at(minutes_ago: int) -> datetime:
+            return self.now - timedelta(minutes=minutes_ago)
+
+        with team_scope(self.team.id):
+            copy_id = platform_testing.copy_of(self.alert.id).id
+        checks = [
+            (at(90), "not_firing", "firing", None),
+            (at(60), "firing", "errored", "Query timed out"),
+            (at(30), "errored", "errored", "Query hit the memory limit"),
+        ]
+        for occurred_at, previous_state, state, error_message in checks:
+            platform_testing.record_check(
+                copy_id,
+                team_id=self.team.id,
+                at=occurred_at,
+                previous_state=previous_state,
+                state=state,
+                error_message=error_message,
+            )
+        # The logs API still records toggles, and they carry the logs row's frozen state.
+        self._logs_event(LogsAlertEvent.Kind.DISABLE, hours_ago=0.75, state_after="not_firing")
+        self._logs_event(LogsAlertEvent.Kind.ENABLE, hours_ago=2 / 3, state_after="not_firing")
+
+        [row] = self._rows(action)
+
+        assert row["last_checked_at"] == at(30).isoformat().replace("+00:00", "Z")
+        assert row["last_error_message"] == "Query hit the memory limit"
+        assert [(i["start"], i["state"], i["enabled"]) for i in row["state_timeline"][1:]] == [
+            (at(90).isoformat().replace("+00:00", "Z"), "firing", True),
+            (at(60).isoformat().replace("+00:00", "Z"), "errored", True),
+            (at(45).isoformat().replace("+00:00", "Z"), "errored", False),
+            (at(40).isoformat().replace("+00:00", "Z"), "errored", True),
+        ]
+        assert row["state_timeline"][0]["state"] == "not_firing"
+
+    @parameterized.expand(
+        [
+            ("still_snoozed", [(60, LogsAlertEvent.Kind.SNOOZE)], -60, [(60, "snoozed")]),
+            (
+                "unsnoozed",
+                [(90, LogsAlertEvent.Kind.SNOOZE), (30, LogsAlertEvent.Kind.UNSNOOZE)],
+                None,
+                [(90, "snoozed"), (30, "not_firing")],
+            ),
+            (
+                "expired",
+                [(90, LogsAlertEvent.Kind.SNOOZE)],
+                30,
+                [(90, "snoozed"), (30, "not_firing")],
+            ),
+        ]
+    )
+    def test_timeline_keeps_snooze_boundaries(
+        self,
+        _name: str,
+        snoozes: list[tuple[int, str]],
+        snooze_until_minutes_ago: int | None,
+        expected: list[tuple[int, str]],
+    ) -> None:
+        def iso(minutes_ago: int) -> str:
+            return (self.now - timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")
+
+        for minutes_ago, kind in snoozes:
+            self._logs_event(kind, hours_ago=minutes_ago / 60, state_after="not_firing")
+        snooze_until = (
+            None if snooze_until_minutes_ago is None else self.now - timedelta(minutes=snooze_until_minutes_ago)
+        )
+        LogsAlertConfiguration.objects.filter(pk=self.alert.pk).update(
+            state="snoozed" if snooze_until is not None else "not_firing", snooze_until=snooze_until
+        )
+
+        [row] = self._rows("retrieve")
+
+        assert [(i["start"], i["state"]) for i in row["state_timeline"]][1:] == [
+            (iso(minutes_ago), state) for minutes_ago, state in expected
+        ]
+        assert row["state_timeline"][0]["state"] == "not_firing"
+
+    def test_timeline_shows_a_reset_of_a_platform_broken_alert(self) -> None:
+        with team_scope(self.team.id):
+            copy_id = platform_testing.copy_of(self.alert.id).id
+            platform_testing.set_check_status(copy_id, "broken")
+        platform_testing.record_check(
+            copy_id,
+            team_id=self.team.id,
+            at=self.now - timedelta(minutes=60),
+            previous_state="not_firing",
+            state="broken",
+            error_message="Query failed",
+        )
+
+        response = self.client.post(f"{self.base_url}{self.alert.id}/reset/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        [row] = self._rows("retrieve")
+
+        assert [interval["state"] for interval in row["state_timeline"]] == ["not_firing", "broken", "not_firing"]
+
+    def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
+        with patch(
+            "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",
+            side_effect=Exception("ClickHouse is down"),
+        ):
+            [row] = self._rows("list")
+
+        assert row["last_checked_at"] == (self.now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+        assert row["last_error_message"] == "Logs stack timeout"
+
+    def _record_events_history(self) -> None:
+        def at(minutes_after_cutover: int) -> datetime:
+            return self.now + timedelta(minutes=minutes_after_cutover)
+
+        with team_scope(self.team.id):
+            copy_id = platform_testing.copy_of(self.alert.id).id
+        condition = {"threshold_count": 100, "threshold_operator": "above", "window_minutes": 5}
+        checks = [
+            # Before the cutover the platform only shadowed the logs stack.
+            (at(-30), "not_firing", "firing", None, 150.0),
+            (at(10), "not_firing", "firing", None, 150.0),
+            (at(20), "firing", "firing", None, 160.0),
+            (at(40), "firing", "errored", "Query timed out", None),
+        ]
+        for occurred_at, previous_state, state, error_message, value in checks:
+            platform_testing.record_check(
+                copy_id,
+                team_id=self.team.id,
+                at=occurred_at,
+                previous_state=previous_state,
+                state=state,
+                error_message=error_message,
+                value=value,
+                condition=condition,
+                query_duration_ms=42,
+            )
+        # After the cutover a logs check is the shadow evaluation.
+        self._logs_event(LogsAlertEvent.Kind.CHECK, hours_ago=-25 / 60, state_after="firing")
+        self._logs_event(LogsAlertEvent.Kind.DISABLE, hours_ago=-0.5, state_after="not_firing")
+
+    @parameterized.expand(
+        [
+            ("all", "", 4, [_ERRORED, _DISABLED, _FIRED, _LOGS_ERRORED]),
+            ("second_page", "?limit=2&offset=1", 4, [_DISABLED, _FIRED]),
+            ("control_plane_kind", "?kind=disable", 1, [_DISABLED]),
+            ("check_kind", "?kind=check", 3, [_ERRORED, _FIRED, _LOGS_ERRORED]),
+        ]
+    )
+    def test_events_take_checks_since_the_cutover_from_platform_history(
+        self, _name: str, query: str, count: int, expected: list[tuple[Any, ...]]
+    ) -> None:
+        self._record_events_history()
+
+        response = self.client.get(f"{self.base_url}{self.alert.id}/events/{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == count
+        assert [
+            (
+                e["kind"],
+                e["state_before"],
+                e["state_after"],
+                e["result_count"],
+                e["threshold_breached"],
+                e["error_message"],
+            )
+            for e in response.json()["results"]
+        ] == expected
+
+    def test_events_fall_back_to_logs_rows_when_clickhouse_fails(self) -> None:
+        self._record_events_history()
+
+        with patch(
+            "products.logs.backend.presentation.views.alerts_api.platform_check_rows",
+            side_effect=Exception("ClickHouse is down"),
+        ):
+            response = self.client.get(f"{self.base_url}{self.alert.id}/events/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(e["kind"], e["state_after"]) for e in response.json()["results"]] == [
+            ("disable", "not_firing"),
+            ("check", "firing"),
+            ("check", "errored"),
+        ]
+
+    def test_events_reject_a_page_ending_past_the_merge_bound(self) -> None:
+        response = self.client.get(f"{self.base_url}{self.alert.id}/events/?offset=10000&limit=1")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "offset"
+
+
+class TestLogsAlertDestinationSends(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "free": True,
+            },
+        )
+
+    def _log(self, log_source: str, log_source_id: str, instance_id: str, at: datetime, level: str, message: str):
+        sync_execute(
+            INSERT_LOG_ENTRY_SQL,
+            {
+                "team_id": self.team.pk,
+                "log_source": log_source,
+                "log_source_id": log_source_id,
+                "instance_id": instance_id,
+                "timestamp": at.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "level": level,
+                "message": message,
+            },
+        )
+
+    def test_a_destination_lists_its_sends_on_both_paths_and_nothing_else(self) -> None:
+        response = self.client.post(
+            self.base_url,
+            {"name": "Errors", "threshold_count": 10, "filters": {"severityLevels": ["error"]}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        alert_id = response.json()["id"]
+        response = self.client.post(
+            f"{self.base_url}{alert_id}/destinations/",
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        functions = {
+            str(function.id): (function.filters or {})["events"][0]["id"]
+            for function in HogFunction.objects.filter(id__in=response.json()["hog_function_ids"])
+        }
+        firing = next(i for i, event in functions.items() if event == "$logs_alert_firing")
+        resolved = next(i for i, event in functions.items() if event == "$logs_alert_resolved")
+        other_alerts_function = str(uuid4())
+        now = datetime.now(UTC)
+
+        self._log("alert_destination", firing, "cfg", now - timedelta(minutes=10), "ERROR", "Webhook returned 500")
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "DEBUG", "Executing function")
+        retrying = "HTTP fetch failed on attempt 1 with status code 503. Retrying."
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=30), "ERROR", retrying)
+        self._log("hog_function", firing, "inv-1", now - timedelta(minutes=29), "INFO", "Function completed in 12ms.")
+        self._log(
+            "hog_function",
+            resolved,
+            "inv-2",
+            now - timedelta(minutes=20),
+            "ERROR",
+            "Error executing function: POST https://hooks.example.com/token-abc failed",
+        )
+        # Still retrying, so neither sent nor failed yet.
+        self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "DEBUG", "Executing function")
+        self._log("hog_function", firing, "inv-3", now - timedelta(minutes=5), "ERROR", retrying)
+        self._log("alert_destination", other_alerts_function, "cfg", now - timedelta(minutes=1), "INFO", "Sent")
+
+        response = self.client.get(
+            f"{self.base_url}{alert_id}/destinations/sends/",
+            {"hog_function_ids": ",".join([*functions, other_alerts_function])},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [
+            (send["hog_function_id"], send["path"], send["succeeded"], send["error"]) for send in response.json()
+        ] == [
+            (firing, "native", False, "Webhook returned 500"),
+            # Its log lines can quote a webhook URL, and reading them needs `hog_function:read`.
+            (resolved, "hog_function", False, None),
+            (firing, "hog_function", True, None),
+        ]

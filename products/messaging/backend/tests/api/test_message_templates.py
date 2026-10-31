@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -78,7 +79,72 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0]), str(self.message_template.id)]]
 
-    def test_retrieve_message_template(self):
+    def test_tags_round_trip_through_create_update_and_list(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {
+                "name": "Tagged",
+                "content": {"email": {"subject": "Hi", "text": "Body"}},
+                "type": "email",
+                "tags": ["Onboarding", "growth"],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        template_id = response.json()["id"]
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
+        response = self.client.patch(url, {"name": "Renamed"}, format="json")
+        assert response.json()["tags"] == ["growth", "onboarding"]
+
+        response = self.client.patch(url, {"tags": ["growth"]}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/").json()["results"]
+        assert {row["id"]: row["tags"] for row in listed}[template_id] == ["growth"]
+
+        response = self.client.patch(url, {"tags": []}, format="json")
+        assert response.json()["tags"] == []
+
+    def test_rejects_a_tag_that_grows_past_the_column_limit_when_lowercased(self):
+        # "\u0130" lowercases to two code points, so 128 of them fit the field but not Tag.name.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["\u0130" * 128]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_tags_only_update_leaves_the_template_row_alone(self):
+        before = MessageTemplate.objects.get(pk=self.message_template.id).updated_at
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            {"tags": ["growth"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        # A row save here would write back every column this request read, losing a concurrent content edit.
+        assert MessageTemplate.objects.get(pk=self.message_template.id).updated_at == before
+
+    @parameterized.expand(
+        [
+            ("no_sender", None),
+            ("blank_sender", ""),
+            ("destination_sender", "Hedgebox <hello@example.com>"),
+            ("sender_without_an_id", {"name": "Hedgebox"}),
+        ]
+    )
+    def test_retrieve_message_template(self, _name: str, stored_sender: Any) -> None:
+        if stored_sender is not None:
+            email = {**self.message_template.content["email"], "from": stored_sender}
+            MessageTemplate.objects.filter(id=self.message_template.id).update(content={"email": email})
+        listed = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
+        assert listed.status_code == status.HTTP_200_OK
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
         assert response.status_code == status.HTTP_200_OK
 
@@ -112,32 +178,52 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
 
-    def test_create_email_template_without_subject_fails(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_templates/",
-            data={
-                "name": "No Subject Template",
-                "content": {"email": {"html": "<p>Hello</p>"}},
-                "type": "email",
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    @parameterized.expand(
+        [
+            (
+                "create_without_subject",
+                "post",
+                False,
+                {"name": "No Subject Template", "content": {"email": {"html": "<p>Hello</p>"}}, "type": "email"},
+            ),
+            ("update_with_blank_subject", "patch", True, {"content": {"email": {"subject": "", "html": "<p>Hi</p>"}}}),
+        ]
+    )
+    def test_email_content_without_subject_fails(self, _name, method, detail, body):
+        url = f"/api/environments/{self.team.id}/messaging_templates/"
+        if detail:
+            url += f"{self.message_template.id}/"
 
+        response = getattr(self.client, method)(url, data=body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            # The editor's blank template carries an empty sender.
+            ("blank_template", ""),
+            # A destination's "Save as new template" carries its sender string.
+            ("destination_sender", "Hedgebox <hello@example.com>"),
+        ]
+    )
     @patch("products.messaging.backend.presentation.views.message_templates.report_user_action")
-    def test_create_email_template_with_subject_succeeds(self, mock_report):
+    def test_create_email_template_with_subject_succeeds(self, _name: str, sender: str, mock_report: Any) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/messaging_templates/",
             data={
                 "name": "Valid Template",
-                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
+                "content": {"email": {"subject": "Hello", "html": "<p>Hello</p>", "from": sender}},
                 "type": "email",
+                "sensitive": True,
             },
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Valid Template"
+        assert response.json()["sensitive"] is True
+        assert MessageTemplate.objects.get(id=response.json()["id"]).sensitive is True
         assert response.json()["content"]["email"]["subject"] == "Hello"
+        assert "from" not in response.json()["content"]["email"]
         # The AI-first experiment counts creations from the editor and the agent with this one event.
         mock_report.assert_called_once()
         assert mock_report.call_args.args[1] == "message_template_created"
@@ -229,7 +315,14 @@ class TestMessageTemplatesAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/messaging_templates/",
             data={
                 "name": "Editor-saved template",
-                "content": {"email": {"subject": "Hi", "html": "<p>Editor export</p>", "design": MINIMAL_DESIGN}},
+                "content": {
+                    "email": {
+                        "subject": "Hi",
+                        "preheader": "A quick heads-up",
+                        "html": "<p>Editor export</p>",
+                        "design": MINIMAL_DESIGN,
+                    }
+                },
                 "type": "email",
             },
             format="json",
@@ -237,7 +330,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         mock_render.assert_not_called()
-        assert response.json()["content"]["email"]["html"] == "<p>Editor export</p>"
+        email = MessageTemplate.objects.get(id=response.json()["id"]).content["email"]
+        assert email["html"] == "<p>Editor export</p>"
+        assert email["preheader"] == "A quick heads-up"
 
     @parameterized.expand(
         [

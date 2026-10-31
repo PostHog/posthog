@@ -1,4 +1,9 @@
-import { DataWarehouseNode, MarketingAnalyticsConstants, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataWarehouseNode,
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsConstants,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { HogQLMathType } from '~/types'
 
 import { ExternalTable } from './marketingAnalyticsLogic'
@@ -59,24 +64,31 @@ export const externalAdsCostTile = (
 
     let mathHogql: string
 
-    if (tileColumnSelection === 'roas') {
-        const costColumn = sanitizeColumnName(table.source_map.cost)
-        const conversionValueColumn = table.source_map.reported_conversion_value
-            ? sanitizeColumnName(table.source_map.reported_conversion_value)
-            : null
-        if (!costColumn || !conversionValueColumn) {
+    if (
+        tileColumnSelection === 'cpc' ||
+        tileColumnSelection === 'ctr' ||
+        tileColumnSelection === 'roas' ||
+        tileColumnSelection === 'cost_per_reported_conversion'
+    ) {
+        const ratioColumns = {
+            cpc: [MarketingAnalyticsColumnsSchemaNames.Cost, MarketingAnalyticsColumnsSchemaNames.Clicks],
+            ctr: [MarketingAnalyticsColumnsSchemaNames.Clicks, MarketingAnalyticsColumnsSchemaNames.Impressions],
+            roas: [
+                MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+                MarketingAnalyticsColumnsSchemaNames.Cost,
+            ],
+            cost_per_reported_conversion: [
+                MarketingAnalyticsColumnsSchemaNames.Cost,
+                MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
+            ],
+        } as const
+        const [numeratorColumn, denominatorColumn] = ratioColumns[tileColumnSelection]
+        const numerator = externalAdsCostTile(table, baseCurrency, numeratorColumn)
+        const denominator = externalAdsCostTile(table, baseCurrency, denominatorColumn)
+        if (!numerator || !denominator) {
             return null
         }
-        mathHogql = `${sumSafeFloat(conversionValueColumn)} / nullIf(SUM(toFloat(${costColumn})), 0)`
-    } else if (tileColumnSelection === 'cost_per_reported_conversion') {
-        const costColumn = sanitizeColumnName(table.source_map.cost)
-        const conversionColumn = table.source_map.reported_conversion
-            ? sanitizeColumnName(table.source_map.reported_conversion)
-            : null
-        if (!costColumn || !conversionColumn) {
-            return null
-        }
-        mathHogql = `SUM(toFloat(${costColumn})) / nullIf(${sumSafeFloat(conversionColumn)}, 0)`
+        mathHogql = `(${numerator.math_hogql}) / nullIf(${denominator.math_hogql}, 0)${tileColumnSelection === 'ctr' ? ' * 100' : ''}`
     } else {
         const rawColumn = table.source_map[tileColumnSelection]
         const column = rawColumn ? sanitizeColumnName(rawColumn) : null
@@ -86,7 +98,10 @@ export const externalAdsCostTile = (
         const currencyExpr = buildCurrencyExpr(table.source_map.currency, baseCurrency)
         const dateExpr = buildDateExpr(table)
         const safeCurrency = sanitizeCurrencyCode(baseCurrency) ?? 'USD'
-        mathHogql = `SUM(convertCurrency(${currencyExpr}, '${safeCurrency}', ${safeFloat(column)}, _toDate(${dateExpr})))`
+        mathHogql =
+            tileColumnSelection === 'cost' || tileColumnSelection === 'reported_conversion_value'
+                ? `SUM(convertCurrency(${currencyExpr}, '${safeCurrency}', ${safeFloat(column)}, _toDate(${dateExpr})))`
+                : sumSafeFloat(column)
     }
 
     const dateField = sanitizeColumnName(table.source_map.date)

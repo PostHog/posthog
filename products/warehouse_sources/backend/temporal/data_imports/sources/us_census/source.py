@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,8 @@ def _has_custom_query(config: USCensusSourceConfig) -> bool:
 
 @SourceRegistry.register
 class USCensusSource(SimpleSource[USCensusSourceConfig]):
+    codebase_detection = detect(env=("^(US_CENSUS|USCENSUS)_",), pypi=("census",))
+
     # Static endpoint catalog with no I/O in get_schemas — safe for public docs.
     lists_tables_without_credentials = True
     # The Census Data API is unversioned; datasets are versioned by vintage in the URL path.
@@ -143,7 +146,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
             caption="Sync official US Census Bureau statistics. Get a free API key at [api.census.gov](https://api.census.gov/data/key_signup.html). To sync a dataset beyond the built-in tables, fill in the custom query fields using the dataset directory at [api.census.gov/data.html](https://api.census.gov/data.html).",
             docsUrl="https://posthog.com/docs/cdp/sources/us-census",
             iconPath="/static/services/us_census.svg",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -157,6 +160,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_dataset",
+                        sync_setting=True,
                         label="Custom query: dataset path",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -165,6 +169,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_variables",
+                        sync_setting=True,
                         label="Custom query: variables (get)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -173,6 +178,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_geography",
+                        sync_setting=True,
                         label="Custom query: geography (for)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -181,6 +187,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_geography_filter",
+                        sync_setting=True,
                         label="Custom query: parent geography (in)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

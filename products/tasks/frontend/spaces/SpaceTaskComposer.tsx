@@ -1,8 +1,8 @@
+import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 import { type ComposerPrefillRequest, EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
 import { ChannelDTOApi } from '../generated/api.schemas'
 import { SpaceComposerRepositoryConfig } from './spaceSceneLogic'
-import { SpaceTaskComposerSkeleton } from './SpaceTaskComposerSkeleton'
 
 const SPACE_COMPOSER_OVERRIDE = {
     placeholder: 'What do you want to ship?',
@@ -40,7 +40,7 @@ export function SpaceTaskComposer({
             focusRequest={focusRequest}
             autoFocus={false}
             prefillRequest={prefillRequest}
-            fallback={<SpaceTaskComposerSkeleton />}
+            fallback={<QuillTaskComposerSkeleton />}
         />
     )
 }

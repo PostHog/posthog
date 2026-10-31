@@ -37,14 +37,24 @@ MAX_METRIC_ATTEMPTS = 8
 
 # Below MAX_METRIC_ATTEMPTS for errors where a retry rarely succeeds and adds ClickHouse load. At the cap the
 # activity fails the metric non-retryable, so the RetryPolicy keeps MAX_METRIC_ATTEMPTS.
-CAPACITY_MAX_METRIC_ATTEMPTS = 3
+# A capacity rejection costs nothing, because ClickHouse refuses the query before it runs, so it gets more
+# attempts than a timeout. 6 attempts are 5 waits, one per band of the CAPACITY_RETRY_* schedule below.
+CAPACITY_MAX_METRIC_ATTEMPTS = 6
 # The timeout class also holds SOCKET_TIMEOUT, so one retry stays for network failures.
 TIMEOUT_MAX_METRIC_ATTEMPTS = 2
 
-# Jittered delay after a capacity rejection (ClickHouseAtCapacity or ConcurrencyLimitExceeded), set via
-# next_retry_delay. The per-org app limiter skips Temporal activities, so the delay lets the cluster drain.
-CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS = 120
-CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS = 300
+# Delay before the retry of an attempt that a capacity rejection ended (ClickHouseAtCapacity or
+# ConcurrencyLimitExceeded), set via next_retry_delay. The delay is a random value in a band, and the band
+# doubles with each attempt: 10-20 s, 20-40 s, 40-80 s, 80-160 s, then 160-300 s. The short first wait fits the
+# common case, a pool that frees up within seconds. The later, longer waits stop a sustained full pool from
+# being polled constantly. The random position in the band spreads out metrics that bounced in the same burst,
+# so their retries do not arrive together. The per-org app limiter skips Temporal activities, so this delay is
+# what lets the cluster drain. The sum of the bands, at most 600 s, stays inside
+# METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS.
+CAPACITY_RETRY_FIRST_DELAY_MIN_SECONDS = 10
+CAPACITY_RETRY_FIRST_DELAY_MAX_SECONDS = 20
+CAPACITY_RETRY_BACKOFF_COEFFICIENT = 2.0
+CAPACITY_RETRY_MAX_DELAY_SECONDS = 300
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
 RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
@@ -54,12 +64,26 @@ RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
 # burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
 # and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with
 # SOCKET_TIMEOUT (a transient network blip), and recalc timeouts are rare enough to keep the retry budget.
-NON_RETRYABLE_ERROR_TYPES = frozenset({"out_of_memory", "byte_limit", "validation_error"})
+# The window type comes from request_recalculation, not from a query: the experiment start date sets it.
+RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE = "recalculation_window_too_long"
+NON_RETRYABLE_ERROR_TYPES = frozenset(
+    {"out_of_memory", "byte_limit", "validation_error", RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE}
+)
 
-# Per-attempt ceiling for the calc activity (its start_to_close_timeout). The activity has no heartbeat, so
-# this is the real per-attempt limit — when it fires, Temporal kills the attempt from the outside and nothing
-# inside the activity (result persistence, the terminal error event) runs.
+# Per-attempt ceiling for the calc activity (its start_to_close_timeout). When it fires, Temporal ends the
+# attempt from the outside. The next heartbeat delivers the cancellation, which kills the ClickHouse query, but
+# the attempt persists nothing. If no further attempt follows, the workflow failure backstop persists it.
 METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
+
+# Total budget for one metric across all its attempts and retry delays, queue wait included (the calc
+# activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
+# the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
+# stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
+
+# Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,
+# and it detects a dead worker only then. The activity heartbeats every heartbeat_timeout / 4.
+METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS = 60
 
 # ClickHouse max_execution_time for the recalc metric query. Deliberately below
 # METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS (minus headroom for metric build, stats, and persistence) so a slow
@@ -70,9 +94,16 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
 
 RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS = 90
+RECALCULATION_PROGRESS_MAX_ATTEMPTS = 3
+
+# The failure backstop does only Postgres writes and one capture. Its worst case adds to the IN_PROGRESS phase,
+# so it stays short. The schedule_to_close bound also covers queue wait, which start_to_close does not.
+METRIC_FAILURE_BACKSTOP_ACTIVITY_TIMEOUT_SECONDS = 30
+METRIC_FAILURE_BACKSTOP_MAX_ATTEMPTS = 3
+METRIC_FAILURE_BACKSTOP_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 120
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricsRecalculationWorkflowInputs:
     """Input to the batch metrics recalculation workflow."""
 
@@ -80,9 +111,12 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task-queue fairness key for the calc activities (the org id, matching the app_per_org limiter scope).
     # None falls back to default dispatch order.
     fairness_key: str | None = None
+    # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
+    # None keeps the activity on the workflow's own queue.
+    activity_task_queue: str | None = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ExperimentMetricToRecalculate:
     """A single metric to recalculate.
 
@@ -92,7 +126,8 @@ class ExperimentMetricToRecalculate:
 
     experiment_id: int
     metric_uuid: str
-    metric_type: str  # "primary" or "secondary"
+    # "primary" or "secondary": the metric's role in the experiment, not its kind.
+    role: str
 
 
 @dataclasses.dataclass
@@ -108,6 +143,16 @@ class MetricRecalculationResult:
     success: bool
     error_step: str | None = None
     error_message: str | None = None
+
+
+@frozen
+class MetricOutOfTimeFailure:
+    """A metric whose calc activity Temporal ended from the outside, so no attempt persisted its outcome."""
+
+    recalculation_id: str
+    experiment_id: int
+    metric_uuid: str
+    role: str  # "primary" or "secondary"
 
 
 @dataclasses.dataclass

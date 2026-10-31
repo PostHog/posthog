@@ -7,6 +7,7 @@ import {
     WebStatsTableQueryResponse,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
+    WebVitalsItem,
     WebVitalsQuery,
     WebVitalsQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -26,24 +27,32 @@ const webVitalsQuery: WebVitalsQuery = {
     properties: [],
     source: {
         kind: NodeKind.TrendsQuery,
-        series: [],
+        series: (['LCP', 'CLS'] as const).map((metric) => ({
+            kind: NodeKind.EventsNode,
+            event: '$web_vitals',
+            custom_name: metric,
+            math: PropertyMathType.P90,
+            math_property: `$web_vitals_${metric}_value`,
+        })),
     },
 }
 
-const webVitalsResponse: WebVitalsQueryResponse = {
-    results: [
-        {
-            action: { custom_name: 'LCP', math: PropertyMathType.P90 },
-            days: ['2026-09-01', '2026-09-02'],
-            data: [2400, 2600],
-        },
-        {
-            action: { custom_name: 'CLS', math: PropertyMathType.P90 },
-            days: ['2026-09-01', '2026-09-02'],
-            data: [0.04, 0.05],
-        },
-    ],
-}
+const webVitalsRows: WebVitalsItem[] = [
+    {
+        action: { custom_name: 'LCP', math: PropertyMathType.P90 },
+        order: 0,
+        days: ['2026-09-01', '2026-09-02'],
+        data: [2400, 2600],
+    },
+    {
+        action: { custom_name: 'CLS', math: PropertyMathType.P90 },
+        order: 1,
+        days: ['2026-09-01', '2026-09-02'],
+        data: [0.04, 0.05],
+    },
+]
+
+const webVitalsResponse: WebVitalsQueryResponse = { results: webVitalsRows }
 
 const pathBreakdownQuery: WebVitalsPathBreakdownQuery = {
     kind: NodeKind.WebVitalsPathBreakdownQuery,

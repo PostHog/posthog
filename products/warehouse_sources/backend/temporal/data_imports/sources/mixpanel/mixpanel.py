@@ -9,10 +9,13 @@ from typing import Any, Optional
 import orjson
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
@@ -115,6 +118,10 @@ def _export_base(region: str) -> str:
     return _hosts(region).export_base
 
 
+def _ingestion_base(region: str) -> str:
+    return _hosts(region).ingestion_base
+
+
 def _export_url(region: str, api_version: str) -> str:
     # A pin is honored verbatim, so an unknown/future label can reach here; fall back to
     # Mixpanel's only raw-export path (`2.0`) rather than raising on the lookup.
@@ -132,6 +139,12 @@ def _flatten_event(event: dict[str, Any]) -> dict[str, Any]:
     properties = event.get("properties")
     if isinstance(properties, dict):
         row.update(properties)
+    # Mixpanel SDKs send `$browser_version` as a number (`120`, `17.4`) or a dotted string
+    # (`"130.0.0.0"`). Keeping it text gives the column one type across every batch.
+    # `120.0` becomes "120" so it still casts into a table that stored the column as int64.
+    browser_version = row.get("$browser_version")
+    if isinstance(browser_version, (int, float)):
+        row["$browser_version"] = str(int(browser_version)) if browser_version.is_integer() else str(browser_version)
     return row
 
 
@@ -233,7 +246,7 @@ def _check_response(response: requests.Response, url: str, logger: FilteringBoun
     return response
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((MixpanelRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=_retry_wait,
@@ -307,10 +320,11 @@ def _stream_export_day(
     resume relies on)."""
     params = {"from_date": from_date, "to_date": from_date, "project_id": project_id}
     for attempt in range(1, STREAM_MAX_ATTEMPTS + 1):
+        # Outside the try: when `_request` gave up, its own retries are spent, so re-fetching
+        # here would multiply the stall by `STREAM_MAX_ATTEMPTS`.
+        response_cm = _request("GET", url, username=username, secret=secret, logger=logger, params=params, stream=True)
         try:
-            with _request(
-                "GET", url, username=username, secret=secret, logger=logger, params=params, stream=True
-            ) as response:
+            with response_cm as response:
                 batch: list[dict[str, Any]] = []
                 for line in response.iter_lines():
                     if not line:
@@ -447,6 +461,28 @@ def _fetch_annotations(
     response = _request("GET", url, username=username, secret=secret, logger=logger)
     data = response.json()
     rows = data if isinstance(data, list) else data.get("results", [])
+    if rows:
+        yield rows
+
+
+def _fetch_lexicon_schemas(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_query_base(region)}/api/app/projects/{project_id}/schemas"
+    response = _request("GET", url, username=username, secret=secret, logger=logger)
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
+def _fetch_lookup_tables(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_ingestion_base(region)}/lookup-tables"
+    response = _request("GET", url, username=username, secret=secret, logger=logger, params={"project_id": project_id})
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
     if rows:
         yield rows
 
@@ -631,6 +667,10 @@ def get_rows(
         yield from _fetch_cohorts(region, username, secret, project_id, logger)
     elif endpoint == "annotations":
         yield from _fetch_annotations(region, username, secret, project_id, logger)
+    elif endpoint == "lexicon_schemas":
+        yield from _fetch_lexicon_schemas(region, username, secret, project_id, logger)
+    elif endpoint == "lookup_tables":
+        yield from _fetch_lookup_tables(region, username, secret, project_id, logger)
     elif endpoint == "funnels":
         yield from _fetch_funnels(region, username, secret, project_id, logger)
     elif endpoint in ("funnel_steps", "retention"):

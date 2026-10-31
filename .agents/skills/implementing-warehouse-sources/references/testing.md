@@ -34,7 +34,7 @@ The shared tests live in `sources/tests/test_source_catalog_invariants.py`, `tes
 
 | Do not test                                                                                                                                | Why                                                                                    |
 | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| That an error string matches a key of `get_non_retryable_errors()`, e.g. `assert any(p in msg for p in source.get_non_retryable_errors())` | The test copies the pattern into the message, so it restates the dict                  |
+| That an error string matches a key of `get_non_retryable_errors()`, e.g. `assert any(p in msg for p in source.get_non_retryable_errors())` | `test_source_error_contract.py` classifies the real errors of every source             |
 | `get_schemas(names=[...])` filtering, or the sync modes it builds, when `get_schemas` is one `build_endpoint_schemas(...)` call            | `common/test_source_schema.py` covers the helper                                       |
 | `get_documented_tables()` output                                                                                                           | The catalog invariants cover it                                                        |
 | A `source_for_pipeline` that forwards its config to the transport                                                                          | The forwarding has no branch                                                           |
@@ -114,7 +114,7 @@ For a source built on a vendor SDK, mock the SDK client instead.
 Do not patch `make_tracked_session`, mock `ResumableSourceManager`, or patch a private name in `sources/common`.
 Each one lets a test pass against wrong behavior, and `posthog/test/repo_invariants/test_warehouse_source_test_shapes.py` fails a new test file that does it.
 Its baselines list the files that still do, and may only get shorter.
-When you move a listed file onto the driver, run `python posthog/test/repo_invariants/test_warehouse_source_test_shapes.py` to remove it from the baseline.
+When you move a listed file onto the driver, run `PYTHONPATH=. python posthog/test/repo_invariants/test_warehouse_source_test_shapes.py` to remove it from the baseline.
 
 - **Pagination:** one test that walks at least two pages to the terminal page, and asserts the request parameters of each page. Add the cases where the vendor's termination signal is unusual (an empty page with a cursor, a `has_more` flag that lies).
 - **Request shaping:** an incremental request sends the watermark in the vendor's filter and sort; a full refresh sends no watermark. One parameterized test.

@@ -244,28 +244,27 @@ describe('event-loop-yield', () => {
         })
 
         it('actually yields the event loop during a CPU-bound batch', async () => {
-            // Without yielding, longestDelay would equal the full batch wall time.
+            jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+            let elapsed = 0
+            const now = jest.spyOn(performance, 'now').mockImplementation(() => elapsed)
             configureEventLoopYield(20)
-
-            let longestDelay = 0
-            let lastTick = performance.now()
-            const interval = setInterval(() => {
-                const now = performance.now()
-                longestDelay = Math.max(longestDelay, now - lastTick)
-                lastTick = now
-            }, 0)
+            const seen: number[] = []
 
             try {
-                const blockMs = 30
-                const items = Array.from({ length: 10 }, (_, i) => i)
-                await yieldEach('test', items, () => busyWaitMs(blockMs))
+                const batch = yieldEach('test', [0, 1], (item) => {
+                    seen.push(item)
+                    elapsed += 30
+                })
 
-                // 10 * 30 = 300ms total blocking. With yielding, longestDelay
-                // should be close to one block + a little jitter. (If yielding
-                // were broken, this would be ~300ms.)
-                expect(longestDelay).toBeLessThan(blockMs * 4)
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(seen).toEqual([0])
+                await jest.advanceTimersByTimeAsync(1)
+                await batch
+                expect(seen).toEqual([0, 1])
             } finally {
-                clearInterval(interval)
+                await jest.runAllTimersAsync()
+                now.mockRestore()
+                jest.useRealTimers()
             }
         })
 

@@ -9,7 +9,8 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import posthog from 'lib/posthog-typed'
 import { cn } from 'lib/utils/css-classes'
 
-import { harnessLogo } from '../dashboard/harnessRegistry'
+import { BrandMark } from '../components/BrandMark'
+import { harnessMark } from '../dashboard/harnessRegistry'
 import type { FirstLookChip } from './firstLookCopy'
 import { mcpFirstLookLogic } from './mcpFirstLookLogic'
 
@@ -17,12 +18,9 @@ const CHIP_ICON: Record<string, JSX.Element> = {
     'top-tool': <IconBolt />,
     'worst-error': <IconWarning />,
     p95: <IconClock />,
-    // Fallback for the client chip when the harness has no logo (e.g. "Other").
-    client: <IconSparkles />,
 }
 
 function Chip({ chip }: { chip: FirstLookChip }): JSX.Element {
-    const logo = chip.harness ? harnessLogo(chip.harness) : undefined
     return (
         <span
             className={cn(
@@ -31,7 +29,11 @@ function Chip({ chip }: { chip: FirstLookChip }): JSX.Element {
             )}
         >
             <span className="flex items-center text-xs leading-none">
-                {logo ? <img src={logo.src} alt={logo.alt} className="size-3.5" /> : CHIP_ICON[chip.key]}
+                {chip.harness ? (
+                    <BrandMark name={harnessMark(chip.harness)} className="size-3.5" />
+                ) : (
+                    CHIP_ICON[chip.key]
+                )}
             </span>
             <span className="text-muted">{chip.label}</span>
             <span className="font-medium text-primary">{chip.value}</span>

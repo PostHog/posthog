@@ -55,6 +55,7 @@ const LIVE_RUN: AutoresearchPipelineApi['live_training_run'] = {
     best_holdout_score: 0.81,
     latest_agent_description: 'Add the ratio of shares in the last 7 days to the last 30 days.',
     latest_summary: null,
+    trend: [0.74, 0.79, 0.81].map((best_holdout_score, iteration_number) => ({ iteration_number, best_holdout_score })),
 }
 
 const CONFIRMED = {

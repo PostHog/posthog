@@ -71,6 +71,11 @@ describe('agenticAuthorizeLogic', () => {
             403,
             'the requesting app is no longer active, so PostHog cannot finish the authorization.',
         ],
+        [
+            'consent_changed',
+            409,
+            'This authorization request changed while the page was open. Start over to review it.',
+        ],
     ])('maps the %s error to a specific message', async (code, status, message) => {
         confirmResponse = [status as number, { error: code }]
         startConfirm()
@@ -84,5 +89,55 @@ describe('agenticAuthorizeLogic', () => {
             reason: code,
             retryable: expect.any(Boolean),
         })
+    })
+
+    it('confirms a paying partner with the terms the page showed and no project', async () => {
+        const redirectUrl = 'https://app.example.com/callback?code=example_code&state=valid_state'
+        let confirmBody: unknown
+        useMocks({
+            get: {
+                '/api/agentic/authorize/pending/': () => [
+                    200,
+                    {
+                        partner_name: 'Example App',
+                        scopes: [],
+                        pays_for_customers: true,
+                        partner_organization_id: 'example-organization-id',
+                        partner_organization_name: 'Example organization',
+                    },
+                ],
+            },
+            post: {
+                '/api/agentic/authorize/confirm/': async ({ request }) => {
+                    confirmBody = await request.json()
+                    return [200, { redirect_url: redirectUrl }]
+                },
+            },
+        })
+        logic = agenticAuthorizeLogic()
+        logic.mount()
+        logic.actions.setState('valid_state')
+        await expectLogic(logic, () => logic.actions.loadPendingAuth()).toDispatchActions(['loadPendingAuthSuccess'])
+
+        const originalLocation = window.location
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            writable: true,
+            value: { ...originalLocation, href: originalLocation.href },
+        })
+        try {
+            await expectLogic(logic, () => logic.actions.submitAgenticAuthorization()).toDispatchActions([
+                'submitAgenticAuthorizationSuccess',
+            ])
+
+            expect(confirmBody).toEqual({
+                state: 'valid_state',
+                pays_for_customers: true,
+                partner_organization_id: 'example-organization-id',
+            })
+            expect(window.location.href).toBe(redirectUrl)
+        } finally {
+            Object.defineProperty(window, 'location', { configurable: true, writable: true, value: originalLocation })
+        }
     })
 })

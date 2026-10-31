@@ -1,10 +1,13 @@
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -15,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
     PADDLE_BASE_URL,
     PaddlePermissionError,
     PaddleResumeConfig,
-    PaddleUnreachableError,
     _format_paddle_datetime_query_value,
     validate_credentials,
 )
@@ -44,6 +46,58 @@ def _response(
     if not drop_data:
         body["data"] = items or []
     return ScriptedResponse(json=body)
+
+
+EXPLORE_CATALOG = [
+    {
+        "entity": "transactions.completed",
+        "time_dimension": {"intervals": ["day", "week", "month"], "max_lookback_days": 1096},
+        "dimensions": [],
+        "measures": [
+            {"name": "gross_revenue", "type": "currency", "aggs": ["sum"]},
+            {"name": "id", "type": "string", "aggs": ["count"]},
+        ],
+    },
+    {
+        "entity": "subscriptions",
+        "time_dimension": {"intervals": ["month"], "max_lookback_days": 70},
+        "dimensions": [],
+        "measures": [{"name": "mrr", "type": "currency", "aggs": None}],
+    },
+]
+
+
+def _explore_network(request: RecordedRequest) -> ScriptedResponse:
+    if request.path.endswith("/metrics/explore/entities"):
+        return ScriptedResponse(json={"data": EXPLORE_CATALOG})
+    body = request.json()
+    measures = [
+        {"name": f"{m['agg']}_{m['field']}" if "agg" in m else m["field"], "type": "currency", **m}
+        for m in body["measures"]
+    ]
+    return ScriptedResponse(
+        json={
+            "data": {
+                "entity": body["entity"],
+                "interval": body["interval"],
+                "currency_code": "USD",
+                "updated_at": "2026-08-20T06:00:00Z",
+                "fields": {"dimensions": [], "measures": measures},
+                "series": [
+                    {
+                        "dimensions": {},
+                        "timeseries": [{"timestamp": body["from"], "measures": {m["name"]: "100" for m in measures}}],
+                    }
+                ],
+            },
+            "meta": {"pagination": {"per_page": 5, "next": None, "has_more": False, "estimated_total": 1}},
+        }
+    )
+
+
+def _explore_queries(result: Any) -> list[tuple[str, str, str, str]]:
+    bodies = [request.json() for request in result.requests if request.method == "POST"]
+    return [(body["entity"], body["interval"], body["from"], body["to"]) for body in bodies]
 
 
 def _driver() -> SourceDriver:
@@ -86,6 +140,70 @@ class TestIncremental:
         assert result.requests[0].param("billed_at[GT]") == "2024-01-02T03:04:05Z"
 
 
+class TestExploreMetrics:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel("2026-08-20T12:00:00Z", tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "inputs, expected_queries",
+        [
+            (
+                # The shortest lookback (70 days) bounds every entity, rounded up to the next month start.
+                {},
+                [
+                    ("subscriptions", "month", "2026-07-01", "2026-08-01"),
+                    ("transactions.completed", "day", "2026-07-01", "2026-08-01"),
+                    ("subscriptions", "month", "2026-08-01", "2026-08-21"),
+                    ("transactions.completed", "day", "2026-08-01", "2026-08-21"),
+                ],
+            ),
+            (
+                {"should_use_incremental_field": True, "db_incremental_field_last_value": "2026-08-02T00:00:00Z"},
+                [
+                    ("subscriptions", "month", "2026-08-01", "2026-08-21"),
+                    ("transactions.completed", "day", "2026-08-01", "2026-08-21"),
+                ],
+            ),
+        ],
+    )
+    def test_queries_each_entity_per_calendar_month(
+        self, inputs: dict[str, Any], expected_queries: list[tuple[str, str, str, str]]
+    ) -> None:
+        result = _driver().run("explore_metrics", _explore_network, **inputs)
+
+        assert result.raised is None
+        assert _explore_queries(result) == expected_queries
+        posts = [request.json() for request in result.requests if request.method == "POST"]
+        assert posts[0]["measures"] == [{"field": "mrr"}]
+        assert posts[1]["measures"] == [{"field": "gross_revenue", "agg": "sum"}, {"field": "id", "agg": "count"}]
+        assert {
+            "entity": "transactions.completed",
+            "interval": "day",
+            "timestamp": f"{expected_queries[1][2]}T00:00:00Z",
+            "measure": "sum_gross_revenue",
+            "field": "gross_revenue",
+            "agg": "sum",
+            "value_type": "currency",
+            "value": "100",
+            "currency_code": "USD",
+            "updated_at": "2026-08-20T06:00:00Z",
+        } in result.rows
+        assert len(result.rows) == 3 * len(expected_queries) // 2
+        assert result.saved_states[-1] == PaddleResumeConfig()
+
+    def test_resume_continues_at_saved_window_and_entity(self) -> None:
+        result = _driver().run(
+            "explore_metrics",
+            _explore_network,
+            resume_state=PaddleResumeConfig(explore_window_start="2026-08-01", explore_entity="transactions.completed"),
+        )
+
+        assert result.raised is None
+        assert _explore_queries(result) == [("transactions.completed", "day", "2026-08-01", "2026-08-21")]
+
+
 class TestResume:
     def test_checkpoint_saved_on_last_page_terminates_on_resume(self) -> None:
         # A checkpoint saved while looping on the final page points at that page.
@@ -111,10 +229,21 @@ class TestValidateCredentials:
                 validate_credentials("key")
         assert network.requests_log[0].headers["authorization"] == "Bearer key"
 
-    def test_transport_failure_is_not_a_rejected_key(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            with pytest.raises(PaddleUnreachableError):
-                validate_credentials("key")
+    @pytest.mark.parametrize(
+        "table_name, expected_paths",
+        [
+            # A key without `metrics.read` must still connect, so the create-time check skips Explore.
+            (
+                None,
+                ["/customers", "/discounts", "/prices", "/products", "/subscriptions", "/transactions", "/adjustments"],
+            ),
+            ("explore_metrics", ["/metrics/explore/entities"]),
+        ],
+    )
+    def test_probed_paths(self, table_name: str | None, expected_paths: list[str]) -> None:
+        with scripted_network(always(ScriptedResponse(status=200))) as network:
+            assert validate_credentials("key", table_name) is True
+        assert [request.path for request in network.requests_log] == expected_paths
 
 
 class TestSourceValidateCredentials:

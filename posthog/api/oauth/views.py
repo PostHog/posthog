@@ -3,6 +3,7 @@ import uuid
 import hashlib
 import calendar
 from collections.abc import Iterable
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, TypedDict, cast
@@ -34,7 +35,7 @@ from oauth2_provider.views import (
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
 from oauthlib.common import Request as OauthlibRequest
-from oauthlib.oauth2 import InvalidClientIdError, InvalidGrantError
+from oauthlib.oauth2 import InvalidClientError, InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
 from rest_framework.exceptions import AuthenticationFailed, NotFound
@@ -53,6 +54,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.api.oauth.client_assertion import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
     ClientAssertionError,
     ResolvedClientAssertion,
     expected_assertion_audiences,
@@ -75,7 +77,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
-from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL, wizard_identity_blocked
+from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import (
@@ -156,8 +158,14 @@ def get_region_info() -> dict | None:
 # The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
 _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.posthog.com"}
 
+# Why the last CIMD client_id failed to resolve, as (client_id, reason). oauthlib's
+# InvalidClientIdError doesn't carry the request, so this is how error_response learns the
+# reason. validate_client_id resets it on every call, and error_response only uses it for the
+# same client_id.
+_cimd_resolution_error: ContextVar[tuple[str, str] | None] = ContextVar("cimd_resolution_error", default=None)
 
-def unknown_client_id_description(client_id: str | None) -> str:
+
+def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
     """Describe an unknown `client_id` so the client can act on the 400.
 
     An OAuth application exists in one region only, and a request sent to the other
@@ -165,9 +173,15 @@ def unknown_client_id_description(client_id: str | None) -> str:
     region is what makes that case recognizable.
 
     A CIMD client_id is a metadata URL resolved on demand rather than a registration
-    we hold, so it fails for a different reason and gets a different description.
+    we hold, so it fails for a different reason and gets a different description. When
+    /authorize knows why the document failed, `cimd_error` names it. CIMD errors are
+    written to be shown to the client: they describe the client's own public document.
     """
     if is_cimd_client_id(client_id):
+        if cimd_error:
+            return (
+                f"PostHog could not use the client metadata document at this client_id: {cimd_error[:500].rstrip('.')}."
+            )
         return (
             "PostHog could not read the client metadata document at this client_id. "
             "Check that the URL is reachable over HTTPS and returns valid client metadata."
@@ -250,6 +264,12 @@ def _oauth_app_event_properties(application: OAuthApplication) -> dict:
         "is_first_party": application.is_first_party,
         **({"cimd_url": application.client_id} if application.is_cimd_client else {}),
     }
+
+
+def _provisioning_signing_properties(application: OAuthApplication, *, signed: bool) -> dict:
+    if not application.is_provisioning_partner:
+        return {}
+    return {"provisioning_signing": application.provisioning_signing.request_tag(signed=signed)}
 
 
 def _token_error_code(response: HttpResponse) -> str:
@@ -365,14 +385,7 @@ def _gateway_blocklist_block(
     except Exception:
         logger.exception("security_access_check_site_failed", call_site="oauth_authorize")
         refused = False
-    if not refused and not wizard_identity_blocked(
-        distinct_id=str(request.user.distinct_id),
-        email=request.user.email,
-        surface="oauth_authorize",
-        user_uuid=str(request.user.uuid),
-        organization_ids=[str(organization_id) for organization_id in organization_ids],
-        team_ids=scoped_team_ids or [],
-    ):
+    if not refused:
         return None
     return Response(
         {"error": "access_denied", "error_description": WIZARD_BLOCKED_DETAIL},
@@ -553,9 +566,7 @@ class OAuthValidator(OAuth2Validator):
         exchange, in place and with no operator involved on either side. PKCE remains the
         enforced baseline for the fallback, exactly as for any public client. The
         grant-type gate in ``_credentialless_cimd_private_key_jwt_client`` keeps the
-        fallback off revocation, which shares this validator; the agentic provisioning
-        endpoints keep requiring the declared method, and partners there demonstrably
-        send assertions.
+        fallback off revocation, which shares this validator.
         """
         if getattr(request, "client_assertion", None):
             return True
@@ -572,6 +583,7 @@ class OAuthValidator(OAuth2Validator):
         living on credential-less refresh grants would keep stale scopes and config
         forever."""
         if super().authenticate_client_id(request_client_id, request, *args, **kwargs):
+            self._refuse_unsigned_provisioning_partner(request)
             return True
         app = self._credentialless_cimd_private_key_jwt_client(request)
         if app is None:
@@ -587,10 +599,9 @@ class OAuthValidator(OAuth2Validator):
         authenticates or fails, and the grant-type gate excludes requests without a token
         grant, which is how revocation stays on the declared method.
 
-        Provisioning partners are excluded. They register through CIMD and declare
-        private_key_jwt too, so they match this shape without needing it: they do send
-        assertions, and the key is the credential their registration is built on. Including
-        them would hand every partner a way to downgrade itself by sending nothing."""
+        Provisioning partners never get it. The key is the credential their registration is
+        built on, and the fallback would hand every partner a way to downgrade itself by
+        sending nothing."""
         if getattr(request, "grant_type", None) not in ("authorization_code", "refresh_token"):
             return None
         if getattr(request, "client_assertion", None):
@@ -600,9 +611,11 @@ class OAuthValidator(OAuth2Validator):
         if getattr(request, "client_secret", None):
             return None
         app = self._load_application(getattr(request, "client_id", None) or "", request)
-        if app is not None and app.is_cimd_client and app.uses_private_key_jwt_auth:
-            return None if app.is_provisioning_partner else app
-        return None
+        if app is None or not app.is_cimd_client or not app.uses_private_key_jwt_auth:
+            return None
+        if app.is_provisioning_partner:
+            return None
+        return app
 
     def authenticate_client(self, request, *args, **kwargs):
         """Authenticate a client presenting ``private_key_jwt`` (RFC 7523).
@@ -617,7 +630,20 @@ class OAuthValidator(OAuth2Validator):
         """
         if self._authenticate_client_assertion(request):
             return True
-        return super().authenticate_client(request, *args, **kwargs)
+        if not super().authenticate_client(request, *args, **kwargs):
+            return False
+        self._refuse_unsigned_provisioning_partner(request)
+        return True
+
+    @staticmethod
+    def _refuse_unsigned_provisioning_partner(request) -> None:
+        # Only grants issue tokens. Revocation shares this validator and must keep working, so a
+        # refused partner can still kill the tokens it holds.
+        if not getattr(request, "grant_type", None):
+            return
+        client = getattr(request, "client", None)
+        if client is not None and client.requires_provisioning_signature:
+            raise InvalidClientError(description=PRIVATE_KEY_REQUIRED_MESSAGE, request=request)
 
     @staticmethod
     def _enqueue_cimd_metadata_refresh(client_id: str) -> None:
@@ -709,13 +735,15 @@ class OAuthValidator(OAuth2Validator):
         """
 
         # CIMD URLs always go through get_or_create to ensure metadata refresh
+        _cimd_resolution_error.set(None)
         if is_cimd_client_id(client_id):
             try:
                 app = get_or_create_cimd_application(client_id)
                 request.client = app
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
-                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e))
+                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
+                _cimd_resolution_error.set((client_id, str(e)))
                 return False
 
         # Standard UUID lookup
@@ -1439,7 +1467,10 @@ def authenticated_oauth_client(view, request, *, resolve_cimd: bool = False) -> 
             return None
         if is_cimd_client_id(client_id) and not validator.validate_client_id(client_id, oauth_request):
             return None
-    if not validator.authenticate_client(oauth_request):
+    try:
+        if not validator.authenticate_client(oauth_request):
+            return None
+    except InvalidClientError:
         return None
     return oauth_request.client
 
@@ -1930,7 +1961,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if isinstance(oauthlib_error, InvalidClientIdError):
             # An unknown client_id is fatal, so DOT never redirects it and this description
             # only ever reaches the JSON body.
-            oauthlib_error.description = unknown_client_id_description(self.request.query_params.get("client_id"))
+            client_id = self.request.query_params.get("client_id")
+            failure = _cimd_resolution_error.get()
+            oauthlib_error.description = unknown_client_id_description(
+                client_id, cimd_error=failure[1] if failure and failure[0] == client_id else None
+            )
 
         redirect, error_response = super().error_response(error, **kwargs)
 
@@ -2034,6 +2069,11 @@ class OAuthTokenView(TokenView):
         }
         if access_token.application:
             properties.update(_oauth_app_event_properties(access_token.application))
+            properties.update(
+                _provisioning_signing_properties(
+                    access_token.application, signed=client_auth_method == "client_assertion"
+                )
+            )
         # `user` is nullable on an access token (client-credentials grants have no
         # resource owner), so fall back to the client id and skip person processing.
         if access_token.user is None:
@@ -2073,6 +2113,9 @@ class OAuthTokenView(TokenView):
             pass
         else:
             properties.update(_oauth_app_event_properties(application))
+            # A rejected assertion may not have verified, so only unsigned rejections are tagged.
+            if client_auth_method != "client_assertion":
+                properties.update(_provisioning_signing_properties(application, signed=False))
         posthoganalytics.capture(
             distinct_id=client_id or "unknown",
             event="oauth_token_rejected",
@@ -2365,6 +2408,7 @@ def _active_access_token_response(
     scoped_teams: list[int],
     scoped_organizations: list[str],
     application: OAuthApplication | None,
+    sandbox_task_id: uuid.UUID | None = None,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2379,6 +2423,16 @@ def _active_access_token_response(
     if application:
         data["client_id"] = application.client_id
         data["client_name"] = application.name
+    if sandbox_task_id is not None:
+        # The policy resolves API routes, which import these views.
+        from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
+
+        data["sandbox_task_id"] = str(sandbox_task_id)
+        # The MCP server hides and refuses every tool outside this list. The API enforces the
+        # same list per operation, so a client that ignores it gains nothing.
+        held_tools = resolve_scout_held_tools(sandbox_task_id=sandbox_task_id)
+        if held_tools is not None:
+            data["mcp_allowed_tools"] = sorted(held_tools)
     return JsonResponse(data)
 
 
@@ -2590,6 +2644,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 scoped_teams=access_token.scoped_teams or [],
                 scoped_organizations=access_token.scoped_organizations or [],
                 application=access_token.application,
+                sandbox_task_id=access_token.sandbox_task_id,
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has

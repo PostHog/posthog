@@ -24,6 +24,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.metric_events_precompute import MetricEventsPrecompute
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 PURCHASE_SUM = EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount")
@@ -114,8 +115,6 @@ class TestExperimentRatioMetricEventsPreaggregation(ExperimentQueryRunnerBaseTes
         )
         runner = self._build_runner(experiment, ExperimentRatioMetric(numerator=numerator, denominator=denominator))
 
-        with patch.object(
-            ExperimentQueryRunner, "_ratio_metric_events_precomputation_enabled", return_value=flag_enabled
-        ):
+        with patch.object(MetricEventsPrecompute, "ratio_flag_enabled", return_value=flag_enabled):
             assert runner._metric_events_ineligibility_reason() == skip_reason
             assert runner._metric_events_precompute_applicable() is (skip_reason is None)

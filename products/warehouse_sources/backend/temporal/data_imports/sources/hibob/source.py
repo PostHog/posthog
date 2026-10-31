@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HiBobSource(SimpleSource[HiBobSourceConfig]):
+    codebase_detection = detect(env=("^(HI_BOB|HIBOB)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://apidocs.hibob.com"
@@ -68,7 +71,7 @@ class HiBobSource(SimpleSource[HiBobSourceConfig]):
 Create a Service User in Bob under Settings > Integrations > Automation > Service Users, then add it to a permission group with read access to the data categories you want to sync (e.g. People). Calls return 403 until permissions are granted.""",
             iconPath="/static/services/hibob.png",
             docsUrl="https://posthog.com/docs/cdp/sources/hibob",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

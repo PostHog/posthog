@@ -55,8 +55,11 @@ class TestReenrichmentSelection(BaseTest):
         last_attempted_days_ago: int | None = 31,
         first_fetch_days_ago: int = 40,
         signup_role: str | None = None,
+        work_email: bool | None = True,
     ) -> None:
-        data: dict = {"icp_fit_status": status, "work_email": True}
+        data: dict = {"icp_fit_status": status}
+        if work_email is not None:
+            data["work_email"] = work_email
         if signup_role:
             data["signup_role"] = signup_role
         if last_attempted_days_ago is not None:
@@ -101,12 +104,18 @@ class TestReenrichmentSelection(BaseTest):
         never_attempted_but_freshly_fetched = self._org_with_member("e@fresh.example")
         self._prime(never_attempted_but_freshly_fetched, last_attempted_days_ago=None, first_fetch_days_ago=1)
 
+        not_work_email = self._org_with_member("f@cleared.example")
+        self._prime(not_work_email, status="not_found", work_email=False)
+
+        missing_work_email = self._org_with_member("g@unrecorded.example")
+        self._prime(missing_work_email, last_attempted_days_ago=32, first_fetch_days_ago=40, work_email=None)
+
         due = self._org_with_member("d@due.example")
         self._prime(due, last_attempted_days_ago=31, first_fetch_days_ago=40)
 
         candidates = self._select()
 
-        assert [c["organization_id"] for c in candidates] == [str(due.id)]
+        assert [c["organization_id"] for c in candidates] == [str(missing_work_email.id), str(due.id)]
 
     def test_cap_takes_the_least_recently_attempted_org_first(self):
         newer = self._org_with_member("newer@cap.example")

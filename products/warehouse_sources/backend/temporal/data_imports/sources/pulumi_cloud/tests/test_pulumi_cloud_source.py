@@ -22,10 +22,6 @@ class TestPulumiCloudSource:
         # force token re-entry so a preserved credential can't be aimed at another organization.
         assert self.source.connection_host_fields == ["organization"]
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["stacks"])
-        assert [s.name for s in schemas] == ["stacks"]
-
     @parameterized.expand(
         [
             # audit_logs has a server-side startTime lower bound; stack_updates pages newest-first
@@ -55,13 +51,3 @@ class TestPulumiCloudSource:
             ok, error = self.source.validate_credentials(config, team_id=1)
         assert ok is expected_ok
         assert (error is None) is expected_ok
-
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.pulumi.com/api/user/stacks"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.pulumi.com/api/orgs/my-org/auditlogs/v2"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)

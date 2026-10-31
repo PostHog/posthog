@@ -58,6 +58,7 @@ from products.review_hog.backend.reviewer.constants import (
     priority_rank,
     published_priorities_for,
 )
+from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
@@ -435,6 +436,7 @@ async def _emit_and_mark(
                 "is_directly_related_to_changes": oc.finding.is_directly_related_to_changes,
                 "outcome": oc.outcome,
                 "classification_method": oc.method,
+                "finding_budget_arm": budget_arm(repository, report.pr_number),
                 "reviewed_head": oc.reviewed_head,
                 "final_head": oc.final_head,
                 **finding_routing_properties(report, oc.finding),

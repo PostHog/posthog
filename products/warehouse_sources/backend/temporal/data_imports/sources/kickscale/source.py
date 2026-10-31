@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConfig]):
+    codebase_detection = detect(env=("^KICKSCALE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Kickscale's API has no versioned path segment, header, or query param — its OpenAPI
     # document is labelled "1.0" but that isn't a value the client sends anywhere.
@@ -120,7 +123,7 @@ class KickscaleSource(ResumableSource[KickscaleSourceConfig, KickscaleResumeConf
             "(requires a Configurator or Admin role). API keys expire after 1 year.",
             docsUrl="https://posthog.com/docs/cdp/sources/kickscale",
             iconPath="/static/services/kickscale.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["revenue intelligence", "sales enablement", "conversation intelligence"],
             fields=cast(
                 list[FieldType],

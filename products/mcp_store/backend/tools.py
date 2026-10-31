@@ -43,6 +43,7 @@ _CLIENT_INFO: dict[str, Any] = {"name": "posthog-mcp-store", "version": "1.0"}
 # We cap it aggressively (separate from the proxy's 180s, which
 # covers real tool execution) so a hung upstream can't pin a Django worker.
 HANDSHAKE_TIMEOUT = 10
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 # A real tool call does actual work upstream, so it needs more room than the
 # discovery handshake. Still well under the proxy's 180s: this path serves an
@@ -111,6 +112,8 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         **auth_headers,
+        "x-posthog-mcp-mode": "tools",
+        "x-posthog-mcp-store": "true",
     }
 
     try:
@@ -118,6 +121,8 @@ def fetch_upstream_tools(installation: MCPServerInstallation) -> list[dict[str, 
             installation.url,
             verdict.pinned_ips,
             timeout=HANDSHAKE_TIMEOUT,
+            total_timeout=HANDSHAKE_TIMEOUT,
+            max_response_bytes=MAX_RESPONSE_BYTES,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
@@ -174,6 +179,8 @@ def call_upstream_tool(
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         **auth_headers,
+        "x-posthog-mcp-mode": "tools",
+        "x-posthog-mcp-store": "true",
     }
 
     try:
@@ -181,6 +188,8 @@ def call_upstream_tool(
             installation.url,
             verdict.pinned_ips,
             timeout=CALL_TIMEOUT,
+            total_timeout=CALL_TIMEOUT,
+            max_response_bytes=MAX_RESPONSE_BYTES,
             trust_env=trust_environment_proxy(installation.url, installation.team_id),
         ) as client:
             session_id, upstream_url = _mcp_initialize(client, installation.url, base_headers)
@@ -202,6 +211,8 @@ def call_upstream_tool(
         raise ToolCallError("Upstream MCP server unreachable") from exc
     except httpx.TimeoutException as exc:
         raise ToolCallError("Upstream MCP server timed out") from exc
+    except httpx.HTTPError as exc:
+        raise ToolCallError(f"Upstream MCP tool call failed: {exc}") from exc
 
 
 def _post_with_same_origin_redirect(

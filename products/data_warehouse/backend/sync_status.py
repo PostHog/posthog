@@ -27,7 +27,7 @@ STALE_RUNNING_MULTIPLIER = 2
 _NOT_DELETED = Q(deleted=False) | Q(deleted__isnull=True)
 
 _BILLING_LIMIT_REASONS: dict[str, str] = {
-    ExternalDataSchemaStatus.BILLING_LIMIT_REACHED: "the data warehouse billing limit has been reached",
+    ExternalDataSchemaStatus.BILLING_LIMIT_REACHED: "the Sources billing limit has been reached",
     ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW: "the configured billing limit is too low",
 }
 

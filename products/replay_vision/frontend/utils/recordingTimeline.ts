@@ -240,6 +240,10 @@ export function currentRowIndex(rows: TimelineRow[], playerTimeMs: number): numb
     return current
 }
 
+export function momentCount(timeline: RecordingTimeline): number {
+    return timeline.chapters.length + timeline.markers.length
+}
+
 /** The next chapter start after the player's position. */
 export function nextTimelineStopMs(timeline: RecordingTimeline, playerTimeMs: number): number | null {
     const later = timeline.chapters.map((c) => c.startMs).filter((ms) => ms > playerTimeMs)

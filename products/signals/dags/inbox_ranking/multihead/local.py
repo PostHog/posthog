@@ -92,7 +92,7 @@ def consenting_snapshots(
 
 
 def report_vectors(embeddings: pa.Table) -> Extras:
-    """The `report_embeddings` side input, in the shape the dag's `embeddings_extras` builds."""
+    """The `report_embeddings` side input, indexed by report_id."""
     vectors = (
         embeddings.select(["report_id", EMBEDDING_COLUMN, EMBEDDING_INSERTED_AT_COLUMN])
         .to_pandas()

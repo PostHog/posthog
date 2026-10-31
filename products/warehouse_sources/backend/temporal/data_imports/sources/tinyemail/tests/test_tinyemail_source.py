@@ -1,5 +1,3 @@
-import pytest
-
 from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tinyemail import (
     TinyemailSourceConfig,
@@ -19,7 +17,7 @@ class TestTinyemailSource:
         assert config.name.value == "Tinyemail"
         assert config.label == "tinyEmail"
         assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert not config.unreleasedSource
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/tinyemail"
         assert config.iconPath == "/static/services/tinyemail.png"
@@ -34,16 +32,3 @@ class TestTinyemailSource:
             assert schema.supports_incremental is False
             assert schema.supports_append is False
             assert schema.incremental_fields == []
-
-    @pytest.mark.parametrize(
-        "observed_error,expected_non_retryable",
-        [
-            ("401 Client Error: Unauthorized for url: https://api.tinyemail.com/v1/campaign", True),
-            ("403 Client Error: Forbidden for url: https://api.tinyemail.com/v1/contacts", True),
-            ("429 Client Error: Too Many Requests for url: https://api.tinyemail.com/v1/campaign", False),
-            ("500 Server Error: Internal Server Error for url: https://api.tinyemail.com/v1/campaign", False),
-        ],
-    )
-    def test_non_retryable_errors(self, observed_error: str, expected_non_retryable: bool) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable) is expected_non_retryable

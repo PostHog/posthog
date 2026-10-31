@@ -1,11 +1,11 @@
-//! Worker selection strategies for unpinned routing keys.
+//! Worker selection strategies for the batcher's requests.
 //!
-//! The dispatcher owns the stateful concerns (grouping, sticky pins, ref-counts,
-//! in-flight accounting). This module is the pure decision layer: given the set
-//! of healthy workers and their per-worker load, pick a target. Keeping it free
-//! of dispatcher state makes the algorithms trivially unit-testable and lets the
-//! routing policy evolve (P2C cost functions, subsetting) without touching the
-//! dispatcher's bookkeeping.
+//! The batcher's worker assigner owns the stateful concerns (per-worker
+//! request and message load). This module is the pure decision layer: given
+//! the set of healthy workers and their per-worker load, pick a target.
+//! Keeping it free of batcher state makes the algorithms trivially
+//! unit-testable and lets the routing policy evolve (P2C cost functions,
+//! subsetting) without touching the batcher's bookkeeping.
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -15,20 +15,15 @@ use rand::{Rng, SeedableRng};
 
 use crate::worker_registry::WorkerId;
 
-/// How unpinned routing keys are assigned to workers. Pinned keys always go to
-/// their existing worker regardless of strategy.
+/// How requests are placed on workers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum RoutingStrategy {
-    /// Largest-first bin-packing onto the least-loaded worker. Accurate when one
-    /// consumer exclusively owns its workers (the co-located sidecar), because
-    /// then this consumer's in-flight counts are the ground truth.
-    #[default]
-    BinPack,
     /// Power-of-two-choices: sample two random workers, pick the lighter. Herd
     /// resistant when many consumers share a worker pool, because each consumer
     /// samples a different random pair instead of converging on one global best.
+    #[default]
     P2c,
-    /// Deterministic aperture: each dispatcher routes unpinned keys only within
+    /// Deterministic aperture: each consumer places requests only within
     /// its slice of the worker ring (see [`crate::aperture`]), with P2C
     /// selection inside the slice. Consolidates small batches onto few workers
     /// while the fleet's slices still tile the whole pool. Requires peer
@@ -42,11 +37,10 @@ impl FromStr for RoutingStrategy {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_lowercase().as_str() {
-            "binpack" | "bin_pack" | "bin-pack" => Ok(RoutingStrategy::BinPack),
             "p2c" | "power_of_two" | "power-of-two" => Ok(RoutingStrategy::P2c),
             "aperture" => Ok(RoutingStrategy::Aperture),
             other => Err(format!(
-                "unknown routing strategy '{other}' (expected 'binpack', 'p2c', or 'aperture')"
+                "unknown routing strategy '{other}' (expected 'p2c' or 'aperture')"
             )),
         }
     }
@@ -56,7 +50,6 @@ impl RoutingStrategy {
     /// Canonical config-string form, as accepted by [`FromStr`].
     pub fn as_str(&self) -> &'static str {
         match self {
-            RoutingStrategy::BinPack => "binpack",
             RoutingStrategy::P2c => "p2c",
             RoutingStrategy::Aperture => "aperture",
         }
@@ -72,7 +65,7 @@ fn load_of(load: &WorkerLoad, worker: &WorkerId) -> usize {
 }
 
 /// Stateful worker selector. Holds the routing strategy and, for P2C, the RNG
-/// used to sample candidates. One per dispatcher; selection requires `&mut self`
+/// used to sample candidates. One per batcher; selection requires `&mut self`
 /// because P2C advances the RNG.
 pub struct Router {
     strategy: RoutingStrategy,
@@ -101,33 +94,15 @@ impl Router {
         self.strategy
     }
 
-    /// Whether the caller should present groups largest-first before selecting.
-    /// Bin-packing wants the heavy hitters placed first so they drive the load
-    /// distribution; P2C is per-group and order-independent.
-    pub fn prefers_largest_first(&self) -> bool {
-        matches!(self.strategy, RoutingStrategy::BinPack)
-    }
-
-    /// Select a worker for one group. `healthy` lists candidate worker ids;
+    /// Select a worker for one request. `healthy` lists candidate worker ids;
     /// `load` is the current per-worker load (outstanding messages plus what has
     /// been provisionally assigned earlier in this round). Returns `None` when
     /// no workers are healthy.
     pub fn select(&mut self, healthy: &[WorkerId], load: &WorkerLoad) -> Option<WorkerId> {
-        match self.strategy {
-            RoutingStrategy::BinPack => select_least_loaded(healthy, load),
-            // Aperture narrows the candidate slice upstream (in the
-            // dispatcher); within the slice it selects exactly like P2C.
-            RoutingStrategy::P2c | RoutingStrategy::Aperture => {
-                select_p2c(healthy, load, &mut self.rng)
-            }
-        }
+        // Aperture narrows the candidate slice upstream (in the worker pool);
+        // within the slice it selects exactly like P2C.
+        select_p2c(healthy, load, &mut self.rng)
     }
-}
-
-/// Pick the least-loaded healthy worker. Ties resolve to the first such worker
-/// in `healthy`.
-fn select_least_loaded(healthy: &[WorkerId], load: &WorkerLoad) -> Option<WorkerId> {
-    healthy.iter().min_by_key(|w| load_of(load, w)).cloned()
 }
 
 /// Pick the lighter of two distinct random healthy workers. Degenerates to the
@@ -173,8 +148,6 @@ mod tests {
 
     #[test]
     fn test_routing_strategy_parses_known_values() {
-        assert_eq!("binpack".parse(), Ok(RoutingStrategy::BinPack));
-        assert_eq!("bin-pack".parse(), Ok(RoutingStrategy::BinPack));
         assert_eq!("p2c".parse(), Ok(RoutingStrategy::P2c));
         assert_eq!("power-of-two".parse(), Ok(RoutingStrategy::P2c));
         assert_eq!("aperture".parse(), Ok(RoutingStrategy::Aperture));
@@ -183,46 +156,18 @@ mod tests {
     #[test]
     fn test_routing_strategy_is_case_and_whitespace_insensitive() {
         assert_eq!("  P2C ".parse(), Ok(RoutingStrategy::P2c));
-        assert_eq!("BinPack".parse(), Ok(RoutingStrategy::BinPack));
+        assert_eq!("Aperture".parse(), Ok(RoutingStrategy::Aperture));
     }
 
     #[test]
     fn test_routing_strategy_rejects_unknown_value() {
         assert!("round-robin".parse::<RoutingStrategy>().is_err());
+        assert!("binpack".parse::<RoutingStrategy>().is_err());
     }
 
     #[test]
-    fn test_routing_strategy_defaults_to_binpack() {
-        assert_eq!(RoutingStrategy::default(), RoutingStrategy::BinPack);
-    }
-
-    // ---- least-loaded ----
-
-    #[test]
-    fn test_least_loaded_picks_minimum_load() {
-        let healthy = [wid(A), wid(B), wid(C)];
-        let l = load(&[(A, 5), (B, 1), (C, 3)]);
-        assert_eq!(select_least_loaded(&healthy, &l), Some(wid(B)));
-    }
-
-    #[test]
-    fn test_least_loaded_treats_missing_as_zero() {
-        let healthy = [wid(A), wid(B)];
-        // B has no entry → load 0 → lighter than A.
-        let l = load(&[(A, 2)]);
-        assert_eq!(select_least_loaded(&healthy, &l), Some(wid(B)));
-    }
-
-    #[test]
-    fn test_least_loaded_breaks_ties_to_first_in_slice() {
-        let healthy = [wid(A), wid(B), wid(C)];
-        let l = load(&[(A, 2), (B, 2), (C, 2)]);
-        assert_eq!(select_least_loaded(&healthy, &l), Some(wid(A)));
-    }
-
-    #[test]
-    fn test_least_loaded_empty_pool_returns_none() {
-        assert_eq!(select_least_loaded(&[], &WorkerLoad::new()), None);
+    fn test_routing_strategy_defaults_to_p2c() {
+        assert_eq!(RoutingStrategy::default(), RoutingStrategy::P2c);
     }
 
     // ---- p2c ----
@@ -292,23 +237,5 @@ mod tests {
             seen.insert(select_p2c(&healthy, &WorkerLoad::new(), &mut rng).unwrap());
         }
         assert_eq!(seen.len(), 3, "every worker should be reachable");
-    }
-
-    // ---- router dispatch ----
-
-    #[test]
-    fn test_router_binpack_selects_least_loaded() {
-        let mut router = Router::new(RoutingStrategy::BinPack);
-        assert!(router.prefers_largest_first());
-        let healthy = [wid(A), wid(B), wid(C)];
-        let l = load(&[(A, 4), (B, 1), (C, 2)]);
-        assert_eq!(router.select(&healthy, &l), Some(wid(B)));
-    }
-
-    #[test]
-    fn test_router_p2c_does_not_prefer_largest_first() {
-        let router = Router::with_seed(RoutingStrategy::P2c, 1);
-        assert!(!router.prefers_largest_first());
-        assert_eq!(router.strategy(), RoutingStrategy::P2c);
     }
 }

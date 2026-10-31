@@ -7,7 +7,7 @@ import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -60,7 +60,7 @@ export const BillingProductAddonActions = ({
     purchaseDisabledReason,
     onPurchaseClick,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, currentPlatformAddon, switchPlanLoading, billingManagedByPartnerDisabledReason } =
+    const { billing, billingError, currentPlatformAddon, switchPlanLoading, selfServeBillingDisabledReason } =
         useValues(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const {
@@ -174,7 +174,7 @@ export const BillingProductAddonActions = ({
                         size={buttonSize || 'small'}
                         disableClientSideRouting
                         disabledReason={
-                            billingManagedByPartnerDisabledReason ||
+                            selfServeBillingDisabledReason ||
                             (billingError && billingError.message) ||
                             (billing?.subscription_level === 'free' && 'Upgrade to add add-ons') ||
                             purchaseDisabledReason
@@ -253,8 +253,7 @@ export const BillingProductAddonActions = ({
                     <LemonButton
                         fullWidth
                         disabledReason={
-                            billingManagedByPartnerDisabledReason ||
-                            (switchPlanLoading ? 'Switching plans...' : undefined)
+                            selfServeBillingDisabledReason || (switchPlanLoading ? 'Switching plans...' : undefined)
                         }
                         onClick={() => {
                             reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'downgrade')
@@ -293,7 +292,7 @@ export const BillingProductAddonActions = ({
                 <LemonButton
                     type="primary"
                     disabledReason={
-                        billingManagedByPartnerDisabledReason || (switchPlanLoading ? 'Switching plans...' : undefined)
+                        selfServeBillingDisabledReason || (switchPlanLoading ? 'Switching plans...' : undefined)
                     }
                     onClick={() => {
                         reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'upgrade')
@@ -332,7 +331,7 @@ export const BillingProductAddonActions = ({
                         type="secondary"
                         size="xsmall"
                         loading={trialLoading || billingProductLoading === addon.type}
-                        disabledReason={billingManagedByPartnerDisabledReason || purchaseDisabledReason}
+                        disabledReason={selfServeBillingDisabledReason || purchaseDisabledReason}
                         tooltip="Local dev only — starts the self-serve trial. Never shown in production."
                         onClick={() => {
                             onPurchaseClick?.()

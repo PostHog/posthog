@@ -24,7 +24,21 @@ UPLOADED_AT_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
+class CloudsmithChainedFanoutConfig:
+    """A second-level fan-out whose child path binds several values from one parent row.
+
+    `parent_name` names an endpoint that itself fans out from repositories, so the built chain
+    is repositories -> parent -> child. `build_dependent_resource` covers one hop only.
+    """
+
+    parent_name: str
+    resolve_fields: dict[str, str]
+    include_from_parent: list[str]
+    parent_field_renames: dict[str, str]
+
+
+@dataclass(frozen=True)
 class CloudsmithEndpointConfig:
     name: str
     path: str
@@ -43,6 +57,12 @@ class CloudsmithEndpointConfig:
     # inert for them rather than a claim about the order Cloudsmith returns rows in.
     sort_mode: Literal["asc", "desc"] = "asc"
     fanout: DependentEndpointConfig | None = None
+    chained_fanout: CloudsmithChainedFanoutConfig | None = None
+    # Key that holds the rows in an object response. None for the endpoints that return a bare
+    # JSON array.
+    data_selector: str | None = None
+    # False for endpoints that return everything in one response and take no page params.
+    paginated: bool = True
     # Response fields dropped from every row before it is yielded.
     strip_fields: tuple[str, ...] = ()
 
@@ -130,6 +150,37 @@ CLOUDSMITH_ENDPOINTS: dict[str, CloudsmithEndpointConfig] = {
         path="/audit-log/{owner}/",
         primary_key="uuid",
         partition_key="event_at",
+    ),
+    "repository_audit_log": CloudsmithEndpointConfig(
+        name="repository_audit_log",
+        path="/audit-log/{owner}/{repo}/",
+        primary_key=["repository_slug", "uuid"],
+        partition_key="event_at",
+        fanout=_REPOSITORY_FANOUT,
+    ),
+    "package_dependencies": CloudsmithEndpointConfig(
+        name="package_dependencies",
+        path="/packages/{owner}/{repo}/{identifier}/dependencies/",
+        # Dependency rows carry no identifier of their own. A package can depend on the same
+        # name more than once with a different relationship or version constraint.
+        primary_key=["repository_slug", "package_slug_perm", "dep_type", "name", "operator", "version"],
+        data_selector="dependencies",
+        paginated=False,
+        chained_fanout=CloudsmithChainedFanoutConfig(
+            parent_name="packages",
+            # The package rows carry the repository slug the packages request was bound to.
+            resolve_fields={"repo": "_repositories_slug", "identifier": "slug_perm"},
+            include_from_parent=["_repositories_slug", "slug_perm"],
+            parent_field_renames={"_repositories_slug": "repository_slug", "slug_perm": "package_slug_perm"},
+        ),
+    ),
+    "quota_history": CloudsmithEndpointConfig(
+        name="quota_history",
+        path="/quota/history/{owner}/",
+        primary_key="start",
+        data_selector="history",
+        paginated=False,
+        partition_key="start",
     ),
     "members": CloudsmithEndpointConfig(
         name="members",

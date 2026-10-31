@@ -7,9 +7,13 @@ call. Any other result starts the run. The single-value rule lets a `SELECT coun
 as written, because a count always returns one row. Only the coordinator's scheduled dispatch
 evaluates it: a manual, workflow, or check run already has a reason to run.
 
-A skip writes nothing. The coordinator stamped `last_run_at` (the dispatch anchor) when it
-dispatched the run, so the next tick does not dispatch it again at once. `{since}` reads the last
-run row, so the next run that starts still sees everything since the last run that actually ran.
+A skip writes no run row. Every evaluation stores its outcome on the config (`last_precheck_at`,
+`last_precheck_outcome`, `last_precheck_row_count`), so the project profile's `scout_fleet` can
+tell a scout that skips on purpose from one that does not run. The dry run stores nothing.
+
+The coordinator stamped `last_run_at` (the dispatch anchor) when it dispatched the run, so the
+next tick does not dispatch it again at once. `{since}` reads the last run row, so the next run
+that starts still sees everything since the last run that actually ran.
 The failure breaker and the inactivity sweep read run rows, so a quiet scout is never paused for
 being quiet.
 
@@ -26,6 +30,8 @@ The query comes from the first source that applies (`resolve_effective_precheck`
 3. The default the canonical skill ships (`scout-precheck-query` frontmatter), for a project
    inside that skill's rollout (`precheck_default_rollout` in the `signals-scout` flag payload).
    Projects outside the rollout run as if there were no default, and form the control group.
+   A background config whose lane sets `require_precheck` always uses the default, whatever the
+   rollout says.
 """
 
 from __future__ import annotations
@@ -63,6 +69,7 @@ from products.signals.backend.scout_harness.limits import MAX_PRECHECK_ROWS_BYTE
 from products.signals.backend.scout_harness.team_limits import (
     precheck_default_rollout_bucket,
     precheck_default_rollout_percent,
+    resolve_background_lane,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -146,11 +153,14 @@ def _placeholders(*, since: datetime, now: datetime, interval_minutes: int) -> d
     }
 
 
-def resolve_effective_precheck(config: SignalScoutConfig, *, is_canonical: bool) -> EffectivePrecheck:
+def resolve_effective_precheck(
+    config: SignalScoutConfig, *, is_canonical: bool, require_default: bool = False
+) -> EffectivePrecheck:
     """The pre-check query a scheduled run of this scout uses, and where it came from.
 
     `is_canonical` says whether the project's skill row is the one the harness ships. A team's own
-    skill can share a canonical name, and it inherits no default from disk.
+    skill can share a canonical name, and it inherits no default from disk. `require_default` skips
+    the rollout check, for a background lane that dispatches only when the default finds something.
     """
     if config.precheck_disabled:
         return EffectivePrecheck(query=None, source="off")
@@ -160,9 +170,16 @@ def resolve_effective_precheck(config: SignalScoutConfig, *, is_canonical: bool)
     if not default:
         return EffectivePrecheck(query=None, source="off")
     bucket = precheck_default_rollout_bucket(config.team_id, config.skill_name)
-    if bucket >= precheck_default_rollout_percent(config.skill_name):
+    if not require_default and bucket >= precheck_default_rollout_percent(config.skill_name):
         return EffectivePrecheck(query=None, source="off", rollout_bucket=bucket)
     return EffectivePrecheck(query=default, source="skill_default", rollout_bucket=bucket)
+
+
+def _background_lane_requires_precheck(config: SignalScoutConfig) -> bool:
+    if config.managed_by != SignalScoutConfig.ManagedBy.BACKGROUND:
+        return False
+    lane = resolve_background_lane(config.skill_name)
+    return lane is not None and lane.require_precheck
 
 
 def scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
@@ -207,6 +224,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
             "skill_name",
             "created_at",
             "status",
+            "managed_by",
             "enabled_by",
             "created_by",
             "precheck_query",
@@ -220,7 +238,11 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
     # succeed. A skip would hold the lane paused for as long as it stays quiet.
     if config is None or config.status not in SignalScoutConfig.RUNNABLE_STATUSES:
         return None
-    effective = resolve_effective_precheck(config, is_canonical=scout_skill_is_canonical(team_id, skill_name))
+    effective = resolve_effective_precheck(
+        config,
+        is_canonical=scout_skill_is_canonical(team_id, skill_name),
+        require_default=_background_lane_requires_precheck(config),
+    )
     if effective.query is None:
         return None
 
@@ -258,6 +280,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
         result = _result_from_rows(found)
     result = dataclasses.replace(result, query_source=effective.source)
 
+    _store_last_precheck(config, result, now)
     _capture_precheck_evaluated(
         team=team,
         config=config,
@@ -318,6 +341,25 @@ def dry_run_scout_precheck(
     )
 
 
+def run_precheck_query(
+    team: Team,
+    user: User,
+    query: str,
+    *,
+    since: datetime,
+    now: datetime,
+    interval_minutes: int,
+    timeout_s: int = PRECHECK_TIMEOUT_S,
+) -> PrecheckResult:
+    """Run a pre-check query as `user` and classify its rows like a scheduled run does.
+
+    Raises on a query error, so the caller decides what an error means.
+    """
+    return _result_from_rows(
+        _run_query(team, user, query, since=since, now=now, interval_minutes=interval_minutes, timeout_s=timeout_s)
+    )
+
+
 def precheck_since(config: SignalScoutConfig) -> datetime:
     """The `{since}` bound: the last run that actually ran, or the config's creation."""
     last_run_at = (
@@ -340,7 +382,14 @@ def _result_from_rows(found: _PrecheckRows) -> PrecheckResult:
 
 
 def _run_query(
-    team: Team, user: User, query: str, *, since: datetime, now: datetime, interval_minutes: int
+    team: Team,
+    user: User,
+    query: str,
+    *,
+    since: datetime,
+    now: datetime,
+    interval_minutes: int,
+    timeout_s: int = PRECHECK_TIMEOUT_S,
 ) -> _PrecheckRows:
     parsed = parse_select(query, placeholders=_placeholders(since=since, now=now, interval_minutes=interval_minutes))
     capped = _cap_rows(parsed)
@@ -351,7 +400,7 @@ def _run_query(
             team=team,
             user=user,
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=PRECHECK_TIMEOUT_S),
+            settings=HogQLGlobalSettings(max_execution_time=timeout_s),
         )
     return _PrecheckRows(columns=response.columns or [], rows=(response.results or [])[:PRECHECK_MAX_ROWS])
 
@@ -385,6 +434,27 @@ def _render_rows(found: _PrecheckRows) -> str:
             break
         lines.append(line)
     return "\n".join(lines)
+
+
+def _store_last_precheck(config: SignalScoutConfig, result: PrecheckResult, now: datetime) -> None:
+    """Store the outcome on the config, so the fleet can tell a gated scout from a stuck one.
+
+    One indexed update and no read, because this runs on every scheduled evaluation. A failed write
+    only loses the stored outcome, so it never stops the run.
+    """
+    try:
+        SignalScoutConfig.objects.for_team(config.team_id).filter(pk=config.pk).update(
+            last_precheck_at=now,
+            last_precheck_outcome=result.outcome,
+            last_precheck_row_count=result.row_count,
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to store the pre-check outcome",
+            team_id=config.team_id,
+            skill_name=config.skill_name,
+            exc_info=True,
+        )
 
 
 def _capture_precheck_evaluated(

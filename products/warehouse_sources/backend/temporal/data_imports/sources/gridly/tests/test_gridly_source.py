@@ -13,7 +13,3 @@ class TestGridlySource:
     def test_lists_tables_without_credentials(self):
         # get_schemas is a static catalog (no I/O), so the source opts into public-docs table listing.
         assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["records"])
-        assert [s.name for s in schemas] == ["records"]

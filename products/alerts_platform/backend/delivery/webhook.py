@@ -6,16 +6,18 @@ transition is one message.
 """
 
 import hashlib
+from collections.abc import Callable
 from typing import Any, ClassVar, Final
 from urllib.parse import urlsplit
 
 from django.conf import settings
 
+from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_VERSION
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
-from products.alerts_platform.backend.delivery.wire import rfc3339
-from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
+from products.alerts_platform.backend.delivery.wire import credential_digest, rfc3339
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, AnnouncedTransition
 
 PROVIDER: Final = "webhook"
 
@@ -91,11 +93,33 @@ class WebhookTransport(WebhookUrlTransport):
     display_name = "webhook"
     headers: ClassVar[dict[str, str]] = {"X-PostHog-Webhook-Version": WEBHOOK_VERSION}
 
+    def __init__(self, legacy_body: Callable[[AlertMessage], dict[str, Any]] | None = None) -> None:
+        self._legacy_body = legacy_body
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        headers = target.get("webhook_headers")
+        if not headers:
+            return super().channel_target(target)
+        # Two destinations on one URL with different headers are two receivers, so each gets its
+        # own delivery record. A destination without headers keeps the key it always had.
+        return credential_digest(target.get("webhook_url", "") + "\n" + repr(sorted(headers.items())))
+
+    def headers_for(self, target: AlertDestinationData) -> dict[str, str]:
+        version = LEGACY_WEBHOOK_VERSION if self._legacy_body is not None else WEBHOOK_VERSION
+        # The version header comes last, so a stored header cannot change which body a receiver expects.
+        return {**target.get("webhook_headers", {}), "X-PostHog-Webhook-Version": version}
+
     def check_url(self, url: str) -> None:
         # Plain HTTP would expose the URL, which is the credential, and the alert body to anyone on
         # the path. Teams and Discord URLs are always HTTPS, so only the generic webhook needs this.
-        if urlsplit(url).scheme != "https":
+        try:
+            scheme = urlsplit(url).scheme
+        except ValueError:
+            raise DeliveryError("This webhook destination's URL is not a valid URL.") from None
+        if scheme != "https":
             raise DeliveryError("This webhook destination's URL must use https.")
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
+        if self._legacy_body is not None:
+            return self._legacy_body(message)
         return alertmanager_body(message)

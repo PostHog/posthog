@@ -72,6 +72,19 @@ export interface PropertyValueProps {
     propertyTypeOverride?: PropertyType
 }
 
+// A flag dependency matches a boolean result only when its value is the boolean itself. Evaluation compares
+// the string "false" with variant keys, so it never matches a boolean flag. The input returns the typed text
+// as a string when the user presses Enter before the true/false options load.
+function toFlagDependencyValue<T>(value: T): T | boolean {
+    if (value === 'true') {
+        return true
+    }
+    if (value === 'false') {
+        return false
+    }
+    return value
+}
+
 export function PropertyValue({
     propertyKey,
     type,
@@ -528,7 +541,13 @@ export function PropertyValue({
                             had_search_input: currentSearchInput.current !== '',
                         })
                     }
-                    isMultiSelect ? setValue(trimmedVal) : setValue(trimmedVal[0])
+                    // A loaded option keeps its own type, so a variant named "true" or "false" stays a string.
+                    const typedVal = isFlagDependencyProperty
+                        ? trimmedVal.map((v) =>
+                              displayOptions.some((o) => o.name === v) ? v : toFlagDependencyValue(v)
+                          )
+                        : trimmedVal
+                    isMultiSelect ? setValue(typedVal) : setValue(typedVal[0])
                 }}
                 onInputChange={onSearchTextChange}
                 placeholder={placeholder}

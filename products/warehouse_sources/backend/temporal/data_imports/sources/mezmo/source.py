@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MezmoSource(ResumableSource[MezmoSourceConfig, MezmoResumeConfig]):
+    codebase_detection = detect(
+        env=("^MEZMO_", "^MZ_INGESTION_KEY$", "^LOGDNA_"),
+        npm=("@logdna/logger", "logdna"),
+        pypi=("logdna",),
+        go=("github.com/logdna/logdna-go",),
+        rubygems=("logdna", "chef-handler-logdna", "fluent-plugin-logdna", "logdna-rails"),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = ("v3",)
     default_version = "v3"
@@ -104,7 +113,7 @@ class MezmoSource(ResumableSource[MezmoSourceConfig, MezmoResumeConfig]):
             "Use its IAM access key with read access to pipelines and alerts. "
             "For an enterprise key, also enter the delegated account ID.",
             iconPath="/static/services/mezmo.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

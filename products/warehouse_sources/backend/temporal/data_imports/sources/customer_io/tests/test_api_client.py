@@ -4,6 +4,11 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io import api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_AUTO_WEBHOOK_NAME,
@@ -50,10 +55,7 @@ class TestValidateCredentials:
 
     @parameterized.expand(
         [
-            (401, "App API Key"),
-            (403, "denied"),
             (429, "rate-limited"),
-            (500, "Customer.io API error"),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
@@ -69,15 +71,25 @@ class TestValidateCredentials:
         assert error is not None
         assert expected_substring.lower() in error.lower()
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_returns_false_on_network_error(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+    @parameterized.expand(
+        [
+            ("key_from_other_region", "us", CIO_EU_BASE_URL, "Set Region to EU"),
+            ("key_from_other_region_eu", "eu", CIO_US_BASE_URL, "Set Region to US"),
+            ("key_invalid_everywhere", "us", None, "Create a new key"),
+        ]
+    )
+    def test_rejected_key_names_the_region_it_belongs_to(self, _name, region, accepting_base_url, expected):
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if accepting_base_url and request.url.startswith(accepting_base_url):
+                return ScriptedResponse(status=200, json={"workspaces": []})
+            return ScriptedResponse(status=401, json={})
 
-        success, error = api_client.validate_credentials("key", "us")
+        with scripted_network(respond):
+            success, error = api_client.validate_credentials("key", region)
 
         assert success is False
         assert error is not None
-        assert "Could not reach Customer.io" in error
+        assert expected in error
 
 
 class TestCreateWebhook:

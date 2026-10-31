@@ -3,6 +3,11 @@ import { parsePlaygroundConfig, serializePlaygroundConfig } from './playgroundPr
 
 describe('playgroundPromptConfig', () => {
     const modelConfig = { model: 'gpt-5', provider: 'openai', provider_key_id: 'key-1' }
+    const responseSchema = { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+    const responseFormat = {
+        type: 'json_schema' as const,
+        json_schema: { name: 'verdict', schema: responseSchema, strict: false },
+    }
     const fullPrompt = createPromptConfig({
         model: 'gpt-5',
         selectedProviderKeyId: 'key-1',
@@ -13,6 +18,7 @@ describe('playgroundPromptConfig', () => {
         thinking: true,
         reasoningLevel: 'high',
         tools: [{ type: 'function', function: { name: 'lookup' } }],
+        responseFormat,
         messages: [
             { role: 'user', content: 'Hi {{name}}' },
             {
@@ -36,6 +42,7 @@ describe('playgroundPromptConfig', () => {
             thinking: true,
             reasoningLevel: 'high',
             tools: [{ type: 'function', function: { name: 'lookup' } }],
+            responseFormat,
             messages: [
                 { role: 'user', content: 'Hi {{name}}' },
                 {
@@ -51,7 +58,7 @@ describe('playgroundPromptConfig', () => {
     it('round-trips a default panel without inventing values', () => {
         const serialized = serializePlaygroundConfig(createPromptConfig(), modelConfig, null)
         expect(Object.keys(serialized ?? {})).toEqual(
-            expect.not.arrayContaining(['temperature', 'max_tokens', 'top_p', 'tools', 'messages'])
+            expect.not.arrayContaining(['temperature', 'max_tokens', 'top_p', 'tools', 'response_format', 'messages'])
         )
         expect(parsePlaygroundConfig(serialized)).toMatchObject({
             temperature: null,
@@ -60,6 +67,7 @@ describe('playgroundPromptConfig', () => {
             thinking: false,
             reasoningLevel: 'medium',
             tools: null,
+            responseFormat: null,
             messages: [],
         })
     })
@@ -72,6 +80,20 @@ describe('playgroundPromptConfig', () => {
             owner: 'api-user',
             model: 'gpt-5',
         })
+    })
+
+    it.each([
+        [
+            'keeps a stored format the playground cannot edit',
+            { type: 'json_object' },
+            createPromptConfig(),
+            { type: 'json_object' },
+        ],
+        ['replaces it once the panel has a schema', { type: 'json_object' }, fullPrompt, responseFormat],
+        ['drops a supported format the user cleared', responseFormat, createPromptConfig(), undefined],
+    ])('%s when saving over an existing response format', (_, existing, prompt, expected) => {
+        const serialized = serializePlaygroundConfig(prompt, modelConfig, { response_format: existing })
+        expect(serialized?.response_format).toEqual(expected)
     })
 
     it('carries the stored model selection forward when no model config is passed', () => {
@@ -111,6 +133,7 @@ describe('playgroundPromptConfig', () => {
             thinking: 'yes',
             reasoning_effort: 'extreme',
             tools: ['not-an-object'],
+            response_format: { type: 'json_object' },
             messages: [{ role: 'alien', content: 'x' }, { role: 'user', content: 'ok' }, 'junk'],
         })
         expect(parsed).toEqual({
@@ -123,7 +146,23 @@ describe('playgroundPromptConfig', () => {
             thinking: false,
             reasoningLevel: null,
             tools: null,
+            responseFormat: null,
             messages: [{ role: 'user', content: 'ok' }],
         })
+    })
+
+    it.each([
+        [
+            'fills in the name and strict flag',
+            { type: 'json_schema', json_schema: { schema: responseSchema } },
+            { type: 'json_schema', json_schema: { name: 'response', schema: responseSchema, strict: true } },
+        ],
+        [
+            'drops a format whose schema is not an object',
+            { type: 'json_schema', json_schema: { schema: 'object' } },
+            null,
+        ],
+    ])('%s when restoring a response format written outside the playground', (_, stored, expected) => {
+        expect(parsePlaygroundConfig({ response_format: stored })?.responseFormat).toEqual(expected)
     })
 })

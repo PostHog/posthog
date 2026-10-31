@@ -1,10 +1,26 @@
-from dataclasses import dataclass
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
 BASE_URL = "https://api.whop.com/api/v1"
+
+# Whop versions its API by date, sent as the `Api-Version-Date` header. A request without the header
+# gets the version pinned to the API key, and newly created keys pin the latest version, so the
+# source always sends the version pinned on the source instead of letting the key decide.
+WHOP_API_VERSION_2025_01_01 = "2025-01-01"
+WHOP_API_VERSION_2026_10_13_1 = "2026-10-13-1"
+WHOP_API_VERSIONS = (WHOP_API_VERSION_2025_01_01, WHOP_API_VERSION_2026_10_13_1)
+API_VERSION_HEADER = "Api-Version-Date"
+
+# The query param that narrows a list to the connected company. Later versions renamed it, and
+# `/products` ignores an unknown param and lists the whole Whop marketplace, so the wrong name is
+# not always an error.
+COMPANY_FILTER_PARAM: dict[str, str] = {
+    WHOP_API_VERSION_2025_01_01: "company_id",
+    WHOP_API_VERSION_2026_10_13_1: "account_id",
+}
 
 WHOP_API_KEYS_URL = "https://whop.com/dashboard/developer"
 
@@ -13,10 +29,10 @@ WHOP_API_KEYS_URL = "https://whop.com/dashboard/developer"
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class WhopEndpointConfig:
     path: str
-    # Whether `company_id` is a required query param. The rest accept it as an optional narrowing
+    # Whether the company filter is a required query param. The rest accept it as an optional narrowing
     # filter, which we always send so a key reaching several companies stays pinned to the one the
     # user connected.
     company_id_required: bool = False
@@ -30,6 +46,12 @@ class WhopEndpointConfig:
     # resource carries a `created_at` column for the pipeline to track.
     supports_created_after: bool = False
     partition_key: str | None = "created_at"
+    latest_path: str | None = None
+
+    def path_for(self, api_version: str) -> str:
+        if api_version == WHOP_API_VERSION_2025_01_01:
+            return self.path
+        return self.latest_path or self.path
 
 
 WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
@@ -60,6 +82,7 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
     ),
     "entries": WhopEndpointConfig(
         path="/entries",
+        latest_path="/waitlist_entries",
         company_id_required=True,
         supports_created_at_order=True,
         supports_direction=True,

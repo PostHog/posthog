@@ -135,7 +135,7 @@ test('a universal tripwire claims every known target', () => {
         // included.
         'docker-compose.base.yml',
         // Trees that steer what every suite runs or what it runs against: the
-        // Depot shadow of an action every workflow uses, the toolchain, the
+        // Depot mirror of an action every workflow uses, the toolchain, the
         // service configs the stack mounts, and the markdownlint config every
         // tree's prose obeys.
         '.depot/actions/pnpm-install/action.yml',
@@ -525,11 +525,13 @@ test('the quarantine list claims the fullstack lanes and no rust crate', () => {
 
 // paths-filter decides which jobs run inside a single run's own diff, so no
 // run's outcome depends on it jointly with another queue entry. Its own CI and
-// its .depot shadow share the lane.
+// its .depot mirror share the lane.
 test('the paths-filter action and its CI share the ci-tooling lane', () => {
     for (const file of [
         '.github/actions/paths-filter/src/filter.ts',
         '.github/actions/paths-filter/dist/index.js',
+        '.github/actions/shared-image-releases/src/inspect.ts',
+        '.github/actions/shared-image-releases/dist/index.js',
         '.github/workflows/ci-paths-filter.yml',
         '.depot/actions/paths-filter/src/filter.ts',
     ]) {
@@ -599,7 +601,7 @@ test('a single-language workflow claims that language rather than everything', (
         )
     }
     for (const file of [
-        '.github/workflows/ci-backend.yml',
+        '.depot/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
         '.github/workflows/ci-clickhouse-multinode-migrations.yml',
         '.github/workflows/ci-clickhouse-util-udfs.yml',
@@ -608,6 +610,8 @@ test('a single-language workflow claims that language rather than everything', (
         '.github/scripts/optimize_test_durations.py',
         '.github/scripts/test_optimize_test_durations.py',
         '.github/scripts/check-idor-model-coverage.py',
+        // Only ci-backend's events_json leg reads the native-schema test list.
+        '.github/new-events-schema-targets.txt',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
     }
@@ -619,7 +623,7 @@ test('a single-language workflow claims that language rather than everything', (
 test('a full-stack suite claims both language families and no rust crate', () => {
     for (const file of [
         '.github/workflows/ci-e2e-playwright.yml',
-        '.github/workflows/ci-hog.yml',
+        '.github/workflows/ci-hoglang.yml',
         '.github/workflows/container-images-ci.yml',
         '.github/workflows/cd-sandbox-base-image.yml',
         '.github/workflows/ci-recording-rasterizer-container.yml',
@@ -777,20 +781,9 @@ test('the schema codegen scripts claim the product-surface lanes', () => {
     )
 })
 
-// A Depot shadow is kept apples-to-apples with its canonical by the
-// shadow-drift check and posts non-blocking statuses, so it can only affect
-// what the canonical affects. The narrowing direction is the guard: a shadow
-// of something no rule has placed must stay on the .github blanket rather
-// than fall through unclaimed.
-test('a depot shadow resolves through its canonical workflow rules', () => {
-    assert.deepEqual(
-        computeTargets(['.depot/workflows/ci-backend.yml'], CONTEXT),
-        computeTargets(['.github/workflows/ci-backend.yml'], CONTEXT)
-    )
-    assert.deepEqual(
-        computeTargets(['.depot/workflows/ci-backend-update-test-timing.yml'], CONTEXT),
-        computeTargets(['mypy.ini'], CONTEXT)
-    )
+// A Depot action mirror resolves through its canonical action, and a Depot workflow no rule
+// has placed stays on its own blanket rather than falling through unclaimed.
+test('depot mirrors and unplaced depot workflows resolve to everything', () => {
     assert.deepEqual(computeTargets(['.depot/actions/pnpm-install/action.yml'], CONTEXT), EVERYTHING)
     assert.deepEqual(computeTargets(['.depot/workflows/some-new-shadow.yml'], CONTEXT), EVERYTHING)
     // Shadow markdown is prose like any other.

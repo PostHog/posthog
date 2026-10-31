@@ -14,6 +14,7 @@ from pydantic import BaseModel, JsonValue, ValidationError
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentReview
+from products.review_hog.backend.reviewer.tools.prompt_helpers import PROMPT_CACHE_MARKER
 from products.review_hog.backend.reviewer.tools.single_agent_review import SINGLE_AGENT_PROMPT_PATH, load_prompt_file
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ class CoordinatorReview(BaseModel):
 def coordinator_prompt(units: list[CoordinatorUnit], *, model: str, reasoning_effort: str) -> str:
     return (
         load_prompt_file(COORDINATOR_PROMPT_FILE)
+        .replace("<<CACHE_MARKER>>", PROMPT_CACHE_MARKER)
         .replace("<<MODEL>>", model)
         .replace("<<EFFORT>>", reasoning_effort)
         .replace("<<TASKS>>", "\n".join(unit.task_line() for unit in units))

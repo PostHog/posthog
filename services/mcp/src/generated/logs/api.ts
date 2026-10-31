@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -79,6 +79,11 @@ export const logsAlertsCreateBodyDatapointsToAlarmMax = 10
 export const logsAlertsCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsCreateBodyCooldownMinutesMin = 0
 
+export const logsAlertsCreateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsCreateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsCreateBodyGroupingOneOnOverflowDefault = `degrade_visible`
+
 export const LogsAlertsCreateBody = () => zod.object({
     name: zod
         .string()
@@ -133,6 +138,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -197,6 +203,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -256,6 +263,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -317,6 +325,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -375,6 +384,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -433,6 +443,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -462,6 +473,18 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            cohort_deleted: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -498,6 +521,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -556,6 +580,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -614,6 +639,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -676,6 +702,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -734,6 +761,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -839,6 +867,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -897,6 +926,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -955,6 +985,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1013,6 +1044,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1067,6 +1099,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1125,6 +1158,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1179,6 +1213,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1237,6 +1272,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1298,6 +1334,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -1363,6 +1400,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                             'in',
                                                                             'not_in',
                                                                             'is_cleaned_path_exact',
+                                                                            'is_cleaned_path_not_exact',
                                                                             'flag_evaluates_to',
                                                                             'semver_eq',
                                                                             'semver_neq',
@@ -1433,6 +1471,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1498,6 +1537,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1562,6 +1602,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1678,6 +1719,7 @@ export const LogsAlertsCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -1769,7 +1811,9 @@ export const LogsAlertsCreateBody = () => zod.object({
         .number()
         .min(logsAlertsCreateBodyCooldownMinutesMin)
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -1802,6 +1846,41 @@ export const LogsAlertsCreateBody = () => zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsCreateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsCreateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsCreateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
 export const LogsAlertsRetrieveParams = () => zod.object({
@@ -1864,6 +1943,11 @@ export const logsAlertsPartialUpdateBodyDatapointsToAlarmMax = 10
 
 export const logsAlertsPartialUpdateBodyCooldownMinutesMin = 0
 
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault = 100
+export const logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax = 100
+
+export const logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault = `degrade_visible`
+
 export const LogsAlertsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
@@ -1918,6 +2002,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -1982,6 +2067,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2041,6 +2127,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2102,6 +2189,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2160,6 +2248,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2218,6 +2307,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2247,6 +2337,18 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            cohort_deleted: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -2283,6 +2385,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -2341,6 +2444,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2399,6 +2503,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2461,6 +2566,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2519,6 +2625,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2624,6 +2731,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2682,6 +2790,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2740,6 +2849,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2798,6 +2908,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2852,6 +2963,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2910,6 +3022,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -2964,6 +3077,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3022,6 +3136,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3083,6 +3198,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3148,6 +3264,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                             'in',
                                                                             'not_in',
                                                                             'is_cleaned_path_exact',
+                                                                            'is_cleaned_path_not_exact',
                                                                             'flag_evaluates_to',
                                                                             'semver_eq',
                                                                             'semver_neq',
@@ -3218,6 +3335,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3283,6 +3401,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3347,6 +3466,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3463,6 +3583,7 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -3554,7 +3675,9 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
         .number()
         .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
         .optional()
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -3587,6 +3710,41 @@ export const LogsAlertsPartialUpdateBody = () => zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe('ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.'),
+    grouping: zod
+        .object({
+            mode: zod
+                .enum(['single', 'by_result_labels'])
+                .describe('\* `single` - Single\n\* `by_result_labels` - By result labels')
+                .describe(
+                    'single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.\n\n\* `single` - Single\n\* `by_result_labels` - By result labels'
+                ),
+            keys: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    'Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message.'
+                ),
+            max_instances: zod
+                .number()
+                .min(1)
+                .max(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesMax)
+                .default(logsAlertsPartialUpdateBodyGroupingOneMaxInstancesDefault)
+                .describe(
+                    'Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.'
+                ),
+            on_overflow: zod
+                .enum(['degrade_visible'])
+                .describe('\* `degrade_visible` - Degrade visible')
+                .default(logsAlertsPartialUpdateBodyGroupingOneOnOverflowDefault)
+                .describe(
+                    'What happens to groups past max_instances. degrade_visible names how many were left out.\n\n\* `degrade_visible` - Degrade visible'
+                ),
+        })
+        .describe('How a logs alert splits its results into instances.')
+        .optional()
+        .describe(
+            'How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and\/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message.'
+        ),
 })
 
 export const LogsAlertsDestroyParams = () => zod.object({
@@ -3665,7 +3823,7 @@ export const LogsAlertsDestinationsDeleteCreateBody = () => zod.object({
 })
 
 /**
- * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.
+ * Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind. For an alert the alerts platform evaluates, checks since it took the alert over come from the platform's check history.
  */
 export const LogsAlertsEventsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this logs alert configuration.'),
@@ -3783,6 +3941,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -3847,6 +4006,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3906,6 +4066,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -3967,6 +4128,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4025,6 +4187,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4083,6 +4246,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4112,6 +4276,18 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 .optional(),
                                         }),
                                         zod.object({
+                                            cohort_deleted: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                ),
+                                            cohort_missing: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                ),
                                             cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                             key: zod
                                                 .literal('id')
@@ -4148,6 +4324,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -4206,6 +4383,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4264,6 +4442,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4326,6 +4505,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4384,6 +4564,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4489,6 +4670,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4547,6 +4729,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4605,6 +4788,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4663,6 +4847,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4717,6 +4902,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4775,6 +4961,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4829,6 +5016,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4887,6 +5075,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -4948,6 +5137,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                 'in',
                                                 'not_in',
                                                 'is_cleaned_path_exact',
+                                                'is_cleaned_path_not_exact',
                                                 'flag_evaluates_to',
                                                 'semver_eq',
                                                 'semver_neq',
@@ -5013,6 +5203,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                             'in',
                                                                             'not_in',
                                                                             'is_cleaned_path_exact',
+                                                                            'is_cleaned_path_not_exact',
                                                                             'flag_evaluates_to',
                                                                             'semver_eq',
                                                                             'semver_neq',
@@ -5083,6 +5274,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5148,6 +5340,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5212,6 +5405,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5328,6 +5522,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
                                                         'in',
                                                         'not_in',
                                                         'is_cleaned_path_exact',
+                                                        'is_cleaned_path_not_exact',
                                                         'flag_evaluates_to',
                                                         'semver_eq',
                                                         'semver_neq',
@@ -5415,7 +5610,9 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
         .number()
         .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
-        .describe('Minutes to wait after firing before sending another notification.'),
+        .describe(
+            'Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.'
+        ),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 
@@ -5971,6 +6168,169 @@ export const LogsFacetValuesCreateBody = () => zod.object({
         .describe('The facet values query to execute.'),
 })
 
+export const LogsGroupByCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const logsGroupByCreateBodyQueryOneGroupBySourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysMax = 4
+
+export const logsGroupByCreateBodyQueryOneOrderGroupsByDefault = `log_count`
+export const logsGroupByCreateBodyQueryOneLimitDefault = 100
+export const logsGroupByCreateBodyQueryOneLimitMax = 500
+
+export const LogsGroupByCreateBody = () => zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod
+                        .string()
+                        .nullish()
+                        .describe(
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                        ),
+                    date_to: zod
+                        .string()
+                        .nullish()
+                        .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('Date range to aggregate over. Defaults to last hour.'),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Filter by log severity levels before grouping.'),
+            serviceNames: zod.array(zod.string()).optional().describe('Restrict grouping to these service names.'),
+            searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies before grouping.'),
+            filterGroup: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                            ),
+                        type: zod
+                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                            .describe(
+                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            )
+                            .describe(
+                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            ),
+                        operator: zod
+                            .enum([
+                                'exact',
+                                'is_not',
+                                'icontains',
+                                'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
+                                'regex',
+                                'not_regex',
+                                'gt',
+                                'lt',
+                                'is_date_exact',
+                                'is_date_before',
+                                'is_date_after',
+                                'is_set',
+                                'is_not_set',
+                            ])
+                            .describe(
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            )
+                            .describe(
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                            ),
+                        value: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                            ),
+                    })
+                )
+                .optional()
+                .describe('Property filters applied before grouping. Same shape as the query-logs endpoint.'),
+            groupBy: zod
+                .string()
+                .optional()
+                .describe(
+                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\". Ignored when groupBys is provided.'
+                ),
+            groupBySource: zod
+                .enum(['log', 'resource', 'column'])
+                .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
+                .describe(
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                ),
+            groupBys: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"service_name\", \"trace_id\", \"span_id\", \"pattern\" (the masked message template).'
+                            ),
+                        source: zod
+                            .enum(['log', 'resource', 'column'])
+                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
+                            .describe(
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                            ),
+                    })
+                )
+                .min(1)
+                .max(logsGroupByCreateBodyQueryOneGroupBysMax)
+                .optional()
+                .describe(
+                    'Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy\/groupBySource; one of the two must be provided.'
+                ),
+            orderGroupsBy: zod
+                .enum(['log_count', 'error_count', 'last_seen'])
+                .describe('\* `log_count` - log_count\n\* `error_count` - error_count\n\* `last_seen` - last_seen')
+                .default(logsGroupByCreateBodyQueryOneOrderGroupsByDefault)
+                .describe(
+                    'Aggregate to rank groups by (descending): \"log_count\" for the noisiest groups, \"error_count\" for the most failing, \"last_seen\" for the most recent.\n\n\* `log_count` - log_count\n\* `error_count` - error_count\n\* `last_seen` - last_seen'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsGroupByCreateBodyQueryOneLimitMax)
+                .default(logsGroupByCreateBodyQueryOneLimitDefault)
+                .describe('Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope grouping to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
+            sessionId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope grouping to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
+        })
+        .describe('The group-by query to execute.'),
+})
+
 export const LogsPatternsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -6085,6 +6445,8 @@ export const LogsPatternsDiffCreateParams = () => zod.object({
         ),
 })
 
+export const logsPatternsDiffCreateBodyQueryOneLimitMax = 500
+
 export const LogsPatternsDiffCreateBody = () => zod.object({
     query: zod
         .object({
@@ -6179,6 +6541,12 @@ export const LogsPatternsDiffCreateBody = () => zod.object({
                 .describe(
                     "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
                 ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsPatternsDiffCreateBodyQueryOneLimitMax)
+                .nullish()
+                .describe('Return at most this many entries, most interesting first. Omit for all. Sets `truncated`.'),
         })
         .describe(
             'The patterns query for the current (foreground) window: date range plus any severity\/service\/search\/property filters. The same filters are applied to the baseline window.'
@@ -6417,6 +6785,10 @@ export const LogsServicesCreateParams = () => zod.object({
 
 export const logsServicesCreateBodyQueryOneServiceNameSearchMax = 200
 
+export const logsServicesCreateBodyQueryOneEnvironmentMax = 200
+
+export const logsServicesCreateBodyQueryOneCompareDefault = `none`
+
 export const LogsServicesCreateBody = () => zod.object({
     query: zod
         .object({
@@ -6509,8 +6881,39 @@ export const LogsServicesCreateBody = () => zod.object({
                 )
                 .optional()
                 .describe('Property filters for the query.'),
+            environment: zod
+                .string()
+                .max(logsServicesCreateBodyQueryOneEnvironmentMax)
+                .optional()
+                .describe(
+                    'Deployment environment, matched without case against the first set resource attribute of deployment.environment.name, deployment.environment and env. \"(none)\" matches logs without one.'
+                ),
+            compare: zod
+                .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
+                .describe(
+                    '\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                )
+                .default(logsServicesCreateBodyQueryOneCompareDefault)
+                .describe(
+                    'Baseline window for per-service status: the window just before, the same window a day or a week earlier, or none. Silent services (logs in the baseline, none now) only appear with a baseline.\n\n\* `none` - No baseline\n\* `previous_period` - Previous period\n\* `previous_day` - Same window a day earlier\n\* `previous_week` - Same window a week earlier'
+                ),
         })
         .describe('The services aggregation query to execute.'),
+    baselineDateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('Explicit baseline window. Takes precedence over `query.compare`.'),
 })
 
 export const LogsSparklineCreateParams = () => zod.object({
@@ -6800,5 +7203,8 @@ export const LogsValuesRetrieveQueryParams = () => zod.object({
         .array(zod.string())
         .default(logsValuesRetrieveQueryServiceNamesDefault)
         .describe('Filter values to those appearing in logs from these services.'),
-    value: zod.string().min(1).optional().describe('Search filter for attribute values'),
+    value: zod
+        .string()
+        .optional()
+        .describe('Search filter for attribute values. Omit it or pass an empty string to list all values.'),
 })

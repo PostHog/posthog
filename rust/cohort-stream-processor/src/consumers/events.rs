@@ -13,23 +13,28 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
+use cohort_core::seed::CoverageStartMs;
 use dashmap::mapref::entry::Entry;
-use dashmap::{DashMap, DashSet};
+use dashmap::DashMap;
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
+use rdkafka::error::KafkaResult;
 use rdkafka::message::Message;
-use rdkafka::{Offset, TopicPartitionList};
-use tracing::{debug, info, warn};
+use rdkafka::Offset;
+use tracing::{debug, error, info, warn};
 
 pub use cohort_core::events::CohortStreamEvent;
 
+use crate::consumers::boot::{BootPhase, ResumePoints};
 use crate::consumers::merges::{ConsumedCascade, ConsumedMerge, ConsumedTransfer};
+use crate::consumers::readiness::BootReadiness;
 use crate::consumers::seeds::ConsumedSeed;
 use crate::filters::manager::CatalogHandle;
 use crate::merge::transfer::PendingTransfer;
 use crate::observability::metrics::{
-    CASCADE_HELD_OFFSET_GAUGE, COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED,
+    CHECKPOINT_RESTORE_BLOCKED, COHORT_STREAM_CASCADES_SKIPPED_NOT_OWNED,
     COHORT_STREAM_CONSUME_BATCH_SIZE, COHORT_STREAM_DESERIALIZE_ERRORS,
     COHORT_STREAM_EMPTY_PAYLOAD, COHORT_STREAM_EVENTS_CONSUMED, COHORT_STREAM_EVENTS_DISPATCHED,
     COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED, COHORT_STREAM_KAFKA_RECV_ERRORS,
@@ -38,29 +43,27 @@ use crate::observability::metrics::{
     COHORT_STREAM_SEEDS_SKIPPED_NOT_OWNED, COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED,
     COHORT_STREAM_WORKERS_SPAWNED, DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL,
     DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
-    DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, LIVE_WATERMARK_AGE_MS,
-    MERGE_HELD_OFFSET_GAUGE, MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL,
-    PARTITIONS_PAUSED, PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL,
-    PENDING_HELD_EVENTS, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
-    SEED_HELD_OFFSET_GAUGE, SEED_OLDEST_HELD_AGE_MS, SEED_PAUSE_AGE_MS,
+    DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, OWNED_PARTITIONS,
+    PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_PAUSED, PARTITION_OWNERSHIP_INFO, PENDING_HELD_EVENTS,
 };
 use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
-use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
+use crate::partitions::rebalance::CohortConsumerContext;
 use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
+use crate::partitions::{list_offsets, ClaimedSplit, CommitStamp, InputTopic, PartitionOwnership};
 use crate::producer::MembershipSink;
-use crate::store::durability::OffsetManifest;
+use crate::store::durability::{FinishError, PendingRestore};
 use crate::store::StoreHandle;
-use crate::workers::{EventNameGating, MergeWorkerDeps, Stage1Worker};
+use crate::workers::{EventNameGating, EvictionRestore, MergeWorkerDeps, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
 
-/// Timeout for the one-shot restore seek of the events topic. A local fetch-position reposition, so a
-/// few seconds is ample; a timeout is a seek failure and retries (never resumes from the broker offset).
-const RESTORE_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
+/// Timeout for the boot seek of the events topic. A local fetch-position reposition, so a few
+/// seconds is ample; a timeout is a seek failure and retries (never resumes from the broker offset).
+const BOOT_SEEK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Page size for the eager boot redrive's paginated scan of `cf_pending_transfers`. The outbox only
 /// ever holds transfers stranded by inline-retry exhaustion (rare), so this large page drains a
@@ -82,21 +85,36 @@ pub struct ConsumedEvent {
     pub broker_ts_ms: Option<i64>,
 }
 
-/// A partition entry remains present while its old worker drains. That sentinel serializes worker
-/// replacement with tracker-tenure reset during a rapid revoke/reassign.
-enum WorkerSlot {
-    Running(Stage1Worker),
-    Draining,
+/// The partitions this pod owned when its workers finished draining. Followers make their final
+/// commits for this snapshot. Only [`EventDispatcher::shutdown`] builds one.
+#[derive(Debug, Clone)]
+pub(crate) struct DrainedOwnership(HashSet<i32>);
+
+impl DrainedOwnership {
+    pub(crate) fn partitions(&self) -> &HashSet<i32> {
+        &self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(partitions: impl IntoIterator<Item = i32>) -> Self {
+        Self(partitions.into_iter().collect())
+    }
+}
+
+pub(crate) enum DrainWait {
+    Drained(DrainedOwnership),
+    TimedOut,
 }
 
 /// The Kafka-free routing core: dispatches consumed batches to per-partition workers, tracks
-/// processed offsets, and owns the partition lifecycle the rebalance handler drives.
+/// processed offsets, and records which partitions this pod owns.
 pub struct EventDispatcher {
     router: Arc<PartitionRouter>,
     tracker: Arc<OffsetTracker>,
-    workers: Arc<DashMap<i32, WorkerSlot>>,
-    /// Partitions currently assigned to this consumer.
-    owned: Arc<DashSet<i32>>,
+    workers: Arc<DashMap<i32, Stage1Worker>>,
+    /// Partitions this pod owns, with when each was assigned. A slice without a coverage record
+    /// begins at that instant, not at its worker's spawn.
+    owned: Arc<DashMap<i32, CoverageStartMs>>,
     handle: StoreHandle,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
@@ -104,15 +122,15 @@ pub struct EventDispatcher {
     /// Prevents post-shutdown worker registration that would hang the join. The structural guarantee
     /// is the router's terminal closed state, which refuses registration after `clear()`.
     draining: AtomicBool,
-    /// When set, workers rebuild their `EvictionQueue` on spawn and boot/assign paths reclaim stale
-    /// on-disk slices. Set once at startup before any worker spawns.
+    /// When set, workers rebuild their `EvictionQueue` on spawn and boot reclaims the on-disk
+    /// slices of partitions this pod does not own. Set once at startup before any worker spawns.
     durable_restore: AtomicBool,
-    /// Settled boot assignment, recorded once. The assign path reclaims only partitions that move in
-    /// after boot. `OnceLock` is `Sync`; the only race (get sees `None` before set) resolves to
-    /// "skip", so a boot partition is never wiped.
-    boot_assignment: OnceLock<HashSet<i32>>,
     /// Event-name fan-out gating for spawned workers, set once at startup. Unset → disabled.
     event_name_gating: OnceLock<EventNameGating>,
+    /// `/_ready`'s gate. Every rebuilding worker this dispatcher spawns holds it closed.
+    readiness: Arc<BootReadiness>,
+    /// Set once the shutdown drain ends, for the followers' final commits.
+    drained: tokio::sync::SetOnce<DrainedOwnership>,
 }
 
 impl EventDispatcher {
@@ -128,16 +146,28 @@ impl EventDispatcher {
             router: Arc::new(router),
             tracker,
             workers: Arc::new(DashMap::new()),
-            owned: Arc::new(DashSet::new()),
+            owned: Arc::new(DashMap::new()),
             handle,
+            readiness: BootReadiness::new(catalog.clone()),
             catalog,
             sink,
             merge,
             draining: AtomicBool::new(false),
             durable_restore: AtomicBool::new(false),
-            boot_assignment: OnceLock::new(),
             event_name_gating: OnceLock::new(),
+            drained: tokio::sync::SetOnce::new(),
         }
+    }
+
+    pub fn readiness(&self) -> &Arc<BootReadiness> {
+        &self.readiness
+    }
+
+    /// Gate `/_ready` on `readiness`, which a health server bound before the dispatcher already
+    /// serves.
+    pub fn with_readiness(mut self, readiness: Arc<BootReadiness>) -> Self {
+        self.readiness = readiness;
+        self
     }
 
     /// Enable crash-restart durability. Must be called before any worker spawns.
@@ -198,6 +228,7 @@ impl EventDispatcher {
     /// dispatch ceiling only for what lands. Events for a partition in `held` (already paused behind an
     /// older holdover) skip the send and are returned to queue behind it. Returns the un-dispatched
     /// events per partition for the caller to hold and pause.
+    #[hotpath::measure(impl_type = "EventDispatcher")]
     pub fn dispatch_events_nonblocking(
         &self,
         batch: Vec<ConsumedEvent>,
@@ -219,7 +250,7 @@ impl EventDispatcher {
         let mut not_owned = 0u64;
         for consumed in batch {
             let partition = consumed.partition;
-            if !self.owned.contains(&partition) {
+            if !self.owned.contains_key(&partition) {
                 not_owned += 1;
                 continue;
             }
@@ -306,7 +337,7 @@ impl EventDispatcher {
 
     /// Snapshot of the partitions currently owned, for the backpressure prune/reconcile pass.
     pub fn owned_set(&self) -> HashSet<i32> {
-        self.owned.iter().map(|entry| *entry).collect()
+        self.owned.iter().map(|entry| *entry.key()).collect()
     }
 
     /// Route a consumed `person_merge_events` batch to per-partition workers, ceiling on the merge
@@ -403,7 +434,7 @@ impl EventDispatcher {
         let mut owned_seeds: Vec<ConsumedSeed> = Vec::with_capacity(batch.len());
         let mut not_owned = 0u64;
         for consumed in batch {
-            if !self.owned.contains(&consumed.partition) {
+            if !self.owned.contains_key(&consumed.partition) {
                 not_owned += 1;
                 continue;
             }
@@ -458,7 +489,7 @@ impl EventDispatcher {
 
         let mut messages: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(items.len());
         for (partition, offset, message) in items {
-            if !self.owned.contains(&partition) {
+            if !self.owned.contains_key(&partition) {
                 stats.not_owned_skipped += 1;
                 continue;
             }
@@ -479,32 +510,22 @@ impl EventDispatcher {
     /// partition is unowned. The ownership check and insert are atomic under the DashMap shard guard.
     fn ensure_worker(&self, partition: i32) {
         match self.workers.entry(partition) {
-            Entry::Occupied(slot) => {
-                if matches!(slot.get(), WorkerSlot::Draining) {
-                    debug!(
-                        partition,
-                        "worker replacement waits for the revoked worker to finish draining"
-                    );
-                }
-            }
+            Entry::Occupied(_) => {}
             Entry::Vacant(slot) => {
                 // No `.await` in this arm — the DashMap shard guard is held.
-                if !self.owned.contains(&partition) {
+                let Some(assigned_at) = self.owned.get(&partition).map(|entry| *entry) else {
                     return;
-                }
+                };
                 if self.draining.load(Ordering::SeqCst) {
                     return;
                 }
-                // Durable restart only: wipe a post-boot move-in's stale on-disk slice (left by a
-                // revoke-delete that failed before the partition returned to this pod) before the
-                // worker rebuilds its eviction queue from it. Runs under the shard guard, so the wipe
-                // strictly precedes the spawn. `reclaim_stale_slice` must never touch `self.workers` —
-                // a `contains_key`/`entry` on the same shard while this write guard is held deadlocks.
-                if self.durable_restore_enabled() {
-                    self.reclaim_stale_slice(partition);
-                }
                 match self.router.add_partition(partition) {
                     Some(inbox) => {
+                        let restore = if self.durable_restore_enabled() {
+                            EvictionRestore::Rebuild(self.readiness.rebuild_started())
+                        } else {
+                            EvictionRestore::Skip
+                        };
                         let worker = Stage1Worker::spawn_with_gating(
                             partition as u16,
                             inbox,
@@ -513,10 +534,11 @@ impl EventDispatcher {
                             self.sink.clone(),
                             self.tracker.clone(),
                             self.merge.clone(),
-                            self.durable_restore_enabled(),
+                            restore,
                             self.event_name_gating(),
+                            assigned_at,
                         );
-                        slot.insert(WorkerSlot::Running(worker));
+                        slot.insert(worker);
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
                         info!(
                             partition,
@@ -539,22 +561,41 @@ impl EventDispatcher {
     }
 
     pub fn owns(&self, partition: i32) -> bool {
-        self.owned.contains(&partition)
+        self.owned.contains_key(&partition)
+    }
+
+    /// End boot and open the readiness gate. Every owned partition gets its worker first, so the
+    /// gate already counts their eviction rebuilds when it opens, and an idle partition rebuilds
+    /// and sweeps from boot instead of from its first message. Returns the owned partition count.
+    pub(crate) fn finish_boot(&self) -> usize {
+        let owned = self.owned_set();
+        for &partition in &owned {
+            self.ensure_worker(partition);
+        }
+        self.readiness.mark_live();
+        owned.len()
     }
 
     /// Snapshot of the partitions currently owned by this consumer.
     pub fn owned_partitions(&self) -> Vec<i32> {
-        self.owned.iter().map(|entry| *entry).collect()
+        self.owned.iter().map(|entry| *entry.key()).collect()
     }
 
     pub(crate) fn merge_deps(&self) -> &MergeWorkerDeps {
         &self.merge
     }
 
-    /// Route a sweep tick to each owned partition that has a live worker. Never spawns, so a revoked
-    /// partition is not resurrected; a worker-less owned partition has no in-memory state to evict, so
-    /// it is skipped rather than producing a `no_worker` drop.
+    /// Route a sweep tick to each owned partition that has a live worker. Never spawns: a worker-less
+    /// owned partition has no in-memory state to evict, so it is skipped rather than producing a
+    /// `no_worker` drop.
+    ///
+    /// Routes nothing before the first catalog load. Every team is absent from the unloaded catalog,
+    /// and a sweep batch drops the keys it claims for an absent team without rescheduling them, so a
+    /// sweep then would lose every deadline the boot rebuild restored.
     pub async fn route_sweep(&self, due_before_ms: i64) {
+        if !self.catalog.is_loaded() {
+            return;
+        }
         self.route_to_owned(|| ShuffleMessage::Sweep { due_before_ms })
             .await;
     }
@@ -582,9 +623,9 @@ impl EventDispatcher {
     }
 
     /// Owned partitions that currently have a live worker channel — the only partitions a maintenance
-    /// tick can reach. An owned partition that never received an event has no worker, so a tick to it
-    /// is a guaranteed `no_worker` no-op (no in-memory state to evict, redrive, or GC); skipping it
-    /// keeps the idle fan-out silent instead of dropping one message per worker-less partition.
+    /// tick can reach. No owned partition has a worker before boot ends, so a tick to one then is a
+    /// guaranteed `no_worker` no-op (no in-memory state to evict, redrive, or GC); skipping it keeps
+    /// the fan-out silent instead of dropping one message per worker-less partition.
     fn tickable_partitions(&self) -> Vec<i32> {
         self.owned_partitions()
             .into_iter()
@@ -614,198 +655,43 @@ impl EventDispatcher {
         // Forget before ownership flips: every tenure starts fail-closed for the seed fence, and
         // a concurrent idle-probe advance can't slip in between.
         self.merge.live_watermarks.forget_partition(partition);
-        self.owned.insert(partition);
+        self.owned.insert(partition, CoverageStartMs::now());
         counter!(PARTITIONS_ASSIGNED_TOTAL).increment(1);
     }
 
-    /// Synchronous half of a revoke: mark the partition un-owned. The worker channel is left intact
-    /// for rapid revoke-then-reassign; teardown is decided in the async drain.
-    pub fn revoke_partition_sync(&self, partition: i32) {
-        self.owned.remove(&partition);
-        counter!(PARTITIONS_REVOKED_TOTAL).increment(1);
-    }
-
-    /// Asynchronous half of a revoke: reclaim the partition unless a reassign re-acquired it.
-    /// Re-checks ownership at entry and after the worker join to handle rapid revoke-then-assign.
-    pub async fn revoke_partition_drain(&self, partition: i32) {
-        if self.owned.contains(&partition) {
-            counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL, "phase" => "entry").increment(1);
-            debug!(
-                partition,
-                "skipping revoke cleanup: partition re-assigned before cleanup ran"
-            );
-            return;
-        }
-
-        let worker = match self.workers.entry(partition) {
-            Entry::Occupied(mut slot) => {
-                if matches!(slot.get(), WorkerSlot::Draining) {
-                    debug!(partition, "revoke cleanup is already draining this worker");
-                    return;
-                }
-                match slot.insert(WorkerSlot::Draining) {
-                    WorkerSlot::Running(worker) => Some(worker),
-                    WorkerSlot::Draining => unreachable!("the occupied slot was checked above"),
-                }
-            }
-            Entry::Vacant(slot) => {
-                slot.insert(WorkerSlot::Draining);
-                None
-            }
-        };
-        self.router.remove_partition(partition);
-        if let Some(worker) = worker {
-            let started = Instant::now();
-            if let Err(err) = worker.join().await {
-                warn!(partition, error = %err, "stage 1 worker panicked during revoke drain");
-            }
-            histogram!(REVOKE_DRAIN_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
-        }
-
-        if self.owned.contains(&partition) {
-            // The draining sentinel prevents an in-flight follower batch from spawning a replacement
-            // worker before the old in-memory reconcile queue is gone and its tracker tenure resets.
-            // The rebalance worker then rewinds the follower, so anything dropped against the
-            // sentinel is replayed into the fresh tenure.
-            self.merge.seed_tracker.forget_partition(partition);
-            self.finish_worker_drain(partition);
-            counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL, "phase" => "post_join").increment(1);
-            debug!(
-                partition,
-                "skipping revoke cleanup post-join: partition re-acquired during the worker drain"
-            );
-            return;
-        }
-
-        self.tracker.forget_partition(partition);
-        self.merge.merge_tracker.forget_partition(partition);
-        self.merge.transfer_tracker.forget_partition(partition);
-        self.merge.cascade_tracker.forget_partition(partition);
-        self.merge.seed_tracker.forget_partition(partition);
-        // Fail-closed on re-acquire: the next tenure re-derives its own watermark.
-        self.merge.live_watermarks.forget_partition(partition);
-
-        // Reset per-partition gauges. Held-offset gauges in particular are alerted on a sustained
-        // non-zero level — without this, a hold that cleared on revoke would keep the alert firing.
-        gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition.to_string()).set(0.0);
-        gauge!(MERGE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
-        gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
-        gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
-        gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string()).set(0.0);
-        gauge!(SEED_PAUSE_AGE_MS, "partition" => partition.to_string()).set(0.0);
-        gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => partition.to_string()).set(0.0);
-
-        let Some(partition_id) = partition_to_store_id(partition) else {
-            warn!(
-                partition,
-                "revoked partition out of u16 range; skipping state delete"
-            );
-            self.finish_worker_drain(partition);
-            return;
-        };
-        match self.handle.delete_partition(partition_id).await {
-            Ok(()) => counter!(PARTITION_STATE_DELETED_TOTAL).increment(1),
-            Err(err) => {
-                warn!(partition, error = %err, "failed to delete revoked partition state")
-            }
-        }
-        self.finish_worker_drain(partition);
-    }
-
-    fn finish_worker_drain(&self, partition: i32) {
-        self.workers
-            .remove_if(&partition, |_, slot| matches!(slot, WorkerSlot::Draining));
-    }
-
-    /// Delete a moving-in partition's stale on-disk slice so the worker cold-rebuilds from the
-    /// committed offset. Called from [`Self::ensure_worker`] under the partition's shard guard, right
-    /// before the worker spawns, so the wipe deterministically precedes the eviction-queue rebuild.
-    ///
-    /// Boot-snapshot partitions are kept (the boot sweep is the authority and reopen-live is intact),
-    /// and pre-boot calls (snapshot not yet recorded) are kept too — only genuine post-boot move-ins
-    /// are reclaimed. Must not touch `self.workers`: the caller holds a DashMap shard write guard for
-    /// `partition`, so a `contains_key`/`entry` on the same shard would deadlock.
-    fn reclaim_stale_slice(&self, partition: i32) {
-        match self.boot_assignment.get() {
-            // Pre-boot: the sweep is the authority — never wipe.
-            None => return,
-            Some(boot) if boot.contains(&partition) => return,
-            Some(_) => {}
-        }
-        let Some(partition_id) = partition_to_store_id(partition) else {
-            warn!(
-                partition,
-                "assigned partition out of u16 range; skipping stale-slice reclaim"
-            );
-            return;
-        };
-        // Sync escape hatch: runs under the partition's DashMap shard guard, so no `.await`. The
-        // delete is one range tombstone per CF and rare (a post-boot move-in).
-        match self.handle.delete_partition_blocking(partition_id) {
-            Ok(()) => counter!(DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL).increment(1),
-            Err(err) => warn!(
-                partition,
-                error = %err, "failed to reclaim stale assigned-partition state"
-            ),
-        }
-    }
-
-    /// Delete on-disk slices for partitions in `0..partition_count` not in `assignment`: they
-    /// moved away while this pod was down. `assignment` must be the settled (non-empty) assignment
-    /// — an empty set would delete all slices.
-    pub(crate) async fn reclaim_unassigned_partitions_on_boot(
-        &self,
-        assignment: &std::collections::HashSet<i32>,
-        partition_count: usize,
-    ) {
-        let mut kept = 0u64;
+    /// Delete the on-disk slices of every partition `ownership` does not own, and return how many
+    /// held any key. The store opens only under the ownership it was written under, or adopts it,
+    /// so at one pod this deletes nothing.
+    pub(crate) async fn reclaim_unowned_slices(&self, ownership: &PartitionOwnership) -> u64 {
         let mut wiped = 0u64;
-        for partition in 0..partition_count as i32 {
-            if assignment.contains(&partition) {
-                kept += 1;
-                continue;
-            }
-            if let Some(partition_id) = partition_to_store_id(partition) {
-                match self.handle.delete_partition(partition_id).await {
-                    Ok(()) => wiped += 1,
-                    Err(err) => warn!(
-                        partition,
-                        error = %err, "failed to reclaim unassigned-partition state at boot"
-                    ),
-                }
+        for partition in (0..ownership.partition_count()).filter(|&p| !ownership.owns(p)) {
+            match self.handle.delete_partition(partition).await {
+                Ok(held_keys) => wiped += u64::from(held_keys),
+                Err(err) => warn!(
+                    partition,
+                    error = %err, "failed to reclaim unowned-partition state at boot"
+                ),
             }
         }
+        let kept = ownership.partitions().count() as u64;
         counter!(DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL).increment(kept);
         counter!(DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL).increment(wiped);
         info!(
             kept,
-            wiped, partition_count, "durable restore: boot staleness sweep complete"
+            wiped,
+            partition_count = ownership.partition_count(),
+            "durable restore: boot staleness sweep complete"
         );
+        wiped
     }
 
-    /// Record the boot assignment snapshot, then sweep stale on-disk slices. Recording first makes
-    /// the assign path defer to the boot decision and reclaim only post-boot move-ins.
-    pub(crate) async fn reconcile_boot_assignment(
-        &self,
-        assignment: &HashSet<i32>,
-        partition_count: usize,
-    ) {
-        if self.boot_assignment.set(assignment.clone()).is_err() {
-            debug!("boot assignment snapshot already recorded; keeping the first");
-        }
-        self.reclaim_unassigned_partitions_on_boot(assignment, partition_count)
-            .await;
-    }
-
-    /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot,
-    /// without spawning workers. An idle partition never spawns a worker — and the periodic redrive
-    /// routes through `route_to_owned`, which skips worker-less partitions, so it never fires for one
-    /// either; this paginates the whole outbox directly and re-produces every entry regardless of
-    /// backlog size.
+    /// Re-produce every staged `cf_pending_transfers` entry for the owned partitions at boot, before
+    /// any worker spawns. This paginates the whole outbox directly and re-produces every entry
+    /// regardless of backlog size.
     ///
     /// Produce + clear only — no `mark_processed`: a fresh tenure starts at `dispatched_offset == 0`
     /// so marking would clamp to 0 and trip `CappedAheadOfDispatch`. A per-entry produce failure
-    /// leaves that entry for the periodic redrive. Must run after the boot staleness reconcile.
+    /// leaves that entry for the periodic redrive. Must run after `reclaim_unowned_slices`.
     pub async fn eager_redrive_pending_transfers_on_boot(&self, assignment: &HashSet<i32>) {
         for &partition in assignment {
             let Some(store_partition) = partition_to_store_id(partition) else {
@@ -914,6 +800,7 @@ impl EventDispatcher {
         recovered
     }
 
+    #[cfg(test)]
     fn tracker(&self) -> &OffsetTracker {
         self.tracker.as_ref()
     }
@@ -927,23 +814,48 @@ impl EventDispatcher {
         self.tracker
             .committable_offsets()
             .into_iter()
-            .filter(|(partition, _)| self.owned.contains(partition))
+            .filter(|(partition, _)| self.owned.contains_key(partition))
             .collect()
     }
 
-    /// Drain all workers and return the tracker for the caller's final sync commit.
+    /// Drain all workers, publish the ownership they drained under for the followers' final
+    /// commits, and return the tracker. No consumer polls during the drain, so no rebalance callback
+    /// can change `owned` while it runs.
     async fn shutdown(&self) -> Arc<OffsetTracker> {
         self.draining.store(true, Ordering::SeqCst);
         self.router.clear();
+        let started = Instant::now();
         let partitions: Vec<i32> = self.workers.iter().map(|entry| *entry.key()).collect();
+        let mut workers = 0usize;
         for partition in partitions {
-            if let Some((_, WorkerSlot::Running(worker))) = self.workers.remove(&partition) {
+            if let Some((_, worker)) = self.workers.remove(&partition) {
+                workers += 1;
                 if let Err(err) = worker.join().await {
                     warn!(partition, error = %err, "stage 1 worker panicked during shutdown drain");
                 }
             }
         }
+        info!(
+            workers,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "worker drain complete"
+        );
+        if self
+            .drained
+            .set(DrainedOwnership(self.owned_set()))
+            .is_err()
+        {
+            debug!("worker drain already published; keeping the first");
+        }
         self.tracker.clone()
+    }
+
+    /// Wait up to `budget` for [`Self::shutdown`] to finish draining the workers.
+    pub(crate) async fn wait_for_worker_drain(&self, budget: Duration) -> DrainWait {
+        match tokio::time::timeout(budget, self.drained.wait()).await {
+            Ok(drained) => DrainWait::Drained(drained.clone()),
+            Err(_) => DrainWait::TimedOut,
+        }
     }
 }
 
@@ -957,20 +869,7 @@ fn partition_to_store_id(partition: i32) -> Option<u16> {
     u16::try_from(partition).ok()
 }
 
-/// Returns `true` once the same non-empty assignment is seen on two consecutive polls. An empty or
-/// changing assignment is not yet settled; a cooperative-incremental assign re-baselines until stable.
-fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<i32>>) -> bool {
-    if assignment.is_empty() {
-        return false;
-    }
-    if prev.as_ref() != Some(assignment) {
-        *prev = Some(assignment.clone());
-        return false;
-    }
-    true
-}
-
-/// The `cohort_stream_events` group consumer: consume, route, commit.
+/// The `cohort_stream_events` consumer: consume, route, commit.
 ///
 /// Uses a raw `StreamConsumer` with manual commit because the per-partition `OffsetTracker`
 /// commits a `TopicPartitionList` that the `common-kafka` wrapper can't express.
@@ -986,16 +885,15 @@ pub struct CohortStreamEventsConsumer {
     recv_batch_size: usize,
     recv_batch_timeout: Duration,
     offset_commit_interval: Duration,
-    /// Partition count of `cohort_stream_events`, used by the boot staleness sweep.
-    events_partitions: usize,
-    #[allow(dead_code)]
-    consumer_command_rx: ConsumerCommandReceiver,
-    /// Offset manifest from a disaster restore. When set, the consume loop runs a one-shot seek of
-    /// the events topic to the manifest positions once the boot assignment settles.
-    restore_manifest: Option<OffsetManifest>,
+    claimed: ClaimedSplit,
+    /// A checkpoint restore boot must finish. Boot rewinds every owned partition the restore keeps
+    /// to its restored position, commits, and finishes it before anything folds.
+    restore: Option<PendingRestore>,
 }
 
 impl CohortStreamEventsConsumer {
+    /// Takes the partitions `claimed` owns for the life of the process: the consumer is assigned
+    /// them at its group's committed offsets, and the dispatcher owns them.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         consumer: Arc<StreamConsumer<CohortConsumerContext>>,
@@ -1005,13 +903,23 @@ impl CohortStreamEventsConsumer {
         recv_batch_size: usize,
         recv_batch_timeout: Duration,
         offset_commit_interval: Duration,
-        events_partitions: usize,
-        consumer_command_rx: ConsumerCommandReceiver,
-        restore_manifest: Option<OffsetManifest>,
-    ) -> Self {
+        claimed: &ClaimedSplit,
+        restore: Option<PendingRestore>,
+    ) -> KafkaResult<Self> {
+        let ownership = claimed.ownership();
+        consumer.assign(&ownership.assignment(&topic)?)?;
+        for partition in ownership.partitions() {
+            dispatcher.assign_partition(i32::from(partition));
+        }
+        let pods: Arc<str> = Arc::from(ownership.pods().to_string());
+        let ordinal: Arc<str> = Arc::from(ownership.ordinal().to_string());
+        gauge!(PARTITION_OWNERSHIP_INFO, "pods" => pods, "ordinal" => ordinal).set(1.0);
+        gauge!(OWNED_PARTITIONS).set(ownership.partitions().count() as f64);
+        info!(%ownership, topic = %topic, "assigned the owned partitions");
+
         let pauser: Arc<dyn PartitionPauser> =
             Arc::new(ConsumerPauser::new(consumer.clone(), topic.clone()));
-        Self {
+        Ok(Self {
             consumer,
             topic,
             dispatcher,
@@ -1020,24 +928,28 @@ impl CohortStreamEventsConsumer {
             recv_batch_size,
             recv_batch_timeout,
             offset_commit_interval,
-            events_partitions,
-            consumer_command_rx,
-            restore_manifest,
-        }
+            claimed: claimed.clone(),
+            restore,
+        })
     }
 
     /// Run until the lifecycle handle signals shutdown.
     ///
     /// Offset commit runs on its own interval task so a CPU-saturated consume loop or worker backlog
     /// can't block offset advancement; it shares the shutdown signal and is awaited before the final
-    /// synchronous commit. Liveness is reported inline from the non-blocking backpressure cycle.
-    pub async fn process(self) {
+    /// synchronous commit. Liveness is reported after every poll without a transport error, except
+    /// while boot is still rewinding.
+    pub async fn process(mut self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
+        // Lifecycle ignores a component until its first report, so this starts the liveness clock
+        // before boot recovery: a recovery or a rewind that never finishes then restarts the process.
+        self.handle.report_healthy();
 
         let commit_task = tokio::spawn(run_commit_loop(
             self.consumer.clone(),
             self.dispatcher.clone(),
+            self.claimed.stamp(),
             self.topic.clone(),
             self.offset_commit_interval,
             self.handle.clone(),
@@ -1049,12 +961,31 @@ impl CohortStreamEventsConsumer {
         let (pause_tx, pause_rx) = tokio::sync::mpsc::unbounded_channel::<HashSet<i32>>();
         let pauser_task = tokio::spawn(run_pauser_loop(self.pauser.clone(), pause_rx));
 
-        // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
-        let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
-        let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
-        let mut restore_seek_done = self.restore_manifest.is_none();
-        let mut prev_assignment: Option<HashSet<i32>> = None;
-        // Untouched until boot recovery completes below, so nothing pauses during boot.
+        let boot_started = Instant::now();
+        // `validate_startup` refuses a checkpoint restore without durable restore, so a restore
+        // always comes with it. Without durable restore the store started empty: nothing to recover.
+        let mut phase = match (
+            self.dispatcher.durable_restore_enabled(),
+            self.restore.take(),
+        ) {
+            (false, None) => self.go_live(boot_started, 0),
+            (true, None) => {
+                self.recover().await;
+                self.go_live(boot_started, 0)
+            }
+            (_, Some(restore)) => {
+                self.recover().await;
+                self.wait_for_capture(&restore).await;
+                let mut resume = ResumePoints::default();
+                let topic = InputTopic::new(self.topic.as_str());
+                resume.rewind_to(&restore.plan().positions(&topic));
+                BootPhase::Rewinding {
+                    resume,
+                    restore: Box::new(restore),
+                }
+            }
+        };
+        // Untouched until boot recovery completes, so nothing pauses during boot.
         let mut backpressure = Backpressure::new();
         // Last paused target sent to the pauser task: lets us send only while backpressure is active
         // (plus the cycle it clears) and stay silent otherwise.
@@ -1068,36 +999,28 @@ impl CohortStreamEventsConsumer {
                     break;
                 }
                 outcome = self.consume_batch() => {
-                    // Sweep before dispatching, so the reclaim never races a worker spawn.
-                    if !boot_sweep_done {
-                        boot_sweep_done =
-                            self.run_boot_staleness_sweep(&mut prev_assignment).await;
+                    let transport_error = outcome.transport_error;
+                    phase = match phase {
+                        BootPhase::Live => {
+                            self.dispatch_with_backpressure(
+                                outcome,
+                                &mut backpressure,
+                                &mut prev_paused_target,
+                                &pause_tx,
+                            );
+                            BootPhase::Live
+                        }
+                        BootPhase::Rewinding { mut resume, restore } => {
+                            resume.hold_back(&outcome.events);
+                            self.rewind(resume, restore, boot_started)
+                        }
+                        BootPhase::Halted => BootPhase::Halted,
+                    };
+                    if transport_error {
+                        tokio::time::sleep(RECV_ERROR_BACKOFF).await;
+                    } else if !matches!(phase, BootPhase::Rewinding { .. }) {
+                        self.handle.report_healthy();
                     }
-                    // Redrive after the boot sweep settles. Skip dispatching this batch so boot
-                    // recovery completes before any fold work.
-                    if !eager_redrive_done && boot_sweep_done {
-                        let owned: HashSet<i32> =
-                            self.dispatcher.owned_partitions().into_iter().collect();
-                        self.dispatcher
-                            .eager_redrive_pending_transfers_on_boot(&owned)
-                            .await;
-                        eager_redrive_done = true;
-                        continue;
-                    }
-                    // Seek after the boot sweep settles. Skip dispatching the pre-seek batch so no
-                    // ahead-of-seek event is folded first. Fail-stop: retry without dispatching on
-                    // failure; never fold from the broker-stored offset.
-                    if !restore_seek_done && boot_sweep_done {
-                        restore_seek_done = self.run_restore_seek();
-                        continue;
-                    }
-                    self.dispatch_with_backpressure(
-                        outcome,
-                        &mut backpressure,
-                        &mut prev_paused_target,
-                        &pause_tx,
-                    )
-                    .await;
                 }
             }
         }
@@ -1112,12 +1035,12 @@ impl CohortStreamEventsConsumer {
             warn!(error = %err, "pauser task did not exit cleanly");
         }
 
-        let tracker = self.dispatcher.shutdown().await;
+        self.dispatcher.shutdown().await;
         let offsets = self.dispatcher.owned_committable_offsets();
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
-            &tracker,
+            &self.claimed.stamp(),
             offsets,
             &self.topic,
             CommitMode::Sync,
@@ -1126,91 +1049,155 @@ impl CohortStreamEventsConsumer {
         info!(topic = %self.topic, "cohort_stream_events consume loop stopped");
     }
 
-    /// Returns `true` once the boot snapshot is reconciled, `false` while the assignment is unsettled.
-    async fn run_boot_staleness_sweep(&self, prev: &mut Option<HashSet<i32>>) -> bool {
-        let assignment = self.assigned_partitions();
-        if !boot_assignment_settled(&assignment, prev) {
-            return false;
-        }
+    /// Boot recovery of a reopened or restored store, before the first poll: delete the slices of
+    /// the partitions this pod does not own, and re-produce the merge outbox of those it owns.
+    async fn recover(&self) {
         self.dispatcher
-            .reconcile_boot_assignment(&assignment, self.events_partitions)
+            .reclaim_unowned_slices(&self.claimed.ownership())
             .await;
-        true
+        self.dispatcher
+            .eager_redrive_pending_transfers_on_boot(&self.dispatcher.owned_set())
+            .await;
     }
 
-    /// Seek the owned events partitions to the manifest's committed offsets. A no-op when
-    /// `restore_manifest` is `None`. Returns `true` only once every targeted partition is sought;
-    /// `false` on any failure so the caller retries without dispatching. A persistent failure stalls
-    /// and surfaces as consumer lag, never silent event loss.
-    fn run_restore_seek(&self) -> bool {
-        let Some(manifest) = self.restore_manifest.as_ref() else {
-            return true;
-        };
-        let owned = self.dispatcher.owned_partitions();
-        let Some((tpl, sought)) = restore_seek_tpl(&self.topic, &owned, manifest) else {
-            info!(
-                topic = %self.topic,
-                "restore seek: manifest carried no committed offset for any owned events partition; nothing to seek",
+    /// Nothing polls or folds while this host's clock reads before the checkpoint's capture, so no
+    /// fold emits a version below the outputs that made the restored state. The source pod can emit
+    /// more after the capture, and only the wall clocks of the two hosts order those outputs before
+    /// this pod's. A shutdown ends the wait.
+    async fn wait_for_capture(&self, restore: &PendingRestore) {
+        let captured_at = restore.captured_at();
+        while let Ok(wait) = (captured_at - Utc::now()).to_std() {
+            warn!(
+                %captured_at,
+                wait_secs = wait.as_secs(),
+                "this host's clock reads before the restored checkpoint's capture; holding off \
+                 dispatch until it passes",
             );
-            return true;
-        };
+            tokio::select! {
+                biased;
+                _ = self.handle.shutdown_recv() => return,
+                _ = tokio::time::sleep(wait) => {}
+            }
+        }
+    }
 
-        let result = match self.consumer.seek_partitions(tpl, RESTORE_SEEK_TIMEOUT) {
-            Ok(result) => result,
+    /// Seek every owned partition back to its resume point, finish the restore, then go live. Any
+    /// failure keeps boot in `Rewinding`, so the next poll retries and nothing folds from the
+    /// broker offset. `Rewinding` reports no liveness, so a persistent failure restarts the process.
+    ///
+    /// The restore commits the seek list before it finishes. Finishing deletes the restore marker,
+    /// so without the commit a crash right after would reopen the restored store at the broker's
+    /// old, higher offsets and skip the events between.
+    fn rewind(
+        &self,
+        resume: ResumePoints,
+        restore: Box<PendingRestore>,
+        boot_started: Instant,
+    ) -> BootPhase {
+        let owned = self.dispatcher.owned_set();
+        let seek_list = match resume.seek_list(&self.claimed.stamp(), &self.topic, &owned) {
+            Ok(seek_list) => seek_list,
             Err(err) => {
                 warn!(
                     topic = %self.topic,
-                    offsets = ?sought,
                     error = %err,
-                    "restore seek failed; holding off dispatch and retrying (no progress until it succeeds)",
+                    "boot seek list rejected an offset; holding off dispatch and retrying",
                 );
-                return false;
+                return BootPhase::Rewinding { resume, restore };
             }
         };
+        let sought = seek_list
+            .as_ref()
+            .map_or(0, |seek_list| seek_list.as_list().count());
 
-        let failed: Vec<i32> = result
-            .elements_for_topic(&self.topic)
-            .iter()
-            .filter(|elem| elem.error().is_err())
-            .map(|elem| elem.partition())
-            .collect();
-        if !failed.is_empty() {
-            warn!(
-                topic = %self.topic,
-                failed_partitions = ?failed,
-                offsets = ?sought,
-                "restore seek failed for some partitions; holding off dispatch and retrying (no progress until it succeeds)",
-            );
-            return false;
-        }
-
-        info!(
-            topic = %self.topic,
-            partitions = sought.len(),
-            offsets = ?sought,
-            "restore seek: sought owned events partitions to their committed manifest offsets",
-        );
-        true
-    }
-
-    fn assigned_partitions(&self) -> HashSet<i32> {
-        match self.consumer.assignment() {
-            Ok(tpl) => tpl
-                .elements_for_topic(&self.topic)
-                .iter()
-                .map(|elem| elem.partition())
-                .collect(),
-            Err(err) => {
-                warn!(error = %err, "failed to read consumer assignment for the boot staleness sweep");
-                HashSet::new()
+        if let Some(seek_list) = &seek_list {
+            let failed: Vec<i32> = match self
+                .consumer
+                .seek_partitions(seek_list.as_list().clone(), BOOT_SEEK_TIMEOUT)
+            {
+                Ok(result) => result
+                    .elements_for_topic(&self.topic)
+                    .iter()
+                    .filter(|elem| elem.error().is_err())
+                    .map(|elem| elem.partition())
+                    .collect(),
+                Err(err) => {
+                    warn!(
+                        topic = %self.topic,
+                        partitions = sought,
+                        error = %err,
+                        "boot seek failed; holding off dispatch and retrying (no progress until it succeeds)",
+                    );
+                    return BootPhase::Rewinding { resume, restore };
+                }
+            };
+            if !failed.is_empty() {
+                warn!(
+                    topic = %self.topic,
+                    failed_partitions = ?failed,
+                    "boot seek failed for some partitions; holding off dispatch and retrying (no progress until it succeeds)",
+                );
+                return BootPhase::Rewinding { resume, restore };
             }
         }
+
+        let low_watermarks = |partitions: &[(&InputTopic, u16)]| {
+            list_offsets(self.consumer.as_ref(), partitions, Offset::Beginning)
+        };
+        let commit_events = || match &seek_list {
+            Some(seek_list) => seek_list.commit(self.consumer.as_ref(), CommitMode::Sync),
+            None => Ok(()),
+        };
+        // A sync commit waits until the group coordinator answers. `block_in_place` hands this
+        // worker's other tasks to another thread meanwhile, so a runtime with one worker still
+        // serves the health server.
+        match tokio::task::block_in_place(|| restore.finish(&owned, low_watermarks, commit_events))
+        {
+            Ok(()) => {
+                gauge!(CHECKPOINT_RESTORE_BLOCKED).set(0.0);
+                info!(
+                    topic = %self.topic,
+                    partitions = sought,
+                    "checkpoint restore finished: the events group committed the restored positions",
+                );
+            }
+            Err(FinishError::Expired(expired)) => {
+                // The marker stays, so the next boot's window check resets these slices before
+                // anything reads them.
+                error!(
+                    ?expired,
+                    "the broker expired restored positions during boot; stopping so the next boot resets those slices",
+                );
+                self.handle
+                    .signal_failure("checkpoint restore positions expired during boot");
+                return BootPhase::Halted;
+            }
+            Err(err) => {
+                gauge!(CHECKPOINT_RESTORE_BLOCKED).set(1.0);
+                warn!(
+                    topic = %self.topic,
+                    error = %format!("{:#}", anyhow::Error::new(err)),
+                    "checkpoint restore could not finish; holding off dispatch and retrying",
+                );
+                return BootPhase::Rewinding { resume, restore };
+            }
+        }
+        self.go_live(boot_started, sought)
+    }
+
+    fn go_live(&self, boot_started: Instant, sought: usize) -> BootPhase {
+        let partitions = self.dispatcher.finish_boot();
+        info!(
+            elapsed_ms = boot_started.elapsed().as_millis() as u64,
+            partitions, sought, "events consumer boot complete",
+        );
+        BootPhase::Live
     }
 
     /// One steady-state cycle: prune revoked holdover, retry-flush held partitions, dispatch the polled
     /// batch, reconcile the paused set and hand its deltas to the pauser task. Every step is
-    /// non-blocking, so the heartbeat below fires each iteration regardless of downstream drain.
-    async fn dispatch_with_backpressure(
+    /// non-blocking, so the loop's heartbeat fires each iteration regardless of downstream drain.
+    fn dispatch_with_backpressure(
         &self,
         outcome: ConsumeOutcome,
         backpressure: &mut Backpressure,
@@ -1241,8 +1228,8 @@ impl CohortStreamEventsConsumer {
 
         // Hand the pauser task the paused target (the still-held partitions); it re-asserts pause
         // idempotently, so no librdkafka call can delay the heartbeat below. Send every cycle the
-        // target is non-empty (re-asserting heals a swallowed pause error or a rebalance-reset toppar),
-        // plus the one cycle it clears (to resume); stay silent otherwise.
+        // target is non-empty (re-asserting heals a swallowed pause error), plus the one cycle it
+        // clears (to resume); stay silent otherwise.
         let target = backpressure.held_partitions();
         if !target.is_empty() || !prev_paused_target.is_empty() {
             if pause_tx.send(target.clone()).is_err() {
@@ -1253,14 +1240,9 @@ impl CohortStreamEventsConsumer {
         }
         gauge!(PARTITIONS_PAUSED).set(backpressure.held_partition_count() as f64);
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_message_count() as f64);
-
-        if outcome.transport_error {
-            tokio::time::sleep(RECV_ERROR_BACKOFF).await;
-        } else {
-            self.handle.report_healthy();
-        }
     }
 
+    #[hotpath::measure(impl_type = "CohortStreamEventsConsumer")]
     async fn consume_batch(&self) -> ConsumeOutcome {
         let mut outcome = ConsumeOutcome {
             events: Vec::with_capacity(self.recv_batch_size),
@@ -1324,42 +1306,9 @@ struct ConsumeOutcome {
     transport_error: bool,
 }
 
-/// Build the seek list for a disaster restore: owned partitions with a committed offset in
-/// `manifest`, at `Offset::Offset(next_offset)` (next-to-consume convention). Returns the TPL and
-/// logged pairs, or `None` when no owned partition has a manifest offset.
-fn restore_seek_tpl(
-    topic: &str,
-    owned: &[i32],
-    manifest: &OffsetManifest,
-) -> Option<(TopicPartitionList, Vec<(i32, i64)>)> {
-    let mut tpl = TopicPartitionList::new();
-    let mut sought: Vec<(i32, i64)> = Vec::new();
-    for &partition in owned {
-        let Some(next_offset) = manifest.offset_for(topic, partition) else {
-            continue;
-        };
-        if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Offset(next_offset)) {
-            warn!(topic, partition, next_offset, error = %err, "skipping partition in restore seek list");
-            continue;
-        }
-        sought.push((partition, next_offset));
-    }
-    (tpl.count() > 0).then_some((tpl, sought))
-}
-
-pub(crate) fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> TopicPartitionList {
-    let mut tpl = TopicPartitionList::new();
-    for (&partition, &next_offset) in offsets {
-        if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Offset(next_offset)) {
-            warn!(topic, partition, next_offset, error = %err, "skipping partition in commit list");
-        }
-    }
-    tpl
-}
-
 pub(crate) fn commit_offsets<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
-    tracker: &OffsetTracker,
+    stamp: &CommitStamp,
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
@@ -1367,14 +1316,11 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
     if offsets.is_empty() {
         return;
     }
-    let tpl = build_commit_tpl(topic, &offsets);
-    match consumer.commit(&tpl, mode) {
-        Ok(()) => {
-            counter!(COHORT_STREAM_OFFSET_COMMITS).increment(1);
-            for (&partition, &next_offset) in &offsets {
-                tracker.mark_committed(partition, next_offset);
-            }
-        }
+    match stamp
+        .list(topic, offsets)
+        .and_then(|list| list.commit(consumer, mode))
+    {
+        Ok(()) => counter!(COHORT_STREAM_OFFSET_COMMITS).increment(1),
         Err(err) => {
             counter!(COHORT_STREAM_OFFSET_COMMIT_ERRORS).increment(1);
             warn!(topic, error = %err, "failed to commit consumer offsets");
@@ -1391,7 +1337,7 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
 pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     handle: &StoreHandle,
     consumer: &StreamConsumer<C>,
-    tracker: &OffsetTracker,
+    stamp: &CommitStamp,
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
@@ -1402,7 +1348,7 @@ pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     if handle.flush_wal_sync().await.is_err() {
         return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
-    commit_offsets(consumer, tracker, offsets, topic, mode);
+    commit_offsets(consumer, stamp, offsets, topic, mode);
 }
 
 /// Flushes the store's WAL and commits the owned committable offsets on a fixed interval, independent
@@ -1410,6 +1356,7 @@ pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
 async fn run_commit_loop(
     consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     dispatcher: Arc<EventDispatcher>,
+    stamp: CommitStamp,
     topic: String,
     interval: Duration,
     handle: Handle,
@@ -1424,7 +1371,7 @@ async fn run_commit_loop(
                 fsync_then_commit(
                     dispatcher.handle(),
                     &consumer,
-                    dispatcher.tracker(),
+                    &stamp,
                     dispatcher.owned_committable_offsets(),
                     &topic,
                     CommitMode::Async,
@@ -1437,8 +1384,8 @@ async fn run_commit_loop(
 
 /// Applies the paused-partition target off the consume loop, so blocking librdkafka `pause`/`resume`
 /// never delays the heartbeat. Re-asserts the full target every update — idempotent in librdkafka — so
-/// a swallowed pause error or a rebalance-reset toppar self-heals. `applied` tracks only which
-/// partitions to resume (those that left the target). Exits when the sender is dropped.
+/// a swallowed pause error self-heals. `applied` tracks only which partitions to resume (those that
+/// left the target). Exits when the sender is dropped.
 pub(crate) async fn run_pauser_loop(
     pauser: Arc<dyn PartitionPauser>,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<HashSet<i32>>,
@@ -1473,7 +1420,7 @@ pub(crate) async fn run_pauser_loop(
 // facade.
 #[allow(clippy::disallowed_methods)]
 mod tests {
-    use std::num::NonZeroUsize;
+    use std::num::{NonZeroU16, NonZeroUsize};
 
     use super::*;
     use chrono_tz::UTC;
@@ -1483,9 +1430,9 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
+    use cohort_core::seed::CoverageStartMs;
 
-    use crate::consumers::seeds::SeedWork;
+    use crate::consumers::readiness::NotReady;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
     use crate::merge::transfer::{
         MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferLeaf,
@@ -1499,9 +1446,11 @@ mod tests {
     };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::{Stage1State, StatefulRecord};
+    use crate::store::durability::PodOrdinal;
     use crate::store::{
         Behavioral, BehavioralKey, CohortStore, LeafStateKey, MergeAppliedKey, MergeDrainKey,
-        OffloadConfig, OffloadMode, PendingTransferKey, StoreConfig, TombstoneKey,
+        OffloadConfig, OffloadMode, PendingTransferKey, SliceCoverage, SliceCoverageKey,
+        SliceCoverages, StoreConfig, TombstoneKey,
     };
     use crate::workers::TransferRetryPolicy;
 
@@ -1597,7 +1546,7 @@ mod tests {
         let task = tokio::spawn(run_pauser_loop(pauser.clone(), rx));
 
         // Stable target over two cycles: re-paused each time. That idempotent re-assertion is what
-        // heals a swallowed pause error or a rebalance-reset toppar.
+        // heals a swallowed pause error.
         tx.send(HashSet::from([5])).unwrap();
         tx.send(HashSet::from([5])).unwrap();
         // Partition 5 drains and 7 becomes held: 5 leaves the target (resumed), 7 is paused.
@@ -1727,88 +1676,6 @@ mod tests {
         assert_eq!(event.source_offset, 99);
         assert_eq!(event.source_partition, 3);
         assert!(event.person_properties.is_none());
-    }
-
-    #[test]
-    fn build_commit_tpl_maps_each_partition_to_its_next_offset() {
-        let mut offsets = HashMap::new();
-        offsets.insert(3, 100);
-        offsets.insert(7, 250);
-
-        let tpl = build_commit_tpl("cohort_stream_events", &offsets);
-
-        assert_eq!(tpl.count(), 2);
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 3)
-                .unwrap()
-                .offset(),
-            Offset::Offset(100),
-        );
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 7)
-                .unwrap()
-                .offset(),
-            Offset::Offset(250),
-        );
-    }
-
-    #[test]
-    fn build_commit_tpl_for_no_offsets_is_empty() {
-        let tpl = build_commit_tpl("cohort_stream_events", &HashMap::new());
-        assert_eq!(tpl.count(), 0);
-    }
-
-    fn manifest_for(topic: &str, committed: &[(i32, i64)]) -> OffsetManifest {
-        let tracker = OffsetTracker::new();
-        let owned: Vec<i32> = committed.iter().map(|(p, _)| *p).collect();
-        for &(partition, next) in committed {
-            tracker.mark_dispatched(partition, next);
-            let _ = tracker.mark_processed(partition, next);
-            tracker.mark_committed(partition, next);
-        }
-        OffsetManifest::capture(&owned, &[(topic, &tracker)])
-    }
-
-    #[test]
-    fn restore_seek_tpl_targets_owned_partitions_with_a_manifest_offset() {
-        let manifest = manifest_for("cohort_stream_events", &[(0, 100), (3, 250)]);
-        let (tpl, sought) = restore_seek_tpl("cohort_stream_events", &[0, 3, 7], &manifest)
-            .expect("a non-empty seek");
-        assert_eq!(tpl.count(), 2);
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 0)
-                .unwrap()
-                .offset(),
-            Offset::Offset(100),
-        );
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 3)
-                .unwrap()
-                .offset(),
-            Offset::Offset(250),
-        );
-        assert!(tpl.find_partition("cohort_stream_events", 7).is_none());
-        let mut sought_sorted = sought;
-        sought_sorted.sort_unstable();
-        assert_eq!(sought_sorted, vec![(0, 100), (3, 250)]);
-    }
-
-    #[test]
-    fn restore_seek_tpl_is_none_for_an_empty_manifest_topic() {
-        let empty = manifest_for("cohort_stream_events", &[]);
-        assert!(restore_seek_tpl("cohort_stream_events", &[0, 1, 2], &empty).is_none());
-    }
-
-    #[test]
-    fn restore_seek_tpl_is_none_when_no_owned_partition_matches() {
-        let manifest = manifest_for("cohort_stream_events", &[(0, 100), (3, 250)]);
-        assert!(restore_seek_tpl("cohort_stream_events", &[5, 9], &manifest).is_none());
-    }
-
-    #[test]
-    fn restore_seek_tpl_is_none_for_a_missing_topic() {
-        let manifest = manifest_for("cohort_stream_events", &[(0, 100)]);
-        assert!(restore_seek_tpl("person_merge_events", &[0], &manifest).is_none());
     }
 
     fn temp_store() -> (TempDir, CohortStore) {
@@ -1983,139 +1850,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reclaim_stale_slice_wipes_move_in_keeps_boot_partition() {
+    async fn the_boot_sweep_wipes_only_the_slices_another_pod_owns() {
         let (_dir, store) = temp_store();
         let catalog = behavioral_catalog();
         let lsk = behavioral_lsk(&catalog);
         let dispatcher = dispatcher_with(&store, catalog);
-        seed_slice(&store, 5, lsk);
-        seed_slice(&store, 6, lsk);
-
-        // Boot snapshot includes 6 (reopen-live) but not 5 (post-boot move-in); partition_count 5
-        // keeps the boot sweep off both 5 and 6.
-        dispatcher
-            .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
-            .await;
-
-        dispatcher.reclaim_stale_slice(5);
-        assert!(
-            !slice_present(&store, 5, lsk),
-            "a post-boot move-in has its stale slice wiped",
-        );
-
-        dispatcher.reclaim_stale_slice(6);
-        assert!(
-            slice_present(&store, 6, lsk),
-            "a boot-snapshot partition keeps its slice (the boot sweep is the authority)",
-        );
-    }
-
-    #[tokio::test]
-    async fn ensure_worker_wipes_stale_move_in_slice_before_spawn() {
-        let (_dir, store) = temp_store();
-        let catalog = behavioral_catalog();
-        let lsk = behavioral_lsk(&catalog);
-        let dispatcher = dispatcher_with(&store, catalog);
-        dispatcher.enable_durable_restore();
-
-        seed_slice(&store, 5, lsk);
-        // Boot excludes 5 (a post-boot move-in); partition_count 5 keeps the boot sweep off 5.
-        dispatcher
-            .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
-            .await;
-        dispatcher.assign_partition(5);
-
-        dispatcher.ensure_worker(5);
-        assert!(
-            dispatcher.workers.contains_key(&5),
-            "the moved-in partition spawned a worker",
-        );
-        assert!(
-            !slice_present(&store, 5, lsk),
-            "the stale slice was wiped before the worker read it (cold rebuild)",
-        );
-
-        // A second delivery finds the worker already live: the Entry::Occupied arm is a no-op, so a
-        // freshly-written (current, not stale) slice is never re-wiped.
-        seed_slice(&store, 5, lsk);
-        dispatcher.ensure_worker(5);
-        assert!(
-            slice_present(&store, 5, lsk),
-            "an existing worker keeps its current slice (ensure_worker does not re-reclaim)",
-        );
-
-        dispatcher.shutdown().await;
-    }
-
-    #[tokio::test]
-    async fn ensure_worker_with_durable_restore_off_keeps_slice() {
-        let (_dir, store) = temp_store();
-        let catalog = behavioral_catalog();
-        let lsk = behavioral_lsk(&catalog);
-        let dispatcher = dispatcher_with(&store, catalog);
-        // Durable restore left off: ensure_worker must never reclaim — wipe-on-start handles staleness.
-
-        seed_slice(&store, 5, lsk);
-        dispatcher
-            .reconcile_boot_assignment(&[6].into_iter().collect(), 5)
-            .await;
-        dispatcher.assign_partition(5);
-
-        dispatcher.ensure_worker(5);
-        assert!(dispatcher.workers.contains_key(&5), "the worker spawned");
-        assert!(
-            slice_present(&store, 5, lsk),
-            "with durable restore off, ensure_worker leaves the on-disk slice untouched",
-        );
-
-        dispatcher.shutdown().await;
-    }
-
-    #[test]
-    fn boot_assignment_settled_requires_a_stable_non_empty_assignment() {
-        let mut prev: Option<HashSet<i32>> = None;
-
-        assert!(!boot_assignment_settled(&HashSet::new(), &mut prev));
-        assert_eq!(prev, None);
-
-        let first: HashSet<i32> = [0].into_iter().collect();
-        assert!(!boot_assignment_settled(&first, &mut prev));
-        assert_eq!(prev.as_ref(), Some(&first));
-
-        let second: HashSet<i32> = [0, 1].into_iter().collect();
-        assert!(!boot_assignment_settled(&second, &mut prev));
-        assert_eq!(prev.as_ref(), Some(&second));
-
-        assert!(boot_assignment_settled(&second, &mut prev));
-    }
-
-    #[tokio::test]
-    async fn reclaim_unassigned_partitions_on_boot_wipes_only_unassigned_slices() {
-        let (_dir, store) = temp_store();
-        let catalog = behavioral_catalog();
-        let lsk = behavioral_lsk(&catalog);
-        let dispatcher = dispatcher_with(&store, catalog);
-        for partition in 0..3u16 {
+        for partition in 0..4u16 {
             seed_slice(&store, partition, lsk);
         }
+        let pod_zero_of_two =
+            PartitionOwnership::new(NonZeroU16::new(2).unwrap(), PodOrdinal::STANDALONE, 4)
+                .unwrap();
 
-        let assignment: HashSet<i32> = [0, 2].into_iter().collect();
-        dispatcher
-            .reclaim_unassigned_partitions_on_boot(&assignment, 3)
-            .await;
+        assert_eq!(dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await, 2);
 
-        assert!(
-            slice_present(&store, 0, lsk),
-            "assigned 0 is kept (reopen-live)",
+        assert_eq!(
+            (0..4u16)
+                .map(|partition| slice_present(&store, partition, lsk))
+                .collect::<Vec<_>>(),
+            [true, false, true, false],
         );
-        assert!(
-            !slice_present(&store, 1, lsk),
-            "unassigned 1 is wiped (stale slice from a previous tenure)",
-        );
-        assert!(
-            slice_present(&store, 2, lsk),
-            "assigned 2 is kept (reopen-live)",
-        );
+        assert_eq!(dispatcher.reclaim_unowned_slices(&pod_zero_of_two).await, 0);
     }
 
     #[tokio::test]
@@ -2556,312 +2311,151 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn revoke_partition_drains_produces_evicts_and_deletes_state() {
-        let (_dir, store) = temp_store();
-        let catalog = behavioral_catalog();
-        let lsk = behavioral_lsk(&catalog);
-        let (dispatcher, sink) = dispatcher_and_sink(&store, catalog);
-
-        dispatcher.assign_partition(0);
-        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
-
-        dispatcher.revoke_partition_sync(0);
-        assert!(!dispatcher.owns(0));
-        assert_eq!(dispatcher.router.partition_count(), 1);
-
-        dispatcher.revoke_partition_drain(0).await;
-
-        let changes = sink.changes();
-        assert_eq!(changes.len(), 1);
-        assert_eq!(changes[0].status, MembershipStatus::Entered);
-        assert_eq!(changes[0].person_id, person(1).to_string());
-
-        assert_eq!(dispatcher.workers.len(), 0, "worker evicted");
-        assert_eq!(dispatcher.router.partition_count(), 0, "sender removed");
-        assert!(
-            behavioral_state(&store, 0, person(1), lsk).is_none(),
-            "the partition's state slice was deleted",
-        );
+    /// A worker resolves its slice coverage first, so a processed offset proves it resolved.
+    async fn processed_through(dispatcher: &EventDispatcher, partition: i32, next: i64) {
+        let start = Instant::now();
+        while dispatcher.tracker.committable_offsets().get(&partition) != Some(&next) {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "offset {next} on partition {partition} was never processed",
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
     }
 
     #[tokio::test]
-    async fn reassign_after_a_full_revoke_respawns_and_advances_offsets() {
+    async fn a_spawn_resumes_recorded_coverage_and_begins_a_new_slice_at_its_assignment() {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
+        // Recorded by an earlier tenure.
+        let earlier = SliceCoverage::Since(CoverageStartMs(1));
+        store
+            .write_batch(|b| b.put::<SliceCoverages>(&SliceCoverageKey(0), &earlier.encode()))
+            .unwrap();
 
         dispatcher.assign_partition(0);
         dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
-        dispatcher.revoke_partition_sync(0);
-        dispatcher.revoke_partition_drain(0).await;
-        assert_eq!(dispatcher.workers.len(), 0);
-
-        dispatcher.assign_partition(0);
-        dispatcher.dispatch(vec![consumed(person(2), 0, 20)]).await;
+        processed_through(&dispatcher, 0, 11).await;
         assert_eq!(
-            dispatcher.workers.len(),
-            1,
-            "a reassigned partition respawns"
+            store.slice_coverage(0).unwrap(),
+            Some(earlier),
+            "a spawn resumes the recorded coverage instead of beginning the slice again",
         );
 
-        let tracker = dispatcher.shutdown().await;
-        assert_eq!(tracker.committable_offsets().get(&0), Some(&21));
-    }
-
-    #[tokio::test]
-    async fn rapid_revoke_then_assign_skips_cleanup_and_keeps_the_live_worker() {
-        let (_dir, store) = temp_store();
-        let catalog = behavioral_catalog();
-        let lsk = behavioral_lsk(&catalog);
-        let dispatcher = dispatcher_with(&store, catalog);
-
-        dispatcher.assign_partition(0);
-        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
-
-        dispatcher.revoke_partition_sync(0);
-        dispatcher.assign_partition(0);
-        dispatcher.revoke_partition_drain(0).await;
-
-        assert!(dispatcher.owns(0), "re-owned partition stays owned");
-        assert_eq!(dispatcher.workers.len(), 1, "worker preserved");
-        assert_eq!(dispatcher.router.partition_count(), 1, "sender preserved");
-
-        dispatcher.dispatch(vec![consumed(person(2), 0, 11)]).await;
-        let tracker = dispatcher.shutdown().await;
-        assert_eq!(tracker.committable_offsets().get(&0), Some(&12));
-        assert!(
-            behavioral_state(&store, 0, person(1), lsk).is_some(),
-            "state survived the skipped cleanup",
-        );
-    }
-
-    #[tokio::test]
-    async fn post_join_reacquire_starts_a_fresh_seed_tenure_for_reconcile_replay() {
-        let (_dir, store) = temp_store();
-        let sink = BlockingMembershipSink::new();
-        let reconcile = crate::workers::ReconcileDeps {
-            enabled: true,
-            ..crate::workers::ReconcileDeps::default()
-        };
-        let merge = Arc::new(MergeWorkerDeps {
-            transfer_sink: Arc::new(CaptureTransferSink::new()),
-            stream_event_sink: Arc::new(CaptureStreamEventSink::new()),
-            merge_tracker: Arc::new(OffsetTracker::new()),
-            transfer_tracker: Arc::new(OffsetTracker::new()),
-            retry: TransferRetryPolicy::default(),
-            gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
-            stage2_orphan_gc_enabled: true,
-            cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
-            cascade_tracker: Arc::new(OffsetTracker::new()),
-            cascade: crate::workers::CascadeConfig::default(),
-            partition_count: COHORT_PARTITION_COUNT,
-            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
-            seed_tracker: Arc::new(OffsetTracker::new()),
-            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
-            register_transfer_enabled: false,
-            reconcile,
-            person_seed: crate::workers::PersonSeedDeps::default(),
-            seed_budget: crate::workers::seed_run::RunBudget::default(),
-        });
-        let dispatcher = Arc::new(EventDispatcher::new(
-            PartitionRouter::new(64),
-            Arc::new(OffsetTracker::new()),
-            test_handle(&store),
-            behavioral_catalog(),
-            sink.clone(),
-            merge.clone(),
-        ));
-        dispatcher.assign_partition(0);
-
-        let tile = ReconcileTile::new(
-            TeamId(TEAM),
-            CohortId(1),
-            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
-            RunId(Uuid::from_u128(1)),
-        );
-        let held = dispatcher.dispatch_seeds(vec![ConsumedSeed {
-            work: SeedWork::Reconcile(tile.clone()),
-            partition: 0,
-            offset: 5,
-            broker_ts_ms: None,
-        }]);
-        assert!(held.is_empty());
-        for _ in 0..10_000 {
-            if merge.reconcile.backlog.len() == 1 {
-                break;
-            }
+        let before_assignment = CoverageStartMs::now();
+        dispatcher.assign_partition(1);
+        let assigned = CoverageStartMs::now();
+        // Spawn in a later millisecond, so a slice begun at spawn fails the bound below.
+        while CoverageStartMs::now() <= assigned {
             tokio::task::yield_now().await;
         }
-        assert_eq!(merge.reconcile.backlog.len(), 1, "reconcile was admitted");
-
-        dispatcher.dispatch(vec![consumed(person(1), 0, 6)]).await;
-        sink.entered.notified().await;
-
-        dispatcher.revoke_partition_sync(0);
-        let drain = {
-            let dispatcher = dispatcher.clone();
-            tokio::spawn(async move { dispatcher.revoke_partition_drain(0).await })
-        };
-        for _ in 0..10_000 {
-            if dispatcher
-                .workers
-                .get(&0)
-                .is_some_and(|slot| matches!(slot.value(), WorkerSlot::Draining))
-            {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+        dispatcher.dispatch(vec![consumed(person(2), 1, 20)]).await;
+        processed_through(&dispatcher, 1, 21).await;
         assert!(
-            dispatcher
-                .workers
-                .get(&0)
-                .is_some_and(|slot| matches!(slot.value(), WorkerSlot::Draining)),
-            "the old worker was replaced by a draining sentinel before its blocked join",
-        );
-
-        dispatcher.assign_partition(0);
-        let held_events = dispatcher
-            .dispatch_events_nonblocking(vec![consumed(person(2), 0, 7)], &HashSet::new());
-        assert_eq!(
-            held_offsets(
-                held_events
-                    .get(&0)
-                    .expect("a primary event is held behind the draining worker"),
+            matches!(
+                store.slice_coverage(1).unwrap(),
+                Some(SliceCoverage::Since(since))
+                    if before_assignment <= since && since <= assigned
             ),
-            vec![7],
-        );
-        let mut held = dispatcher.dispatch_seeds(vec![ConsumedSeed {
-            work: SeedWork::Reconcile(tile.clone()),
-            partition: 0,
-            offset: 5,
-            broker_ts_ms: None,
-        }]);
-        assert_eq!(
-            held_seed_offsets(held.get(&0).expect("the draining route is held")),
-            vec![5],
-        );
-        assert!(
-            dispatcher
-                .workers
-                .get(&0)
-                .is_some_and(|slot| matches!(slot.value(), WorkerSlot::Draining)),
-            "an in-flight follower batch cannot replace the draining worker",
-        );
-
-        sink.release.notify_one();
-        drain.await.unwrap();
-
-        assert!(dispatcher.owns(0));
-        assert!(merge.reconcile.backlog.is_empty());
-        assert!(dispatcher.workers.is_empty(), "the sentinel was released");
-
-        let still_held = dispatcher.redispatch_held(held_events.into_iter().collect());
-        assert!(
-            still_held.is_empty(),
-            "the primary event routes after the draining sentinel is released",
-        );
-        let held = dispatcher.dispatch_seeds(
-            held.remove(&0)
-                .expect("the held follower batch is retried after the drain"),
-        );
-        assert!(held.is_empty());
-        for _ in 0..10_000 {
-            if merge.reconcile.backlog.len() == 1 {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(merge.reconcile.backlog.len(), 1, "replay was re-admitted");
-        assert_eq!(
-            merge.seed_tracker.mark_processed(0, 6),
-            MarkOutcome::WithinDispatch,
-            "worker receipt raises the fresh tenure's seed ceiling before admission",
-        );
-        assert_eq!(
-            merge.seed_tracker.committable_offsets().get(&0),
-            Some(&5),
-            "the replayed reconcile owns the fresh tenure's commit floor",
-        );
-        for _ in 0..10_000 {
-            if dispatcher.tracker().committable_offsets().get(&0) == Some(&8) {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(
-            dispatcher.tracker().committable_offsets().get(&0),
-            Some(&8),
-            "the held primary event is processed after worker replacement",
+            "a slice without a record begins at its assignment rather than its first delivery",
         );
 
         dispatcher.shutdown().await;
     }
 
     #[tokio::test]
-    async fn revoke_then_shutdown_drain_each_worker_exactly_once() {
+    async fn the_drain_signal_waits_for_every_worker_and_records_the_ownership_it_drained_under() {
         let (_dir, store) = temp_store();
-        let (dispatcher, sink) = dispatcher_and_sink(&store, behavioral_catalog());
-
+        let sink = BlockingMembershipSink::new();
+        let dispatcher = Arc::new(EventDispatcher::new(
+            PartitionRouter::new(64),
+            Arc::new(OffsetTracker::new()),
+            test_handle(&store),
+            behavioral_catalog(),
+            sink.clone(),
+            MergeWorkerDeps::capture(),
+        ));
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);
-        dispatcher
-            .dispatch(vec![consumed(person(1), 0, 10), consumed(person(2), 1, 20)])
-            .await;
-        assert_eq!(dispatcher.workers.len(), 2);
+        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
+        sink.entered.notified().await;
 
-        dispatcher.revoke_partition_sync(0);
-        dispatcher.revoke_partition_drain(0).await;
-        assert_eq!(dispatcher.workers.len(), 1);
+        let drain = tokio::spawn({
+            let dispatcher = dispatcher.clone();
+            async move { dispatcher.shutdown().await }
+        });
+        assert!(matches!(
+            dispatcher
+                .wait_for_worker_drain(Duration::from_millis(100))
+                .await,
+            DrainWait::TimedOut,
+        ));
 
-        let tracker = dispatcher.shutdown().await;
-        assert_eq!(dispatcher.workers.len(), 0);
-
-        assert_eq!(
-            sink.changes()
-                .iter()
-                .filter(|change| change.person_id == person(1).to_string())
-                .count(),
-            1,
+        sink.release.notify_one();
+        drain.await.unwrap();
+        let DrainWait::Drained(drained) = dispatcher
+            .wait_for_worker_drain(Duration::from_secs(10))
+            .await
+        else {
+            panic!("the drain finished once the blocked produce was released");
+        };
+        assert_eq!(drained.partitions(), &HashSet::from([0, 1]));
+        assert!(
+            matches!(
+                dispatcher.wait_for_worker_drain(Duration::ZERO).await,
+                DrainWait::Drained(_)
+            ),
+            "the final checkpoint waits with no budget, so a finished drain must answer at once",
         );
+
+        let follower_tracker = OffsetTracker::new();
+        for partition in [0, 1, 2] {
+            follower_tracker.mark_dispatched(partition, 6);
+            assert_eq!(
+                follower_tracker.mark_processed(partition, 6),
+                MarkOutcome::WithinDispatch
+            );
+        }
         assert_eq!(
-            tracker.committable_offsets().get(&0),
-            None,
-            "the revoked partition's offset was forgotten on drain, not left to re-commit",
-        );
-        assert_eq!(
-            tracker.committable_offsets().get(&1),
-            Some(&21),
-            "the survivor drained on shutdown",
+            crate::consumers::merges::committable_after_drain(
+                &follower_tracker,
+                &dispatcher,
+                HashSet::new(),
+                "follower_topic",
+            )
+            .await,
+            HashMap::from([(0, 6), (1, 6)]),
+            "a follower commits for the partitions drained, not the set it saw at shutdown",
         );
     }
 
     #[tokio::test]
-    async fn revoke_partition_drain_forgets_the_offset_so_it_is_not_recommitted() {
+    async fn finishing_boot_rebuilds_every_owned_partition_before_the_gate_opens() {
         let (_dir, store) = temp_store();
-        let (dispatcher, sink) = dispatcher_and_sink(&store, behavioral_catalog());
-
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+        dispatcher.enable_durable_restore();
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);
-        dispatcher
-            .dispatch(vec![consumed(person(1), 0, 10), consumed(person(2), 1, 20)])
-            .await;
+        let readiness = dispatcher.readiness().clone();
+        assert_eq!(readiness.check(), Err(NotReady::Booting));
 
-        dispatcher.revoke_partition_sync(0);
-        dispatcher.revoke_partition_drain(0).await;
-
+        assert_eq!(dispatcher.finish_boot(), 2);
         assert_eq!(
-            sink.changes()
-                .iter()
-                .filter(|change| change.person_id == person(1).to_string())
-                .count(),
-            1,
+            readiness.check(),
+            Err(NotReady::Rebuilding { partitions: 2 }),
+            "both partitions rebuild although neither received a message",
         );
-        assert_eq!(dispatcher.tracker().committable_offsets().get(&0), None);
-        assert!(!dispatcher.owned_committable_offsets().contains_key(&0));
 
-        let tracker = dispatcher.shutdown().await;
-        assert_eq!(tracker.committable_offsets().get(&1), Some(&21));
+        let start = Instant::now();
+        while readiness.check().is_err() {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "each rebuild releases the gate when its scan ends, got {:?}",
+                readiness.check(),
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        dispatcher.shutdown().await;
     }
 
     #[tokio::test]
@@ -2869,56 +2463,23 @@ mod tests {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
 
+        dispatcher.assign_partition(1);
         for (partition, next) in [(0, 11), (1, 21)] {
-            dispatcher.assign_partition(partition);
             dispatcher.tracker().mark_dispatched(partition, next);
             let _ = dispatcher.tracker().mark_processed(partition, next);
         }
-        assert_eq!(dispatcher.owned_committable_offsets().get(&0), Some(&11));
-
-        dispatcher.revoke_partition_sync(0);
 
         assert_eq!(
-            dispatcher.tracker().committable_offsets().get(&0),
-            Some(&11),
-            "the entry lingers in the tracker until the async drain forgets it",
+            dispatcher.owned_committable_offsets(),
+            HashMap::from([(1, 21)])
         );
-        assert!(!dispatcher.owned_committable_offsets().contains_key(&0));
-        assert_eq!(dispatcher.owned_committable_offsets().get(&1), Some(&21));
     }
 
     #[tokio::test]
-    async fn assign_and_revoke_track_ownership() {
+    async fn route_sweep_delivers_the_cutoff_to_each_owned_worker_once_the_catalog_loads() {
         let (_dir, store) = temp_store();
-        let dispatcher = dispatcher_with(&store, behavioral_catalog());
-
-        assert!(!dispatcher.owns(3));
-        dispatcher.assign_partition(3);
-        assert!(dispatcher.owns(3));
-        dispatcher.revoke_partition_sync(3);
-        assert!(!dispatcher.owns(3));
-    }
-
-    #[tokio::test]
-    async fn owned_partitions_reflects_assign_and_revoke() {
-        let (_dir, store) = temp_store();
-        let dispatcher = dispatcher_with(&store, behavioral_catalog());
-
-        assert!(dispatcher.owned_partitions().is_empty());
-        dispatcher.assign_partition(3);
-        dispatcher.assign_partition(7);
-        let mut owned = dispatcher.owned_partitions();
-        owned.sort_unstable();
-        assert_eq!(owned, vec![3, 7]);
-
-        dispatcher.revoke_partition_sync(3);
-        assert_eq!(dispatcher.owned_partitions(), vec![7]);
-    }
-
-    #[tokio::test]
-    async fn route_sweep_delivers_the_cutoff_to_each_owned_worker() {
-        let (_dir, store) = temp_store();
-        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+        let catalog = Arc::new(CatalogHandle::new());
+        let dispatcher = dispatcher_with(&store, catalog.clone());
 
         dispatcher.assign_partition(0);
         dispatcher.assign_partition(1);
@@ -2926,6 +2487,15 @@ mod tests {
         let mut rx1 = dispatcher.router.add_partition(1).unwrap();
 
         let cutoff = 1_700_000_000_000;
+        dispatcher.route_sweep(cutoff).await;
+        for rx in [&mut rx0, &mut rx1] {
+            assert!(
+                rx.live.try_recv().is_err(),
+                "a sweep before the first catalog load would drop every restored deadline",
+            );
+        }
+
+        catalog.publish(FilterCatalog::new());
         dispatcher.route_sweep(cutoff).await;
 
         for rx in [&mut rx0, &mut rx1] {
@@ -2965,6 +2535,7 @@ mod tests {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
 
+        dispatcher.route_sweep(123).await;
         dispatcher.assign_partition(0);
         dispatcher.route_sweep(123).await;
         assert_eq!(dispatcher.workers.len(), 0, "a sweep never spawns a worker");
@@ -2973,9 +2544,6 @@ mod tests {
             0,
             "no channel registered"
         );
-
-        dispatcher.revoke_partition_sync(0);
-        dispatcher.route_sweep(123).await;
     }
 
     #[tokio::test]
@@ -3018,47 +2586,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_after_full_revoke_does_not_resurrect_partition() {
-        let (_dir, store) = temp_store();
-        let catalog = behavioral_catalog();
-        let lsk = behavioral_lsk(&catalog);
-        let dispatcher = dispatcher_with(&store, catalog);
-
-        dispatcher.assign_partition(0);
-        dispatcher.dispatch(vec![consumed(person(1), 0, 10)]).await;
-        dispatcher.revoke_partition_sync(0);
-        dispatcher.revoke_partition_drain(0).await;
-
-        assert_eq!(dispatcher.workers.len(), 0);
-        assert_eq!(dispatcher.router.partition_count(), 0);
-        assert!(behavioral_state(&store, 0, person(1), lsk).is_none());
-
-        dispatcher.dispatch(vec![consumed(person(2), 0, 11)]).await;
-
-        assert_eq!(
-            dispatcher.workers.len(),
-            0,
-            "no worker respawned for the unowned partition",
-        );
-        assert_eq!(
-            dispatcher.router.partition_count(),
-            0,
-            "no sender re-registered",
-        );
-        assert!(
-            behavioral_state(&store, 0, person(2), lsk).is_none(),
-            "no fresh slice written for the reclaimed partition",
-        );
-        assert_eq!(
-            dispatcher.tracker().partition_count(),
-            0,
-            "the dropped event raised no dispatch ceiling",
-        );
-        assert!(!dispatcher.tracker().committable_offsets().contains_key(&0));
-        assert!(!dispatcher.owned_committable_offsets().contains_key(&0));
-    }
-
-    #[tokio::test]
     async fn ensure_worker_does_not_spawn_for_an_unowned_partition() {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
@@ -3084,16 +2611,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_routes_owned_and_drops_revoked_without_raising_its_ceiling() {
+    async fn dispatch_routes_owned_and_drops_unowned_without_raising_its_ceiling() {
         let (_dir, store) = temp_store();
         let catalog = behavioral_catalog();
         let lsk = behavioral_lsk(&catalog);
         let dispatcher = dispatcher_with(&store, catalog);
 
         dispatcher.assign_partition(0);
-        dispatcher.assign_partition(1);
-        dispatcher.revoke_partition_sync(1);
-        dispatcher.revoke_partition_drain(1).await;
 
         dispatcher
             .dispatch(vec![consumed(person(1), 0, 10), consumed(person(2), 1, 20)])
@@ -3102,8 +2626,9 @@ mod tests {
         assert_eq!(dispatcher.workers.len(), 1);
         assert!(dispatcher.workers.contains_key(&0));
         assert!(!dispatcher.workers.contains_key(&1));
-        assert!(
-            dispatcher.tracker().committed_offset(1).is_none(),
+        assert_eq!(
+            dispatcher.tracker().partition_count(),
+            1,
             "the dropped partition's dispatch ceiling was never raised",
         );
 
@@ -3116,23 +2641,8 @@ mod tests {
         assert!(behavioral_state(&store, 0, person(1), lsk).is_some());
         assert!(
             behavioral_state(&store, 1, person(2), lsk).is_none(),
-            "the revoked partition wrote no state",
+            "the unowned partition wrote no state",
         );
-    }
-
-    #[tokio::test]
-    async fn revoke_drain_of_a_never_spawned_partition_is_a_clean_noop() {
-        let (_dir, store) = temp_store();
-        let dispatcher = dispatcher_with(&store, behavioral_catalog());
-
-        dispatcher.assign_partition(3);
-        dispatcher.revoke_partition_sync(3);
-        dispatcher.revoke_partition_drain(3).await;
-
-        assert_eq!(dispatcher.workers.len(), 0);
-        assert_eq!(dispatcher.router.partition_count(), 0);
-        assert!(!dispatcher.owns(3));
-        assert_eq!(dispatcher.tracker().partition_count(), 0);
     }
 
     #[tokio::test]
@@ -3161,54 +2671,6 @@ mod tests {
             "its produced tail's offset is committable, so a crash here would replay",
         );
         assert_eq!(sink.changes().len(), 1, "the worker flushed before exiting");
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn concurrent_revoke_and_dispatch_never_resurrects_an_unowned_partition() {
-        let (_dir, store) = temp_store();
-        let catalog = behavioral_catalog();
-        let lsk = behavioral_lsk(&catalog);
-        let dispatcher = Arc::new(dispatcher_with(&store, catalog));
-
-        const P: i32 = 0;
-        for round in 0..200u128 {
-            dispatcher.assign_partition(P);
-
-            let dispatch = {
-                let dispatcher = dispatcher.clone();
-                tokio::spawn(async move {
-                    dispatcher
-                        .dispatch(vec![consumed(person(round + 1), P, round as i64)])
-                        .await;
-                })
-            };
-
-            dispatcher.revoke_partition_sync(P);
-            let drain = {
-                let dispatcher = dispatcher.clone();
-                tokio::spawn(async move {
-                    dispatcher.revoke_partition_drain(P).await;
-                })
-            };
-
-            dispatch.await.unwrap();
-            drain.await.unwrap();
-
-            assert!(!dispatcher.owns(P));
-            assert!(
-                !dispatcher.workers.contains_key(&P),
-                "round {round}: a worker survived an unowned partition",
-            );
-            assert_eq!(
-                dispatcher.router.partition_count(),
-                0,
-                "round {round}: a sender survived an unowned partition",
-            );
-            assert!(
-                behavioral_state(&store, P as u16, person(round + 1), lsk).is_none(),
-                "round {round}: a state slice survived an unowned partition",
-            );
-        }
     }
 
     const MERGED_AT: i64 = 1_716_800_000_000;
@@ -3737,6 +3199,7 @@ mod tests {
         let (_dir, store) = temp_store();
         let dispatcher = dispatcher_with(&store, behavioral_catalog());
 
+        dispatcher.route_merge_gc(1_000, 500).await;
         dispatcher.assign_partition(0);
         dispatcher.route_merge_gc(1_000, 500).await;
         assert_eq!(dispatcher.workers.len(), 0, "GC never spawns a worker");
@@ -3745,9 +3208,6 @@ mod tests {
             0,
             "no channel registered"
         );
-
-        dispatcher.revoke_partition_sync(0);
-        dispatcher.route_merge_gc(1_000, 500).await;
     }
 
     #[tokio::test]

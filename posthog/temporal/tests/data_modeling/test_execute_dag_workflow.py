@@ -12,6 +12,7 @@ from temporalio import (
     activity as temporal_activity,
     workflow as temporal_workflow,
 )
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.workflow import ParentClosePolicy
@@ -46,12 +47,14 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJobEngine,
+    DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
     Edge,
     Node,
     NodeType,
 )
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -204,6 +207,25 @@ class TestGetDagStructureActivity:
         # edges from TABLE nodes are excluded
         # only model_a -> model_b and model_a -> model_c should be present
         assert len(dag.edges) == 2
+
+    @pytest.mark.usefixtures("dag_edges")
+    async def test_excludes_edges_from_a_managed_view_to_its_readers(
+        self, activity_environment, ateam, saved_queries, adag
+    ):
+        viewset = await database_sync_to_async(DataWarehouseManagedViewSet.objects.create)(
+            team=ateam, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        model_a, model_b, _model_c = saved_queries
+        for query in (model_a, model_b):
+            query.managed_viewset = viewset
+            await database_sync_to_async(query.save)(update_fields=["managed_viewset"])
+
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
+        dag = await activity_environment.run(get_dag_structure_activity, inputs)
+
+        model_a_node = await database_sync_to_async(Node.objects.get)(saved_query=model_a)
+        model_b_node = await database_sync_to_async(Node.objects.get)(saved_query=model_b)
+        assert dag.edges == [(str(model_a_node.id), str(model_b_node.id))]
 
     async def test_empty_dag(self, activity_environment, ateam):
         inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(uuid.uuid4()))
@@ -551,6 +573,22 @@ class MockMaterializeViewWorkflow:
             duration_seconds=1.0,
             quality_blocking_failures=1 if blocked else None,
             quality_audited=blocked or inputs.node_id in _mock_workflow_should_self_audit,
+        )
+
+
+_child_concurrency = {"running": 0, "peak": 0, "sleep_seconds": 10}
+
+
+@temporal_workflow.defn(name="data-modeling-materialize-view")
+class SlowMockMaterializeViewWorkflow:
+    @temporal_workflow.run
+    async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
+        _child_concurrency["running"] += 1
+        _child_concurrency["peak"] = max(_child_concurrency["peak"], _child_concurrency["running"])
+        await temporal_workflow.sleep(dt.timedelta(seconds=_child_concurrency["sleep_seconds"]))
+        _child_concurrency["running"] -= 1
+        return MaterializeViewWorkflowResult(
+            job_id="test-job", node_id=inputs.node_id, rows_materialized=1, duration_seconds=10.0
         )
 
 
@@ -903,6 +941,97 @@ class TestExecuteDAGWorkflowWithMocks:
         assert all(r.success for r in result.node_results)
         assert _notified_dag_failures == []
 
+    @pytest.mark.parametrize(
+        "kill_switch_level,expected_peak",
+        [
+            ("off", 4),
+            ("light", 3),
+            ("full", 1),
+            (None, 4),
+        ],
+    )
+    async def test_kill_switch_narrows_the_child_window(self, kill_switch_level, expected_peak):
+        node_ids = [str(uuid.uuid4()) for _ in range(4)]
+        _child_concurrency.update(running=0, peak=0, sleep_seconds=10)
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=node_ids, executable_nodes=node_ids, edges=[])
+
+        @temporal_activity.defn(name="get_clickhouse_kill_switch_level_activity")
+        async def stub_kill_switch_level(_: int) -> str:
+            if kill_switch_level is None:
+                raise temporalio.exceptions.ApplicationError("instance settings unavailable")
+            return kill_switch_level
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, SlowMockMaterializeViewWorkflow],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_kill_switch_level,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id="test-dag"),
+                    id=f"test-kill-switch-window-{uuid.uuid4()}",
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(minutes=10),
+                )
+
+        assert result.successful_nodes == 4
+        assert _child_concurrency["peak"] == expected_peak
+
+    async def test_kill_switch_is_reread_while_children_keep_finishing(self):
+        node_ids = [str(uuid.uuid4()) for _ in range(12)]
+        _child_concurrency.update(running=0, peak=0, sleep_seconds=30)
+        level_reads: list[str] = []
+        workflow_id = f"test-kill-switch-reread-{uuid.uuid4()}"
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=node_ids, executable_nodes=node_ids, edges=[])
+
+        @temporal_activity.defn(name="get_clickhouse_kill_switch_level_activity")
+        async def stub_kill_switch_level(_: int) -> str:
+            level_reads.append("read")
+            return "full" if len(level_reads) == 1 else "off"
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, SlowMockMaterializeViewWorkflow],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_kill_switch_level,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id="test-dag"),
+                    id=workflow_id,
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(minutes=30),
+                )
+                history = await env.client.get_workflow_handle(workflow_id).fetch_history()
+
+        timers_started = sum(1 for event in history.events if event.event_type == EventType.EVENT_TYPE_TIMER_STARTED)
+        assert result.successful_nodes == 12
+        assert _child_concurrency["peak"] > 1
+        assert timers_started <= 2
+
     async def test_ephemeral_nodes_are_skipped(self):
         """Test that ephemeral nodes are recorded as successful no-ops without starting child workflows."""
         dag_id = "test-dag"
@@ -989,6 +1118,7 @@ class TestTrinoDependencyOutcomes:
             return None
 
         info = MagicMock()
+        info.workflow_id = "execute-dag-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b:3600-2026-10-21T10:00:00Z"
         with (
             patch.object(
                 temporal_workflow, "execute_activity", new=AsyncMock(side_effect=execute_activity)
@@ -1108,7 +1238,7 @@ class TestTrinoShadowRun:
         )
         assert shadow.kwargs["id"] == expected_shadow_id
         assert shadow.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
-        assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=12)
+        assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=23)
         assert outcome.result.successful_nodes == 2
 
     @pytest.mark.parametrize(
@@ -1132,18 +1262,25 @@ class TestTrinoShadowRun:
         assert {call.args[1] for call in node_count.call_args_list} == {expected_engine}
 
     @pytest.mark.parametrize(
-        "error",
+        "error,expected_outcome",
         [
+            pytest.param(None, "started", id="started"),
             pytest.param(
                 WorkflowAlreadyStartedError("execute-dag-trino-dag:3600", "data-modeling-execute-dag"),
+                "skipped_still_running",
                 id="previous_shadow_still_running",
             ),
-            pytest.param(RuntimeError("task queue is gone"), id="start_failed"),
+            pytest.param(RuntimeError("task queue is gone"), "error", id="start_failed"),
         ],
     )
-    async def test_a_shadow_that_cannot_start_does_not_fail_the_clickhouse_run(self, error: Exception) -> None:
-        outcome = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
+    async def test_a_shadow_start_is_counted_by_outcome_and_never_fails_the_clickhouse_run(
+        self, error: Exception | None, expected_outcome: str
+    ) -> None:
+        # A shadow that hangs until its timeout emits no DAG metric, so the skip count is what alerts on it.
+        with patch("posthog.temporal.data_modeling.workflows.execute_dag.get_trino_shadow_start_metric") as start:
+            outcome = await self._run(ExecuteDAGInputs(team_id=7, dag_id="dag"), shadow_start_error=error)
 
+        assert [call.args[0] for call in start.call_args_list] == [expected_outcome]
         assert outcome.result.successful_nodes == 2
         assert outcome.result.failed_nodes == 0
 

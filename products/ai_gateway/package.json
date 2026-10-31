@@ -1,0 +1,20 @@
+{
+    "name": "@posthog/products-ai-gateway",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "devDependencies": {
+        "@testing-library/react": "*"
+    },
+    "peerDependencies": {
+        "@posthog/lemon-ui": "*",
+        "@types/react": "*",
+        "react": "*"
+    }
+}

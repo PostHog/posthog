@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConfig]):
+    codebase_detection = detect(env=("^HUMANITIX_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://api.humanitix.com/v1/documentation"
@@ -52,7 +55,7 @@ class HumanitixSource(ResumableSource[HumanitixSourceConfig, HumanitixResumeConf
             name=ExternalDataSourceType.HUMANITIX,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Humanitix",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Humanitix API key to pull your Humanitix data into the PostHog Data warehouse.
 
 You can generate an API key under **Account → Advanced → Public API key** in the Humanitix dashboard. This single key grants read access to your events, tags, orders, and tickets.

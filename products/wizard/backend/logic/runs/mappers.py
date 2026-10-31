@@ -15,7 +15,10 @@ from products.wizard.backend.facade.enums import (
     WizardTaskStatus,
     WizardWorkspaceType,
 )
-from products.wizard.backend.facade.validation import validate_workspace_metadata_value
+from products.wizard.backend.facade.validation import (
+    validate_optional_workspace_metadata_value,
+    validate_workspace_metadata_value,
+)
 from products.wizard.backend.logic.programs import program_from_mapping
 from products.wizard.backend.models import WizardRun
 
@@ -24,8 +27,10 @@ def workspace_to_record(workspace: WizardWorkspace) -> tuple[WizardWorkspaceType
     match workspace:
         case LocalFolderWorkspace(project_name=project_name):
             return WizardWorkspaceType.LOCAL_FOLDER, {"project_name": project_name}
-        case GitRepositoryWorkspace(repository=repository):
+        case GitRepositoryWorkspace(repository=repository, branch=None):
             return WizardWorkspaceType.GIT_REPOSITORY, {"repository": repository}
+        case GitRepositoryWorkspace(repository=repository, branch=branch):
+            return WizardWorkspaceType.GIT_REPOSITORY, {"repository": repository, "branch": branch}
 
 
 def record_to_workspace(workspace_type: str, metadata: object) -> WizardWorkspace:
@@ -33,7 +38,10 @@ def record_to_workspace(workspace_type: str, metadata: object) -> WizardWorkspac
         case WizardWorkspaceType.LOCAL_FOLDER:
             return LocalFolderWorkspace(project_name=validate_workspace_metadata_value(metadata, "project_name"))
         case WizardWorkspaceType.GIT_REPOSITORY:
-            return GitRepositoryWorkspace(repository=validate_workspace_metadata_value(metadata, "repository"))
+            return GitRepositoryWorkspace(
+                repository=validate_workspace_metadata_value(metadata, "repository"),
+                branch=validate_optional_workspace_metadata_value(metadata, "branch"),
+            )
 
 
 def record_to_run(run: WizardRun) -> WizardRunDTO:

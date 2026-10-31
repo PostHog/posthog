@@ -1,7 +1,7 @@
 import re
 import json
 import datetime as dt
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from typing import Any
 
@@ -30,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _REGION = re.compile(r"(?:af|ap|ca|cn|eu|il|me|mx|sa|us)-(?:gov-)?[a-z]+-\d+")
+# A name wildcard includes every status without seven separate status walks.
+ALL_JOBS_FILTER = [{"name": "JOB_NAME", "values": ["*"]}]
+QUEUED_ENDPOINTS = ("jobs", "service_jobs")
 
 TRANSPORT_RETRY = BoundedRetry(
     total=3,
@@ -46,6 +49,10 @@ class AwsBatchResumeConfig:
     queue_arns: list[str] | None = None
     queue_index: int = 0
     complete: bool = False
+    child_prefixes: list[str] | None = None
+    child_counts: list[int] | None = None
+    parent_index: int = 0
+    child_offset: int = 0
 
 
 class AwsBatchError(Exception):
@@ -149,7 +156,15 @@ def next_page_token(body: dict[str, Any], previous_token: str | None) -> str | N
     return token
 
 
-def discover_queues(client: AwsBatchClient, manager: ResumableSourceManager[AwsBatchResumeConfig]) -> list[str]:
+def is_service_queue(queue: dict[str, Any]) -> bool:
+    return bool(queue.get("serviceEnvironmentOrder"))
+
+
+def discover_queues(
+    client: AwsBatchClient,
+    manager: ResumableSourceManager[AwsBatchResumeConfig],
+    include: Callable[[dict[str, Any]], bool] = lambda queue: True,
+) -> list[str]:
     queues: list[str] = []
     token = None
     while True:
@@ -157,11 +172,130 @@ def discover_queues(client: AwsBatchClient, manager: ResumableSourceManager[AwsB
         if token:
             payload["nextToken"] = token
         body = client.request("DescribeJobQueues", payload)
-        queues.extend(queue["jobQueueArn"] for queue in body.get("jobQueues", []))
+        queues.extend(queue["jobQueueArn"] for queue in body.get("jobQueues", []) if include(queue))
         token = next_page_token(body, token)
         manager.safe_point()
         if token is None:
             return list(dict.fromkeys(queues))
+
+
+def first_queue(client: AwsBatchClient, include: Callable[[dict[str, Any]], bool]) -> str | None:
+    token = None
+    while True:
+        payload: dict[str, Any] = {"maxResults": PAGE_SIZE}
+        if token:
+            payload["nextToken"] = token
+        body = client.request("DescribeJobQueues", payload)
+        for queue in body.get("jobQueues", []):
+            if include(queue):
+                return queue["jobQueueArn"]
+        token = next_page_token(body, token)
+        if token is None:
+            return None
+
+
+def child_prefix(summary: dict[str, Any]) -> tuple[str, int] | None:
+    job_id = summary["jobId"]
+    # Child IDs are derived from the parent ID because ListJobs ignores the status filter for children.
+    size = (summary.get("arrayProperties") or {}).get("size")
+    if size and ":" not in job_id:
+        return f"{job_id}:", size
+    nodes = (summary.get("nodeProperties") or {}).get("numNodes")
+    if nodes and "#" not in job_id:
+        return f"{job_id}#", nodes
+    return None
+
+
+def get_child_rows(
+    client: AwsBatchClient,
+    region: str,
+    manager: ResumableSourceManager[AwsBatchResumeConfig],
+    state: AwsBatchResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    if state.queue_arns is None:
+        state = replace(
+            state, queue_arns=discover_queues(client, manager, include=lambda queue: not is_service_queue(queue))
+        )
+    queues = state.queue_arns or []
+    while state.queue_index < len(queues):
+        rows: list[dict[str, Any]] = []
+        prefixes, counts = state.child_prefixes, state.child_counts or []
+        if prefixes is None:
+            payload: dict[str, Any] = {
+                "maxResults": PAGE_SIZE,
+                "jobQueue": queues[state.queue_index],
+                "filters": ALL_JOBS_FILTER,
+            }
+            if state.next_token:
+                payload["nextToken"] = state.next_token
+            body = client.request("ListJobs", payload)
+            token = next_page_token(body, state.next_token)
+            parents = [parent for parent in map(child_prefix, body.get("jobSummaryList", [])) if parent]
+            state = replace(
+                state,
+                next_token=token,
+                child_prefixes=[prefix for prefix, _ in parents],
+                child_counts=[count for _, count in parents],
+                parent_index=0,
+                child_offset=0,
+            )
+        elif state.parent_index >= len(prefixes):
+            last_page = state.next_token is None
+            state = replace(
+                state,
+                queue_index=state.queue_index + last_page,
+                child_prefixes=None,
+                child_counts=None,
+            )
+        else:
+            prefix, count = prefixes[state.parent_index], counts[state.parent_index]
+            end = min(state.child_offset + PAGE_SIZE, count)
+            job_ids = [f"{prefix}{index}" for index in range(state.child_offset, end)]
+            jobs = client.request("DescribeJobs", {"jobs": job_ids}).get("jobs", [])
+            rows = [{**normalize_row(job, region), "parent_job_id": prefix[:-1]} for job in jobs]
+            state = (
+                replace(state, parent_index=state.parent_index + 1, child_offset=0)
+                if end >= count
+                else replace(state, child_offset=end)
+            )
+        manager.save_state(state)
+        if rows:
+            yield rows
+        manager.safe_point()
+    manager.save_state(replace(state, complete=True))
+    manager.safe_point()
+
+
+def describe_page(
+    client: AwsBatchClient,
+    endpoint: str,
+    items: list[dict[str, Any]],
+    manager: ResumableSourceManager[AwsBatchResumeConfig] | None = None,
+) -> list[dict[str, Any]]:
+    if endpoint == "jobs":
+        job_ids = [item["jobId"] for item in items]
+        described: list[dict[str, Any]] = []
+        for offset in range(0, len(job_ids), PAGE_SIZE):
+            described.extend(
+                client.request("DescribeJobs", {"jobs": job_ids[offset : offset + PAGE_SIZE]}).get("jobs", [])
+            )
+        return described
+    if endpoint == "scheduling_policies":
+        arns = [item["arn"] for item in items]
+        if not arns:
+            return []
+        return client.request("DescribeSchedulingPolicies", {"arns": arns}).get("schedulingPolicies", [])
+    if endpoint == "consumable_resources":
+        described = []
+        for item in items:
+            described.append(
+                client.request("DescribeConsumableResource", {"consumableResource": item["consumableResourceArn"]})
+            )
+            # The staged cursor still points at this page, so a hand-off here reads the page again.
+            if manager is not None:
+                manager.safe_point()
+        return described
+    return items
 
 
 def get_rows(
@@ -177,36 +311,39 @@ def get_rows(
         return
     client = AwsBatchClient(config, api_version)
     try:
-        if endpoint == "jobs" and state.queue_arns is None:
-            state = replace(state, queue_arns=discover_queues(client, manager))
+        if endpoint == "job_children":
+            yield from get_child_rows(client, config.region, manager, state)
+            return
+        queued = endpoint in QUEUED_ENDPOINTS
+        if queued and state.queue_arns is None:
+            include = is_service_queue if endpoint == "service_jobs" else lambda queue: True
+            state = replace(state, queue_arns=discover_queues(client, manager, include))
         while not state.complete:
             payload: dict[str, Any] = {"maxResults": PAGE_SIZE}
-            if endpoint == "jobs":
+            queue = None
+            if queued:
                 queues = state.queue_arns or []
                 if state.queue_index >= len(queues):
                     manager.save_state(replace(state, complete=True))
                     manager.safe_point()
                     return
-                payload["jobQueue"] = queues[state.queue_index]
-                # A name wildcard includes every status without seven separate status walks.
-                payload["filters"] = [{"name": "JOB_NAME", "values": ["*"]}]
+                queue = queues[state.queue_index]
+                payload["jobQueue"] = queue
+                payload["filters"] = ALL_JOBS_FILTER
             if state.next_token:
                 payload["nextToken"] = state.next_token
             body = client.request(endpoint_config.operation, payload)
             items = body.get(endpoint_config.result_key, [])
             token = next_page_token(body, state.next_token)
-            if endpoint == "jobs":
-                job_ids = [item["jobId"] for item in items]
-                items = []
-                for offset in range(0, len(job_ids), PAGE_SIZE):
-                    items.extend(
-                        client.request("DescribeJobs", {"jobs": job_ids[offset : offset + PAGE_SIZE]}).get("jobs", [])
-                    )
+            items = describe_page(client, endpoint, items, manager)
+            if queued:
                 queue_index = state.queue_index + (token is None)
                 state = replace(state, next_token=token, queue_index=queue_index, complete=queue_index >= len(queues))
             else:
                 state = replace(state, next_token=token, complete=token is None)
             rows = [normalize_row(item, config.region) for item in items]
+            if endpoint == "service_jobs":
+                rows = [{**row, "job_queue": queue} for row in rows]
             manager.save_state(state)
             if rows:
                 yield rows
@@ -237,19 +374,30 @@ def validate_credentials(
         return False, str(error)
     try:
         operation = AWS_BATCH_ENDPOINTS[schema_name].operation if schema_name else "DescribeJobQueues"
-        if schema_name == "jobs":
-            queues = client.request("DescribeJobQueues", {"maxResults": 1}).get("jobQueues", [])
-            if queues:
+        if schema_name in ("jobs", "job_children"):
+            if schema_name == "jobs":
+                queues = client.request("DescribeJobQueues", {"maxResults": 1}).get("jobQueues", [])
+                queue = queues[0]["jobQueueArn"] if queues else None
+            else:
+                queue = first_queue(client, lambda queue: not is_service_queue(queue))
+            if queue:
                 jobs = client.request(
                     "ListJobs",
                     {
-                        "jobQueue": queues[0]["jobQueueArn"],
+                        "jobQueue": queue,
                         "maxResults": 1,
-                        "filters": [{"name": "JOB_NAME", "values": ["*"]}],
+                        "filters": ALL_JOBS_FILTER,
                     },
                 ).get("jobSummaryList", [])
                 if jobs:
                     client.request("DescribeJobs", {"jobs": [jobs[0]["jobId"]]})
+        elif schema_name == "service_jobs":
+            queue = first_queue(client, is_service_queue)
+            if queue:
+                client.request(operation, {"jobQueue": queue, "maxResults": 1, "filters": ALL_JOBS_FILTER})
+        elif schema_name in ("scheduling_policies", "consumable_resources"):
+            items = client.request(operation, {"maxResults": 1}).get(AWS_BATCH_ENDPOINTS[schema_name].result_key, [])
+            describe_page(client, schema_name, items[:1])
         else:
             client.request(operation, {"maxResults": 1})
     except AwsBatchError as error:

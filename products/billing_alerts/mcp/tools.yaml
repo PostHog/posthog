@@ -39,10 +39,10 @@ tools:
         title: Update billing alert
         description: >
             Partially update a billing alert by ID in the active organization. The caller must be an organization Admin
-            or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. The
-            metric picks the billing-period total to watch (spend or projected_spend); the first version supports only
-            the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes applies
-            destination creation or complete-group deletion in the same backend transaction as the configuration update.
-            Repeating a request that creates a destination of the same type is rejected, because an alert allows one
-            destination group per type.
+            or Owner. Change only the supplied trigger fields, alert copy, enabled state, or snooze. The metric picks
+            the billing-period total to watch (spend or projected_spend); the first version supports only the
+            absolute_value threshold rule with threshold_value, in USD. Optional destination_changes applies destination
+            creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a
+            request that creates a destination of the same type is rejected, because an alert allows one destination
+            group per type.
         feature_flag: billing-alerts

@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Callable
 from copy import deepcopy
@@ -5,7 +6,9 @@ from enum import Enum, auto
 from functools import lru_cache
 from typing import Optional, cast
 
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import F
+from django.db.models.lookups import Contains
 
 from posthog.schema import (
     AutocompleteCompletionItem,
@@ -36,6 +39,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.filters import replace_filters
@@ -74,6 +78,13 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+
+
+class _PostgresILikeContains(Contains):
+    def get_rhs_op(self, connection: BaseDatabaseWrapper, rhs: str) -> str:
+        return f"ILIKE {rhs}"
+
+
 # The one path through a Hog function's globals that holds an event's own property bag. Other
 # `properties` bags (person, groups, a user-defined input) never carry person property setters.
 EVENT_PROPERTIES_GLOBALS_CHAIN = ["event", "properties"]
@@ -732,7 +743,7 @@ def _suggest_unshadowed_globals(*, query_globals: dict, response: HogQLAutocompl
 
 
 def _property_definition_type(table: Table, field: StringJSONDatabaseField) -> Optional[PropertyDefinition.Type]:
-    if isinstance(table, EventsPersonSubTable):
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         return PropertyDefinition.Type.PERSON
     if isinstance(table, EventsGroupSubTable):
         return PropertyDefinition.Type.GROUP
@@ -786,8 +797,8 @@ def _suggest_property_names(
             effective_project_id=effective_project_id_expr(),
             group_type_index_key=group_type_index_key_expr(),
         ).filter(
+            _PostgresILikeContains(F("name"), match_term),
             effective_project_id=context.team.project_id,  # type: ignore
-            name__contains=match_term,
             type=property_type,
         )
         group_type_index_key = _group_type_index_key(table, property_type, joined_group_index)
@@ -962,7 +973,8 @@ def _suggest_table_names(
     else:
         node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
         node_chain = ".".join(node_chain_arr)
-        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+        node_chain_prefix = re.compile(re.escape(f"{node_chain}."), re.IGNORECASE)
+        filtered_table_names = [node_chain_prefix.sub("", x) for x in table_names if node_chain.lower() in x.lower()]
 
         extend_responses(
             keys=filtered_table_names,

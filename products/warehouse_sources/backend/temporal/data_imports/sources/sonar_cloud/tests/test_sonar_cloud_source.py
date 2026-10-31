@@ -22,12 +22,6 @@ class TestSonarCloudSourceConfig:
         assert SonarCloudSource().connection_host_fields == ["region", "organization"]
 
 
-class TestGetSchemas:
-    def test_filters_by_name(self) -> None:
-        schemas = SonarCloudSource().get_schemas(_config(), team_id=1, names=["issues"])
-        assert [s.name for s in schemas] == ["issues"]
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [

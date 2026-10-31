@@ -206,6 +206,26 @@ export const LogWithLongBody: Story = {
     args: {},
 }
 
+export const LogWithJsonBody: Story = {
+    render: renderBasic as any,
+    args: {
+        item: makeItem(
+            'info',
+            JSON.stringify({
+                event: 'request_started',
+                request: 'GET /api/projects/1/insights/',
+                user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+                worker_pid: 23,
+            }),
+            {
+                attributes: { event: 'request_started', logger: 'django_structlog.middlewares.request' },
+                resource_attributes: { 'service.name': 'web-django', 'k8s.namespace.name': 'web' },
+                instrumentation_scope: '@',
+            }
+        ),
+    },
+}
+
 export const LogWithGroupedItems: Story = {
     render: renderBasic as any,
     args: {

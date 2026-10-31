@@ -2,8 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { membersLogic } from 'scenes/organization/membersLogic'
-
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 
 import { inviteLogic } from './inviteLogic'

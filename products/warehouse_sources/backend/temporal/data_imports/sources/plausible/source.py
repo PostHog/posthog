@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,14 +30,39 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     ENDPOINTS,
-    INCREMENTAL_FIELDS,
-    PLAUSIBLE_ENDPOINTS,
+    custom_property_endpoint_name,
+    get_endpoint_config,
+    parse_custom_property_keys,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^PLAUSIBLE_", "^NUXT_PUBLIC_PLAUSIBLE_"),
+        script_hosts=("plausible.io",),
+        npm=(
+            "plausible-tracker",
+            "@plausible-analytics/tracker",
+            "next-plausible",
+            "@nuxtjs/plausible",
+            "vue-plausible",
+            "v-plausible",
+            "gatsby-plugin-plausible",
+            "vuepress-plugin-plausible",
+            "gridsome-plugin-plausible-analytics",
+        ),
+        pypi=("django-plausible", "django-plausible-proxy", "sphinx-plausible"),
+        composer=("vincentbean/laravel-plausible", "njoguamos/laravel-plausible"),
+        go=("github.com/andrerfcsantos/go-plausible",),
+        hex=("plausible",),
+        pub=("plausible_analytics", "plausible"),
+        rubygems=("plausible_api", "bridgetown-plausible"),
+        swiftpm=("github.com/nickoneill/plausibleswift", "github.com/brightdigit/aviaryinsights"),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://plausible.io/docs/stats-api"
@@ -78,7 +106,7 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
 Works with Plausible Cloud and self-hosted instances. Create an API key under **Account settings → API keys** with the `stats read` scope, then enter your site's domain (e.g. `example.com`). Leave the host blank for Plausible Cloud, or set it to your instance URL for self-hosted (e.g. `https://plausible.example.com`).""",
             iconPath="/static/services/plausible.png",
             docsUrl="https://posthog.com/docs/cdp/sources/plausible",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -106,6 +134,16 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
                         placeholder="https://plausible.io",
                         secret=False,
                     ),
+                    SourceFieldInputConfig(
+                        name="custom_property_keys",
+                        sync_setting=True,
+                        label="Custom property keys",
+                        caption="Optional. A comma-separated list of the custom properties to sync, for example `plan, signup_method`. Each property syncs as its own table. Your Plausible plan needs to include custom properties.",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="plan, signup_method",
+                        secret=False,
+                    ),
                 ],
             ),
         )
@@ -127,18 +165,21 @@ Works with Plausible Cloud and self-hosted instances. Create an API key under **
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
-            incremental_fields = INCREMENTAL_FIELDS.get(endpoint)
+            endpoint_config = get_endpoint_config(endpoint)
             return SourceSchema(
                 name=endpoint,
                 # date_range is a genuine server-side filter, so every report supports incremental
                 # syncing by sliding the window forward.
-                supports_incremental=incremental_fields is not None,
-                supports_append=incremental_fields is not None,
-                incremental_fields=incremental_fields or [],
-                should_sync_default=PLAUSIBLE_ENDPOINTS[endpoint].should_sync_default,
+                supports_incremental=True,
+                supports_append=True,
+                incremental_fields=endpoint_config.incremental_fields,
+                should_sync_default=endpoint_config.should_sync_default,
             )
 
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
+        custom_property_endpoints = [
+            custom_property_endpoint_name(key) for key in parse_custom_property_keys(config.custom_property_keys)
+        ]
+        schemas = [_build_schema(endpoint) for endpoint in [*ENDPOINTS, *custom_property_endpoints]]
 
         if names is not None:
             names_set = set(names)

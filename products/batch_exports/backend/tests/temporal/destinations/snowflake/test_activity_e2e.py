@@ -16,7 +16,14 @@ from django.test import override_settings
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeInsertInputs,
     insert_into_snowflake_activity_from_stage,
@@ -54,7 +61,7 @@ async def _run_activity(
     data_interval_start,
     data_interval_end,
     table_name: str,
-    batch_export_model: BatchExportModel | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events=None,
     sort_key: str = "event",
     expected_fields=None,
@@ -130,7 +137,7 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     snowflake_cursor,
     snowflake_activity_inputs,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -150,14 +157,14 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
     that they appear in the expected Snowflake table. This function runs against a real Snowflake
     instance, so the environment should be populated with the necessary credentials.
     """
-    if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name != "events" and exclude_events is not None:
         pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     table_name = f"test_insert_activity_table_{ateam.pk}"
 
@@ -203,7 +210,7 @@ async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_r
     run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
     the second run.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_table_mutable_persons_{ateam.pk}"
 
     await _run_activity(
@@ -273,7 +280,7 @@ async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_
     run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
     the second run with the same time range.
     """
-    model = BatchExportModel(name="sessions", schema=None)
+    model = BatchExportSessionsModel()
     table_name = f"test_insert_activity_table_mutable_sessions_{ateam.pk}"
 
     await _run_activity(
@@ -363,7 +370,7 @@ async def test_insert_into_snowflake_activity_removes_internal_stage_files(
     checking this second run worked and exported data, we also check that no files
     are present in the table's internal stage.
     """
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
     table_name = f"test_insert_activity_table_remove_{ateam.pk}"
     min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
     batch_export_id = str(uuid.uuid4())
@@ -534,7 +541,7 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
     To replicate this situation we first export the data with the original
     schema, then delete a column in the destination and then rerun the export.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_migration_table_{ateam.pk}"
 
     await _run_activity(
@@ -619,7 +626,7 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
     To replicate this situation we first export the data to create the table, then alter
     'created_at' to be of type INTEGER, and then rerun the export.
     """
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     table_name = f"test_insert_activity_persons_table_{ateam.pk}"
 
     await _run_activity(
@@ -657,9 +664,7 @@ async def test_insert_into_snowflake_activity_from_stage_handles_datetime_to_int
     assert result.error is None
 
 
-@pytest.mark.parametrize(
-    "model", [BatchExportModel(name="events", schema=None), BatchExportModel(name="persons", schema=None)]
-)
+@pytest.mark.parametrize("model", [BatchExportEventsModel(), BatchExportPersonsModel()])
 async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     clickhouse_client,
     activity_environment,
@@ -726,7 +731,7 @@ async def test_insert_into_snowflake_activity_handles_uppercased_columns(
     )
 
 
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_insert_into_snowflake_activity_handles_extra_columns_in_destination(
     clickhouse_client,
     activity_environment,

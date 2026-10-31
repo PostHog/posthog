@@ -23,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source import ZohoCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+    CLIENT_REJECTED_MESSAGE,
+    CLIENT_SECRET_REJECTED_MESSAGE,
     MAX_FIELDS_PER_REQUEST,
     MAX_PAGE,
     PAGE_SIZE,
@@ -319,15 +321,21 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None and "mars" in error
 
-    def test_refresh_token_rejection_gives_actionable_copy(self) -> None:
-        # The raw Zoho OAuth error code (here "invalid_client") is not actionable, so validation
-        # must return the friendly reconnect message instead of leaking the code.
-        with scripted_network(_script([], tokens=[_response(200, {"error": "invalid_client"})])):
+    @pytest.mark.parametrize(
+        ("error_code", "expected"),
+        [
+            ("invalid_code", REFRESH_TOKEN_REJECTED_MESSAGE),
+            ("invalid_client", CLIENT_REJECTED_MESSAGE),
+            ("invalid_client_secret", CLIENT_SECRET_REJECTED_MESSAGE),
+        ],
+    )
+    def test_token_rejection_gives_actionable_copy(self, error_code: str, expected: str) -> None:
+        with scripted_network(_script([], tokens=[_response(200, {"error": error_code})])):
             is_valid, error = validate_credentials("us", "cid", "secret", "refresh")
 
         assert is_valid is False
-        assert error == REFRESH_TOKEN_REJECTED_MESSAGE
-        assert "invalid_client" not in (error or "")
+        assert error == expected
+        assert error_code not in (error or "")
 
     def test_http_failure_is_not_valid(self) -> None:
         with scripted_network(_script([_response(403)])):

@@ -21,7 +21,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.hogql_queries.metric_events_precompute import MetricEventsPrecompute
 from products.experiments.backend.hogql_queries.precompute_policy import MIN_PRECOMPUTATION_DURATION_SECONDS
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -94,9 +94,7 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         # Ratio metric-events precomputation has an additional default-off kill-switch
         # flag; force it on so tests still exercise the precomputed metric-events path.
         if not getattr(self, "_ratio_metric_events_precompute_patched", False):
-            patcher = patch.object(
-                ExperimentQueryRunner, "_ratio_metric_events_precomputation_enabled", return_value=True
-            )
+            patcher = patch.object(MetricEventsPrecompute, "ratio_flag_enabled", return_value=True)
             patcher.start()
             self.addCleanup(patcher.stop)
             self._ratio_metric_events_precompute_patched = True

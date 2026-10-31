@@ -3,7 +3,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lingodev import (
     LingoDevSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lingo_dev.source import LingoDevSource
 
 
@@ -23,10 +22,3 @@ class TestLingoDevSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert not any(key in other_vendor_error for key in non_retryable_errors)
-
-    def test_get_schemas_filtered_by_names(self):
-        first_endpoint = next(iter(ENDPOINTS))
-        schemas = self.source.get_schemas(self.config, self.team_id, names=[first_endpoint])
-
-        assert len(schemas) == 1
-        assert schemas[0].name == first_endpoint

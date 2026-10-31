@@ -12,6 +12,11 @@ They do not change with the selected judge model.
 
 ## Trace and session formatting
 
+Online trace and session evaluations run as project workflows. Their event reads include all
+properties regardless of default, role, or member property access rules and AI observability
+product access. Evaluation previews and interactive trace/session queries continue to apply
+the requesting user's permissions.
+
 Trace evaluations skip the LLM judge when a trace has no child events and no readable trace-level input or output.
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
@@ -35,7 +40,17 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 ## Generation formatting
 
 Generation evaluations extract message text without the per-message character cutoff.
-They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
+They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
+If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
+An exception applies when the judge sees images (the `llm-analytics-judge-images` flag is on and the evaluation does not turn attachments off).
+Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
+The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line for the rest.
+PDFs reach only OpenAI, Anthropic and Gemini judges, up to 10 MB each.
+WAV and MP3 audio becomes an `[audio N]` marker and reaches Gemini judges and OpenAI audio models, always inline.
+Attachments a judge can't read take none of its 20 slots, and one summary line counts them.
+
+Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
@@ -60,10 +75,17 @@ The worker closes the connection when that read finishes or reaches the provider
 ## Decision model judges
 
 Decision models are available under the existing LLM judge option. They return typed answers without written reasoning.
-The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
-Both use the project's UUID as its group key; the numeric project ID is a group property.
-Deploy the ingestion and evaluation worker changes before enabling the flag.
-Projects configure a System One-compatible deployment and its authentication.
+The evaluation editor separates **Judge method** from **Model**. Choose **LLM with explanation** for chat completions or **Decision model** for typed decisions.
+Each method lists models with the corresponding capability from the project's saved provider connections. API keys stay in AI provider settings.
+Switching methods keeps a compatible model and its saved connection; an incompatible model is cleared without changing the criteria or output settings.
+Leaving decision judging for LLM judging or Hog resets an invalid threshold to its default and preserves valid thresholds.
+Changing the judge method marks the evaluation as edited, including when the selected model supports both methods.
+The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
+Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
+Prompt-only `evaluation_config` PATCH requests preserve the saved method; an explicit `judge_method: null` restores automatic routing.
+The detail editor PATCHes only changed fields on existing evaluations. Re-enabling an evaluation or changing its model or output configuration still validates decision access.
+Explicit method selection requires a selected model, including for legacy evaluations that use the project's default connection.
+Projects use their saved provider keys or configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.
 The configured endpoint authorizes the supplied credential, including connections to PostHog's regional AI gateway endpoints.
 Connection validation and every evaluation check these gates; an absent flag or failed flag lookup blocks the call.
@@ -77,14 +99,28 @@ The picker does not exclude individual decision models. Listed models may not su
 The catalogue does not expose supported question types. If a model rejects a request, the run is skipped without retrying, with a reason to check output-type and criteria compatibility.
 Support added by a provider works on subsequent runs without a PostHog code change.
 Chat models such as Jev Router keep using chat completions.
-Decision models are excluded from the playground and tagger model pickers.
+Models without text output are excluded from the playground and tagger model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
 The catalogue refreshes hourly and keeps its last successful response when a refresh fails, retrying refreshes after one minute.
-For projects with this flag enabled, an unavailable catalogue makes OpenRouter runs retry only when no successful response is cached.
-These projects also need the catalogue when changing a model or output configuration, changing the evaluation type, or enabling an evaluation.
+For projects with this flag enabled, an unavailable catalogue makes automatically routed OpenRouter runs retry only when no successful response is cached.
+Automatic routing and explicit decision selection also need the catalogue when changing a model or output configuration, changing the evaluation type, enabling an evaluation, or changing the judge method.
+Explicit LLM judging uses chat completions without a routing catalogue lookup, including for models supporting both methods.
 Renaming or disabling an evaluation does not require the catalogue.
-With the flag off or unavailable, cached decision models skip their runs without calling either API or disabling the evaluation.
+With the flag off or unavailable, cached decision-only models skip their runs without calling either API or disabling the evaluation.
 Other OpenRouter models keep the existing chat path without a catalogue refresh. If a failed chat call identifies a decision model, that run also skips without disabling the evaluation.
 An out-of-credits response disables the evaluation and marks its provider key as failing, as on the chat path.
+Native OpenAI decisions appear under an existing **OpenAI** key when this flag is enabled.
+Select **Decision model** and `gpt-6-luna` to call OpenAI's fixed `https://api.openai.com/v1/decisions` endpoint.
+OpenAI currently documents this model for Decisions; endpoint support is declared separately from the curated chat-model list.
+Existing OpenAI evaluations without an explicit judge method continue using chat, including models supporting both APIs.
+No custom endpoint or additional connection is required. OpenAI-compatible and Azure connections do not use this native endpoint.
+The adapter translates the shared evaluation questions into OpenAI's `predicate`, `choice`, and `score` formats and validates answers by question name.
+Single-selection categorical evaluations need at least two options; multiple selection still uses one predicate per option.
+Numeric scores use the same ten-level rubric and full-precision mapping to configured bounds described below.
+OpenAI refusals skip the run. Temporary rate limits and overload responses honor `Retry-After`, and transport failures, redirects, and server errors retry without invalidating the key.
+Invalid credentials, missing model access, and exhausted quota use the existing terminal-error handling.
+Native OpenAI requests use the shared DNS-pinned transport with a 60-second total deadline covering connection setup, response headers, and the body. Expired requests close their connections.
+Responses are limited to 1 MiB and must be uncompressed. Redirects and SDK retries are disabled; Temporal owns retries.
+
 For other compatible services, add a connection under **System One** in provider key settings.
 Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
 TypeSafe's hosted endpoint is not supported by this integration.
@@ -123,7 +159,10 @@ API compatibility does not guarantee equivalent judgments or calibration across 
 Compare results on representative inputs when changing models.
 
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
-A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
+A probability at or above `output_config.decision_threshold` produces `true`; the evaluation's existing pass/fail polarity still applies.
+The threshold accepts finite numbers from 0 to 1, inclusive, and defaults to 0.5 when omitted or null.
+For boolean judges, selecting **Decision model** shows **Decision threshold** as a percentage inside the **Judge model** section, below the model selector.
+Changing the threshold affects new runs only; historical verdicts remain unchanged.
 The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
 Ingestion estimates cost from the configured model and token usage when the model appears in the existing pricing catalog.
@@ -131,6 +170,8 @@ Models without a catalog match retain their usage with cost left unknown.
 A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.
 
 Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
+The instructions ask the judge to follow the evaluation prompt's N/A rules and treat missing essential context or evidence as not applicable.
+A judgeable failure remains applicable; the question tells the judge not to invent missing facts.
 Uncertainty alone does not produce N/A.
 Decision model answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
 
@@ -139,10 +180,23 @@ Evaluation events retain model, usage, latency, and error telemetry.
 If retries fail, the run fails and the evaluation stays enabled.
 Blocked System One endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
 DNS failures and redirects at OpenRouter's fixed decision endpoint retry without disabling the evaluation or marking its key as failing. Redirects are never followed.
+DNS failures at custom System One endpoints also retry without disabling the evaluation or its key.
 Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
-See OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request) and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their compatible question and answer formats.
+See OpenAI's [Decisions guide](https://developers.openai.com/api/docs/guides/decisions), OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request), and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their question and answer formats.
+
+## Reasoning level
+
+LLM judges on Anthropic and OpenAI reasoning models can set a reasoning level with the brain button next to the model selector.
+The level is stored as `evaluation_config.reasoning_level` (`minimal`, `low`, `medium` or `high`). Without it, the judge uses the model's default.
+Decision models and other providers do not support it, and the API rejects a level for them.
+Prompt-only `evaluation_config` PATCH requests preserve the saved level; an explicit `reasoning_level: null` restores the model default.
+Selecting a model without reasoning support clears the level in the editor.
+
+Anthropic models before Claude 4.6 get a thinking budget of 1,024, 2,048, 4,096 or 8,192 tokens. Newer models get adaptive thinking with that effort, and `minimal` becomes `low`.
+OpenAI models get `reasoning_effort`. Only the original GPT-5 models accept `minimal`; other models get `low` instead.
+For Anthropic, the token limit of the reply grows by the thinking budget of the level, so the verdict still fits after the thinking.
 
 ## Model output limits
 
@@ -153,6 +207,40 @@ Users do not need to include items that already have a result to retry them.
 
 A provider rejection of an invalid token setting does not count as a truncated reply.
 The playground keeps the provider's explanation so users can correct the setting before trying again.
+
+## Backfill recovery
+
+Estimates and new backfills clamp their start to UTC midnight 29 days before the current UTC date.
+This excludes the calendar day whose AI payloads have expired under the 30-day retention policy.
+Ranges ending at or before that boundary are rejected.
+Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
+
+Generation references get up to three lookup attempts.
+A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
+Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+
+A backfill that stops on its own shows as **Interrupted**, with a stop reason.
+A backfill a user stops shows as **Cancelled**.
+Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
+A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
+A run holds one of the shared ClickHouse slots only while it reads its unit, and spends most of its time waiting on the judge.
+Lower the setting if backfills crowd out live evaluations.
+Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
+A backfill run that still hits a DNS failure on its last attempt fails instead of recording a skip, so **Retry remaining** can run it again.
+After 10 failed runs in a row, the backfill pauses for 1, 2, 5, 10, then 30 minutes, and a success resets that sequence.
+The failure count and the pauses carry over between pages.
+When the pauses run out, or a run reports an error that disables the evaluation, the backfill stops as **Interrupted** and keeps its cursor.
+Its stop reason says whether the evaluation was disabled or the runs kept failing.
+Live evaluation retry budgets remain unchanged.
+Authentication, quota, blocked-endpoint, and permanent request errors retain their existing handling.
+Result emission has a separate retry budget, so retrying emission does not repeat a completed judge call.
+
+An interrupted backfill preserves completed results.
+**Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
+It preserves usable existing results and retries units without usable results.
+It is not available for a backfill that re-ran existing results.
+A cancelled backfill still counts the runs it started before the cancel, because they finish and are billed.
+Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 
 ## Result encoding
 
@@ -170,13 +258,11 @@ N/A and skipped numeric runs omit the score, while zero remains a graded result.
 Separate properties preserve the existing boolean property's type and saved queries.
 The numeric property uses normal numeric inference and can be aggregated in Insights.
 Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
-No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.
+No property-definition migration is required for numeric evaluations.
 
 ## Categorical outputs
 
 Hog and LLM judge evaluations support categorical output for generation, trace, and session targets.
-Creation is gated by `llm-analytics-categorical-evaluations`, disabled by default, in the API and frontend.
-Existing evaluations remain editable and continue running when the flag is off.
 
 The output configuration defines `options` as `{key, label}` pairs, `selection_mode` as `single` or `multiple`, and optional `allows_na`.
 Each evaluation supports 1 to 100 categories, enforced by the API and editor.
@@ -190,7 +276,7 @@ The editor updates the untouched Hog example when its category key changes, is r
 Custom code is preserved.
 The LLM judge returns `categories` and `reasoning`.
 Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
-Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
+Categorical events always set `$ai_evaluation_applicable`.
 `null` means N/A only when `allows_na` is enabled.
 Unknown or duplicate keys are invalid results.
 Invalid model responses and Hog results with unknown keys, duplicate keys, or the wrong number of selections skip the run without disabling the evaluation.
@@ -211,6 +297,28 @@ Deploy all evaluation workers before enabling the flag.
 
 ## Run history and reports
 
+Online evaluations and report result queries run as project workflows with complete event properties. Evaluation editors
+are trusted to configure workflows that read properties hidden from ordinary users. Grant Evaluations editor access only
+to people authorized to process the full inputs. AI Observability and Evaluations have separate RBAC settings.
+
+Source-property rules do not automatically apply to evaluation outputs. To keep message content private:
+
+- Keep the source-property rules and separately restrict `$ai_evaluation_reasoning`.
+- Restrict `$ai_clusters` when evaluation cluster titles and descriptions may contain private content.
+- For report events, restrict `$ai_report_content`, `$ai_report_title`, and `$ai_report_citations`.
+- If outcomes are also sensitive, restrict `$ai_evaluation_result`, `$ai_evaluation_numeric_result`, and
+  `$ai_evaluation_categorical_result`. Apply separate rules to sentiment properties when using sentiment evaluations.
+- Restrict Evaluations viewer access to the intended report audience. Stored report API responses follow evaluation RBAC;
+  property rules on report events protect the event copy, not the stored report narrative.
+- Choose report email recipients and Slack channels with the same audience in mind. Deliveries contain report text and do
+  not check each recipient's PostHog property permissions.
+- Evaluation-report Inbox summaries are suppressed when the project has any event-property denial or a denial of access
+  to the evaluation, including default, member, and role rules. Inbox copies cannot enforce those source permissions.
+
+User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
+results even when the project's default rules hide those result properties from users.
+Report agents also read complete source conversations when inspecting trace or session evaluation results.
+
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
 Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
@@ -222,6 +330,14 @@ Existing reports remain accessible through the Reports tab and the report list, 
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
+
+The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Each sample includes `input_length`, the stored input's character count before shortening the preview.
+Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken, and report a limitation only when those details confirm it.
+Shortened previews and low input token counts alongside high cache-read or cache-creation token counts are expected and alone do not justify an auditability caveat.
+A trace can contain many generations by design; use generation IDs to distinguish individual calls.
+The agent must recheck these caveats from prior reports against current full generation details and omit caveats that the data does not support.
 
 ## Browser compatibility
 

@@ -49,8 +49,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
-    PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
+    personal_api_key_modes_to_try,
 )
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -201,6 +201,8 @@ class ZxcvbnValidator:
     Validate that the password satisfies zxcvbn
     """
 
+    NEXT_STEP = "Try a longer password that isn't a common word or pattern."
+
     def __init__(self, min_length=8):
         self.min_length = min_length
 
@@ -208,10 +210,12 @@ class ZxcvbnValidator:
         result = zxcvbn(password)
 
         if result["score"] < 3:
-            joined_feedback = " ".join(result["feedback"]["suggestions"])
+            # zxcvbn's suggestions assume passphrases ("Add another word or two"), so only its
+            # warning is shown, which names the weakness it found
+            warning = result["feedback"]["warning"] or "This password is too easy to guess."
 
             raise ValidationError(
-                joined_feedback or "This password is too weak.",
+                f"{warning} {self.NEXT_STEP}",
                 code="password_too_weak",
             )
 
@@ -331,7 +335,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
         modes_tried = 0
 
         with tracer.start_as_current_span("posthog.auth.personal_api_key.db_lookup") as db_span:
-            for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+            for mode, iterations in personal_api_key_modes_to_try(personal_api_key):
                 modes_tried += 1
                 secure_value = hash_key_value(
                     personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
@@ -352,9 +356,11 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             if mode_used:
                 db_span.set_attribute("auth.hash_mode_used", mode_used)
 
+        source_display = cls._SOURCE_DISPLAY.get(source, source)
         if not personal_api_key_object:
-            source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
+        if personal_api_key_object.is_expired:
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} has expired.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -1196,6 +1202,8 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             )
         except (KeyError, PersonalAPIKey.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+        if personal_api_key.is_expired:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.")
 
         refuse_blocked_account(request, personal_api_key.user, call_site="personal_api_key", impersonated=False)
         self.personal_api_key = personal_api_key

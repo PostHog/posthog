@@ -4,15 +4,11 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: Concord
-beta: true
 ---
 
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 [Concord](https://www.concord.app/) is a contract lifecycle management (CLM) platform for
 e-signatures, contract storage, negotiation, and approvals. This source syncs your agreements,

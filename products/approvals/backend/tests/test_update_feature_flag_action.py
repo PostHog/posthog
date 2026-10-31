@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -576,7 +577,7 @@ class TestRelatedFieldsInIntent(APIBaseTest):
         assert list(applied_flag.analytics_dashboards.all()) == [dashboard]
 
 
-class TestUpdateFeatureFlagActionDisplayData(APIBaseTest):
+class TestUpdateFeatureFlagActionDisplayData(SimpleTestCase):
     @parameterized.expand(
         [
             (
