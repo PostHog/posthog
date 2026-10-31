@@ -4623,7 +4623,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [changes, django_tests]
+        needs: [changes, django, turbo-tests, django_tests]
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -4635,13 +4635,26 @@ jobs:
         permissions:
             contents: read
         steps:
+            - name: Check whether stale backend coverage can be cleared
+              id: coverage-cleanup
+              if: >-
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.draft == false &&
+                  needs.changes.outputs.backend == 'false' &&
+                  needs.django.result == 'skipped' &&
+                  needs.turbo-tests.result == 'skipped' &&
+                  needs.django_tests.result == 'success'
+              run: echo "needed=true" >> "$GITHUB_OUTPUT"
             # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               id: checkout
-              if: github.run_attempt == '1'
+              if: github.run_attempt == '1' || steps.coverage-cleanup.outputs.needed == 'true'
               continue-on-error: true
               with:
-                  sparse-checkout: .github/scripts/capture_depot_running_time.py
+                  sparse-checkout: |
+                      .github/scripts/capture_depot_running_time.py
+                      frontend/bin/ci-report/update-ci-report.mjs
+                      .nvmrc
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               id: setup-depot
@@ -4656,3 +4669,27 @@ jobs:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   STATUS_JOB: django_tests
               run: python3 .github/scripts/capture_depot_running_time.py
+            - name: Get app token for coverage cleanup
+              id: coverage-cleanup-token
+              if: steps.coverage-cleanup.outputs.needed == 'true' && steps.checkout.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  permission-pull-requests: write
+            - name: Set up Node.js for coverage cleanup
+              if: steps.coverage-cleanup-token.outcome == 'success'
+              id: coverage-cleanup-node
+              continue-on-error: true
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.coverage-cleanup-token.outputs.token }}
+            - name: Clear stale backend coverage warning
+              if: steps.coverage-cleanup-node.outcome == 'success' && hashFiles('frontend/bin/ci-report/update-ci-report.mjs') != ''
+              continue-on-error: true
+              env:
+                  GITHUB_TOKEN: ${{ steps.coverage-cleanup-token.outputs.token }}
+              run: |
+                  node --input-type=module -e "import { clearSectionIfPresent } from './frontend/bin/ci-report/update-ci-report.mjs'; await clearSectionIfPresent({ id: 'backend-coverage', summary: 'no backend files changed', body: 'No backend coverage report is needed for this change.' })"
