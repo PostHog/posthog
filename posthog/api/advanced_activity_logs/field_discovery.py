@@ -9,6 +9,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, Change
+from posthog.models.user import User
 from posthog.models.utils import UUIDT
 
 from .constants import BATCH_SIZE, SAMPLING_PERCENTAGE, SMALL_ORG_THRESHOLD
@@ -64,23 +65,20 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        users_query = (
-            queryset.order_by().values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
-        )
-        seen_users = set()
-        unique_users = []
+        # Distinct on user_id alone first. A distinct over the joined user columns
+        # makes Postgres join and sort every activity row in the organization.
+        user_ids = list(queryset.order_by().filter(user_id__isnull=False).values_list("user_id", flat=True).distinct())
+        if not user_ids:
+            return []
 
-        for user in users_query:
-            if user["user__uuid"] and user["user__uuid"] not in seen_users:
-                seen_users.add(user["user__uuid"])
-                unique_users.append(
-                    {
-                        "value": str(user["user__uuid"]),
-                        "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
-                    }
-                )
-
-        return unique_users
+        users = User.objects.filter(id__in=user_ids).values("uuid", "first_name", "last_name", "email")
+        return [
+            {
+                "value": str(user["uuid"]),
+                "label": f"{user['first_name']} {user['last_name']}".strip() or user["email"],
+            }
+            for user in users
+        ]
 
     def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
         scopes_query = queryset.order_by().values_list("scope", flat=True).distinct()
