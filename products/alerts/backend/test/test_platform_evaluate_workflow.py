@@ -74,6 +74,7 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
     recorded: list[SourceOutcomeInputs] = []
     failed: list[FailedInsightCheckInputs] = []
     stopped: list[StopInsightQueriesInputs] = []
+    hourly_attempts: list[int] = []
 
     # Every check retries a first failure. The first check fails every attempt, so it ends errored.
     @activity.defn(name="plan_platform_insight_checks_activity")
@@ -87,6 +88,8 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
 
     @activity.defn(name="evaluate_platform_insight_check_activity")
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        if inputs.configuration_id == ADMITTED[0]:
+            hourly_attempts.append(activity.info().attempt)
         if activity.info().attempt == 1 or inputs.configuration_id == ADMITTED[0]:
             raise ApplicationError("worker lost")
         return _fired(inputs)
@@ -154,6 +157,7 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
 
     assert result == 3
     # The check whose every attempt failed left no outcome of its own, so it is recorded as errored, with the reason.
+    assert hourly_attempts == list(range(1, CHECK_RETRY_POLICY.maximum_attempts + 1))
     assert [(inputs.configuration_id, inputs.error_message) for inputs in failed] == [(ADMITTED[0], "worker lost")]
     # Each attempt's query may still run, which nothing else stops.
     assert [(inputs.configuration_id, len(inputs.query_ids)) for inputs in stopped] == [

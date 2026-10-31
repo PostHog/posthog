@@ -71,7 +71,7 @@ REAL_TIME_CHECK_RETRY_POLICY = _REAL_TIME_TIMEOUTS.evaluate_retry_policy
 REAL_TIME_CHECK_HEARTBEAT_TIMEOUT = _REAL_TIME_TIMEOUTS.heartbeat_timeout
 # Production's retries for an AI detector check, inside the default budget. A judge that reaches
 # no verdict raises for another attempt, and the last attempt records the failure.
-LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
+LLM_CHECK_RETRY_POLICY = CHECK_RETRY_POLICY
 # A firing's chart renders in its own activity, after the check has released its pool slot. It
 # outlasts the export render's own 90-second limit, so the render, not the activity, gives up first.
 CHART_START_TO_CLOSE = dt.timedelta(minutes=2)
@@ -760,9 +760,8 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
 
 
 def _maximum_attempts(check: AdmittedInsightCheck) -> int:
-    if check.uses_llm_detector:
-        return LLM_CHECK_RETRY_POLICY.maximum_attempts
-    if check.real_time:
+    # `_check` sends an AI detector check to its own queue under the default policy, whatever its cadence.
+    if check.real_time and not check.uses_llm_detector:
         return REAL_TIME_CHECK_RETRY_POLICY.maximum_attempts
     return CHECK_RETRY_POLICY.maximum_attempts
 
