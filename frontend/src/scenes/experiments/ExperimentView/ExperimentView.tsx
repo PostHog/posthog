@@ -28,6 +28,7 @@ import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
+import { DeletedFlagBanner } from './DeletedFlagBanner'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
@@ -181,6 +182,7 @@ export function ExperimentView(): JSX.Element {
                 <LoadingState />
             ) : (
                 <>
+                    <DeletedFlagBanner />
                     {healthFindings === null && <ExperimentWarningBanner />}
                     {showDebugPanel && (
                         <div className="mb-4">
