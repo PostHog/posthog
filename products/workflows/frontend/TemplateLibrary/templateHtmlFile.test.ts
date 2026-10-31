@@ -29,6 +29,13 @@ const SDK_UPLOADED_FILES: { name: string; file: string; sdk: ParsedBySdk }[] = [
             subject: 'Reset your password',
         },
     },
+    {
+        name: 'a quoted greater-than sign in the title tag',
+        file: '<html><head><title data-note="a > b">Welcome</title></head><body></body></html>\n',
+        sdk: {
+            subject: 'Welcome',
+        },
+    },
 ]
 
 const ENCODED_TEMPLATES: { name: string; template: TemplateHtmlFileContent; file: string }[] = [
@@ -49,6 +56,15 @@ const ENCODED_TEMPLATES: { name: string; template: TemplateHtmlFileContent; file
             html: '<html><head><meta charset="utf-8"></head><body></body></html>',
         },
         file: '<html><head><title>Welcome</title><meta name="preheader" content="Your account is ready"><meta charset="utf-8"></head><body></body></html>',
+    },
+    {
+        name: 'a quoted greater-than sign in the head tag',
+        template: {
+            subject: 'Welcome',
+            preheader: '',
+            html: '<html><head data-note="a > b"><meta charset="utf-8"></head><body></body></html>',
+        },
+        file: '<html><head data-note="a > b"><title>Welcome</title><meta charset="utf-8"></head><body></body></html>',
     },
     {
         name: 'a fragment without a document',

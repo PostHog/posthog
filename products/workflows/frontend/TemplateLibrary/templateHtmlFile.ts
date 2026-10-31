@@ -32,11 +32,12 @@ interface HeadScan {
 const COMMENT_START = '<!--'
 const COMMENT_END = '-->'
 const TAG_NAME = /<(?:title|meta)\b/iy
-const TITLE_OPEN = /<title\b[^>]*>/iy
+const TAG_ATTRIBUTES = `(?:[^>"']|"[^"]*"|'[^']*')*`
+const TITLE_OPEN = new RegExp(`<title\\b${TAG_ATTRIBUTES}>`, 'iy')
 const TITLE_CLOSE = /<\/title\s*>/gi
-const META_TAG = /<meta\b(?:[^>"']|"[^"]*"|'[^']*')*>/iy
-const HEAD_OPEN = /<head\b[^>]*>/iy
-const HTML_OPEN = /<html\b[^>]*>/iy
+const META_TAG = new RegExp(`<meta\\b${TAG_ATTRIBUTES}>`, 'iy')
+const HEAD_OPEN = new RegExp(`<head\\b${TAG_ATTRIBUTES}>`, 'iy')
+const HTML_OPEN = new RegExp(`<html\\b${TAG_ATTRIBUTES}>`, 'iy')
 const DOCTYPE = /<!doctype\b[^>]*>/iy
 const ATTRIBUTE = /([^\s"'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
 const CHARACTER_REFERENCE = /&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|(amp|lt|gt|quot|apos|nbsp));/g
