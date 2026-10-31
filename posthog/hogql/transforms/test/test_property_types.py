@@ -140,6 +140,15 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    def test_json_function_rewrites_ignore_property_metadata(self) -> None:
+        printed = self._print_select(
+            "SELECT JSONExtractRaw(properties, 'value') AS value FROM events",
+            event_properties={"value": {"type": "Numeric"}},
+        )
+        assert "events.properties.value" in printed
+        assert "accurateCastOrNull" not in printed
+        assert "JSONExtractKeysAndValuesRaw(events.properties)" not in printed
+
     @parameterized.expand(
         [
             (f"{conversion}_{windowed}", conversion, windowed)
