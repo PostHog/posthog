@@ -1,26 +1,17 @@
-from datetime import timedelta
-
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.api.ai_gateway_reload import AI_GATEWAY_RELOAD_PURPOSE, AIGatewayReloadJWTAuthentication
-from posthog.jwt import PosthogJwtAudience
-from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
-from posthog.test.authentication_checks import covers_authentication
-
 from ee.billing.billing_manager import BillingServiceResponseError
 
-OTHER_AUDIENCE_PURPOSE = ScopedServiceJwtPurpose(
-    audience=PosthogJwtAudience.RECORDING_API,
-    settings_name="AI_GATEWAY_RELOAD_JWT_SECRETS",
-)
 
-
+@override_settings(AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
 @patch("posthog.api.ai_gateway_reload.get_cached_instance_license")
 @patch("ee.billing.billing_manager.BillingManager")
 class TestAIGatewayReload(BaseTest):
@@ -29,25 +20,20 @@ class TestAIGatewayReload(BaseTest):
         self.client = APIClient()
         self.url = "/api/internal/ai_gateway/reload"
 
-    def _claims(self) -> dict:
-        return {"organization_id": str(self.organization.id)}
-
-    def _headers(self, claims: dict | None = None, key: str | None = "low-balance-1") -> dict:
-        token = AI_GATEWAY_RELOAD_PURPOSE.mint(claims if claims is not None else self._claims())
-        headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+    def _headers(self, key: str | None = "low-balance-1") -> dict:
+        headers = {"HTTP_AUTHORIZATION": "Bearer gateway-token"}
         if key:
             headers["HTTP_IDEMPOTENCY_KEY"] = key
         return headers
 
-    def _reload(self, headers: dict | None = None):
+    def _reload(self, headers: dict | None = None, organization_id: str | None = None):
         return self.client.post(
             self.url,
-            {"balance_usd": "4.104512"},
+            {"organization_id": organization_id or str(self.organization.id), "balance_usd": "4.104512"},
             format="json",
             **(headers if headers is not None else self._headers()),
         )
 
-    @covers_authentication(AIGatewayReloadJWTAuthentication)
     def test_asks_billing_to_reload_the_organization(self, manager: MagicMock, license: MagicMock):
         reload = manager.return_value.reload_ai_balance
         reload.return_value = {"result": "charged", "amount_usd": "45.90"}
@@ -105,40 +91,26 @@ class TestAIGatewayReload(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertIn("same Idempotency-Key", response.json()["detail"])
 
-    def test_a_token_that_names_no_organization_is_refused(self, manager: MagicMock, license: MagicMock):
-        response = self._reload(self._headers({}))
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        manager.return_value.reload_ai_balance.assert_not_called()
-
-    def test_a_token_for_an_unknown_organization_is_not_found(self, manager: MagicMock, license: MagicMock):
-        response = self._reload(self._headers({"organization_id": "01234567-89ab-cdef-0123-456789abcdef"}))
+    def test_an_unknown_organization_is_not_found(self, manager: MagicMock, license: MagicMock):
+        response = self._reload(organization_id="01234567-89ab-cdef-0123-456789abcdef")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         manager.return_value.reload_ai_balance.assert_not_called()
 
     @parameterized.expand(
         [
-            (
-                "expired_token",
-                lambda self: {
-                    "HTTP_AUTHORIZATION": "Bearer "
-                    + AI_GATEWAY_RELOAD_PURPOSE.mint(self._claims(), ttl=timedelta(minutes=-1)),
-                    "HTTP_IDEMPOTENCY_KEY": "low-balance-1",
-                },
-            ),
-            (
-                "token_for_another_purpose",
-                lambda self: {
-                    "HTTP_AUTHORIZATION": "Bearer " + OTHER_AUDIENCE_PURPOSE.mint(self._claims()),
-                    "HTTP_IDEMPOTENCY_KEY": "low-balance-1",
-                },
-            ),
-            ("no_credentials", lambda self: {"HTTP_IDEMPOTENCY_KEY": "low-balance-1"}),
+            ("another_token", "Bearer another-token", "gateway-token"),
+            ("no_credentials", None, "gateway-token"),
+            ("token_not_configured", "Bearer ", ""),
         ]
     )
-    def test_rejected_credentials(self, manager: MagicMock, license: MagicMock, _name, make_headers):
-        response = self._reload(make_headers(self))
+    def test_rejected_credentials(self, manager: MagicMock, license: MagicMock, _name, authorization, configured_token):
+        headers = {"HTTP_IDEMPOTENCY_KEY": "low-balance-1"}
+        if authorization is not None:
+            headers["HTTP_AUTHORIZATION"] = authorization
+
+        with override_settings(AI_GATEWAY_INTERNAL_TOKEN=configured_token):
+            response = self._reload(headers)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         manager.return_value.reload_ai_balance.assert_not_called()
