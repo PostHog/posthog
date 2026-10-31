@@ -248,10 +248,6 @@ tools:
                the configuring-experiment-analytics skill for
                metric guidance.
 
-            4. If experiment-setup-context is available, call it
-               first and use its facts to choose bucketing,
-               exposure and metrics.
-
 
             Creates a new experiment in draft status (ignore the "type" param, since no-code/toolbar experiments must be
             created in the PostHog UI). Requires name and feature_flag_key. Feature flag is auto-created — do not create
