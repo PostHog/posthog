@@ -342,8 +342,9 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests (depot-ubuntu-24.04-4)
-        runs-on: depot-ubuntu-24.04-4
+        name: Integration Tests
+        # GitHub's ref-isolated cache keeps the hourly lane on master-produced dumps.
+        runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         needs: changes
         # Sized for a schema-cache miss (full migrate from scratch), not just a hit.
         timeout-minutes: 45
