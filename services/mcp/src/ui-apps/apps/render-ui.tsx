@@ -83,15 +83,17 @@ function RenderUiContent({
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'
+    const errorMessage = render ? error?.message : undefined
     useEffect(() => {
         if (failureReason) {
             capture('mcp_ui_app_render_failed', {
                 rendered_tool_name: toolName,
                 app_key: envelope.app_key,
                 reason: failureReason,
+                error_message: errorMessage?.slice(0, 500),
             })
         }
-    }, [failureReason, toolName, envelope.app_key])
+    }, [failureReason, errorMessage, toolName, envelope.app_key])
 
     if (!render) {
         return <AppErrorState message={`No visualization is available for ${envelope.tool_name}.`} />
