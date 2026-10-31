@@ -5,12 +5,15 @@
 import { loader } from '@monaco-editor/react'
 import * as monacoModule from 'monaco-editor'
 
-function createWorker(path: string): Worker {
+import { staticFileUrl } from 'lib/utils/staticFileUrl'
+
+function createWorker(fileName: string): Worker {
+    const url = staticFileUrl(fileName)
     try {
-        return new Worker(path, { type: 'module' })
+        return new Worker(url, { type: 'module' })
     } catch (e) {
         console.error(
-            `Monaco worker failed to load from ${path}. ` +
+            `Monaco worker failed to load from ${url}. ` +
                 'In development, ensure Django is running and workers are built. ' +
                 'Run: node frontend/build.mjs'
         )
@@ -21,12 +24,12 @@ function createWorker(path: string): Worker {
 globalThis.MonacoEnvironment = {
     getWorker(_moduleId: string, label: string): Worker {
         if (label === 'json') {
-            return createWorker('/static/monacoJsonWorker.js')
+            return createWorker('monacoJsonWorker.js')
         }
         if (label === 'typescript' || label === 'javascript') {
-            return createWorker('/static/monacoTsWorker.js')
+            return createWorker('monacoTsWorker.js')
         }
-        return createWorker('/static/monacoEditorWorker.js')
+        return createWorker('monacoEditorWorker.js')
     },
 }
 

@@ -2,9 +2,9 @@ import snappyInit, { decompress_raw } from 'snappy-wasm'
 
 let snappyInitPromise: Promise<unknown> | null = null
 
-async function initSnappy(): Promise<void> {
+async function initSnappy(wasmUrl: string): Promise<void> {
     if (!snappyInitPromise) {
-        snappyInitPromise = snappyInit()
+        snappyInitPromise = snappyInit(wasmUrl)
     }
     await snappyInitPromise
 }
@@ -12,6 +12,8 @@ async function initSnappy(): Promise<void> {
 export interface DecompressionRequest {
     id: number
     compressedData: Uint8Array
+    /** The worker has no `window`, so the page resolves the content-hashed wasm URL for it. */
+    wasmUrl: string
 }
 
 export interface DecompressionResponse {
@@ -22,10 +24,10 @@ export interface DecompressionResponse {
 }
 
 self.addEventListener('message', async (event: MessageEvent<DecompressionRequest>) => {
-    const { id, compressedData } = event.data
+    const { id, compressedData, wasmUrl } = event.data
 
     try {
-        await initSnappy()
+        await initSnappy(wasmUrl)
         const decompressStart = performance.now()
         const decompressed = decompress_raw(compressedData)
         const decompressDuration = performance.now() - decompressStart
