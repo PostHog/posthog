@@ -5,10 +5,12 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import * as asyncUtils from 'lib/utils/async'
 import { BillingAPIErrorCodes, billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -94,6 +96,36 @@ describe('billingLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    it.each([
+        { route: urls.organizationBilling(), active: true },
+        { route: urls.organizationBillingSection('usage'), active: true },
+        { route: urls.onboarding(), active: true },
+        { route: urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS }), active: true },
+        { route: urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, step: 'plans' }), active: true },
+        { route: '/events', active: false },
+    ])('loads billing without idle delay on billing and onboarding routes ($route)', async ({ route, active }) => {
+        let releaseIdle!: () => void
+        const idle = new Promise<void>((resolve) => {
+            releaseIdle = resolve
+        })
+        const waitForBootIdle = jest.spyOn(asyncUtils, 'waitForBootIdle').mockReturnValue(idle)
+        const apiGet = jest.spyOn(api, 'get')
+        router.actions.push(route)
+        billingLogic.mount()
+
+        try {
+            billingLogic.actions.loadBilling()
+            expect(apiGet.mock.calls.some(([url]) => url.startsWith('api/billing'))).toBe(active)
+            releaseIdle()
+            await expectLogic(billingLogic).toFinishAllListeners()
+            expect(apiGet.mock.calls.some(([url]) => url.startsWith('api/billing'))).toBe(true)
+        } finally {
+            releaseIdle()
+            waitForBootIdle.mockRestore()
+            apiGet.mockRestore()
+        }
     })
 
     it.each([
