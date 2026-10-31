@@ -233,10 +233,10 @@ export const FEATURE_FLAGS = {
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_EXPECTED_IMPACT_DISPLAY: 'signals-expected-impact', // owner: #team-self-driving, person-level display gate for metric follow-up graphs and actions
     SIGNALS_INBOX_VALUE_SUMMARY: 'signals-inbox-value-summary', // owner: #team-self-driving
-    SIGNALS_PLAIN_REPORT_TITLES: 'signals-plain-report-titles', // owner: #team-self-driving, removes conventional-commit labels from Inbox report titles
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
     SIGNALS_REPORT_CHECKS_REPLACE: 'signals-report-checks-replace', // owner: #team-self-driving
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
+    SIGNALS_REPORT_MONITORING: 'signals-report-monitoring', // owner: #team-self-driving
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
@@ -252,7 +252,6 @@ export const FEATURE_FLAGS = {
 
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
-    AI_OBSERVABILITY_EVALUATIONS_OVERVIEW: 'ai-observability-evaluations-overview', // owner: #team-ai-observability
     AI_OBSERVABILITY_OFFLINE_EVALUATIONS: 'ai-observability-offline-evaluations', // owner: #team-ai-observability
     AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
@@ -410,6 +409,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_OPENAI_ADS: 'marketing-analytics-openai-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_ORGANIC_KEYWORDS: 'marketing-analytics-organic-keywords', // owner: @jabahamondes #team-web-analytics
+    MARKETING_ANALYTICS_RECOMMENDATIONS: 'marketing-analytics-recommendations', // owner: @jabahamondes #team-web-analytics — gates the Recommendations section in Ad performance
     MARKETING_ANALYTICS_RETENTION: 'marketing-analytics-retention', // owner: @jabahamondes #team-web-analytics — gates the legacy Retention explorer tab; the new dashboard ignores it
     MARKETING_ANALYTICS_RETURN_METRICS: 'marketing-analytics-return-metrics', // owner: @jabahamondes #team-web-analytics — gates the ROAS column
     MARKETING_ANALYTICS_ROKT_ADS: 'marketing-analytics-rokt-ads', // owner: @jabahamondes #team-web-analytics

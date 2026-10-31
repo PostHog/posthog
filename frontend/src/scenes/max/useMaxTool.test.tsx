@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { MAX_SIDE_PANEL_ID, SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSessionLogic'
 import { initKeaTests } from '~/test/init'
@@ -14,9 +15,8 @@ import { SidePanelTab } from '~/types'
 
 import { attachedContextLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
-import { MAX_SIDE_PANEL_ID } from './components/PhaiSidePanelChat'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
+import { maxLogic } from './maxLogic'
 import { UseMaxToolReturn, useMaxTool } from './useMaxTool'
 
 function TestMaxTool({

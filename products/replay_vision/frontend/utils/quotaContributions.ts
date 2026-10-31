@@ -28,6 +28,8 @@ export interface QuotaContribution {
     label: string
     credits: number
     kind: 'monthly-rate' | 'one-off'
+    /** For a monthly rate: the backend's share of it before the period ends, the figure billing also uses. */
+    periodCredits?: number
     barClass: string
     striped?: boolean
 }
@@ -72,6 +74,7 @@ export function fleetContributions(quota: VisionQuotaApi | null): QuotaContribut
             label: 'Projected (scanners)',
             credits: quota?.scanners_monthly_credits ?? 0,
             kind: 'monthly-rate',
+            periodCredits: quota?.scanners_period_credits ?? 0,
             barClass: QUOTA_STATUS_CLASS,
             striped: true,
         },
@@ -90,8 +93,15 @@ export function buildQuotaMeter(quota: VisionQuotaApi | null, contributions: Quo
     const cap = hasCap ? quota.credit_limit : 0
     const rateTotal = contributions.reduce((sum, c) => (c.kind === 'monthly-rate' ? sum + c.credits : sum), 0)
     const oneOffTotal = contributions.reduce((sum, c) => (c.kind === 'one-off' ? sum + c.credits : sum), 0)
+    const rates = contributions.filter((c) => c.kind === 'monthly-rate')
+    // Use the backend's rest-of-period figure whenever every rate carries one, so this matches billing.
+    const ratePeriodCredits =
+        rates.length > 0 && rates.every((c) => c.periodCredits !== undefined)
+            ? rates.reduce((sum, c) => sum + (c.periodCredits ?? 0), 0)
+            : undefined
+    const inputs = { monthlyRateCredits: rateTotal, oneOffCredits: oneOffTotal, ratePeriodCredits }
     // The contributions are the whole projection, so the stored fleet rate is not consulted here.
-    const projection = projectQuota(quota, { monthlyRateCredits: rateTotal, oneOffCredits: oneOffTotal })
+    const projection = projectQuota(quota, inputs)
 
     const asPct = (credits: number): number => (hasCap && cap > 0 ? (credits / cap) * 100 : 0)
     const segments = contributions.map((c) => ({
@@ -130,9 +140,7 @@ export function buildQuotaMeter(quota: VisionQuotaApi | null, contributions: Quo
                 : segment
         ),
         periodEndPct,
-        periodEndCredits: quota
-            ? Math.round(projectDemandCredits(quota, { monthlyRateCredits: rateTotal, oneOffCredits: oneOffTotal }))
-            : null,
+        periodEndCredits: quota ? Math.round(projectDemandCredits(quota, inputs)) : null,
         rateTotal,
         oneOffTotal,
         hasCap,

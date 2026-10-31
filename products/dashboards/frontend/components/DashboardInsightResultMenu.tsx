@@ -1,29 +1,19 @@
-import { useValues } from 'kea'
 import { ReactNode, useId, useRef, useState } from 'react'
 
 import { capturePersonsModalForClick, CapturedPersonsModal } from 'lib/components/ResultMenu/personsModalCapture'
-import { ResultMenu } from 'lib/components/ResultMenu/ResultMenu'
 import {
     getResultMenuPoint,
     isResultMenuContextMenu,
     replayAsClick,
     ResultMenuPoint,
 } from 'lib/components/ResultMenu/resultMenuTrigger'
-import { getPersonsRecordingFilters } from 'scenes/trends/persons-modal/getPersonsRecordingFilters'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import {
-    isActorsQuery,
-    isBIVisualizationNode,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-} from '~/queries/utils'
-import { ChartDisplayType, InsightModel, ReplayTabs } from '~/types'
+import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { ChartDisplayType, InsightModel } from '~/types'
 
-import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
+import { DashboardInsightResultMenuPopover } from './DashboardInsightResultMenuPopover'
 
 export function DashboardInsightResultMenu({
     insight,
@@ -91,20 +81,6 @@ export function DashboardInsightResultMenu({
                 query: isDataTableNode(sqlQuery) ? sqlQuery : { ...sqlQuery, display: ChartDisplayType.ActionsTable },
             })
           : undefined
-    const { selectedResult: resolvedResult, resultLoading } = useValues(
-        dashboardInsightResultMenuLogic({
-            key: `${menuId}-${selection}`,
-            query: position && rowsQuery && isActorsQuery(rowsQuery.source) ? rowsQuery.source : null,
-        })
-    )
-    const sqlUrl = resolvedResult?.sql
-        ? urls.sqlEditor({ query: resolvedResult.sql })
-        : sqlQuery
-          ? urls.sqlEditor({ query: sqlQuery })
-          : undefined
-    const resultUnavailableReason = resultLoading
-        ? 'Loading the selected result…'
-        : 'Could not load the selected result. Right-click the data point again to retry.'
     const selectedResult = actors?.title
         ? typeof actors.title === 'function'
             ? actors.title('Results')
@@ -151,65 +127,18 @@ export function DashboardInsightResultMenu({
         >
             {children}
             {position && (
-                <ResultMenu
+                <DashboardInsightResultMenuPopover
+                    logicKey={`${menuId}-${selection}`}
                     triggerRef={triggerRef}
+                    position={position}
                     selectedResult={selectedResult}
                     caption={actors ? insight.name || 'Insight result' : 'Dashboard insight'}
-                    interaction={position}
+                    actors={actors}
+                    canViewRecordings={canViewRecordings}
+                    sqlQuery={sqlQuery}
+                    rowsQuery={rowsQuery}
+                    rowsUrl={rowsUrl}
                     close={close}
-                    actions={[
-                        {
-                            name: sqlQuery ? 'View underlying rows' : 'View people',
-                            className: 'ResultMenu__rows',
-                            to: rowsUrl,
-                            inPlace: !!actors,
-                            disabledReason:
-                                !actors && !sqlQuery
-                                    ? 'Right-click a data point to view the users or groups behind it.'
-                                    : undefined,
-                            onClick: () => {
-                                const request = actors
-                                close()
-                                if (request) {
-                                    request.open ? request.open() : openPersonsModal(request)
-                                }
-                            },
-                        },
-                        ...(canViewRecordings && recordingQuery
-                            ? [
-                                  {
-                                      name: 'View recordings',
-                                      className: 'ResultMenu__recordings',
-                                      to: resolvedResult?.sessionIds.length
-                                          ? urls.replay(
-                                                ReplayTabs.Home,
-                                                getPersonsRecordingFilters(
-                                                    { kind: NodeKind.ActorsQuery, source: recordingQuery },
-                                                    resolvedResult.sessionIds
-                                                )
-                                            )
-                                          : undefined,
-                                      disabledReason: resolvedResult?.sessionIds.length
-                                          ? undefined
-                                          : resolvedResult
-                                            ? 'No recordings found for this result.'
-                                            : resultUnavailableReason,
-                                      onClick: close,
-                                  },
-                              ]
-                            : []),
-                        {
-                            name: 'Open in SQL editor',
-                            className: 'ResultMenu__sql',
-                            to: sqlUrl,
-                            disabledReason: sqlUrl
-                                ? undefined
-                                : actors
-                                  ? resultUnavailableReason
-                                  : 'Right-click a data point to edit its underlying query.',
-                            onClick: close,
-                        },
-                    ]}
                 />
             )}
         </div>

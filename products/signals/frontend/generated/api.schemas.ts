@@ -3404,6 +3404,8 @@ export interface SuggestedReviewerEntryReadApi {
     reason: string | null
     /** True when the scout owner guardrail added the entry rather than commit authorship. */
     is_skill_owner: boolean
+    /** True when no evidence selected anyone and the report fell back to the project's default owner. The entry routes the report, but it is not ownership evidence. */
+    is_default_owner: boolean
     /**
      * Scout skill whose run wrote the entry. Null when no scout did.
      * @nullable
@@ -3825,6 +3827,11 @@ export interface ZendeskTicketSignalExtraApi {
     status: string
 }
 
+export interface GithubIssueDependencyRefApi {
+    repository: string
+    number: number
+}
+
 export interface GithubIssueSignalExtraApi {
     html_url: string
     number: number
@@ -3835,6 +3842,7 @@ export interface GithubIssueSignalExtraApi {
     state: string
     author_login?: string | null
     author_association?: string | null
+    depends_on_issues?: GithubIssueDependencyRefApi[]
 }
 
 export interface LinearIssueSignalExtraApi {
@@ -5272,6 +5280,7 @@ export interface SignalReportStateRequestApi {
  * * `check_result` - Check Result
  * * `check_observation` - Check Observation
  * * `check_scheduled` - Check Scheduled
+ * * `check_authoring` - Check Authoring
  * * `check_expired` - Check Expired
  * * `check_cancelled` - Check Cancelled
  * * `implementation_decision` - Implementation Decision
@@ -5313,6 +5322,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     CheckResult: 'check_result',
     CheckObservation: 'check_observation',
     CheckScheduled: 'check_scheduled',
+    CheckAuthoring: 'check_authoring',
     CheckExpired: 'check_expired',
     CheckCancelled: 'check_cancelled',
     ImplementationDecision: 'implementation_decision',
@@ -5948,6 +5958,186 @@ export interface SignalReportBulkClaimResponseApi {
     conflict_count: number
     /** Number of requested ids not visible to the caller. */
     not_found_count: number
+}
+
+/**
+ * * `ready` - ready
+ * * `unavailable` - unavailable
+ */
+export type PersonalRankingStatusEnumApi =
+    (typeof PersonalRankingStatusEnumApi)[keyof typeof PersonalRankingStatusEnumApi]
+
+export const PersonalRankingStatusEnumApi = {
+    Ready: 'ready',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `top` - top
+ * * `worth_a_look` - worth_a_look
+ * * `later` - later
+ */
+export type PersonalRankingTierEnumApi = (typeof PersonalRankingTierEnumApi)[keyof typeof PersonalRankingTierEnumApi]
+
+export const PersonalRankingTierEnumApi = {
+    Top: 'top',
+    WorthALook: 'worth_a_look',
+    Later: 'later',
+} as const
+
+/**
+ * * `suggested_reviewer` - suggested_reviewer
+ * * `claimed` - claimed
+ * * `waiting_on_input` - waiting_on_input
+ */
+export type PersonalRankingNeedsYouEnumApi =
+    (typeof PersonalRankingNeedsYouEnumApi)[keyof typeof PersonalRankingNeedsYouEnumApi]
+
+export const PersonalRankingNeedsYouEnumApi = {
+    SuggestedReviewer: 'suggested_reviewer',
+    Claimed: 'claimed',
+    WaitingOnInput: 'waiting_on_input',
+} as const
+
+export interface PersonalRankingMatchedApi {
+    /**
+     * The theme of your activity summary that the report matches, or null.
+     * @nullable
+     */
+    theme: string | null
+    /** Why the report needs you: you are a suggested reviewer, you claimed it, or it waits on your input. */
+    needs_you: PersonalRankingNeedsYouEnumApi[]
+}
+
+/**
+ * * `llm` - llm
+ * * `model` - model
+ */
+export type PersonalRankingRankedByEnumApi =
+    (typeof PersonalRankingRankedByEnumApi)[keyof typeof PersonalRankingRankedByEnumApi]
+
+export const PersonalRankingRankedByEnumApi = {
+    Llm: 'llm',
+    Model: 'model',
+} as const
+
+export interface PersonalRankingReportApi {
+    /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+    id: string
+    /** The report title. */
+    title: string
+    /** The report status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** The report priority, P0 to P4, or null.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi | null
+    /** The state of the report's implementation pull request, or null when it has none.
+     *
+     * * `unknown` - Unknown
+     * * `draft` - Draft
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** The ranking model's predictions for the report. */
+    ranking: ReportRankingApi
+}
+
+export interface PersonalRankingEntryApi {
+    /** The position in your list. 1 is the first. */
+    rank: number
+    /** top, worth_a_look or later.
+     *
+     * * `top` - top
+     * * `worth_a_look` - worth_a_look
+     * * `later` - later */
+    tier: PersonalRankingTierEnumApi
+    /** Why the report has this place in your list. */
+    reason: string
+    /**
+     * A suggested next step for the top entries. Null for the others.
+     * @nullable
+     */
+    next_step: string | null
+    /** What in your work the report matches. */
+    matched: PersonalRankingMatchedApi
+    /** llm: the language model placed the report. model: it kept its place in the inbox order.
+     *
+     * * `llm` - llm
+     * * `model` - model */
+    ranked_by: PersonalRankingRankedByEnumApi
+    /** A compact view of the report. */
+    report: PersonalRankingReportApi
+}
+
+export interface PersonalRankingFoldApi {
+    /** The report that the list leaves out. */
+    report_id: string
+    /** The report in the list that covers the same work. */
+    into_report_id: string
+    /** Why the two reports are about the same work. */
+    reason: string
+}
+
+export interface PersonalRankingApi {
+    /** ready: the list is in `results`. unavailable: personal ranking is off now, and `results` is empty.
+     *
+     * * `ready` - ready
+     * * `unavailable` - unavailable */
+    status: PersonalRankingStatusEnumApi
+    /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
+    personalized: boolean
+    /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
+    cached: boolean
+    /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise you reached the build limit, so try again later. */
+    stale: boolean
+    /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
+    building: boolean
+    /**
+     * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. build_failed: no list is stored yet and the build could not start. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
+     * @nullable
+     */
+    fallback_reason: string | null
+    /**
+     * When the list was built.
+     * @nullable
+     */
+    generated_at: string | null
+    /**
+     * How long the model call of the build took, in ms. Null when there was no model call.
+     * @nullable
+     */
+    latency_ms: number | null
+    /**
+     * The version of your activity summary that the build read, or null.
+     * @nullable
+     */
+    activity_summary_version: number | null
+    /** How many reports the build considered. */
+    candidates_considered: number
+    /** How many reports the stored list ranks. `results` holds at most `limit` of them. */
+    ranked_count: number
+    /** Your reports, best first. A report that left your inbox since the build, for example a resolved one, is left out. */
+    results: PersonalRankingEntryApi[]
+    /** Reports the list leaves out because another report in it covers the same work. */
+    folded: PersonalRankingFoldApi[]
 }
 
 /**
@@ -10883,6 +11073,30 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
         /** Member's email address. */
         email: string
     }
+}
+
+export type SignalsReportsForMeRetrieveParams = {
+    /**
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
+     * @maxLength 2000
+     */
+    focus?: string
+    /**
+     * The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
+     */
+    refresh?: boolean
+    /**
+     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * @minimum 0
+     * @maximum 30
+     */
+    wait_seconds?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {

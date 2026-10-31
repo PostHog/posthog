@@ -76,6 +76,7 @@ export function AIConsentPopoverWrapper({
     children,
     ignoreDismissal,
     onApprove,
+    onBeforeApprove,
     onDismiss,
     hideTrainingDisclaimer,
     pendingRedirectUrl,
@@ -86,6 +87,11 @@ export function AIConsentPopoverWrapper({
     /** Always show popover regardless of prior dismissal. */
     ignoreDismissal?: boolean
     onApprove?: () => void
+    /**
+     * Runs once the person confirms, before the approval request. That request can trigger a
+     * full-page SSO reauthentication, so persist here anything `onApprove` would need after it.
+     */
+    onBeforeApprove?: () => void
     onDismiss?: () => void
     /** Passed through to AIConsentPopoverContent. */
     hideTrainingDisclaimer?: boolean
@@ -125,6 +131,7 @@ export function AIConsentPopoverWrapper({
                                     setAt: Date.now(),
                                 })
                             }
+                            onBeforeApprove?.()
                             await acceptDataProcessing()
                             onApprove?.()
                         }}

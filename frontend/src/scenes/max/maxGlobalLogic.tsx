@@ -8,14 +8,15 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
@@ -29,13 +30,6 @@ import type { SceneConfig } from '../sceneTypes'
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { PHAI_VIEW_MODE_KEY } from './max-storage-keys'
 import { maxLogic, mergeConversationHistory, mergeConversations, sidePanelMaxLogic } from './maxLogic'
-
-/**
- * Which PostHog AI implementation the Max scene renders. `'new'` is the posthog_ai/frontend surface
- * (the tasks product on `/ai`, the new composer + thread viewer in the side panel); `'legacy'` is the
- * existing Max chat. Only meaningful while the `PHAI_SANDBOX_MODE` flag is on — see `effectivePhaiView`.
- */
-export type PhaiViewMode = 'new' | 'legacy'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
