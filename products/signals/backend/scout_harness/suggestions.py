@@ -835,7 +835,7 @@ def build_suggestions_prompt(fleet: FleetContext) -> str:
     )
     return f"""You are preparing the "Suggested for this project" list for the PostHog scouts tab. Nobody is in the chat with you: work headlessly and end your turn with the JSON object described at the bottom.
 
-First, {SCOUT_PROJECT_SCAN_GUIDANCE} Use the read-data, insight, dashboard, and signals-scout MCP tools (config list for the fleet, recent runs and reports for what the scouts already surface). Read the authoring-scouts skill from the PostHog MCP (`skill-get`) before drafting any custom scout; if it is unavailable, write the draft in the same shape as the canonical scout bodies.
+First, {SCOUT_PROJECT_SCAN_GUIDANCE} Use the read-data, insight, and dashboard MCP tools, plus these scout MCP tools: `scout-project-profile-get` for the project profile, `scout-config-list` for the fleet, and `scout-runs-list`, `scout-runs-recent-emissions`, and `scout-runs-emission-reports` for what the scouts already surface. Call the `scout-*` names exactly as written here. Read the authoring-scouts skill from the PostHog MCP (`skill-get`) before drafting any custom scout; if it is unavailable, write the draft in the same shape as the canonical scout bodies.
 
 Scouts currently enabled on this project:
 {enabled_lines}
