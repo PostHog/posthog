@@ -1068,7 +1068,7 @@ class EnterpriseExperimentsViewSet(
         effect. It reads the metric's current stored result, the one the results page shows
         after its last calculation, and the running time calculator's formula.
 
-        A running experiment with `only_count_matured_users` on gets the warning
+        A running experiment with `only_count_matured_users` on gets the info
         `metrics_not_matured` while it is younger than the conversion or retention window of
         every primary metric, because no user can count for those metrics until a window passes.
         """

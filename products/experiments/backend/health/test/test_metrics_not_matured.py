@@ -21,7 +21,13 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.metrics_not_matured import metrics_not_matured
 from products.experiments.backend.health.context import HealthContext, MetricWindow
 from products.experiments.backend.health.metric_windows import metric_window
-from products.experiments.backend.health.skips import NOT_AFTER_END, NOT_ON_ARCHIVED, RUNS_AFTER_LAUNCH, CheckSkip
+from products.experiments.backend.health.skips import (
+    NEEDS_PRIMARY_METRIC,
+    NOT_AFTER_END,
+    NOT_ON_ARCHIVED,
+    RUNS_AFTER_LAUNCH,
+    CheckSkip,
+)
 from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -94,7 +100,7 @@ class TestMetricsNotMatured(TestCase):
             ("one_of_two_past_its_window", [("Checkout", FOUR_DAYS), ("Signup", THREE_DAYS)], 72, False),
         ]
     )
-    def test_warns_only_when_every_primary_metric_is_held_back(
+    def test_finds_only_when_every_primary_metric_is_held_back(
         self, _name: str, metrics: list[tuple[str, dict[str, Any]]], hours_since_launch: float, expected: bool
     ) -> None:
         outcome = metrics_not_matured(_context(metrics, hours_since_launch=hours_since_launch))
@@ -109,7 +115,7 @@ class TestMetricsNotMatured(TestCase):
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(
             (outcome.code, outcome.subcode, outcome.reason, outcome.severity, outcome.actions),
-            (ExperimentHealthFindingCode.METRICS_NOT_MATURED, None, None, ExperimentHealthFindingSeverity.WARNING, ()),
+            (ExperimentHealthFindingCode.METRICS_NOT_MATURED, None, None, ExperimentHealthFindingSeverity.INFO, ()),
         )
         self.assertIn(
             'The first users can count for "Return" on October 15, 2026 at 2:00 PM CEST and for "Checkout" on '
@@ -135,13 +141,19 @@ class TestMetricsNotMatured(TestCase):
                 "no_primary_metric",
                 {"primary_metric_count": 0, "primary_metric_windows": None},
                 Status.NOT_APPLICABLE,
-                "Runs once the experiment has a metric",
+                NEEDS_PRIMARY_METRIC,
+            ),
+            (
+                "only_secondary_metrics",
+                {"primary_metric_count": 0, "secondary_metric_count": 1, "primary_metric_windows": ()},
+                Status.NOT_APPLICABLE,
+                NEEDS_PRIMARY_METRIC,
             ),
             (
                 "only_legacy_primary_metrics",
-                {"primary_metric_windows": ()},
+                {"primary_metric_windows": (), "secondary_metric_count": 1},
                 Status.NOT_APPLICABLE,
-                "Runs once the experiment has a metric in the current format",
+                "Runs once the experiment has a primary metric in the current format",
             ),
             (
                 "windows_not_loaded",
@@ -167,6 +179,14 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
                 [FOUR_DAYS],
                 [NO_WINDOW],
                 None,
+                Status.FINDING,
+                "purchase conversion",
+            ),
+            (
+                "a_saved_metric_that_shares_the_uuid_of_an_inline_primary",
+                [FOUR_DAYS],
+                [],
+                {**FOUR_DAYS, "uuid": "primary-0"},
                 Status.FINDING,
                 "purchase conversion",
             ),
@@ -208,7 +228,7 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
         )
         if saved_primary is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
-                team=self.team, name="Checkout funnel", query={**saved_primary, "uuid": "saved-primary"}
+                team=self.team, name="Checkout funnel", query={"uuid": "saved-primary", **saved_primary}
             )
             ExperimentToSavedMetric.objects.create(
                 experiment=experiment, saved_metric=saved_metric, metadata={"type": "primary"}
@@ -226,4 +246,4 @@ class TestMetricsNotMaturedFromStoredMetrics(BaseTest):
         )
         self.assertEqual(finding is not None, expected == Status.FINDING)
         if finding:
-            self.assertIn(f'"{expected_metric}"', finding.detail)
+            self.assertEqual(finding.detail.count(f'"{expected_metric}"'), 1)

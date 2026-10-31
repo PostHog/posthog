@@ -3,18 +3,16 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from posthog.schema import ExperimentRetentionMetric
-
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.health.context import MetricWindow
-from products.experiments.backend.hogql_queries.base_query_utils import conversion_window_to_seconds
-from products.experiments.backend.hogql_queries.experiment_metric_values import get_conversion_window_seconds
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_maturity_window_seconds
 from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
     build_primary_calculation_configs,
     calculation_metric_name,
 )
-from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric
+from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -37,8 +35,8 @@ def metric_window(*, name: str, definition: dict[str, Any], start_date: datetime
     """The window of one metric definition. None when the definition doesn't parse, which `metric_cannot_compile`
     reports, so this captures nothing."""
     try:
-        window_seconds = _window_seconds(build_metric(definition))
-    except (KeyError, TypeError, ValidationError):
+        window_seconds = get_maturity_window_seconds(build_metric(definition))
+    except ValidationError:
         return None
     return MetricWindow(
         name=name,
@@ -48,8 +46,12 @@ def metric_window(*, name: str, definition: dict[str, Any], start_date: datetime
 
 
 def _load_primary_metric_windows(experiment: Experiment, start_date: datetime) -> tuple[MetricWindow, ...] | None:
-    windows: list[MetricWindow] = []
+    # Metrics that share a uuid share its first definition, so one window covers them.
+    configs: dict[str, MetricCalculationConfig] = {}
     for calculation_config in build_primary_calculation_configs(experiment):
+        configs.setdefault(calculation_config.metric_id, calculation_config)
+    windows: list[MetricWindow] = []
+    for calculation_config in configs.values():
         window = metric_window(
             name=calculation_metric_name(experiment, calculation_config),
             definition=calculation_config.definition,
@@ -59,11 +61,3 @@ def _load_primary_metric_windows(experiment: Experiment, start_date: datetime) -
             return None
         windows.append(window)
     return tuple(windows)
-
-
-def _window_seconds(metric: ExperimentMetric) -> int:
-    # The windows that `MaturityGate` receives. A retention metric can also carry a conversion window, which its
-    # maturity ignores (`RetentionQueryBuilder.get_retention_maturity_seconds`).
-    if isinstance(metric, ExperimentRetentionMetric):
-        return conversion_window_to_seconds(metric.retention_window_end, metric.retention_window_unit)
-    return get_conversion_window_seconds(metric)

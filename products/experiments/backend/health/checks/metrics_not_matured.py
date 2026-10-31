@@ -15,11 +15,11 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.context import HealthContext, MetricWindow
 from products.experiments.backend.health.skips import (
+    NEEDS_PRIMARY_METRIC,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
-    no_calculated_metric,
     not_applicable,
     not_checked,
 )
@@ -38,9 +38,12 @@ def metrics_not_matured(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NOT_AFTER_END)
     if not ctx.only_count_matured_users:
         return not_applicable(f"Runs when {_SETTING_LABEL} is on")
+    if ctx.primary_metric_count == 0:
+        return not_applicable(NEEDS_PRIMARY_METRIC)
     windows = ctx.primary_metric_windows
-    if ctx.primary_metric_count == 0 or windows == ():
-        return no_calculated_metric(ctx)
+    # The calculation leaves out a metric in the legacy format, which `primary_metric_count` counts.
+    if windows == ():
+        return not_applicable("Runs once the experiment has a primary metric in the current format")
     hours_since_launch = ctx.hours_since_launch
     if windows is None or hours_since_launch is None:
         return not_checked("Couldn't check because the primary metric windows couldn't be read")
@@ -54,7 +57,7 @@ def metrics_not_matured(ctx: HealthContext) -> CheckOutcome:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.METRICS_NOT_MATURED,
         subcode=None,
-        severity=ExperimentHealthFindingSeverity.WARNING,
+        severity=ExperimentHealthFindingSeverity.INFO,
         title="No users count yet because the metric windows aren't complete",
         detail=" ".join(
             [

@@ -154,7 +154,7 @@ export const RunningWithMetricWindowsNotComplete: Story = {
                 code: 'metrics_not_matured',
                 subcode: null,
                 reason: null,
-                severity: 'warning',
+                severity: 'info',
                 title: "No users count yet because the metric windows aren't complete",
                 detail: 'A user counts for a metric only after the metric\'s conversion or retention window has passed, so no primary metric has users yet. The first users can count for "Checkout" on October 5, 2026 at 2:00 PM CEST and for "Return visits" on October 15, 2026 at 2:00 PM CEST. To count users sooner, turn off "Require completed conversion or retention window" in the experiment\'s Settings tab. Users whose window is still open then count too.',
                 evidence: { hours_since_launch: 72, first_users_count_at: '2026-10-05T12:00:00+00:00' },
