@@ -4528,7 +4528,7 @@ jobs:
 
     backend-coverage-report:
         name: Backend coverage report
-        needs: [changes, turbo-tests, django_tests, turbo-discover]
+        needs: [changes, django, turbo-tests, django_tests, turbo-discover]
         runs-on: depot-ubuntu-24.04
         continue-on-error: true
         timeout-minutes: 10
@@ -4540,7 +4540,7 @@ jobs:
             github.event.pull_request.draft == false &&
             needs.turbo-discover.outputs.mode != 'selected' &&
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
-            (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
+            (needs.turbo-tests.result != 'skipped' || needs.django.result != 'skipped')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
