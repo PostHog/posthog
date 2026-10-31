@@ -527,10 +527,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         insightLoading,
         sourceQuery,
         isSourceQueryLastRun,
+        isMultiQuery,
         selectedConnectionId,
         hasEditorChanges,
+        metadata,
+        activeQueryText,
     } = useValues(sqlEditorLogic)
-    const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget, saveAsCohort } =
+        useActions(editorSceneLogic)
     const {
         updateInsight,
         closeEditingObject,
@@ -617,6 +621,40 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         return undefined
     }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
+    const saveAsCohortDisabledReason = useMemo(() => {
+        if (saveAsDisabledReason) {
+            return saveAsDisabledReason
+        }
+        if (selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino') {
+            return 'Switch to PostHog (ClickHouse) to save a cohort'
+        }
+        if (isMultiQuery) {
+            return 'Use a single SQL query to save a cohort'
+        }
+        const tables =
+            metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim() ? metadata?.table_names : undefined
+        const hasPersonId =
+            response &&
+            'columns' in response &&
+            response.columns?.some(
+                (column: unknown) =>
+                    column === 'person_id' ||
+                    column === 'actor_id' ||
+                    column === 'distinct_id' ||
+                    (column === 'id' && tables?.some((table) => table === 'persons' || table === 'posthog.persons'))
+            )
+        return hasPersonId ? undefined : 'Return person_id, actor_id, distinct_id, or id from persons'
+    }, [
+        saveAsDisabledReason,
+        selectedConnectionId,
+        sourceQuery.source.executionTarget,
+        isMultiQuery,
+        metadata,
+        activeQueryText,
+        queryInput,
+        response,
+    ])
+
     const saveAsEndpointQueryDisabledReason = useMemo(() => {
         if (insightLoading) {
             return 'Wait for the insight to load before creating an endpoint'
@@ -638,6 +676,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     }, [insightLoading, queryInput, responseLoading, isSourceQueryLastRun, responseError, response])
 
     const disabledReasonForSaveAsTarget = (target: SaveAsTargetId): string | null | undefined => {
+        if (target === 'cohort') {
+            return saveAsCohortDisabledReason
+        }
         if (target === 'insight') {
             return saveAsInsightDisabledReason
         }
@@ -666,6 +707,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             saveAsView()
         } else if (target === 'endpoint') {
             saveAsEndpoint()
+        } else if (target === 'cohort') {
+            saveAsCohort()
         } else {
             saveAsMetric()
         }
@@ -692,6 +735,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         { action: 'insight' as const, label: 'Save as new insight...' },
         { action: 'view' as const, label: 'Save as new view...' },
         { action: 'endpoint' as const, label: 'Save as endpoint...' },
+        { action: 'cohort' as const, label: 'Save as cohort...' },
     ].map((item) => ({
         ...item,
         onClick: () => saveAsTarget(item.action),
