@@ -1,10 +1,17 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+from typing import Any
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@frozen
 class ButtondownEndpointConfig:
     name: str
     path: str
@@ -20,6 +27,29 @@ class ButtondownEndpointConfig:
     # order we cannot force stay "desc", which defers the commit to the end of a successful job.
     sort_mode: SortMode = "desc"
     partition_key: str | None = "creation_date"
+    # Set for per-subscriber endpoints, which are fetched once for every row of /subscribers.
+    fanout: DependentEndpointConfig | None = None
+    # Structural requirements of `FanoutEndpointLike`. Fan-out children are full refresh, and
+    # Buttondown takes no page-size param, so the fan-out passes `page_size_param=None`.
+    incremental_fields: list[Any] = field(default_factory=list)
+    default_incremental_field: str | None = None
+    page_size: int = 100
+
+
+# A subscriber deleted between the parent listing and its child fetch 404s. Skip that subscriber
+# rather than failing the whole fan-out.
+_SKIP_DELETED_SUBSCRIBER: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+
+def _per_subscriber(parent_key_name: str) -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="subscribers",
+        resolve_param="id_or_email",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": parent_key_name},
+        child_response_actions=_SKIP_DELETED_SUBSCRIBER,
+    )
 
 
 BUTTONDOWN_ENDPOINTS: dict[str, ButtondownEndpointConfig] = {
@@ -34,6 +64,8 @@ BUTTONDOWN_ENDPOINTS: dict[str, ButtondownEndpointConfig] = {
     ),
     "events": ButtondownEndpointConfig(name="events", path="/events", ordering="creation_date", sort_mode="asc"),
     "forms": ButtondownEndpointConfig(name="forms", path="/forms", ordering="creation_date", sort_mode="asc"),
+    # /notes documents no `ordering` param and no date filter.
+    "notes": ButtondownEndpointConfig(name="notes", path="/notes"),
     "prices": ButtondownEndpointConfig(name="prices", path="/prices", sort_mode="asc", partition_key=None),
     # `ordering` is documented on /subscribers but its accepted values are not enumerated, and an
     # unrecognized value falls back to the default `-creation_date` rather than erroring. Rather
@@ -48,6 +80,28 @@ BUTTONDOWN_ENDPOINTS: dict[str, ButtondownEndpointConfig] = {
     ),
     "surveys": ButtondownEndpointConfig(name="surveys", path="/surveys", ordering="creation_date", sort_mode="asc"),
     "tags": ButtondownEndpointConfig(name="tags", path="/tags", sort_mode="asc"),
+    # The per-subscriber endpoints take only `page`, so they are full refresh. The parent subscriber
+    # id is part of each key, because the vendor documents no table-wide uniqueness for these ids.
+    "automation_attempts": ButtondownEndpointConfig(
+        name="automation_attempts",
+        path="/subscribers/{id_or_email}/automations",
+        primary_keys=["subscriber_id", "id"],
+        partition_key="execution_date",
+        fanout=_per_subscriber("subscriber_id"),
+    ),
+    # Each row is a subscriber that the parent subscriber referred.
+    "referrals": ButtondownEndpointConfig(
+        name="referrals",
+        path="/subscribers/{id_or_email}/referrals",
+        primary_keys=["referrer_subscriber_id", "id"],
+        fanout=_per_subscriber("referrer_subscriber_id"),
+    ),
+    "stripe_subscriptions": ButtondownEndpointConfig(
+        name="stripe_subscriptions",
+        path="/subscribers/{id_or_email}/stripe-subscriptions",
+        primary_keys=["subscriber_id", "subscription_id"],
+        fanout=_per_subscriber("subscriber_id"),
+    ),
 }
 
 ENDPOINTS = tuple(BUTTONDOWN_ENDPOINTS.keys())

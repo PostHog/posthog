@@ -4,8 +4,7 @@ from typing import Any
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.webhook_template import template
 
 SOURCE_ID = "source_test_123"

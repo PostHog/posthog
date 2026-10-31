@@ -2,6 +2,7 @@
 
 import sys
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,10 +15,12 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import gates  # noqa: E402
 import review_pr  # noqa: E402
 import review_local  # noqa: E402
 import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
+from policy import DenyException  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
 
@@ -158,6 +161,52 @@ def test_pending_migration_check_waits_instead_of_refusing(monkeypatch) -> None:
 
     assert result["final_verdict"] == "WAIT"
     assert "Migration risk" in result["reviewer"]["reasoning"]
+
+
+def _evidence(state: str, head_sha: str, reviewer: str = "PostHog Review") -> dict:
+    return {
+        "state": state,
+        "reviewer": reviewer,
+        "review_kind": "Standard",
+        "findings_count": 0,
+        "published": False,
+        "head_sha": head_sha,
+    }
+
+
+@pytest.mark.parametrize(
+    "review_evidence, expected",
+    [
+        pytest.param([_evidence("pending", "h" * 40)], "WAIT", id="pending-on-the-head-waits"),
+        pytest.param([_evidence("pending", "o" * 40)], "APPROVED", id="pending-on-an-older-head-is-ignored"),
+        pytest.param([_evidence("failed", "h" * 40)], "APPROVED", id="failed-reviews-as-without-it"),
+        pytest.param(
+            [_evidence("completed", "h" * 40), _evidence("pending", "h" * 40, reviewer="Other Reviewer")],
+            "WAIT",
+            id="one-pending-among-completed-waits",
+        ),
+    ],
+)
+def test_pending_external_review_waits_instead_of_approving(
+    monkeypatch, review_evidence: list[dict], expected: str
+) -> None:
+    # The server stops waiting when its poll budget runs out. An approval over a review that is still
+    # running would stand before that review's findings reach the PR.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    def fake_llm(self, gate_verdict: str) -> None:
+        self.final_verdict = "APPROVED"
+        self.reviewer_output = {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(Pipeline, "_llm_review", fake_llm)
+    context = {**_run_context([_api_file("src/app.py")]), "review_evidence": review_evidence}
+
+    result = review_local.run(context)
+
+    assert result["final_verdict"] == expected
+    if expected == "WAIT":
+        assert "still reviewing this commit" in result["reviewer"]["reasoning"]
 
 
 _GIT_PROVENANCE = CommitProvenance(commit_count=3, agent_commit_count=2, generated_by=("claude",), task_ids=("t-1",))
@@ -715,6 +764,82 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
 
     monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
     assert review_local.run(context)["final_verdict"] == expect_verdict
+
+
+@pytest.mark.parametrize(
+    "files, safe_migrations, expected_tier, expected_verdict",
+    [
+        pytest.param(["apps/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-config-not-t0"),
+        pytest.param(["apps/tests/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-test-not-t0"),
+        pytest.param([".github/workflows/codeql.yml"], [], "T1-agent", "REFUSED", id="ci-category-not-t0"),
+        pytest.param([".github/helm/test_chart.py"], [], "T1-agent", "REFUSED", id="ci-test-not-t0"),
+        pytest.param(["docs/change.md"], [], "T0-deterministic", "ESCALATE", id="unaffected-allow-list-stays-t0"),
+        pytest.param(["src/test_app.py"], [], "T0-deterministic", "ESCALATE", id="unaffected-tests-stay-t0"),
+        pytest.param(
+            ["apps/billing/values.yaml", "posthog/migrations/0999_add_col.py"],
+            ["posthog/migrations/0999_add_col.py"],
+            "T1-agent",
+            "REFUSED",
+            id="safe-migration-ignored-in-both-scans",
+        ),
+    ],
+)
+def test_deny_exception_requires_full_review_in_pipeline_and_pregate(
+    monkeypatch, tmp_path, files: list[str], safe_migrations: list[str], expected_tier: str, expected_verdict: str
+) -> None:
+    policy = replace(
+        review_pr.POLICY,
+        deny_exceptions={
+            "billing": (DenyException(keyword="billing", path_prefixes=("apps/",), extensions=(".yaml", ".yml")),),
+            "infra_cicd": (DenyException(keyword=None, path_prefixes=(".github/",), extensions=()),),
+            "ci_workflows": (DenyException(keyword=None, path_prefixes=(".github/",), extensions=()),),
+        },
+    )
+    monkeypatch.setattr(review_pr, "POLICY", policy)
+    monkeypatch.setattr(
+        gates, "DENY_EXCEPTIONS", gates._compile_deny_exceptions(policy.deny_pattern_defs(), policy.deny_exceptions)
+    )
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_local, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    diff_path = tmp_path / "change.diff"
+    diff_path.write_text("+change\n")
+    monkeypatch.setattr(review_pr, "write_pr_diff", lambda *a, **k: diff_path)
+
+    def refuse(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "REFUSE", "reasoning": "Needs a safer change.", "risk": "high", "issues": []}
+
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", refuse)
+    checks = (
+        [
+            {
+                "name": "Migration risk",
+                "status": "completed",
+                "conclusion": "success",
+                "output": {"summary": f"<!-- stamphog:v1 {json.dumps(safe_migrations)} -->"},
+            }
+        ]
+        if safe_migrations
+        else []
+    )
+    context = _pregate_context(
+        [_api_file(path, status="modified") for path in files],
+        check_runs=checks,
+        folder_policies_known=True,
+        author_team_slugs=[],
+    )
+    context["pr"]["title"] = "fix: billing helm configuration"
+    context["commit_messages"] = []
+    outcome = review_local.pregate(context)
+    result = review_local.run(context)
+
+    assert outcome["final"] is False
+    assert outcome["result"] is None
+    assert result["classification"]["tier"] == expected_tier
+    assert result["classification"]["deny_categories"] == []
+    assert result["classification"]["title_scrutiny_flags"] == ["billing", "infra_cicd"]
+    assert result["final_verdict"] == expected_verdict
 
 
 def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) -> None:

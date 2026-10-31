@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import (
     AMPLITUDE_ENDPOINTS,
@@ -21,7 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     EVENTS_EXPORT_WINDOW_HOURS,
     AmplitudeEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -50,6 +53,12 @@ _AMPLITUDE_TS_FORMATS = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
 
 class AmplitudeRetryableError(Exception):
     pass
+
+
+# Amplitude has occasionally served a 2xx export response whose body isn't a valid zip
+# archive (e.g. truncated by a network blip). Raised as retryable so Temporal retries the
+# activity and re-downloads the window, rather than failing the sync outright.
+AMPLITUDE_INVALID_ARCHIVE_ERROR = "Amplitude export response was not a valid zip archive"
 
 
 @dataclasses.dataclass
@@ -126,7 +135,7 @@ def validate_credentials(api_key: str, secret_key: str, region: str) -> tuple[bo
     return False, f"Unexpected response from Amplitude (status {response.status_code})."
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AmplitudeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(RETRY_MAX_ATTEMPTS),
     wait=wait_exponential_jitter(initial=2, max=60),
@@ -169,13 +178,24 @@ def _iter_export_window(
         for chunk in response.iter_content(chunk_size=EXPORT_DOWNLOAD_CHUNK_BYTES):
             buffer.write(chunk)
         buffer.seek(0)
-        with zipfile.ZipFile(buffer) as archive:
-            for entry in archive.namelist():
-                with archive.open(entry) as raw, gzip.open(raw) as decompressed:
-                    for line in decompressed:
-                        if not line.strip():
-                            continue
-                        yield _normalize_event(json.loads(line))
+        try:
+            archive = zipfile.ZipFile(buffer)
+        except zipfile.BadZipFile as e:
+            raise AmplitudeRetryableError(f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url={url}") from e
+
+        # A central directory can parse fine while an individual entry's payload is corrupt
+        # (truncated gzip member, bad CRC) — that only surfaces once the entry is read, so it
+        # needs its own retryable classification alongside the archive-open check above.
+        try:
+            with archive:
+                for entry in archive.namelist():
+                    with archive.open(entry) as raw, gzip.open(raw) as decompressed:
+                        for line in decompressed:
+                            if not line.strip():
+                                continue
+                            yield _normalize_event(json.loads(line))
+        except (zipfile.BadZipFile, gzip.BadGzipFile, EOFError) as e:
+            raise AmplitudeRetryableError(f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url={url}") from e
 
 
 def _get_events_rows(

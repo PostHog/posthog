@@ -1,5 +1,4 @@
 import { ArrowRightIcon, GlobeIcon } from "@phosphor-icons/react";
-import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   Switch,
   Table,
@@ -10,14 +9,14 @@ import {
   TableRow,
 } from "@posthog/quill";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { Badge } from "@posthog/ui/primitives/Badge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { Link } from "@tanstack/react-router";
-import { useUpdateLoop } from "../hooks/useLoopMutations";
+import { useSetLoopEnabled } from "../hooks/useLoopMutations";
 import {
-  loopPausedDescription,
   loopStatusColor,
   loopStatusLabel,
   summarizeTrigger,
@@ -42,12 +41,6 @@ function triggerLines(loop: LoopSchemas.Loop): {
     primary: cadence ?? "",
     secondary: nextRun ? `next ${nextRun}` : more,
   };
-}
-
-function lastRunLabel(loop: LoopSchemas.Loop): string | null {
-  return loop.consecutive_failures > 0
-    ? `${loop.consecutive_failures} failed in a row`
-    : loop.last_run_status;
 }
 
 export function LoopsTable({
@@ -128,15 +121,8 @@ function LoopTableRow({
 }) {
   const description = loop.description.trim();
   const trigger = triggerLines(loop);
-  const runLabel = lastRunLabel(loop);
-  const pausedDescription = loopPausedDescription(loop);
-  const lastRunFailed =
-    loop.consecutive_failures > 0 || loop.last_run_status === "failed";
-  const statusBadge = (
-    <span className="inline-flex shrink-0">
-      <Badge color={loopStatusColor(loop)}>{loopStatusLabel(loop)}</Badge>
-    </span>
-  );
+  const runLabel = loop.last_run_status;
+  const lastRunFailed = loop.last_run_status === "failed";
 
   return (
     <TableRow className={loop.enabled ? undefined : "opacity-70"}>
@@ -162,16 +148,11 @@ function LoopTableRow({
                   {loop.name}
                 </Link>
               )}
-              {pausedDescription ? (
-                <Tooltip content={pausedDescription}>{statusBadge}</Tooltip>
-              ) : (
-                statusBadge
-              )}
-              {loop.visibility === "personal" ? (
-                <Badge color="gray" className="shrink-0">
-                  personal
+              <span className="inline-flex shrink-0">
+                <Badge color={loopStatusColor(loop)}>
+                  {loopStatusLabel(loop)}
                 </Badge>
-              ) : null}
+              </span>
             </div>
             {description ? (
               <span className="truncate text-[12px] text-gray-10">
@@ -267,20 +248,16 @@ function LoopScopeCell({ scope }: { scope: LoopScope }) {
 }
 
 function LoopEnabledSwitch({ loop }: { loop: LoopSchemas.Loop }) {
-  const update = useUpdateLoop(loop.id);
-  const tooltip = loop.enabled
-    ? "Pause this loop"
-    : loop.disabled_reason
-      ? "Resume this loop"
-      : "Turn this loop on";
+  const setEnabled = useSetLoopEnabled(loop.id);
+  const tooltip = loop.enabled ? "Pause this loop" : "Turn this loop on";
   return (
     <Tooltip content={tooltip}>
       <span className="inline-flex">
         <Switch
           size="sm"
           checked={loop.enabled}
-          disabled={update.isPending}
-          onCheckedChange={(checked) => update.mutate({ enabled: checked })}
+          disabled={setEnabled.isPending}
+          onCheckedChange={(checked) => setEnabled.mutate(checked)}
           aria-label={`${loop.name} enabled`}
         />
       </span>

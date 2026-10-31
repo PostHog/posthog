@@ -18,11 +18,6 @@ class TestGooglePageSpeedInsightsSource:
         # Static endpoint catalog with no I/O — must opt in so public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["pagespeed_mobile"])
-
-        assert [schema.name for schema in schemas] == ["pagespeed_mobile"]
-
     @pytest.mark.parametrize(
         "error_message",
         [

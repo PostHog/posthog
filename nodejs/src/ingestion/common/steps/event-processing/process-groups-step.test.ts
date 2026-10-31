@@ -156,9 +156,16 @@ describe('createProcessGroupsStep', () => {
         { desc: 'number', groupSet: 42, receivedType: 'number' },
         { desc: 'boolean', groupSet: true, receivedType: 'boolean' },
         { desc: 'array', groupSet: ['a', 'b'], receivedType: 'array' },
+        {
+            desc: 'array and $group_type has no callable toString',
+            groupSet: ['a'],
+            receivedType: 'array',
+            groupType: { toString: null },
+            groupTypeInWarning: '{"toString":null}',
+        },
     ])(
         'drops the event with an invalid_group_set warning when $group_set is a $desc',
-        async ({ groupSet, receivedType }) => {
+        async ({ groupSet, receivedType, groupType = 'organization', groupTypeInWarning = 'organization' }) => {
             mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
 
             const step = createStep()
@@ -167,7 +174,7 @@ describe('createProcessGroupsStep', () => {
                     preparedEvent: createTestPreIngestionEvent({
                         event: '$groupidentify',
                         properties: {
-                            $group_type: 'organization',
+                            $group_type: groupType,
                             $group_key: 'org::5',
                             $group_set: groupSet,
                         },
@@ -183,7 +190,7 @@ describe('createProcessGroupsStep', () => {
                     details: expect.objectContaining({
                         eventUuid: 'test-uuid',
                         distinctId: 'test-distinct-id',
-                        groupType: 'organization',
+                        groupType: groupTypeInWarning,
                         groupKey: 'org::5',
                         receivedType,
                     }),

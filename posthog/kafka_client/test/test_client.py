@@ -5,11 +5,12 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
+from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
-from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult, _KafkaProducer
 from posthog.settings.kafka import KafkaProfileSettings, _resolve_producer_settings
 
 
@@ -259,9 +260,36 @@ class KafkaClientTestCase(TestCase):
 _ROUNDTRIP = os.environ.get("KAFKA_ROUNDTRIP_TESTS") == "1"
 
 
+class ClickhouseProducerDeliveryTestCase(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("acknowledged", True, None, None),
+            ("failed", True, KafkaError(KafkaError._MSG_TIMED_OUT), KafkaException),  # type: ignore[attr-defined]
+            ("unacknowledged", False, None, TimeoutError),
+        ]
+    )
+    @override_settings(TEST=False)
+    def test_wait_for_delivery(
+        self, _name: str, delivered: bool, error: KafkaError | None, expected: type[Exception] | None
+    ) -> None:
+        result = ProduceResult(topic="events_json")
+        producer = MagicMock()
+        if delivered:
+            producer.poll.side_effect = lambda timeout: result.set_result(error, None)
+
+        with patch("posthog.kafka_client.routing.get_producer", return_value=producer):
+            if expected is None:
+                ClickhouseProducer().wait_for_delivery([result], timeout=0.05)
+            else:
+                with pytest.raises(expected):
+                    ClickhouseProducer().wait_for_delivery([result], timeout=0.05)
+
+        producer.flush.assert_not_called()
+
+
 @pytest.mark.skipif(not _ROUNDTRIP, reason="KAFKA_ROUNDTRIP_TESTS=1 required to hit a real broker")
 @override_settings(TEST=False)
-class KafkaClientRoundtripTestCase(TestCase):
+class KafkaClientRoundtripTestCase(SimpleTestCase):
     """Exercises `_KafkaProducer` against a real broker. Gated behind KAFKA_ROUNDTRIP_TESTS."""
 
     def _make_topic(self) -> str:

@@ -36,6 +36,14 @@ ENDPOINTS: dict[str, HeyGenEndpoint] = {
         path="voices", primary_key="voice_id", partition_key=None, params={"type": "private"}, scope="voices:read"
     ),
     "templates": HeyGenEndpoint(path="templates", scope="templates:read"),
+    "lipsyncs": HeyGenEndpoint(path="lipsyncs", scope="lipsync:read"),
+    "audio_voices": HeyGenEndpoint(
+        path="models/audio/voices",
+        primary_key="voice_id",
+        sort_mode="desc",
+        params={"type": "private"},
+        scope="voices:read",
+    ),
     "account": HeyGenEndpoint(
         path="users/me", primary_key="username", partition_key=None, paginated=False, scope="account:read"
     ),

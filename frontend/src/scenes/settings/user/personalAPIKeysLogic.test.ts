@@ -1,16 +1,19 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { expiresAtForOption, personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 describe('personalAPIKeysLogic', () => {
     let logic: ReturnType<typeof personalAPIKeysLogic.build>
@@ -110,6 +113,16 @@ describe('personalAPIKeysLogic', () => {
         expect(capturedCreatePayload.scopes).toEqual(['*'])
     })
 
+    it('opens a new key with the preset scopes for a ?preset= link', () => {
+        router.actions.push(urls.settings('user-api-keys'), { preset: 'source_map_upload' })
+
+        expect(logic.values.editingKeyId).toBe('new')
+        expect(logic.values.editingKey).toMatchObject({
+            preset: 'source_map_upload',
+            scopes: ['organization:read', 'error_tracking:write'],
+        })
+    })
+
     it.each(['survey', 'early_access_feature'])(
         'auto-selects feature_flag:write when %s write is granted',
         async (scope) => {
@@ -155,5 +168,15 @@ describe('personalAPIKeysLogic', () => {
 
         expect(logic.values.editingKey.scopes).toContain('survey:write')
         expect(logic.values.editingKey.scopes).not.toContain('feature_flag:write')
+    })
+
+    it.each([
+        ['keep', undefined],
+        ['never', null],
+        ['1', dayjs('2026-01-02T10:00:00Z').toISOString()],
+        ['30', dayjs('2026-01-31T10:00:00Z').toISOString()],
+        ['365', dayjs('2027-01-01T10:00:00Z').toISOString()],
+    ] as const)('expiration %s sends expires_at %s', (expiration, expected) => {
+        expect(expiresAtForOption(expiration, dayjs('2026-01-01T10:00:00Z'))).toEqual(expected)
     })
 })

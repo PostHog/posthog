@@ -376,7 +376,11 @@ def _canonical_group(group: dict) -> str:
     are sorted because an agent that rewrites the definition may emit them in any order.
     """
     properties = group.get("properties")
-    canonical: dict[str, Any] = {key: value for key, value in group.items() if key != "properties"}
+    # condition_id is a hash the MCP read tools add and the update tool strips before the PATCH.
+    # The seeded filters never carry it, so a correct write that echoes it must still match.
+    canonical: dict[str, Any] = {
+        key: value for key, value in group.items() if key not in ("properties", "condition_id")
+    }
     canonical["properties"] = (
         sorted(json.dumps(prop, sort_keys=True) for prop in properties) if isinstance(properties, list) else properties
     )
@@ -669,6 +673,7 @@ FLAG_MUTATION_TOOLS = frozenset(
         "feature-flag-unarchive",
         "feature-flag-disable",
         "feature-flag-enable",
+        "feature-flag-rules-update",
         "feature-flag-roll-out-to-everyone",
         "feature-flag-set-release-condition-rollout",
         "delete-feature-flag",

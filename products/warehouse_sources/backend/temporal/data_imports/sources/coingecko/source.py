@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -47,6 +48,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoinGeckoSource(ResumableSource[CoinGeckoSourceConfig, CoinGeckoResumeConfig]):
+    codebase_detection = detect(
+        env=("^(COIN_GECKO|COINGECKO)_",),
+        npm=("@coingecko/coingecko-typescript",),
+        pypi=("coingecko-sdk", "pycoingecko"),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://docs.coingecko.com/"
@@ -61,7 +68,7 @@ class CoinGeckoSource(ResumableSource[CoinGeckoSourceConfig, CoinGeckoResumeConf
             name=ExternalDataSourceType.COINGECKO,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinGecko",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your CoinGecko API key to pull cryptocurrency market data into the PostHog Data warehouse.
 
 Create a key in your [CoinGecko developer dashboard](https://www.coingecko.com/en/developers/dashboard). Free **Demo** keys (`x-cg-demo-api-key`) and paid **Pro** keys (`x-cg-pro-api-key`) use different hosts — pick the plan that matches your key.
@@ -96,6 +103,7 @@ The global market cap chart and NFT market tables need a Pro key on the Analyst 
                     ),
                     SourceFieldInputConfig(
                         name="coin_ids",
+                        sync_setting=True,
                         label="Coin IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -105,6 +113,7 @@ The global market cap chart and NFT market tables need a Pro key on the Analyst 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

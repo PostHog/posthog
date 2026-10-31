@@ -67,7 +67,7 @@ const SOURCE_LABELS: Record<string, string> = {
     task_analysis: 'Task analysis',
     hogdesk: 'HogDesk',
     mcp_analytics: 'MCP analytics',
-    review_hog: 'ReviewHog',
+    review_hog: 'PostHog Review',
 }
 
 export function recentSourceLabel(source: string): string {

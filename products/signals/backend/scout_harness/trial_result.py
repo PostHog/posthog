@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import asyncio
 import hashlib
@@ -24,6 +25,22 @@ from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METAD
 
 MAX_TRIAL_RESULT_BYTES = 4 * 1024 * 1024
 _RUNTIME_FIELDS = ("runtime_adapter", "model", "reasoning_effort", "service_tier")
+
+
+def trial_timeout_error(run: SignalScoutRun, *, status: str) -> str | None:
+    if status != "failed" or run.task_run.status != "failed":
+        return None
+    # Only this fixed poll error is safe to surface; other Task errors can contain private source text.
+    match = re.fullmatch(
+        r"custom_prompt - poll_for_turn: timed out after ([1-9][0-9]{0,5})s "
+        r"\(stage=(?:no_turn_output|stalled_after_output|active_at_budget)\)",
+        run.task_run.error_message or "",
+    )
+    if match is None:
+        return None
+    minutes = max(1, round(int(match[1]) / 60))
+    unit = "minute" if minutes == 1 else "minutes"
+    return f"The scout timed out after about {minutes} {unit}. This run was not judged."
 
 
 @frozen

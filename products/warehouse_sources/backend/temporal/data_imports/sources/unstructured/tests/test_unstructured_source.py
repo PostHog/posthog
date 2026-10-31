@@ -19,10 +19,6 @@ class TestUnstructuredSourceClass:
         # get_schemas is a static catalog, so the public docs table list is safe to render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_name_filter(self) -> None:
-        schemas = self.source.get_schemas(UnstructuredSourceConfig(api_key="k"), self.team_id, names=["jobs"])
-        assert [s.name for s in schemas] == ["jobs"]
-
     @parameterized.expand(
         [
             ("valid", (True, None), True, None),

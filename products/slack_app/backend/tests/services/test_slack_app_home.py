@@ -32,6 +32,7 @@ from products.slack_app.backend.models import (
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
+    ThreadJoinMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services import slack_app_home
@@ -42,6 +43,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_SET_AUTO_MODEL_CHOICE,
     ACTION_SET_CHANNEL_WELCOME_MODE,
     ACTION_SET_PROJECT_WORKSPACE,
+    ACTION_SET_THREAD_JOIN_MODE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
@@ -60,6 +62,7 @@ from products.slack_app.backend.services.slack_app_home import (
     AccountState,
     GitHubAccount,
     GitHubState,
+    OwnPlanState,
     ProjectChoice,
     ProjectState,
     RunDefaultsState,
@@ -473,9 +476,28 @@ class TestRenderHomeView:
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
+            untagged_question_mode=UntaggedFollowupMode.ASK,
             channel_welcome_mode=ChannelWelcomeMode.CHANNEL,
             auto_model_choice=auto_model_choice,
+            own_plan=OwnPlanState(connected=True, settings_url="https://app.example.com/settings"),
+            thread_join_mode=ThreadJoinMode.ASK_PER_THREAD,
         )
+
+    @pytest.mark.parametrize(
+        "connected, in_multiplayer, connect_link",
+        [(True, True, False), (False, False, True)],
+    )
+    def test_a_connected_plan_is_described_under_multiplayer(self, connected, in_multiplayer, connect_link):
+        # People who join spend the creator's plan, so the plan belongs with who may join.
+        view = render_home_view(
+            is_admin=False,
+            own_plan=OwnPlanState(connected=connected, settings_url="https://app.example.com/settings"),
+        )
+        text = _all_text(view)
+
+        assert ("Multiplayer" in text) is in_multiplayer
+        assert ("use your ChatGPT plan, also when other people join your thread" in text) is in_multiplayer
+        assert ("Connect your ChatGPT plan" in text) is connect_link
 
     def test_every_control_the_tab_renders_is_routable(self):
         # The interactivity endpoint claims region ownership and dispatches off
@@ -574,29 +596,24 @@ class TestAutoModelChoiceToggle:
         }
 
     @pytest.mark.parametrize(
-        "flag_enabled,checked,expected",
+        "linked,checked,expected",
         [
             (True, True, True),
             (True, False, False),
-            # A view rendered before the flag turned off must not opt anyone in.
+            # The router runs as a PostHog user, so a viewer with no linked user must not opt in.
             (False, True, None),
         ],
     )
-    def test_toggle_is_stored_for_the_clicking_user_only_while_the_flag_is_on(
-        self, slack_integration, mock_slack_client, flag_enabled, checked, expected
+    def test_toggle_is_stored_for_the_clicking_user_only_when_linked_to_a_posthog_user(
+        self, slack_integration, mock_slack_client, linked, checked, expected
     ):
-        User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
+        if linked:
+            User.objects.create_and_join(slack_integration.team.organization, "mapped@example.com", None)
         SlackUserProfileCache.objects.create(
             integration=slack_integration, slack_user_id="U001", email="mapped@example.com"
         )
         payload = self._toggle(checked)
-        with (
-            patch(
-                "products.slack_app.backend.feature_flags.posthoganalytics.feature_enabled",
-                return_value=flag_enabled,
-            ),
-            patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False),
-        ):
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_workspace_admin", return_value=False):
             handle_ai_preferences_block_action(payload, payload["actions"][0])
 
         row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
@@ -1262,6 +1279,34 @@ class TestHandleAppHomeOpened:
         assert mock_capture.call_args.args[1] == "slack app home opened"
         assert mock_capture.call_args.kwargs["posthog_user"] == opener
 
+    @pytest.mark.parametrize("viewer_linked", [True, False])
+    def test_multiplayer_section_shows_only_to_a_linked_viewer(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_linked
+    ):
+        if viewer_linked:
+            opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration, slack_user_id="U001", email=opener.email
+            )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is viewer_linked
+        assert ("Multiplayer" in _all_text(view)) is viewer_linked
+
+    def test_join_picker_shows_without_the_plan_card(self, slack_integration, mock_slack_client, flag_on, admin_user):
+        # Who may join a thread is not a plan feature, so closing the BYOS gate must not hide it.
+        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_app_byos_enabled", return_value=False):
+            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        view = mock_slack_client.views_publish.call_args.kwargs["view"]
+        assert ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)
+        assert "ChatGPT plan" not in _all_text(view)
+
     def _github_row(self, user: User, login: str) -> UserIntegration:
         return UserIntegration.objects.create(
             user=user,
@@ -1382,8 +1427,12 @@ class TestResetPersonal:
 class TestResetProjectPersonal:
     @pytest.mark.parametrize(
         "other_settings",
-        [{"untagged_followup_mode": UntaggedFollowupMode.AUTO}, {"auto_model_choice": True}],
-        ids=["followup_mode", "auto_model_choice"],
+        [
+            {"untagged_followup_mode": UntaggedFollowupMode.AUTO},
+            {"untagged_question_mode": UntaggedFollowupMode.NEVER},
+            {"auto_model_choice": True},
+        ],
+        ids=["followup_mode", "question_mode", "auto_model_choice"],
     )
     def test_clears_routing_only_when_other_settings_present(
         self, slack_integration, mock_slack_client, flag_on, admin_user, other_settings

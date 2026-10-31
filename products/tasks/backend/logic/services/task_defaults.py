@@ -1,3 +1,4 @@
+import re
 from typing import Any, TypedDict
 
 from django.db import transaction
@@ -11,10 +12,18 @@ class TaskDefaults(TypedDict):
     # None means the person never set the value, so a client can apply its own default.
     start_in_plan_mode: bool | None
     auto_publish_cloud_runs: bool | None
+    default_cloud_target: str | None
+
+
+CLOUD_TARGET_PATTERN = r"^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
 
 def _flag(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
+
+
+def _cloud_target(value: Any) -> str | None:
+    return value if isinstance(value, str) and re.match(CLOUD_TARGET_PATTERN, value) else None
 
 
 def _from_stored(stored: dict[str, Any] | None) -> TaskDefaults:
@@ -22,6 +31,7 @@ def _from_stored(stored: dict[str, Any] | None) -> TaskDefaults:
     return TaskDefaults(
         start_in_plan_mode=_flag(stored.get("start_in_plan_mode")),
         auto_publish_cloud_runs=_flag(stored.get("auto_publish_cloud_runs")),
+        default_cloud_target=_cloud_target(stored.get("default_cloud_target")),
     )
 
 

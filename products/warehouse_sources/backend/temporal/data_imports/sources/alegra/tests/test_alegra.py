@@ -106,3 +106,35 @@ def test_unknown_table_fails_before_network(
     with pytest.raises(UnknownResourceError):
         response_for(config, replace(inputs, schema_name="missing_table"))
     assert sent == []
+
+
+@pytest.mark.parametrize(
+    "schema_name, path, query",
+    [
+        (
+            "bank_accounts",
+            "/api/v1/bank-accounts",
+            {"order_field": ["id"], "order_direction": ["ASC"], "includeInactive": ["true"]},
+        ),
+        ("warehouse_transfers", "/api/v1/warehouse-transfers", {}),
+        ("purchase_orders", "/api/v1/purchase-orders", {"order_field": ["id"], "order_direction": ["ASC"]}),
+        ("recurring_invoices", "/api/v1/recurring-invoices", {}),
+        ("taxes", "/api/v1/taxes", {}),
+    ],
+)
+def test_endpoint_request_shape(
+    config: AlegraSourceConfig,
+    inputs: SourceInputs,
+    http_boundary: Callable[..., list[PreparedRequest]],
+    redis_boundary: dict[str, str],
+    schema_name: str,
+    path: str,
+    query: dict[str, list[str]],
+) -> None:
+    sent = http_boundary([(200, [{"id": "row-test", "status": "inactive"}])])
+    assert rows(response_for(config, replace(inputs, schema_name=schema_name))) == [
+        [{"id": "row-test", "status": "inactive"}]
+    ]
+    request_url = urlsplit(sent[0].url or "")
+    assert request_url.path == path
+    assert parse_qs(request_url.query) == {**query, "limit": ["30"], "start": ["0"]}

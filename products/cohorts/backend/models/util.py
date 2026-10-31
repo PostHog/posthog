@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import uuid
+import dataclasses
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from enum import StrEnum
@@ -61,6 +62,9 @@ from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
+    from celery import Task
+    from celery.result import AsyncResult
+
     from posthog.personhog_client import ReadConsistency
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -68,6 +72,20 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 
 # Cohort query timeout settings
 COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
+COHORT_QUERY_TIMEOUT_SETTINGS = {
+    "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+    "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+    "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+}
+
+# The cohorts ClickHouse user caps a query at 42 GiB. On ClickHouse 26.6 the ratio-based spill settings never
+# trigger under a per-query cap, so the ratios are zero and the byte thresholds (half the cap) govern.
+COHORT_QUERY_SPILL_SETTINGS = {
+    "max_bytes_before_external_group_by": 21 * 1024**3,
+    "max_bytes_before_external_sort": 21 * 1024**3,
+    "max_bytes_ratio_before_external_group_by": 0,
+    "max_bytes_ratio_before_external_sort": 0,
+}
 
 
 class CohortErrorCode(StrEnum):
@@ -155,7 +173,7 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
         case PydanticValidationError() | ValidationError():
             return CohortErrorCode.VALIDATION_ERROR
 
-    code_name = getattr(e, "code_name", "").lower()
+    code_name = (getattr(e, "code_name", None) or "").lower()
     if code_name in _CLICKHOUSE_ERROR_MAPPING:
         return _CLICKHOUSE_ERROR_MAPPING[code_name]
 
@@ -165,6 +183,20 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def close_open_population_attempts(
+    cohort_id: int, *, finished_at: datetime, started_before: datetime | None = None
+) -> int:
+    """Records the cohort's open calculation history rows as interrupted and returns how many it closed."""
+    attempts = CohortCalculationHistory.objects.filter(cohort_id=cohort_id, finished_at__isnull=True)
+    if started_before is not None:
+        attempts = attempts.filter(started_at__lte=started_before)
+    return attempts.update(
+        finished_at=finished_at,
+        error=get_friendly_error_message(CohortErrorCode.INTERRUPTED, will_retry=False),
+        error_code=CohortErrorCode.INTERRUPTED,
+    )
 
 
 def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, team_id: int | None = None) -> None:
@@ -189,6 +221,18 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
             # errors are captured, so it alerts rather than only living in structured logs.
             logger.warning("cohort_recalc_recovery_save_failed", cohort_id=cohort_id, team_id=team_id, exc_info=True)
             capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
+
+
+def _schedule_cohort_stats_collection(
+    task: Task, args: list[Any], *, countdown: int, cohort_id: int
+) -> AsyncResult | None:
+    """Queue the optional stats task. A broker failure must not fail the cohort calculation."""
+    try:
+        return task.apply_async(args=args, countdown=countdown)
+    except Exception as e:
+        logger.warning("cohort_stats_collection_schedule_failed", cohort_id=cohort_id, exc_info=True)
+        capture_exception(e, additional_properties={"cohort_id": cohort_id})
+        return None
 
 
 def run_cohort_query(
@@ -227,9 +271,11 @@ def run_cohort_query(
         # Schedule delayed task to collect stats after query_log_archive is synced
         # Only if we have a history record to update and not in test mode
         if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
-            delayed_task = collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+            delayed_task = _schedule_cohort_stats_collection(
+                collect_cohort_query_stats,
+                [cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
                 countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                cohort_id=cohort_id,
             )
 
     try:
@@ -239,13 +285,18 @@ def run_cohort_query(
         # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
         # This avoids waiting the full timeout when the query completed quickly
         if delayed_task and history and query and not settings.TEST:
-            if delayed_task.state in ["PENDING", "RECEIVED"]:
+            try:
                 delayed_task.revoke()  # Cancel the delayed task
+            except Exception as e:
+                logger.warning("cohort_stats_collection_revoke_failed", cohort_id=cohort_id, exc_info=True)
+                capture_exception(e, additional_properties={"cohort_id": cohort_id})
 
             # Run immediately since the query already completed
-            collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+            _schedule_cohort_stats_collection(
+                collect_cohort_query_stats,
+                [cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
                 countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                cohort_id=cohort_id,
             )
 
         return result, end_time
@@ -418,13 +469,36 @@ def _select_list_positions_are_known(select_list: list[ast.Expr]) -> bool:
     return True
 
 
+def _is_bounded(select_query: ast.SelectQuery) -> bool:
+    return select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
+
+
+def _select_queries_under_bounded_set(query: ast.SelectQuery | ast.SelectSetQuery) -> set[int]:
+    """Return `id()` of every SELECT that sits beneath a set query with a LIMIT or OFFSET."""
+    found: set[int] = set()
+
+    def visit(node: ast.SelectQuery | ast.SelectSetQuery, bounded: bool) -> None:
+        if isinstance(node, ast.SelectQuery):
+            if bounded:
+                found.add(id(node))
+            return
+        bounded = bounded or node.limit is not None or node.offset is not None
+        visit(node.initial_select_query, bounded)
+        for subsequent in node.subsequent_select_queries:
+            visit(subsequent.select_query, bounded)
+
+    visit(query, False)
+    return found
+
+
 def _inline_positional_references(select_query: ast.SelectQuery) -> None:
     """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
 
     In ClickHouse a bare integer in GROUP BY/ORDER BY/LIMIT BY (`GROUP BY 2`) is a 1-based reference
-    into the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
-    any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
-    SELECT list up front keeps the grouping/ordering semantics intact once the list shrinks.
+    into the SELECT list. The events and persons branches replace that SELECT list with a single
+    actor column, leaving any ordinal other than 1 dangling. Resolving each ordinal against the
+    original SELECT list up front keeps the grouping and ordering semantics intact if those
+    branches collapse the list.
 
     Ordinals nested inside GROUP BY GROUPING SETS are not resolved, because those entries are tuples
     of expressions rather than bare ordinals. Such a query keeps failing the way it does today.
@@ -457,6 +531,80 @@ def _inline_positional_references(select_query: ast.SelectQuery) -> None:
         select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
 
 
+def _select_expr_name(expr: ast.Expr) -> Optional[str]:
+    if isinstance(expr, ast.Alias):
+        return expr.alias
+    if isinstance(expr, ast.Field):
+        return str(expr.chain[-1])
+    return None
+
+
+def _wrap_select_query_with_column(
+    select_query: ast.SelectQuery,
+    source_column: str,
+    target_alias: str,
+    *,
+    keep_distinct: bool = False,
+) -> None:
+    """Wrap `select_query` in `SELECT <source_column> AS <target_alias> FROM (<select_query>)` in place.
+
+    Collapsing `select_query.select` to a single column in place strips sibling SELECT aliases and
+    grouping columns, which breaks queries whose GROUP BY, HAVING, WHERE, bounded ORDER BY, or
+    LIMIT BY clauses reference those columns or aliases. Wrapping in an outer SELECT preserves the
+    inner query's column list and semantics while projecting only the target column, and keeps CTEs
+    on the outer node so root CTEs remain visible across UNION branches.
+    """
+    inner = copy.copy(select_query)
+    if not (keep_distinct or _is_bounded(inner)):
+        inner.distinct = None
+    inner.ctes = None
+    # `print_cohort_hogql_query` picks the last select expression named `source_column`. A dotted field such
+    # as `person.id` has no output name the outer query can select, so only that expression gets a unique alias.
+    source_name = source_column
+    select = list(inner.select)
+    selected_index = max(i for i, expr in enumerate(select) if _select_expr_name(expr) == source_column)
+    selected = select[selected_index]
+    if isinstance(selected, ast.Field) and len(selected.chain) > 1:
+        source_name = f"__cohort_{source_column}"
+        taken = {_select_expr_name(expr) for expr in select}
+        while source_name in taken:
+            source_name = f"_{source_name}"
+        select[selected_index] = ast.Alias(alias=source_name, expr=selected)
+    inner.select = select
+
+    wrapper = ast.SelectQuery(
+        select=[ast.Alias(alias=target_alias, expr=ast.Field(chain=[source_name]))],
+        select_from=ast.JoinExpr(table=inner),
+        ctes=select_query.ctes,
+    )
+    for field in dataclasses.fields(ast.SelectQuery):
+        setattr(select_query, field.name, getattr(wrapper, field.name))
+
+
+def _select_columns(select_query: ast.SelectQuery) -> dict[str, ast.Expr]:
+    columns: dict[str, ast.Expr] = {}
+    for expr in select_query.select:
+        if isinstance(expr, ast.Alias):
+            columns[expr.alias] = expr.expr
+        elif isinstance(expr, ast.Field):
+            columns[str(expr.chain[-1])] = expr
+    return columns
+
+
+def _is_aggregating_or_multi_column(select_query: ast.SelectQuery) -> bool:
+    return bool(
+        select_query.group_by
+        or select_query.having
+        or select_query.group_by_mode == "all"
+        or len(select_query.select) > 1
+    )
+
+
+def _selects_distinct_id_only(select_query: ast.SelectQuery) -> bool:
+    columns = _select_columns(select_query)
+    return "distinct_id" in columns and not any(name in columns for name in ("person_id", "actor_id", "id"))
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -471,59 +619,61 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_distinct_id = False
     uses_actor_id = False
 
+    queries_under_bounded_set = _select_queries_under_bounded_set(query)
+
+    # Every branch of a UNION must resolve `distinct_id` the same way, so one grouped or multi-column
+    # `distinct_id` branch sends all `distinct_id` branches through the person_distinct_id2 lookup.
+    union_resolves_distinct_ids = any(
+        _selects_distinct_id_only(select_query) and _is_aggregating_or_multi_column(select_query)
+        for select_query in extract_select_queries(query)
+    )
+
     for select_query in extract_select_queries(query):
         # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
-        # expression. We're about to collapse the SELECT list down to a single actor column,
-        # which leaves those ordinals pointing past the end of the new one-column list, so
+        # expression. The events and persons branches replace that SELECT list with a single actor
+        # column, which leaves those ordinals pointing past the end of the new one-column list, so
         # ClickHouse rejects the query with an out-of-bounds positional argument error. Inline
-        # the referenced expression now so the reference survives the collapse.
+        # the referenced expressions now so the references survive if those branches collapse the list.
         _inline_positional_references(select_query)
 
         # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
-        # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
-        # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only
-        # when the query is unbounded. With a LIMIT/OFFSET the ordering decides which rows
-        # survive, so dropping it would silently make membership a non-deterministic subset;
-        # keep both so a bounded "top N" cohort stays deterministic.
-        is_bounded = (
-            select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
-        )
-        if not is_bounded:
+        # computed select alias (e.g. `ai_active_days`) would dangle if the events or persons
+        # branch replaces the SELECT with just the actor column, breaking HogQL resolution. Drop
+        # it — but only when the query is unbounded. With a LIMIT/OFFSET the ordering decides
+        # which rows survive, so dropping it would silently make membership a non-deterministic
+        # subset; keep both so a bounded "top N" cohort stays deterministic.
+        if not _is_bounded(select_query):
             select_query.order_by = None
 
-        columns: dict[str, ast.Expr] = {}
-
-        for expr in select_query.select:
-            if isinstance(expr, ast.Alias):
-                columns[expr.alias] = expr.expr
-            elif isinstance(expr, ast.Field):
-                columns[str(expr.chain[-1])] = expr
-
-        column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
-        if isinstance(column, ast.Alias):
-            select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
-            uses_actor_id = True
-        elif isinstance(column, ast.Field):
-            select_query.select = [ast.Alias(expr=column, alias="actor_id")]
-            uses_actor_id = True
-        else:
-            # Support the most common use cases
-            table = select_query.select_from.table if select_query.select_from else None
-            if isinstance(table, ast.Field) and table.chain[-1] == "events":
-                select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
-                uses_actor_id = True
-            elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
-                select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
-                uses_actor_id = True
+        columns = _select_columns(select_query)
+        actor_column = next((name for name in ("person_id", "actor_id", "id") if name in columns), None)
+        distinct_id_column = columns.get("distinct_id")
+        table = select_query.select_from.table if select_query.select_from else None
+        is_aggregating_or_multi_column = _is_aggregating_or_multi_column(select_query)
+        if actor_column is not None:
+            if is_aggregating_or_multi_column:
+                _wrap_select_query_with_column(
+                    select_query, actor_column, "actor_id", keep_distinct=id(select_query) in queries_under_bounded_set
+                )
             else:
-                # Check if we have a distinct_id column
-                distinct_id_column = columns.get("distinct_id")
-                if distinct_id_column is not None:
-                    # Use distinct_id and mark that we need to resolve it to person_id
-                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
-                    uses_distinct_id = True
-                else:
-                    raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
+                select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
+            uses_actor_id = True
+        elif distinct_id_column is not None and (is_aggregating_or_multi_column or union_resolves_distinct_ids):
+            _wrap_select_query_with_column(
+                select_query, "distinct_id", "distinct_id", keep_distinct=id(select_query) in queries_under_bounded_set
+            )
+            uses_distinct_id = True
+        elif isinstance(table, ast.Field) and table.chain[-1] == "events":
+            select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+            uses_actor_id = True
+        elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
+            select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+            uses_actor_id = True
+        elif distinct_id_column is not None:
+            select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+            uses_distinct_id = True
+        else:
+            raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
 
     # Check for mixed ID types in UNION queries
     if uses_distinct_id and uses_actor_id:
@@ -536,8 +686,10 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     hogql_context.limit_top_select = False
     create_default_modifiers_for_team(team, hogql_context.modifiers)
 
-    # Apply HogQL global settings to ensure consistency with regular queries
-    settings = HogQLGlobalSettings()
+    # The HogQL default of 0 would override the spill threshold the caller sets on the ClickHouse client.
+    settings = HogQLGlobalSettings(
+        max_execution_time=COHORT_QUERY_TIMEOUT_SECONDS, max_bytes_before_external_group_by=None
+    )
 
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
@@ -622,6 +774,11 @@ def _trim_trailing_settings(sql: str) -> str:
     return sql[: sql.rfind("SETTINGS")]
 
 
+# Every INSERT creates a new part. Callers that add a few people per call, such as a workflow step that runs once
+# per person, would create one part per person, so ClickHouse buffers small inserts into shared parts instead.
+STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
+
+
 def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     tag_queries(
         product=ProductKey.COHORTS,
@@ -640,7 +797,12 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
         }
         for person_uuid in person_uuids
     ]
-    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+    # wait_for_async_insert returns only after the buffer is flushed, so a failed write still raises and a
+    # following membership read sees the row.
+    insert_settings = (
+        {"async_insert": 1, "wait_for_async_insert": 1} if len(persons) <= STATIC_COHORT_ASYNC_INSERT_MAX_ROWS else None
+    )
+    sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=insert_settings)
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
@@ -797,12 +959,9 @@ def _recalculate_cohortpeople_for_team_hogql(
         settings.pop("readonly", None)
         settings.update(
             {
-                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
-                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                **COHORT_QUERY_TIMEOUT_SETTINGS,
                 "optimize_on_insert": 0,
-                "max_bytes_ratio_before_external_group_by": 0.5,
-                "max_bytes_ratio_before_external_sort": 0.5,
+                **COHORT_QUERY_SPILL_SETTINGS,
             }
         )
 
@@ -1169,6 +1328,13 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
+        settings={
+            **COHORT_QUERY_TIMEOUT_SETTINGS,
+            **COHORT_QUERY_SPILL_SETTINGS,
+        },
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
+        team_id=team_id,
     )
 
 

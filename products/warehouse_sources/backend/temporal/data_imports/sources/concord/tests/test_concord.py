@@ -3,87 +3,49 @@ from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import boundary_checkpoint
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord as concord_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (
     ConcordResumeConfig,
     _agreement_incremental_params,
     _flatten_folder_tree,
-    _iter_agreement_fanout,
-    _iter_events_windows,
-    _iter_page,
     _member_id,
     _to_epoch_ms,
     base_url_for_environment,
-    concord_source,
-    get_rows,
-    resolve_organization_id,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.settings import CONCORD_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.concord.source import ConcordSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
+    ConcordSourceConfig,
+)
 
 
-class FakeManager(ResumableSourceManager[ConcordResumeConfig]):
-    """In-memory stand-in for ResumableSourceManager so transport tests stay off Redis."""
-
-    def __init__(self, state: ConcordResumeConfig | None = None):
-        self._state = state
-        self.saved: list[ConcordResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> ConcordResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: ConcordResumeConfig) -> None:
-        self.saved.append(data)
+def _driver(organization_id: str | None = "42") -> SourceDriver:
+    return SourceDriver(ConcordSource(), ConcordSourceConfig(api_key="key", organization_id=organization_id))
 
 
-def _collect(generator) -> list[dict[str, Any]]:
-    """Flatten the pyarrow tables a transport generator yields into plain row dicts."""
-    rows: list[dict[str, Any]] = []
-    for table in generator:
-        rows.extend(table.to_pylist())
-    return rows
+@pytest.fixture
+def flush_every_two_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    def small_batcher(logger: Any, chunk_size: int, chunk_size_bytes: int) -> Batcher:
+        return Batcher(logger=logger, chunk_size=2)
+
+    monkeypatch.setattr(concord_module, "Batcher", small_batcher)
 
 
-def _run(
-    endpoint: str,
-    payloads: list[Any],
-    *,
-    manager: FakeManager | None = None,
-    organization_id: str | None = "42",
-    **kwargs,
-):
-    """Drive get_rows with _fetch stubbed to return `payloads` in order; record requested URLs."""
-    urls: list[str] = []
-    manager = manager or FakeManager()
-
-    def fake_fetch(session, url, headers, logger):
-        urls.append(url)
-        return payloads[min(len(urls) - 1, len(payloads) - 1)]
-
-    with mock.patch.object(concord, "_fetch", side_effect=fake_fetch):
-        rows = _collect(
-            get_rows(
-                api_key="key",
-                environment="production",
-                organization_id=organization_id,
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                manager=manager,
-                **kwargs,
-            )
-        )
-    return rows, urls, manager
+def _rows(result: DriveResult) -> list[dict[str, Any]]:
+    return [row for table in result.items for row in table.to_pylist()]
 
 
 class TestToEpochMs:
@@ -152,46 +114,53 @@ class TestAgreementIncrementalParams:
 
 class TestResolveOrganizationId:
     def test_resolves_first_org_when_blank(self):
-        session = mock.MagicMock()
-        with mock.patch.object(concord, "_fetch", return_value={"organizations": [{"id": 99}, {"id": 100}]}):
-            assert resolve_organization_id(session, "https://x", "key", None, mock.MagicMock()) == "99"
+        result = _driver(None).run(
+            "tags",
+            [ScriptedResponse(json={"organizations": [{"id": 99}, {"id": 100}]}), ScriptedResponse(json={"tags": []})],
+        )
+        assert result.raised is None
+        assert result.requests[1].param("organizationId") == "99"
 
     def test_raises_when_no_org_accessible(self):
-        session = mock.MagicMock()
-        with mock.patch.object(concord, "_fetch", return_value={"organizations": []}):
-            with pytest.raises(ValueError, match="No Concord organizations"):
-                resolve_organization_id(session, "https://x", "key", "", mock.MagicMock())
+        result = _driver("").run("tags", [ScriptedResponse(json={"organizations": []})])
+        assert isinstance(result.raised, ValueError)
+        assert "No Concord organizations" in str(result.raised)
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
     def test_validate_credentials_status_mapping(self, _name, status_code, expected):
-        session = mock.MagicMock()
-        session.get.return_value.status_code = status_code
-        with mock.patch.object(concord, "make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("key", "production") is expected
+        assert network.requests_log[0].path == "/api/rest/1/user/me/organizations"
+        assert network.requests_log[0].headers["x-api-key"] == "key"
+        assert network.session_options[0]["redact_values"] == ("key",)
 
     def test_validate_credentials_swallows_exceptions(self):
-        with mock.patch.object(concord, "make_tracked_session", side_effect=RuntimeError("boom")):
+        with scripted_network([ConnectionResetError("reset")]) as network:
             assert validate_credentials("key", "production") is False
+        assert network.requests_log[0].path == "/api/rest/1/user/me/organizations"
 
 
 class TestSinglePagination:
     def test_tags_passes_organization_id_query_param(self):
-        _rows, urls, _ = _run("tags", [{"tags": [{"id": 1}]}])
-        assert "organizationId=42" in urls[0]
+        result = _driver().run("tags", [ScriptedResponse(json={"tags": [{"id": 1}]})])
+        assert result.raised is None
+        assert result.requests[0].param("organizationId") == "42"
 
     def test_organizations_scoped_to_configured_org(self):
         # /user/me/organizations lists every accessible org; the synced table must not leak the
         # others when the source is configured for a specific org.
-        payload = [{"organizations": [{"id": 42, "name": "mine"}, {"id": 7, "name": "someone else"}]}]
-        rows, _urls, _ = _run("organizations", payload)
-        assert [r["id"] for r in rows] == [42]
+        payload = {"organizations": [{"id": 42, "name": "mine"}, {"id": 7, "name": "someone else"}]}
+        result = _driver().run("organizations", [ScriptedResponse(json=payload)])
+        assert result.raised is None
+        assert [r["id"] for r in _rows(result)] == [42]
 
     def test_organizations_falls_back_to_first_org_when_unconfigured(self):
-        payload = [{"organizations": [{"id": 7, "name": "first"}, {"id": 8, "name": "second"}]}]
-        rows, _urls, _ = _run("organizations", payload, organization_id=None)
-        assert [r["id"] for r in rows] == [7]
+        payload = {"organizations": [{"id": 7, "name": "first"}, {"id": 8, "name": "second"}]}
+        result = _driver(None).run("organizations", [ScriptedResponse(json=payload)])
+        assert result.raised is None
+        assert [r["id"] for r in _rows(result)] == [7]
 
 
 class TestPagePagination:
@@ -201,132 +170,123 @@ class TestPagePagination:
             {"items": [{"uuid": "a"}, {"uuid": "b"}]},
             {"items": [{"uuid": "c"}]},
         ]
-        rows, urls, _ = _run("agreements", payloads, should_use_incremental_field=False)
-        assert [r["uuid"] for r in rows] == ["a", "b", "c"]
-        assert "page=0" in urls[0]
-        assert "page=1" in urls[1]
+        result = _driver().run("agreements", [ScriptedResponse(json=payload) for payload in payloads])
+        assert result.raised is None
+        assert [r["uuid"] for r in _rows(result)] == ["a", "b", "c"]
+        assert result.params("page") == ["0", "1"]
         # agreements require the statuses filter on every request
-        assert "statuses=DRAFT" in urls[0]
+        assert all("DRAFT" in request.query["statuses"] for request in result.requests)
 
     def test_incremental_adds_modified_at_filter(self, monkeypatch):
         monkeypatch.setattr(CONCORD_ENDPOINTS["agreements"], "page_size", 2)
-        _rows, urls, _ = _run(
+        result = _driver().run(
             "agreements",
-            [{"items": [{"uuid": "a"}]}],
+            [ScriptedResponse(json={"items": [{"uuid": "a"}]})],
             should_use_incremental_field=True,
             db_incremental_field_last_value=1700000000000,
             incremental_field="modifiedAt",
         )
-        assert "modifiedAt.from=1700000000000" in urls[0]
+        assert result.raised is None
+        assert result.requests[0].param("modifiedAt.from") == "1700000000000"
 
 
 class TestIntraPageResume:
     """A byte-limit flush can fire mid-page. The checkpoint must record intra-page progress so a
     resume skips already-emitted rows instead of replaying the whole page forever (a DoS vector)."""
 
-    def _iter(self, *, start_page=0, start_row_offset=0, manager=None, page_rows=None):
-        config = CONCORD_ENDPOINTS["agreements"]
-        manager = manager or FakeManager()
-        # chunk_size=2 flushes every two rows; the 5-row page is shorter than page_size so the walk
-        # stops after one page.
-        batcher = Batcher(logger=mock.MagicMock(), chunk_size=2)
-        rows = page_rows if page_rows is not None else [{"uuid": str(i)} for i in range(5)]
-        with (
-            mock.patch.object(config, "page_size", 100),
-            mock.patch.object(concord, "_fetch", return_value={"items": rows}),
-        ):
-            tables = list(
-                _iter_page(
-                    session=mock.MagicMock(),
-                    base_url="https://x",
-                    path="/p",
-                    headers={},
-                    config=config,
-                    logger=mock.MagicMock(),
-                    batcher=batcher,
-                    manager=manager,
-                    base_params={},
-                    start_page=start_page,
-                    start_row_offset=start_row_offset,
-                )
-            )
-        emitted = [r["uuid"] for table in tables for r in table.to_pylist()]
-        return emitted, manager
-
+    @pytest.mark.usefixtures("flush_every_two_rows")
     def test_resume_skips_already_emitted_rows(self):
-        emitted, _ = self._iter(start_row_offset=3)
+        result = _driver().run(
+            "agreements",
+            [ScriptedResponse(json={"items": [{"uuid": str(i)} for i in range(5)]})],
+            resume_state=ConcordResumeConfig(page=0, row_offset=3),
+        )
         # rows 0–2 were committed last run; the resume must not re-emit them
-        assert emitted == ["3", "4"]
+        assert result.raised is None
+        assert result.params("page") == ["0"]
+        assert [r["uuid"] for r in _rows(result)] == ["3", "4"]
+        assert result.saved_states == [ConcordResumeConfig(page=0, row_offset=5)]
+
+    @pytest.mark.usefixtures("flush_every_two_rows")
+    def test_mid_page_flush_checkpoints_the_row_offset(self):
+        result = _driver().run("agreements", [ScriptedResponse(json={"items": [{"uuid": str(i)} for i in range(5)]})])
+        assert result.raised is None
+        assert result.saved_states == [
+            ConcordResumeConfig(page=0, row_offset=2),
+            ConcordResumeConfig(page=0, row_offset=4),
+        ]
 
 
 class TestOffsetPagination:
     def test_clauses_use_offset_param(self, monkeypatch):
         monkeypatch.setattr(CONCORD_ENDPOINTS["clauses"], "page_size", 2)
-        rows, urls, _ = _run(
+        result = _driver().run(
             "clauses",
-            [{"organizationClauses": [{"id": 1}, {"id": 2}]}, {"organizationClauses": [{"id": 3}]}],
+            [
+                ScriptedResponse(json={"organizationClauses": [{"id": 1}, {"id": 2}]}),
+                ScriptedResponse(json={"organizationClauses": [{"id": 3}]}),
+            ],
         )
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert "offset=0" in urls[0]
-        assert "offset=2" in urls[1]
+        assert result.raised is None
+        assert [r["id"] for r in _rows(result)] == [1, 2, 3]
+        assert result.params("offset") == ["0", "2"]
 
 
 class TestEventsWindowPagination:
     @time_machine.travel("2024-01-20", tick=False)
     def test_walks_weekly_windows_with_bounded_range(self):
         last_value = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp() * 1000)
-        with mock.patch.object(boundary_checkpoint, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0):
-            _rows, urls, manager = _run(
-                "events",
-                [{"events": [{"id": 1}]}],
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=last_value,
-            )
+        result = _driver().run(
+            "events",
+            [ScriptedResponse(json={"events": []}) for _ in range(3)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
         # 2024-01-01 .. 2024-01-20 chunked into <= 7-day windows
-        assert "start=2024-01-01" in urls[0]
-        assert "end=2024-01-08" in urls[0]
-        assert len(urls) >= 3
+        assert result.raised is None
+        assert result.params("start") == ["2024-01-01", "2024-01-08", "2024-01-15"]
+        assert result.params("end") == ["2024-01-08", "2024-01-15", "2024-01-20"]
         # windows advance and checkpoint so a crash resumes at the next window
-        assert manager.saved and manager.saved[-1].window_start_ms is not None
+        assert [state.window_start_ms for state in result.saved_states] == [
+            int(datetime(2024, 1, day, tzinfo=UTC).timestamp() * 1000) for day in (8, 15)
+        ]
 
     @time_machine.travel("2024-01-20", tick=False)
     def test_resumes_from_saved_window(self):
         resume_ms = int(datetime(2024, 1, 15, tzinfo=UTC).timestamp() * 1000)
-        manager = FakeManager(ConcordResumeConfig(window_start_ms=resume_ms))
-        _rows, urls, _ = _run("events", [{"events": []}], manager=manager)
-        assert "start=2024-01-15" in urls[0]
+        result = _driver().run(
+            "events",
+            [ScriptedResponse(json={"events": []})],
+            resume_state=ConcordResumeConfig(window_start_ms=resume_ms),
+        )
+        assert result.raised is None
+        assert result.requests[0].param("start") == "2024-01-15"
 
-    def _iter_single_window(self, *, start_row_offset=0, manager=None):
-        config = CONCORD_ENDPOINTS["events"]
-        manager = manager or FakeManager()
-        # A single window (start within 7 days of today) so the walk stops after one fetch; chunk_size=2
-        # flushes every two rows so the mid-window checkpoint fires.
-        batcher = Batcher(logger=mock.MagicMock(), chunk_size=2)
-        start_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
-        rows = [{"id": i} for i in range(5)]
-        with mock.patch.object(concord, "_fetch", return_value={"events": rows}):
-            tables = list(
-                _iter_events_windows(
-                    session=mock.MagicMock(),
-                    base_url="https://x",
-                    path="/p",
-                    headers={},
-                    config=config,
-                    logger=mock.MagicMock(),
-                    batcher=batcher,
-                    manager=manager,
-                    start_ms=start_ms,
-                    start_row_offset=start_row_offset,
-                )
-            )
-        emitted = [r["id"] for table in tables for r in table.to_pylist()]
-        return emitted, manager
-
+    @pytest.mark.usefixtures("flush_every_two_rows")
     @time_machine.travel("2024-01-20", tick=False)
     def test_resume_skips_already_emitted_window_rows(self):
-        emitted, _ = self._iter_single_window(start_row_offset=3)
+        start_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
+        result = _driver().run(
+            "events",
+            [ScriptedResponse(json={"events": [{"id": i} for i in range(5)]})],
+            resume_state=ConcordResumeConfig(window_start_ms=start_ms, row_offset=3),
+        )
         # rows 0–2 were committed last run; the resume must not re-emit them
-        assert emitted == [3, 4]
+        assert result.raised is None
+        assert [r["id"] for r in _rows(result)] == [3, 4]
+        assert result.saved_states == [ConcordResumeConfig(window_start_ms=start_ms, row_offset=5)]
+
+    @pytest.mark.usefixtures("flush_every_two_rows")
+    @time_machine.travel("2024-01-20", tick=False)
+    def test_mid_window_flush_checkpoints_the_row_offset(self):
+        start_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
+        result = _driver().run(
+            "events",
+            [ScriptedResponse(json={"events": [{"id": i} for i in range(5)]})],
+            resume_state=ConcordResumeConfig(window_start_ms=start_ms),
+        )
+        assert result.raised is None
+        assert [state.row_offset for state in result.saved_states] == [2, 4]
 
 
 class TestMemberId:
@@ -345,42 +305,34 @@ class TestMemberId:
 
 
 class TestAgreementFanout:
-    def _run(self, endpoint, *, agreements, child, manager=None):
-        """Drive get_rows for a fan-out endpoint; `child` may be a payload or a url->payload callable."""
-        urls: list[str] = []
-        manager = manager or FakeManager()
+    def _run(
+        self,
+        endpoint: str,
+        *,
+        agreements: list[dict[str, Any]],
+        child: Any,
+        resume_state: ConcordResumeConfig | None = None,
+    ) -> DriveResult:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/agreements"):
+                return ScriptedResponse(json={"items": agreements})
+            return ScriptedResponse(json=child)
 
-        def fake_fetch(session, url, headers, logger):
-            urls.append(url)
-            if "/user/me/organizations" in url:
-                return {"items": agreements}
-            return child(url) if callable(child) else child
-
-        with mock.patch.object(concord, "_fetch", side_effect=fake_fetch):
-            rows = _collect(
-                get_rows(
-                    api_key="key",
-                    environment="production",
-                    organization_id="42",
-                    endpoint=endpoint,
-                    logger=mock.MagicMock(),
-                    manager=manager,
-                )
-            )
-        return rows, urls, manager
+        return _driver().run(endpoint, answer, resume_state=resume_state)
 
     def test_fetches_each_agreement_and_injects_the_parent_uid(self):
-        rows, urls, _ = self._run(
+        result = self._run(
             "agreement_fields",
             agreements=[{"uuid": "A"}, {"uuid": "B"}],
             child={"fields": [{"id": 1, "name": "price", "value": "10"}]},
         )
-        assert [(r["agreement_uuid"], r["id"]) for r in rows] == [("A", 1), ("B", 1)]
-        assert any("/agreements/A/summary/fields" in url for url in urls)
-        assert any("/agreements/B/summary/fields" in url for url in urls)
+        assert result.raised is None
+        assert [(r["agreement_uuid"], r["id"]) for r in _rows(result)] == [("A", 1), ("B", 1)]
+        assert any("/agreements/A/summary/fields" in path for path in result.paths)
+        assert any("/agreements/B/summary/fields" in path for path in result.paths)
 
     def test_members_keep_user_and_invitation_ids_apart(self):
-        rows, _urls, _ = self._run(
+        result = self._run(
             "agreement_members",
             agreements=[{"uuid": "A"}],
             child=[
@@ -389,7 +341,8 @@ class TestAgreementFanout:
             ],
         )
         # The same numeric id in two id spaces must stay two rows, or merge would collapse them.
-        assert [(r["status"], r["member_id"]) for r in rows] == [("ACTIVE", 7), ("INVITED", 7)]
+        assert result.raised is None
+        assert [(r["status"], r["member_id"]) for r in _rows(result)] == [("ACTIVE", 7), ("INVITED", 7)]
 
     @parameterized.expand(
         [
@@ -399,93 +352,86 @@ class TestAgreementFanout:
         ]
     )
     def test_single_object_child_becomes_one_row_per_agreement(self, _name, endpoint, child):
-        rows, _urls, _ = self._run(endpoint, agreements=[{"uuid": "A"}, {"uuid": "B"}], child=child)
+        result = self._run(endpoint, agreements=[{"uuid": "A"}, {"uuid": "B"}], child=child)
+        assert result.raised is None
+        rows = _rows(result)
         assert [r["agreement_uuid"] for r in rows] == ["A", "B"]
         # the object's own fields land on the row alongside the parent uid
         assert set(child) <= set(rows[0])
 
     @parameterized.expand([("approval", "agreement_approval"), ("signature", "agreement_signature")])
     def test_single_object_child_skips_an_agreement_with_nothing_configured(self, _name, endpoint):
-        rows, _urls, _ = self._run(endpoint, agreements=[{"uuid": "A"}], child={})
+        result = self._run(endpoint, agreements=[{"uuid": "A"}], child={})
         # an empty body would otherwise seed a row carrying nothing but the parent uid
-        assert rows == []
+        assert result.raised is None
+        assert _rows(result) == []
 
     @parameterized.expand([("forbidden", 403), ("not_found", 404)])
     def test_skips_an_agreement_the_key_cannot_read(self, _name, status_code):
-        def child(url):
-            if "/agreements/A/" in url:
-                response = requests.Response()
-                response.status_code = status_code
-                raise requests.HTTPError(response=response)
-            return {"fields": [{"id": 1}]}
-
-        rows, _urls, _ = self._run("agreement_fields", agreements=[{"uuid": "A"}, {"uuid": "B"}], child=child)
-        assert [r["agreement_uuid"] for r in rows] == ["B"]
+        result = _driver().run(
+            "agreement_fields",
+            [
+                ScriptedResponse(json={"items": [{"uuid": "A"}, {"uuid": "B"}]}),
+                ScriptedResponse(status=status_code),
+                ScriptedResponse(json={"fields": [{"id": 1}]}),
+            ],
+        )
+        assert result.raised is None
+        assert [r["agreement_uuid"] for r in _rows(result)] == ["B"]
 
     def test_other_child_errors_fail_the_sync(self):
-        def child(url):
-            response = requests.Response()
-            response.status_code = 400
-            raise requests.HTTPError(response=response)
-
-        with pytest.raises(requests.HTTPError):
-            self._run("agreement_fields", agreements=[{"uuid": "A"}], child=child)
+        result = _driver().run(
+            "agreement_fields",
+            [ScriptedResponse(json={"items": [{"uuid": "A"}]}), ScriptedResponse(status=400)],
+        )
+        assert isinstance(result.raised, requests.HTTPError)
 
     def test_resumes_from_the_saved_parent_position(self):
-        manager = FakeManager(ConcordResumeConfig(parent_page=3, parent_index=1))
-        rows, urls, _ = self._run(
+        result = self._run(
             "agreement_fields",
             agreements=[{"uuid": "A"}, {"uuid": "B"}],
             child={"fields": [{"id": 1}]},
-            manager=manager,
+            resume_state=ConcordResumeConfig(parent_page=3, parent_index=1),
         )
-        assert "page=3" in urls[0]
+        assert result.raised is None
+        assert result.requests[0].param("page") == "3"
         # agreement A finished last run, so only B is fetched again
-        assert [r["agreement_uuid"] for r in rows] == ["B"]
+        assert [r["agreement_uuid"] for r in _rows(result)] == ["B"]
+        assert all("/agreements/A/" not in path for path in result.paths)
 
     def test_mid_agreement_flush_checkpoints_the_agreement_still_in_flight(self):
-        manager = FakeManager()
-        # chunk_size=2 flushes every two rows, so each agreement's three rows straddle a flush.
-        batcher = Batcher(logger=mock.MagicMock(), chunk_size=2)
-
-        def fake_fetch(session, url, headers, logger):
-            if "/user/me/organizations" in url:
-                return {"items": [{"uuid": "A"}, {"uuid": "B"}]}
-            return {"fields": [{"id": 1}, {"id": 2}, {"id": 3}]}
-
-        with mock.patch.object(concord, "_fetch", side_effect=fake_fetch):
-            list(
-                _iter_agreement_fanout(
-                    session=mock.MagicMock(),
-                    base_url="https://x",
-                    org_id="42",
-                    child_template="/organizations/42/agreements/{agreement_uid}/summary/fields",
-                    headers={},
-                    config=CONCORD_ENDPOINTS["agreement_fields"],
-                    logger=mock.MagicMock(),
-                    batcher=batcher,
-                    manager=manager,
-                    start_page=0,
-                    start_index=0,
-                )
-            )
-        # The checkpoint never names an agreement past the one being batched: A's third row is still
-        # buffered when the first flush fires, so a resume has to redo A rather than skip to B.
-        assert [(s.parent_page, s.parent_index) for s in manager.saved] == [(0, 0), (0, 1), (0, 1)]
+        # The source flushes every 2,000 rows, so each agreement crosses a flush boundary.
+        result = self._run(
+            "agreement_fields",
+            agreements=[{"uuid": "A"}, {"uuid": "B"}],
+            child={"fields": [{"id": i} for i in range(2001)]},
+        )
+        # A's last row is still buffered at the first flush, so a resume must redo A.
+        assert result.raised is None
+        assert [(s.parent_page, s.parent_index) for s in result.saved_states] == [(0, 0), (0, 1)]
 
 
 class TestConcordSource:
     @parameterized.expand(list(CONCORD_ENDPOINTS.keys()))
+    @time_machine.travel("2024-01-20", tick=False)
     def test_source_response_shape(self, endpoint):
-        response = concord_source(
-            api_key="key",
-            environment="production",
-            organization_id="42",
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            manager=FakeManager(),
-        )
         config = CONCORD_ENDPOINTS[endpoint]
+
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/agreements"):
+                return ScriptedResponse(json={"items": []})
+            if config.data_selector is None:
+                return ScriptedResponse(json=[])
+            return ScriptedResponse(json={config.data_selector: []})
+
+        result = _driver().run(
+            endpoint,
+            answer,
+            resume_state=ConcordResumeConfig(window_start_ms=1705708800000),
+        )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "asc"

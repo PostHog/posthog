@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -24,7 +24,7 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.'
+            'Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.'
         ),
     assignee: zod
         .string()
@@ -216,6 +216,38 @@ export const ConversationsTicketsMessagesListQueryParams = () => zod.object({
 })
 
 /**
+ * Add a private note to a ticket.
+ *
+ * The note is visible to your team only. The request has no privacy field, so this
+ * endpoint never sends anything to the customer.
+ */
+export const ConversationsTicketsNotesCreateParams = () => zod.object({
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const conversationsTicketsNotesCreateBodyMessageMax = 5000
+
+export const ConversationsTicketsNotesCreateBody = () => zod
+    .object({
+        message: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyMessageMax)
+            .describe(
+                'Note content in markdown. The note is visible to your team only and is never sent to the customer.'
+            ),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+    })
+    .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
+
+/**
  * Update a private note on a ticket.
  *
  * Only the note's author can edit it. Customer-facing replies cannot be
@@ -302,6 +334,60 @@ export const ConversationsTicketsReplyCreateBody = () => zod
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 
+/**
+ * Create a new outbound ticket and send the first message to the customer.
+ *
+ * Idempotent within a short window: an identical compose retried while the first is still
+ * in flight returns 409, and one retried after it committed returns the same ticket with a
+ * 200. Only a genuinely new request creates a ticket and emails the customer.
+ */
+export const ConversationsTicketsComposeCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const conversationsTicketsComposeCreateBodyRecipientDistinctIdMax = 400
+
+export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
+
+export const conversationsTicketsComposeCreateBodyMessageMax = 5000
+
+export const conversationsTicketsComposeCreateBodyTagsItemMax = 255
+
+export const conversationsTicketsComposeCreateBodyTagsMax = 100
+
+export const ConversationsTicketsComposeCreateBody = () => zod.object({
+    recipient_email: zod.email().describe('Recipient email address.'),
+    recipient_distinct_id: zod
+        .string()
+        .max(conversationsTicketsComposeCreateBodyRecipientDistinctIdMax)
+        .optional()
+        .describe('PostHog distinct_id to link the ticket to a person. Falls back to recipient_email.'),
+    email_subject: zod
+        .string()
+        .max(conversationsTicketsComposeCreateBodyEmailSubjectMax)
+        .optional()
+        .describe('Email subject line.'),
+    email_config_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "ID of the support email channel to send from. Omit it to send from the team's default support channel."
+        ),
+    message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
+    rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    tags: zod
+        .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
+        .max(conversationsTicketsComposeCreateBodyTagsMax)
+        .optional()
+        .describe(
+            'Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.'
+        ),
+})
+
 export const ConversationsViewsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -378,6 +464,8 @@ export const ConversationsViewsCreateBody = () => zod.object({
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
+                            'skipped_team_replied',
+                            'skipped_channel_excluded',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
                             'clarified',
@@ -385,12 +473,12 @@ export const ConversationsViewsCreateBody = () => zod.object({
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `skipped_team_replied` - skipped_team_replied\n\* `skipped_channel_excluded` - skipped_channel_excluded\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
                 .describe(
-                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, skipped_team_replied, skipped_channel_excluded, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
                 ),
             assignee: zod
                 .array(
@@ -542,6 +630,8 @@ export const ConversationsViewsPartialUpdateBody = () => zod.object({
                             'escalated_with_best',
                             'escalated_no_reply',
                             'skipped_unactionable',
+                            'skipped_team_replied',
+                            'skipped_channel_excluded',
                             'blocked_unsafe',
                             'blocked_unsafe_reply',
                             'clarified',
@@ -549,12 +639,12 @@ export const ConversationsViewsPartialUpdateBody = () => zod.object({
                             'in_progress',
                         ])
                         .describe(
-                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
+                            '\* `persisted` - persisted\n\* `suggested` - suggested\n\* `escalated_with_findings` - escalated_with_findings\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `skipped_team_replied` - skipped_team_replied\n\* `skipped_channel_excluded` - skipped_channel_excluded\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `clarified` - clarified\n\* `suggested_clarification` - suggested_clarification\n\* `in_progress` - in_progress'
                         )
                 )
                 .optional()
                 .describe(
-                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
+                    "AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, skipped_team_replied, skipped_channel_excluded, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress."
                 ),
             assignee: zod
                 .array(

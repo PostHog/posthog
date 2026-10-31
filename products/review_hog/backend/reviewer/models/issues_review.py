@@ -7,16 +7,10 @@ from pydantic.json_schema import SkipJsonSchema
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import DropDisposition
+from products.review_hog.backend.facade.enums import IssuePriority
+
 logger = logging.getLogger(__name__)
-
-
-# Issue priority enum
-class IssuePriority(Enum):
-    """Priority levels for code review issues."""
-
-    MUST_FIX = "must_fix"  # Critical issues that should block merge
-    SHOULD_FIX = "should_fix"  # Significant improvements needed
-    CONSIDER = "consider"  # Nice-to-have improvements
 
 
 # The single-agent reviewer's own scale. Storage folds P0 and P1 into `IssuePriority.MUST_FIX`.
@@ -75,18 +69,6 @@ class Issue(BaseModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
-
-
-# Why a single-agent turn drops a finding. A `dedup_*` drop repeats an earlier turn's finding, a PR
-# comment, a main finding (anchor), or a finding of its own session or lens (sibling). `cap` is the cut
-# in `compose_flash_findings`.
-DropDisposition = Literal[
-    "dedup_prior",
-    "dedup_comment",
-    "dedup_anchor",
-    "dedup_sibling",
-    "cap",
-]
 
 
 @frozen

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PropertywareSource(ResumableSource[PropertywareSourceConfig, PropertywareResumeConfig]):
+    codebase_detection = detect(env=("^PROPERTYWARE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     # Propertyware uses a single major version with no version token in the URL or headers
     # (docs: "Propertyware uses only a major version nomenclature to manage changes").
@@ -53,7 +56,7 @@ class PropertywareSource(ResumableSource[PropertywareSourceConfig, PropertywareR
             name=ExternalDataSourceType.PROPERTYWARE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Propertyware (RealPage)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["property management", "rentals", "realpage"],
             caption="""Enter your Propertyware API credentials to sync property, lease, and accounting data into the PostHog Data warehouse.
 

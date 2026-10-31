@@ -95,6 +95,10 @@ function getBuiltInPropertyValue(
         return value
     }
 
+    if (value === undefined || value === null || value === '') {
+        return undefined
+    }
+
     const version = properties?.[versionProperty]
     const parts = [value, version].filter((part) => part !== undefined && part !== null && part !== '')
     return parts.length > 0 ? parts.join(' ') : undefined

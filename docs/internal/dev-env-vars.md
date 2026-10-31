@@ -45,4 +45,16 @@ Code that branches on the literal region (`get_instance_region()`, `region == "U
 
 `COMPACT_IN_REGION` controls which Cloud region registers the daily AI checkpoint compaction schedule. It defaults to `US`; set it explicitly only when moving the rollout to another region.
 
+## Person-on-events mode in local dev
+
+Nearly every production project reads person properties off events, because the `persons-on-events-v2-reads-enabled` flag is at 100% for organizations created after 2024-06-14.
+That flag is only consulted when `is_cloud()` is true, so a local team falls back to the `PERSON_ON_EVENTS_V2_ENABLED` instance setting instead.
+The setting defaults on under `DEBUG`, which keeps a local stack on the same query path as production.
+Before that default, every local team resolved to the legacy `person_id_override_properties_joined` mode, and UI gated on `person_on_events_querying_enabled`, such as the persons-modal properties timeline, never rendered locally.
+
+To work on the legacy mode, set `PERSON_ON_EVENTS_V2_ENABLED=0` in `.env.local`, or set `personsOnEventsMode` in the team's `modifiers`, which takes precedence over the setting.
+
+The frontend reads `person_on_events_querying_enabled` from the server-rendered `window.POSTHOG_APP_CONTEXT`, which `teamLogic` seeds once on mount.
+A change to the setting or to a team's modifiers therefore needs a full page reload. Navigating within the app keeps the stale value.
+
 See also [sandboxes-setup-guide.md](sandboxes-setup-guide.md) for the PostHog Desktop sandbox providers.

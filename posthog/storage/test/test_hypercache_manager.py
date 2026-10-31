@@ -353,7 +353,7 @@ class TestGetCacheStats(BaseTest):
         assert first_call[1]["match"] == "posthog:1:cache/teams/*/feature_flags/flags.json"
 
 
-class TestPushHypercacheStatsMetrics(BaseTest):
+class TestPushHypercacheStatsMetrics(SimpleTestCase):
     """Test push_hypercache_stats_metrics functionality."""
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
@@ -475,7 +475,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         ]
 
 
-class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
+class TestPushHypercacheTeamsProcessedMetrics(SimpleTestCase):
     """Test push_hypercache_teams_processed_metrics functionality."""
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")

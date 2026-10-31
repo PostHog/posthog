@@ -1,10 +1,10 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
-import { createDefaultTooltipAccessor, renderHogChart } from '../../testing'
+import { createDefaultTooltipAccessor, renderChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { funnelFromCounts } from './funnel-data'
-import { FunnelChart, type FunnelStepClickData } from './FunnelChart'
+import { FunnelChart, type FunnelChartConfig, type FunnelStepClickData } from './FunnelChart'
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e'],
@@ -23,7 +23,7 @@ describe('FunnelChart', () => {
     it('keeps steps with the same display name on separate bands', () => {
         // Bands are keyed by step index; keying by name would collapse both `Pageview`
         // steps into one d3 band slot and the funnel would lose a step.
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <FunnelChart
                 steps={['Pageview', 'Pageview']}
                 series={[{ key: 'all', label: 'All', data: [100, 40] }]}
@@ -34,18 +34,14 @@ describe('FunnelChart', () => {
     })
 
     it('formats the value axis as percentages by default', () => {
-        const { chart } = renderHogChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />)
+        const { chart } = renderChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />)
         const ticks = chart.yTicks()
         expect(ticks.length).toBeGreaterThan(0)
         expect(ticks.every((tick) => tick.endsWith('%'))).toBe(true)
     })
 
     it('tooltip header shows the step name and value is formatted as X.XX%', async () => {
-        // nativeTooltip preserves config-level formatters (valueFormatter / labelFormatter);
-        // the default renderHogChart path intercepts the tooltip prop and bypasses them.
-        const { chart } = renderHogChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />, {
-            nativeTooltip: true,
-        })
+        const { chart } = renderChart(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} />)
         const step = dimensions.plotWidth / STEPS.length
         // Hover at step-index 1 band center — same x as the onStepClick test, lands in control's sub-band.
         const hoverX = dimensions.plotLeft + step * 1.3
@@ -70,7 +66,7 @@ describe('FunnelChart', () => {
         { area: 'bar fill', clientYOffset: dimensions.plotHeight - 2, converted: true },
     ])('onStepClick maps a click on the $area to converted=$converted', ({ clientYOffset, converted }) => {
         const onStepClick = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <FunnelChart steps={STEPS} series={SERIES} theme={THEME} onStepClick={onStepClick} />
         )
         const step = dimensions.plotWidth / STEPS.length
@@ -87,7 +83,7 @@ describe('FunnelChart', () => {
     it('floors a near-zero bar for interaction: track above, converted tooltip and click near the baseline', async () => {
         // Without the floor a 0.1% bar is sub-pixel and the whole column classifies as drop-off.
         const onStepClick = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <FunnelChart
                 steps={STEPS}
                 series={[{ key: 'all', label: 'All', data: [100, 0.1] }]}
@@ -114,7 +110,7 @@ describe('FunnelChart', () => {
     })
 
     it('renders one step-footer cell per step and hides the axis step labels', async () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <FunnelChart
                 steps={STEPS}
                 series={SERIES}
@@ -130,10 +126,25 @@ describe('FunnelChart', () => {
         expect(chart.xTicks()).toHaveLength(0)
     })
 
+    it.each([
+        { name: 'margins', config: (): FunnelChartConfig => ({ margins: { top: 4 } }) },
+        { name: 'tooltip', config: (): FunnelChartConfig => ({ tooltip: { pinnable: true } }) },
+    ])('does not repaint the static canvas when a re-render passes an equal inline $name', ({ config }) => {
+        const { chart, rerender } = renderChart(
+            <FunnelChart steps={STEPS} series={SERIES} theme={THEME} config={config()} />
+        )
+        let paints = 0
+        const observer = new MutationObserver((records) => (paints += records.length))
+        observer.observe(chart.canvas, { attributeFilter: ['data-hog-charts-paint'] })
+        rerender(<FunnelChart steps={STEPS} series={SERIES} theme={THEME} config={config()} />)
+        expect(paints + observer.takeRecords().length).toBe(0)
+        observer.disconnect()
+    })
+
     it('never asks for a step footer past the current step count when a shorter funnel replaces a longer one', async () => {
         const THREE_STEPS = ['Exposure', 'Add to cart', 'Purchase']
         const requested: number[] = []
-        const { rerender } = renderHogChart(
+        const { rerender } = renderChart(
             <FunnelChart
                 steps={THREE_STEPS}
                 series={[{ key: 'all', label: 'All', data: [100, 60, 20] }]}
@@ -172,7 +183,7 @@ describe('FunnelChart', () => {
     })
 
     it('floors the chart region height with chartMinHeight so a tall footer cannot collapse the canvas', async () => {
-        renderHogChart(
+        renderChart(
             <FunnelChart
                 steps={STEPS}
                 series={SERIES}

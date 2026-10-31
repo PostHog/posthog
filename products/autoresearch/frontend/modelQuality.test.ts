@@ -11,7 +11,7 @@ describe('modelQuality', () => {
                 verdict: 'Weak',
                 basis: 'confirmed',
                 auc: 0.65,
-                sentence: 'Top 10% are 1.2× more likely to do signed_up',
+                sentence: 'Top 10% are 1.2× more likely to do “signed_up”',
             },
         },
         {
@@ -21,7 +21,7 @@ describe('modelQuality', () => {
                 verdict: 'Strong',
                 basis: 'confirmed',
                 auc: 0.8,
-                sentence: 'Top 10% are 3.4× more likely to do signed_up',
+                sentence: 'Top 10% are 3.4× more likely to do “signed_up”',
             },
         },
         {
@@ -71,7 +71,7 @@ describe('modelQuality', () => {
                 verdict: 'Fair',
                 basis: 'confirmed',
                 auc: 0.78,
-                sentence: 'No one did signed_up in the latest check',
+                sentence: 'No one did “signed_up” in the latest check',
             },
         },
         { name: 'no AUC gives no verdict', input: {}, expected: null },

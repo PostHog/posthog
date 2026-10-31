@@ -21,7 +21,6 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
-from posthog.cdp.templates import HOG_FUNCTION_MIGRATORS
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -50,9 +49,11 @@ from products.cdp.backend.models.plugin import (
     PluginAttachment,
     PluginConfig,
     PluginSourceFile,
+    get_secret_fields,
     transpile,
     update_validated_data_from_url,
 )
+from products.cdp.backend.templates import HOG_FUNCTION_MIGRATORS
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
 SECRET_FIELD_VALUE = "**************** POSTHOG SECRET FIELD ****************"
@@ -663,7 +664,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         new_plugin_config = plugin_config.config.copy()
 
-        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+        secret_fields = get_secret_fields(plugin_config.plugin.config_schema)
 
         # do not send the real value to the client
         for key in secret_fields:
@@ -717,8 +718,9 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         validated_data["web_token"] = generate_random_token()
 
         # Try and create a hog function if possible, otherwise create plugin
-        from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
         from posthog.event_usage import report_team_action
+
+        from products.cdp.backend.legacy_plugins import hog_function_from_plugin_config
 
         report_team_action(
             self.context["get_team"](),
@@ -766,7 +768,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             validated_data["enabled"] = False
 
         # Keep old value for secret fields if no new value in the request
-        secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
+        secret_fields = get_secret_fields(plugin_config.plugin.config_schema)
 
         if "config" in validated_data:
             for key in secret_fields:
@@ -915,12 +917,6 @@ class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             obj.save()
 
         return Response(hog_function_serializer.data)
-
-
-def _get_secret_fields_for_plugin(plugin: Plugin) -> set[str]:
-    # A set of keys for config fields that have secret = true
-    secret_fields = {field["key"] for field in plugin.config_schema if isinstance(field, dict) and field.get("secret")}
-    return secret_fields
 
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):

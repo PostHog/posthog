@@ -59,6 +59,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "head_contact_id": "Identifier of the household's head contact.",
         },
     },
+    "messages": {
+        "description": "Email and text messages sent to supporters, including delivery status, recipient count, and send times.",
+        "docs_url": "https://docs.givebutter.com/api-reference/messages/list-all-messages",
+        "columns": {
+            "id": "Unique message identifier.",
+            "status": "Delivery status of the message.",
+            "channel": "Channel used to send the message.",
+            "recipient_count": "Number of recipients of the message.",
+            "sent_at": "Time the message was sent.",
+        },
+    },
     "payouts": {
         "description": "Payouts of raised funds, including amounts, fees, payment methods, and payout status.",
         "docs_url": "https://docs.givebutter.com/api-reference/payouts/list-all-payouts",

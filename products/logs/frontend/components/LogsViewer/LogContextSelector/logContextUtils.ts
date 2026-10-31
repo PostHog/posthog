@@ -20,7 +20,7 @@ export interface LogContextOption {
 const SURROUNDING_WINDOW_MINUTES = 1
 const TRACE_WINDOW_MINUTES = 5
 
-function getServiceName(log: ParsedLogMessage): string | null {
+export function getServiceName(log: ParsedLogMessage): string | null {
     const resourceAttrs = log.resource_attributes as Record<string, unknown> | undefined
     const serviceName = resourceAttrs?.['service.name']
     return serviceName ? String(serviceName) : null

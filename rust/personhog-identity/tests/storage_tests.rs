@@ -1,11 +1,14 @@
 mod common;
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use chrono::{TimeZone, Utc};
 use common::TestContext;
+use uuid::Uuid;
 
 use personhog_common::persons::person_uuid;
+use personhog_identity::config::OutboxWrites;
 use personhog_identity::storage::{AttachOutcome, IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
@@ -979,5 +982,249 @@ async fn attach_refuses_a_person_held_by_a_live_lifecycle_op() {
         .execute(&ctx.pool)
         .await
         .expect("cleanup op");
+    ctx.cleanup().await.ok();
+}
+
+/// (distinct_id, owner uuid, version) of every live mapping of this team.
+async fn live_mappings(ctx: &TestContext) -> BTreeSet<(String, Uuid, i64)> {
+    let rows: Vec<(String, Uuid, i64)> = sqlx::query_as(
+        r#"
+        SELECT d.distinct_id, p.uuid, d.version
+        FROM posthog_persondistinctid d
+        JOIN posthog_person p ON p.team_id = d.team_id AND p.id = d.person_id
+        WHERE d.team_id = $1 AND d.is_deleted = false
+        "#,
+    )
+    .bind(ctx.team_id as i32)
+    .fetch_all(&ctx.pool)
+    .await
+    .expect("read live mappings");
+    rows.into_iter().collect()
+}
+
+/// (kind, distinct_id, owner uuid, version) of every mapping row this team
+/// has in the publish outbox, sorted. A vector, not a set, so a row written
+/// twice shows up.
+async fn outbox_mapping_rows(ctx: &TestContext) -> Vec<(String, String, Uuid, i64)> {
+    let mut rows: Vec<(String, String, Uuid, i64)> = sqlx::query_as(
+        r#"
+        SELECT kind, distinct_id, person_uuid, version
+        FROM person_publish_outbox WHERE team_id = $1 AND op_id IS NULL
+        "#,
+    )
+    .bind(ctx.team_id as i32)
+    .fetch_all(&ctx.pool)
+    .await
+    .expect("read outbox rows");
+    rows.sort();
+    rows
+}
+
+/// The outbox gained exactly the live mappings added since `before`, each
+/// under `kind`, then it is cleared for the next case.
+async fn assert_outbox_matches_added_mappings(
+    ctx: &TestContext,
+    label: &str,
+    kind: &str,
+    before: &BTreeSet<(String, Uuid, i64)>,
+) -> usize {
+    let added: BTreeSet<(String, Uuid, i64)> = live_mappings(ctx)
+        .await
+        .difference(before)
+        .cloned()
+        .collect();
+    let mut expected: Vec<(String, String, Uuid, i64)> = added
+        .iter()
+        .map(|(distinct_id, uuid, version)| {
+            (kind.to_string(), distinct_id.clone(), *uuid, *version)
+        })
+        .collect();
+    expected.sort();
+    assert_eq!(outbox_mapping_rows(ctx).await, expected, "{label}");
+    sqlx::query("DELETE FROM person_publish_outbox WHERE team_id = $1")
+        .bind(ctx.team_id as i32)
+        .execute(&ctx.pool)
+        .await
+        .expect("clear outbox");
+    added.len()
+}
+
+// The regression in every case is an outbox row whose owner or version
+// differs from the mapping Postgres holds, or a row for a mapping an undo
+// took back: either leaves ClickHouse on a stale mapping, and the version
+// cases (0 for a primary, 1 for an extra, old plus one for a revival) are
+// exactly where a hard-coded value would pass the outcome assertions.
+#[tokio::test]
+async fn the_outbox_holds_exactly_the_live_mappings_a_create_or_attach_added() {
+    let ctx = TestContext::new().await;
+    let _drain_lock = ctx.hold_drain_lock().await;
+    let storage = ctx.storage_with(OutboxWrites::Enabled);
+
+    // Fresh create with extras: the primary at 0, the extras at 1.
+    let before = live_mappings(&ctx).await;
+    let outcomes = storage
+        .create_person_stubs(&[stub(&ctx, "ob-primary", &["ob-extra-a", "ob-extra-b"])])
+        .await
+        .expect("create");
+    let [StubOutcome::Committed {
+        person,
+        created: true,
+    }] = &outcomes[..]
+    else {
+        panic!("expected a created outcome, got {outcomes:?}");
+    };
+    let person_id = person.id;
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "fresh create", "create", &before).await,
+        3
+    );
+
+    // Revival of a tombstoned primary: the row comes back above its
+    // tombstone, and only that row is published.
+    ctx.tombstone_person(person_id, 7).await;
+    ctx.tombstone_distinct_id("ob-primary", 3).await;
+    let before = live_mappings(&ctx).await;
+    let outcomes = storage
+        .create_person_stubs(&[stub(&ctx, "ob-primary", &[])])
+        .await
+        .expect("recreate");
+    assert!(matches!(
+        outcomes[..],
+        [StubOutcome::Committed { created: true, .. }]
+    ));
+    assert_eq!(ctx.distinct_id_version("ob-primary").await, Some(4));
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "revived primary", "create", &before).await,
+        1
+    );
+
+    // Lost race with a created person: the undo removes every row the stub
+    // wrote, so nothing is published.
+    ctx.insert_person_with_distinct_id("ob-taken").await;
+    let before = live_mappings(&ctx).await;
+    let outcomes = storage
+        .create_person_stubs(&[stub(&ctx, "ob-taken", &["ob-taken-extra"])])
+        .await
+        .expect("lost race");
+    assert!(matches!(outcomes[..], [StubOutcome::LostRace]));
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "lost race, created person", "create", &before)
+            .await,
+        0
+    );
+
+    // Lost race with a revived person: the revived extra is re-tombstoned
+    // by the undo, so it must not be published either.
+    ctx.insert_person_with_distinct_id("ob-steal").await;
+    let dead_id = ctx
+        .insert_tombstoned_person(person_uuid(ctx.team_id, "ob-steal"), 5)
+        .await;
+    ctx.insert_tombstoned_distinct_id("ob-dead-extra", dead_id, 2)
+        .await;
+    let before = live_mappings(&ctx).await;
+    let outcomes = storage
+        .create_person_stubs(&[stub(&ctx, "ob-steal", &["ob-dead-extra"])])
+        .await
+        .expect("lost race with revival");
+    assert!(matches!(outcomes[..], [StubOutcome::LostRace]));
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "lost race, revived person", "create", &before)
+            .await,
+        0
+    );
+
+    // Attach: one fresh id, one revived id and one already mapped id; only
+    // the two the attach took are published, at the versions it wrote.
+    let owner = ctx.insert_person_with_distinct_id("ob-attach-owner").await;
+    let target = ctx.insert_person_with_distinct_id("ob-attach-target").await;
+    ctx.insert_tombstoned_distinct_id("ob-attach-tomb", owner, 5)
+        .await;
+    let before = live_mappings(&ctx).await;
+    let outcomes = storage
+        .attach_distinct_ids(
+            ctx.team_id,
+            target,
+            &[
+                "ob-attach-fresh".to_string(),
+                "ob-attach-tomb".to_string(),
+                "ob-attach-owner".to_string(),
+            ],
+        )
+        .await
+        .expect("attach");
+    assert_eq!(
+        outcomes.get("ob-attach-fresh"),
+        Some(&AttachOutcome::Attached { version: 1 })
+    );
+    assert_eq!(
+        outcomes.get("ob-attach-tomb"),
+        Some(&AttachOutcome::Attached { version: 6 })
+    );
+    assert_eq!(
+        outcomes.get("ob-attach-owner"),
+        Some(&AttachOutcome::AlreadyMapped { person_id: owner })
+    );
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "attach", "attach", &before).await,
+        2
+    );
+
+    // Mixed batch: one stub commits with an extra it shares with a second
+    // stub that loses its race. The shared extra stays live under the
+    // winner and is published once; the loser's own rows are undone and
+    // publish nothing.
+    ctx.insert_person_with_distinct_id("ob-mix-taken").await;
+    let before = live_mappings(&ctx).await;
+    let outcomes = storage
+        .create_person_stubs(&[
+            stub(&ctx, "ob-mix-winner", &["ob-mix-shared"]),
+            stub(&ctx, "ob-mix-taken", &["ob-mix-own", "ob-mix-shared"]),
+        ])
+        .await
+        .expect("mixed batch");
+    assert!(
+        matches!(
+            outcomes[..],
+            [
+                StubOutcome::Committed { created: true, .. },
+                StubOutcome::LostRace
+            ]
+        ),
+        "expected committed + lost race, got {outcomes:?}"
+    );
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "mixed batch", "create", &before).await,
+        2
+    );
+
+    // An extra added to a person that already exists: the live primary
+    // mapping stays out, the new extra is published under that person's
+    // uuid.
+    let before = live_mappings(&ctx).await;
+    let outcomes = storage
+        .create_person_stubs(&[stub(&ctx, "ob-mix-winner", &["ob-mix-late"])])
+        .await
+        .expect("late extra");
+    assert!(
+        matches!(
+            outcomes[..],
+            [StubOutcome::Committed { created: false, .. }]
+        ),
+        "expected an existing-person outcome, got {outcomes:?}"
+    );
+    assert_eq!(
+        assert_outbox_matches_added_mappings(&ctx, "late extra", "create", &before).await,
+        1
+    );
+
+    // With outbox writes off, a create adds a live mapping and no row.
+    let before = live_mappings(&ctx).await;
+    ctx.storage
+        .create_person_stubs(&[stub(&ctx, "ob-off", &[])])
+        .await
+        .expect("create with writes off");
+    assert_eq!(live_mappings(&ctx).await.len(), before.len() + 1);
+    assert!(outbox_mapping_rows(&ctx).await.is_empty(), "writes off");
+
     ctx.cleanup().await.ok();
 }

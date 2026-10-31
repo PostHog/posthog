@@ -87,9 +87,13 @@ export function CanvasSourceEditor({
             if (drag) {
                 drag.end(false)
             } else {
-                select(null)
-                postToCanvasEditor({ type: 'canvas-edit-deselect' })
+                postToCanvasEditor({ type: 'canvas-edit-escape' })
             }
+            return
+        }
+        if (key.key === 'Enter') {
+            prevent?.()
+            postToCanvasEditor({ type: 'canvas-edit-enter', shiftKey: key.shiftKey })
             return
         }
         if ((mod && ['z', 'd'].includes(key.key.toLowerCase())) || key.key === 'Backspace' || key.key === 'Delete') {

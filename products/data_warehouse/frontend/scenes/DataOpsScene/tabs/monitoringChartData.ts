@@ -1,17 +1,11 @@
 import type { Series } from '@posthog/quill-charts'
 
-import type {
-    DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams,
-    ManagedWarehouseMonitoringSeriesResponseApi,
-} from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { ManagedWarehouseMonitoringSeriesResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-export type MonitoringChartMetric = NonNullable<
-    DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveParams['metric']
->
 type MonitoringSeries = ManagedWarehouseMonitoringSeriesResponseApi['series'][number]
 
 export interface MonitoringChartMetricConfig {
-    metric: MonitoringChartMetric
+    metric: string
     fallbackLabel: string
 }
 

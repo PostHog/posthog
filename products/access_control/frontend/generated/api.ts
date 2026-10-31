@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AccessControlDefaultsResponseApi,
+    AccessControlManagementApi,
+    AccessControlManagementRequestApi,
     AccessControlMemberRuleRequestApi,
     AccessControlMembersResponseApi,
     AccessControlObjectRulesResponseApi,
@@ -152,6 +154,51 @@ export const organizationsProjectsAccessControlDefaultsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsAccessControlManagementRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/access_control_management/`
+}
+
+/**
+ * Whether Terraform manages this project's access rules.
+ */
+export const organizationsProjectsAccessControlManagementRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<AccessControlManagementApi> => {
+    return apiMutator<AccessControlManagementApi>(
+        getOrganizationsProjectsAccessControlManagementRetrieveUrl(organizationId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getOrganizationsProjectsAccessControlManagementUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/access_control_management/`
+}
+
+/**
+ * Enable or disable the Terraform lock. Disabled: the UI manages this project's access rules. Enabled: only the account behind Terraform's API key can change them, and until Terraform writes for the first time, nobody can. A Terraform write enables the lock. Project admins and organization admins can call this.
+ */
+export const organizationsProjectsAccessControlManagementUpdate = async (
+    organizationId: string,
+    id: number,
+    accessControlManagementRequestApi: AccessControlManagementRequestApi,
+    options?: RequestInit
+): Promise<AccessControlManagementApi> => {
+    return apiMutator<AccessControlManagementApi>(
+        getOrganizationsProjectsAccessControlManagementUpdateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(accessControlManagementRequestApi),
         }
     )
 }

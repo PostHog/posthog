@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { Command } from 'lib/components/Command/Command'
+import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -11,9 +12,10 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
-import { WizardSyncFab } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -25,7 +27,6 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
-import { WizardRunSyncFab } from 'products/wizard/frontend/runs/WizardRunSyncFab'
 
 import { sceneLogic } from './sceneLogic'
 
@@ -38,6 +39,18 @@ const InternalFeedbackWidget = lazyWithRetry(() =>
         default: InternalFeedbackWidget,
     }))
 )
+// Deciding whether a run is active takes API polls, so the shell cannot gate these cheaply.
+// Lazy loading keeps their logic and generated API clients off the first paint instead.
+const WizardSyncFab = lazyWithRetry(() =>
+    import('scenes/onboarding/shared/wizard-sync/WizardSyncFab').then(({ WizardSyncFab }) => ({
+        default: WizardSyncFab,
+    }))
+)
+const WizardRunSyncFab = lazyWithRetry(() =>
+    import('products/wizard/frontend/runs/WizardRunSyncFab').then(({ WizardRunSyncFab }) => ({
+        default: WizardRunSyncFab,
+    }))
+)
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
     useMountedLogic(apiStatusLogic)
@@ -45,6 +58,9 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(breadcrumbsLogic)
     useMountedLogic(globalSetupLogic)
     useMountedLogic(webmcpLogic)
+    useMountedLogic(billingLogic)
+    // Resolves product setup statuses on idle, so gated scenes open without a spinner.
+    useMountedLogic(productSetupPreloadLogic)
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
@@ -92,7 +108,11 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 )}
                 <Command />
                 <ImpersonationNotice />
-                {runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}
+                <ErrorBoundary>
+                    <ChunkLoadErrorBoundary>
+                        <Suspense fallback={null}>{runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}</Suspense>
+                    </ChunkLoadErrorBoundary>
+                </ErrorBoundary>
                 {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,
                     but the doc dialog must be able to open from any surface. */}
                 <WizardHandoffDialog />
@@ -103,9 +123,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
                             <InternalFeedbackWidget />
                         </Suspense>
                     </ErrorBoundary>
-                )}
-                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
-                    <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
                 )}
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />

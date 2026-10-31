@@ -10,6 +10,8 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { expect } from 'storybook/test'
+
 import {
     allReports,
     mockArtefacts,
@@ -19,7 +21,6 @@ import {
     mockSourceMetadata,
     mockTask,
     mockTeamConfig,
-    pullRequestReports,
     reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
@@ -92,8 +93,6 @@ const meta: Meta = {
         mockDate: '2026-06-11',
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
@@ -106,6 +105,40 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+const valueSummaryMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/inbox_summary/': {
+            period_start: '2026-06-04T00:00:00Z',
+            period_end: '2026-06-11T00:00:00Z',
+            merged_pr_count: 12,
+            people_count: 5,
+            participation_complete: true,
+            pull_requests: Array.from({ length: 12 }, (_, index) => ({
+                repository: index % 3 === 0 ? 'PostHog/posthog-js' : 'PostHog/posthog',
+                number: 111094 - index,
+                url: `https://github.com/${index % 3 === 0 ? 'PostHog/posthog-js' : 'PostHog/posthog'}/pull/${111094 - index}`,
+            })),
+            people: [
+                { id: 1, login: 'sam-example' },
+                { id: 2, login: 'alex-example' },
+                { id: 3, login: 'riley-example' },
+                { id: 4, login: 'taylor-example' },
+                { id: 5, login: 'jordan-example' },
+            ],
+        },
+    },
+})
+
+export const WithValueSummary: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.SIGNALS_INBOX_VALUE_SUMMARY]: true,
+        },
+    },
+    decorators: [valueSummaryMocks],
+}
 
 function reportWithEvidenceItems(count: number): Story {
     return {
@@ -148,67 +181,13 @@ export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
 }
 
-// The layout the flag replaces: one tab per report list, the Runs and Configuration tabs, and the
-// setup rail. Story parameters replace the meta's, so the meta-level flags are re-listed.
-const LEGACY_FLAGS = {
-    [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-    [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
-    [FEATURE_FLAGS.INBOX_REDESIGN]: false,
-}
-
-export const Legacy: Story = {
-    parameters: {
-        featureFlags: LEGACY_FLAGS,
-        testOptions: {
-            waitForLoadersToDisappear: true,
-            // The setup rail loads its own team config and integrations, sometimes after the loader wait.
-            // This button renders only after both loads finish.
-            waitForSelector: '[data-attr="signals-issue-tracker-connect"]',
-        },
-    },
-    decorators: [routeTo(urls.inbox('pulls'))],
-}
-
-export const LegacyReport: Story = {
-    parameters: { featureFlags: LEGACY_FLAGS },
-    decorators: [routeTo(urls.inboxReport('pulls', pullRequestReports[0].id))],
-}
-
-export const LegacyScouts: Story = {
-    parameters: { featureFlags: LEGACY_FLAGS },
-    decorators: [
-        routeTo(urls.inbox('scouts')),
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
-                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns(mockScoutConfigs)],
-            },
-        }),
-    ],
+export const Sources: Story = {
+    decorators: [routeTo(urls.inbox('sources'))],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
-                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
-            },
-        }),
-    ],
-}
-
-export const EmptyControl: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-        },
-    },
     decorators: [
         mswDecorator({
             get: {
@@ -254,12 +233,39 @@ export const InstallingSelfDriving: Story = {
 
 // Fresh project: nothing watching and nothing in the inbox → the full-pane welcome page (no tab row).
 export const SelfDrivingOnboarding: Story = {
+    name: 'Welcome page with GitHub and manual setup',
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null },
+            },
+            post: {
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null },
+            },
+        }),
+    ],
+}
+
+export const GuidedOnboardingComplete: Story = {
+    decorators: [
+        ...(Array.isArray(Empty.decorators) ? Empty.decorators : []),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: {
+                        step: 'github',
+                        sources: [],
+                        scanner_ids: [],
+                        suggestions: [],
+
+                        automatic_implementation: false,
+                        implementation_priority: 'P1',
+                    },
+                    completed_at: '2026-06-11T10:00:00Z',
+                },
             },
         }),
     ],
@@ -285,10 +291,14 @@ export const SelfDrivingVerdictPending: Story = {
     ],
 }
 
-// Had self-driving before (reports exist) but nothing is watching now → the sleek re-enable banner
-// over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
-// inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.
+// Had self-driving before (reports exist) but nothing is watching now and the in-app setup never
+// completed → the sleek re-enable banner over the normal inbox, so existing work stays accessible.
+// Reports are mocked explicitly (not inherited) so "existing work" is unambiguous and the banner –
+// not the takeover – is shown.
 export const SelfDrivingPaused: Story = {
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText('Self-driving is paused')).resolves.toBeVisible()
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -298,6 +308,7 @@ export const SelfDrivingPaused: Story = {
                 ],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null },
             },
         }),
     ],

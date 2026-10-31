@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 # Postmark caps `count + offset` at 10,000 on its paginated list endpoints, so a full
@@ -9,14 +9,14 @@ POSTMARK_MAX_WINDOW = 10_000
 POSTMARK_MAX_PAGE_SIZE = 500
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class PostmarkEndpointConfig:
     name: str
     path: str
     # Key in the JSON response body that holds the list of rows (Postmark wraps every
     # list response, e.g. `{"TotalCount": N, "Messages": [...]}`).
     data_key: str
-    primary_key: str = "ID"
+    primary_keys: list[str] = field(default_factory=lambda: ["ID"])
     # Stable datetime field used for partitioning. Never an `updated_at`-style field.
     partition_key: Optional[str] = None
     # Offset/count-paginated endpoints set a page size (max 500). Flat endpoints return
@@ -29,7 +29,7 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
         name="messages_outbound",
         path="/messages/outbound",
         data_key="Messages",
-        primary_key="MessageID",
+        primary_keys=["MessageID"],
         partition_key="ReceivedAt",
         page_size=POSTMARK_MAX_PAGE_SIZE,
     ),
@@ -37,7 +37,7 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
         name="messages_inbound",
         path="/messages/inbound",
         data_key="InboundMessages",
-        primary_key="MessageID",
+        primary_keys=["MessageID"],
         partition_key="ReceivedAt",
         page_size=POSTMARK_MAX_PAGE_SIZE,
     ),
@@ -45,22 +45,32 @@ POSTMARK_ENDPOINTS: dict[str, PostmarkEndpointConfig] = {
         name="bounces",
         path="/bounces",
         data_key="Bounces",
-        primary_key="ID",
+        primary_keys=["ID"],
         partition_key="BouncedAt",
+        page_size=POSTMARK_MAX_PAGE_SIZE,
+    ),
+    "opens": PostmarkEndpointConfig(
+        name="opens",
+        path="/messages/outbound/opens",
+        data_key="Opens",
+        # Opens have no ID of their own. Postmark keeps only the first open per message and
+        # recipient, so the pair is unique.
+        primary_keys=["MessageID", "Recipient"],
+        partition_key="ReceivedAt",
         page_size=POSTMARK_MAX_PAGE_SIZE,
     ),
     "templates": PostmarkEndpointConfig(
         name="templates",
         path="/templates",
         data_key="Templates",
-        primary_key="TemplateId",
+        primary_keys=["TemplateId"],
         page_size=POSTMARK_MAX_PAGE_SIZE,
     ),
     "message_streams": PostmarkEndpointConfig(
         name="message_streams",
         path="/message-streams",
         data_key="MessageStreams",
-        primary_key="ID",
+        primary_keys=["ID"],
     ),
 }
 
@@ -71,9 +81,10 @@ ENDPOINTS = tuple(POSTMARK_ENDPOINTS.keys())
 # --- Webhook ingestion -------------------------------------------------------------------
 #
 # Postmark's Bounce and SpamComplaint webhooks serialize the same bounce record the Bounce API
-# lists, field for field, so both feed the `bounces` table. The other triggers (Delivery, Open,
-# Click, SubscriptionChange) describe message events we have no table for, and inbound webhooks
-# are configured on the server rather than through the Webhooks API — neither is wired up.
+# lists, field for field, so both feed the `bounces` table. The `opens` table is pull-only for now.
+# The other triggers (Delivery, Click, SubscriptionChange) describe message events we have no table
+# for, and inbound webhooks are configured on the server rather than through the Webhooks API —
+# neither is wired up.
 
 # Schemas that can be fed by pushed rows as well as the backfill.
 WEBHOOK_SCHEMA_NAMES = frozenset({"bounces"})

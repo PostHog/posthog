@@ -17,7 +17,6 @@ import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { productTourActivityDescriber } from 'scenes/product-tours/activityDescriptions'
-import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import {
     legalDocumentActivityDescriber,
@@ -32,6 +31,7 @@ import {
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 
+import { accessControlActivityDescriber } from '~/layout/navigation-3000/sidepanel/panels/access_control/accessControlActivityDescriber'
 import { ActivityScope } from '~/types'
 
 import { actionActivityDescriber } from 'products/actions/frontend/actionActivityDescriber'
@@ -46,12 +46,17 @@ import { externalDataSourceActivityDescriber } from 'products/data_warehouse/fro
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { groupActivityDescriber } from 'products/groups/frontend/activityDescriptions'
 import { personActivityDescriber } from 'products/persons/frontend/activityDescriptions'
+import { insightActivityDescriber } from 'products/product_analytics/frontend/insights/activityDescriptions'
 import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
+import { skillActivityDescriber } from 'products/skills/frontend/activityDescriber'
 import { stamphogRepoConfigActivityDescriber } from 'products/stamphog/frontend/activityDescriber'
+import { warehouseSuggestionActivityDescriber } from 'products/warehouse_suggestions/frontend/warehouseSuggestionActivityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
     switch (logItem?.scope) {
+        case ActivityScope.ACCESS_CONTROL:
+            return accessControlActivityDescriber
         case ActivityScope.ACTION:
             return actionActivityDescriber
         case ActivityScope.ALERT_CONFIGURATION:
@@ -115,6 +120,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return errorTrackingActivityDescriber
         case ActivityScope.DATA_WAREHOUSE_SAVED_QUERY:
             return dataWarehouseSavedQueryActivityDescriber
+        case ActivityScope.WAREHOUSE_SUGGESTION:
+            return warehouseSuggestionActivityDescriber
         case ActivityScope.REPLAY:
             return replayActivityDescriber
         case ActivityScope.HEATMAP:
@@ -142,6 +149,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return promptActivityDescriber
         case ActivityScope.LLM_PROMPT_LABEL:
             return promptLabelActivityDescriber
+        case ActivityScope.LLM_SKILL:
+            return skillActivityDescriber
         case ActivityScope.STAMPHOG_REPO_CONFIG:
             return stamphogRepoConfigActivityDescriber
         default:

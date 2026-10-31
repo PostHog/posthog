@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
+    codebase_detection = detect(env=("^(DEVIN_AI|DEVINAI)_", "^DEVIN_API_KEY$", "^DEVIN_ORG_ID$"))
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://docs.devin.ai/api-reference"
@@ -55,7 +58,7 @@ class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
             name=ExternalDataSourceType.DEVINAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Devin AI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Devin service user API key and organization ID to sync your Devin data into the PostHog Data warehouse.
 
 Create a service user API key (prefixed `cog_`) in your [Devin organization settings](https://app.devin.ai/settings). The service user needs the following organization-level permissions:

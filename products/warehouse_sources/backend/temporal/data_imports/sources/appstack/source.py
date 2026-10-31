@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppstackSource(ResumableSource[AppstackSourceConfig, AppstackResumeConfig]):
+    codebase_detection = detect(
+        env=("^APPSTACK_",),
+        npm=("react-native-appstack-sdk",),
+        maven=("tech.appstack.android-sdk:appstack-android-sdk",),
+        pub=("appstack_plugin",),
+        swiftpm=("github.com/appstack-tech/ios-appstack-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.appstack.tech/api/export"
 
@@ -57,7 +66,7 @@ class AppstackSource(ResumableSource[AppstackSourceConfig, AppstackResumeConfig]
 You can find the API key in your Appstack dashboard settings. API keys are scoped to a single app, so add one source per app.""",
             iconPath="/static/services/appstack.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appstack",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -18,13 +18,15 @@ import tempfile
 import threading
 import subprocess
 from dataclasses import asdict, dataclass
+from fnmatch import fnmatchcase
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 from gateway import REVIEWER_EFFORT, REVIEWER_MODEL, openai_gateway_headers, resolve_gateway_config
 from github import PRData
 from openai import OpenAI
-from reviewer import REVIEWER_SYSTEM, Reviewer, _verdict_from_facts, has_current_head_review, max_turns
+from reviewer import MAX_TURNS, REVIEWER_SYSTEM, Reviewer, _verdict_from_facts, has_current_head_review
 from verdict_rule import FACTS_SCHEMA
 
 TOOL_OUTPUT_MAX_CHARS = 50_000
@@ -151,6 +153,27 @@ def git_environment() -> dict[str, str]:
     return {name: value for name, value in os.environ.items() if name not in _GIT_LOCATION_VARIABLES}
 
 
+def _glob_matches(parts: list[str], pattern: list[str]) -> bool:
+    """Match path segments the way a git :(glob) pathspec does: * stays inside one segment, ** spans any number.
+
+    The glob comes from the model, which PR content can steer, so the match is memoized: its work stays
+    bounded by path depth times pattern length, however many ** segments the glob has.
+    """
+
+    @cache
+    def match(part: int, segment: int) -> bool:
+        if segment == len(pattern):
+            return part == len(parts)
+        if pattern[segment] == "**":
+            if segment == len(pattern) - 1:
+                # A trailing ** matches what is below the prefix, never the prefix itself.
+                return part < len(parts)
+            return match(part, segment + 1) or (part < len(parts) and match(part + 1, segment))
+        return part < len(parts) and fnmatchcase(parts[part], pattern[segment]) and match(part + 1, segment + 1)
+
+    return match(0, 0)
+
+
 class ToolError(Exception):
     """A tool call the model can correct. Its message goes back to the model as the tool output."""
 
@@ -210,7 +233,11 @@ class RepoTools:
     def _is_ignored(self, target: Path) -> bool:
         relative = target.relative_to(self.root).as_posix()
         command = ["git", "check-ignore", "-q", "--", relative]
-        result = subprocess.run(command, cwd=self.root, env=git_environment(), capture_output=True, timeout=10)
+        try:
+            result = subprocess.run(command, cwd=self.root, env=git_environment(), capture_output=True, timeout=10)
+        except subprocess.TimeoutExpired:
+            # Without an answer the file could be an ignored secret, so the read is refused.
+            raise ToolError(f"could not check whether {relative} is ignored by git; try again") from None
         return result.returncode == 0
 
     def read_file(self, path: str, offset: int | None, limit: int | None) -> str:
@@ -240,6 +267,8 @@ class RepoTools:
         if glob and target.is_dir():
             prefix = "" if relative == "." else f"{relative}/"
             pathspec = f":(glob){prefix}{glob}" if "/" in glob else f":(glob){prefix}**/{glob}"
+        elif glob and not _glob_matches(relative.split("/"), glob.split("/") if "/" in glob else ["**", glob]):
+            return "(no matches)"
         else:
             pathspec = relative
         # git grep reads the checkout's own index, so it is fast on a large repository, and it never
@@ -354,8 +383,7 @@ class OpenAIReviewer(Reviewer):
                 readable_diff = self._copy_diff_into_explore_root(original_diff)
             prompt = self._build_review_prompt(pr, classification, gate_context, readable_diff)
             client = self.client or self._new_client(pr, classification, gate_context)
-            turns = max_turns(classification, gate_context)
-            return self._run_loop(client, prompt, turns, classification, head_reviewed=has_current_head_review(pr))
+            return self._run_loop(client, prompt, classification, head_reviewed=has_current_head_review(pr))
         finally:
             if readable_diff != original_diff:
                 readable_diff.unlink(missing_ok=True)
@@ -384,11 +412,11 @@ class OpenAIReviewer(Reviewer):
             raise RuntimeError(f"Review time budget exhausted ({REVIEW_TIME_BUDGET_SECONDS}s)")
         return min(REQUEST_TIMEOUT_SECONDS, remaining)
 
-    def _run_loop(self, client: Any, prompt: str, turns: int, classification: dict, *, head_reviewed: bool) -> dict:
+    def _run_loop(self, client: Any, prompt: str, classification: dict, *, head_reviewed: bool) -> dict:
         tools = RepoTools(self.explore_root)
         conversation: list[Any] = [{"role": "user", "content": prompt}]
         usage = _TokenUsage()
-        for turn in range(1, turns + 1):
+        for turn in range(1, MAX_TURNS + 1):
             # store=False keeps the PR content out of OpenAI's response storage. The conversation
             # is resent every turn, and the encrypted reasoning items carry the model's reasoning
             # from one turn to the next.
@@ -418,7 +446,7 @@ class OpenAIReviewer(Reviewer):
                 output = tools.call(call.name, call.arguments)
                 conversation.append({"type": "function_call_output", "call_id": call.call_id, "output": output})
         # Same wording as the Agent SDK's turn-limit error, so the pipeline treats it as non-retryable.
-        raise RuntimeError(f"Reached maximum number of turns ({turns})")
+        raise RuntimeError(f"Reached maximum number of turns ({MAX_TURNS})")
 
     def _final_result(self, response: Any, classification: dict, head_reviewed: bool) -> dict:
         if response.status != "completed":

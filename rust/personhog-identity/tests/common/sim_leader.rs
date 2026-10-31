@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
 use personhog_identity::config::IdentityTables;
-use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
+use personhog_identity::leader::{LifecycleLeader, PersonStateReader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FencePersonsRequest, FencePersonsResponse,
     FencedPersonSeal, FoldPersonDocumentRequest, FoldPersonDocumentResponse, LifecycleOpType,
@@ -48,6 +48,7 @@ pub enum Rpc {
     Fold,
     Release,
     PropertyPush,
+    IdentifiedRead,
 }
 
 /// A person's live fence in the simulated leader.
@@ -140,6 +141,8 @@ pub struct SimLeader {
     /// be ahead of Postgres, which is exactly what the seal-time re-check
     /// exists for.
     sealed_identified: Mutex<HashMap<i64, bool>>,
+    /// Person ids whose identified flag the entrance read, in order.
+    identified_reads: Mutex<Vec<i64>>,
     /// Injected `last_seen_at` per person: leader-side state with no
     /// Postgres column.
     last_seen: Mutex<HashMap<i64, i64>>,
@@ -158,6 +161,7 @@ impl SimLeader {
             deaths: Mutex::new(HashMap::new()),
             scripted: Mutex::new(HashMap::new()),
             sealed_identified: Mutex::new(HashMap::new()),
+            identified_reads: Mutex::new(Vec::new()),
             last_seen: Mutex::new(HashMap::new()),
             batch_rpcs_supported: AtomicBool::new(true),
         }
@@ -193,6 +197,10 @@ impl SimLeader {
             .is_none_or(|queue| queue.is_empty())
     }
 
+    pub fn identified_reads(&self) -> Vec<i64> {
+        self.identified_reads.lock().unwrap().clone()
+    }
+
     pub fn set_sealed_identified(&self, person_id: i64, identified: bool) {
         self.sealed_identified
             .lock()
@@ -202,6 +210,23 @@ impl SimLeader {
 
     pub fn set_last_seen(&self, person_id: i64, epoch: i64) {
         self.last_seen.lock().unwrap().insert(person_id, epoch);
+    }
+
+    /// Destroy a live person on the leader only; its Postgres row stays.
+    pub async fn declare_dead(&self, team_id: i64, person_id: i64) {
+        let person = self
+            .live_person(team_id, person_id)
+            .await
+            .expect("person must be live to be destroyed");
+        self.deaths.lock().unwrap().insert(
+            person_id,
+            DeathDocument {
+                person_id,
+                person_uuid: person.uuid,
+                version: person.version,
+                created_at: person.created_at,
+            },
+        );
     }
 
     pub fn fence_for(&self, person_id: i64) -> Option<Fence> {
@@ -432,6 +457,7 @@ impl LifecycleLeader for SimLeader {
                 outcome,
                 sealed_version: person.sealed_version,
                 created_at: person.created_at,
+                tombstone_version: person.tombstone_version,
             })
             .await?;
         }
@@ -474,6 +500,14 @@ impl LifecycleLeader for SimLeader {
                 if Uuid::parse_str(&request.person_uuid).is_err() {
                     return Err(Status::invalid_argument(
                         "person_uuid must be a valid UUID for a committed release",
+                    ));
+                }
+                if request
+                    .tombstone_version
+                    .is_some_and(|version| version <= sealed_version)
+                {
+                    return Err(Status::invalid_argument(
+                        "tombstone_version must be above sealed_version for a committed release",
                     ));
                 }
                 let mark_status = self
@@ -526,7 +560,7 @@ impl LifecycleLeader for SimLeader {
                     DeathDocument {
                         person_id: request.person_id,
                         person_uuid: request.person_uuid.clone(),
-                        version: base_version + 1,
+                        version: (base_version + 1).max(request.tombstone_version.unwrap_or(0)),
                         created_at: request.created_at,
                     },
                 );
@@ -633,6 +667,30 @@ impl LifecycleLeader for SimLeader {
                 ..target
             }),
         })
+    }
+}
+
+/// The leader's flag: the sealed override where one is set, else the live row.
+#[async_trait]
+impl PersonStateReader for SimLeader {
+    async fn is_identified(&self, team_id: i64, person_id: i64) -> Result<Option<bool>, Status> {
+        self.identified_reads.lock().unwrap().push(person_id);
+        if let Some(status) = self.take_scripted(Rpc::IdentifiedRead, person_id) {
+            return Err(status);
+        }
+        if self.deaths.lock().unwrap().contains_key(&person_id) {
+            return Ok(None);
+        }
+        let Some(person) = self.live_person(team_id, person_id).await else {
+            return Ok(None);
+        };
+        let overridden = self
+            .sealed_identified
+            .lock()
+            .unwrap()
+            .get(&person_id)
+            .copied();
+        Ok(Some(overridden.unwrap_or(person.is_identified)))
     }
 }
 

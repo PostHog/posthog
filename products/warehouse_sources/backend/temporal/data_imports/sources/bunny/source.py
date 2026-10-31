@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BunnySource(ResumableSource[BunnySourceConfig, BunnyResumeConfig]):
+    codebase_detection = detect(
+        env=("^BUNNY_", "^BUNNYNET_"),
+        npm=("@bunny.net/storage-sdk", "@bunny.net/edgescript-sdk"),
+        composer=("bunnycdn/storage",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.bunny.net/reference"
 
@@ -47,7 +54,7 @@ class BunnySource(ResumableSource[BunnySourceConfig, BunnyResumeConfig]):
             name=ExternalDataSourceType.BUNNY,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bunny.net",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your bunny.net account API key to pull your bunny.net data into the PostHog Data warehouse.
 
 You can find your account API key under **Account Settings → API** in the [bunny.net dashboard](https://dash.bunny.net/account/settings). This single key grants read access to the Core API (pull zones, storage zones, DNS zones, and Stream video libraries).

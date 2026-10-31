@@ -1,15 +1,21 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 from parameterized import parameterized
-from requests import Request, Response
+from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kickscale import (
+    KickscaleSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.kickscale import (
     KickscaleAuth,
     KickscalePageNumberPaginator,
@@ -17,9 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.
     _client_config,
     _format_kickscale_datetime,
     get_resource,
-    kickscale_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.source import KickscaleSource
 
 
 class TestKickscaleAuth:
@@ -91,13 +97,9 @@ def test_client_config_pins_host_and_blocks_redirects() -> None:
         (500, False, "unexpected status code"),
     ]
 )
-@patch("products.warehouse_sources.backend.temporal.data_imports.sources.kickscale.kickscale.make_tracked_session")
-def test_validate_credentials_status_mapping(
-    status: int, expected_valid: bool, message_fragment: str | None, mock_session: MagicMock
-) -> None:
-    mock_session.return_value.get.return_value = Mock(status_code=status)
-
-    is_valid, message = validate_credentials("kickscale-key", "kickscale-client")
+def test_validate_credentials_status_mapping(status: int, expected_valid: bool, message_fragment: str | None) -> None:
+    with scripted_network(always(ScriptedResponse(status=status))) as network:
+        is_valid, message = validate_credentials("kickscale-key", "kickscale-client")
 
     assert is_valid is expected_valid
     if message_fragment is None:
@@ -105,89 +107,52 @@ def test_validate_credentials_status_mapping(
     else:
         assert message is not None and message_fragment in message
 
-    call = mock_session.return_value.get.call_args
-    assert call.args[0] == "https://api.kickscale.com/meetings"
-    assert call.kwargs["headers"]["api-key"] == "kickscale-key"
-    assert call.kwargs["headers"]["client-id"] == "kickscale-client"
+    assert {request.path for request in network.requests_log} == {"/meetings"}
+    assert {request.origin for request in network.requests_log} == {"https://api.kickscale.com"}
+    assert all(request.headers["api-key"] == "kickscale-key" for request in network.requests_log)
+    assert all(request.headers["client-id"] == "kickscale-client" for request in network.requests_log)
     # The validation session must refuse redirects so a 3xx can't replay the credentials off-host.
-    assert mock_session.call_args.kwargs["allow_redirects"] is False
-
-
-def _make_http_response(rows: list[dict[str, Any]], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    body = {"data": rows, "meta": {"total": 101, "returned": len(rows), "page": 0, "pageSize": 100}}
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+    assert network.session_options[0]["allow_redirects"] is False
 
 
 class TestKickscaleSourceResumeBehavior:
-    """End-to-end resume behaviour of ``kickscale_source`` via ``rest_api_resource``."""
+    """End-to-end resume behaviour of ``KickscaleSource`` via ``source_for_pipeline``."""
 
-    def _drive(
-        self, endpoint: str, manager: MagicMock, responses: list[Response]
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(KickscaleSource(), KickscaleSourceConfig(api_key="test-key", client_id="test-client"))
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as mock_session_cls:
-            mock_session = mock_session_cls.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            response = kickscale_source(
-                api_key="test-key",
-                client_id="test-client",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-            )
-            rows = [row for page in cast(Iterable[Any], response.items()) for row in page]
-            return rows, sent_params
+    @staticmethod
+    def _page(rows: list[dict[str, Any]]) -> ScriptedResponse:
+        return ScriptedResponse(
+            json={"data": rows, "meta": {"total": 101, "returned": len(rows), "page": 0, "pageSize": 100}}
+        )
 
     @pytest.mark.parametrize("endpoint", ["meetings", "calls"])
     def test_fresh_run_pages_until_short_page(self, endpoint: str) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            endpoint,
+            [
+                self._page([{"id": f"m{i}"} for i in range(100)]),
+                self._page([{"id": "m100"}]),
+            ],
+        )
 
-        responses = [
-            _make_http_response([{"id": f"m{i}"} for i in range(100)]),
-            _make_http_response([{"id": "m100"}]),
-        ]
-        rows, sent_params = self._drive(endpoint, manager, responses)
-
-        pages_sent = [p.get("page") for p in sent_params]
-        assert pages_sent == [0, 1]
-        assert [row["id"] for row in rows] == [f"m{i}" for i in range(101)]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [KickscaleResumeConfig(page=1)]
+        assert result.raised is None
+        assert result.params("page") == ["0", "1"]
+        assert [row["id"] for row in result.rows] == [f"m{i}" for i in range(101)]
+        assert result.saved_states == [KickscaleResumeConfig(page=1)]
 
     def test_resume_seeds_paginator_with_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = KickscaleResumeConfig(page=3)
+        result = self._driver().run(
+            "meetings", [self._page([{"id": "m1"}])], resume_state=KickscaleResumeConfig(page=3)
+        )
 
-        responses = [_make_http_response([{"id": "m1"}])]
-        _, sent_params = self._drive("meetings", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [3]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.params("page") == ["3"]
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("meetings", [self._page([{"id": "a"}])])
 
-        responses = [_make_http_response([{"id": "a"}])]
-        self._drive("meetings", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("page") == ["0"]

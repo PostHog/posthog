@@ -3,19 +3,23 @@ mod common;
 use common::{TestContext, TestPerson};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
+    CheckCohortMembershipRequest, ConsistencyLevel, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
     DeletePersonsRequest, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
-    EnsurePersonVersionFloorsRequest, GetDistinctIdsForPersonRequest,
+    DistinctIdWrite, DistinctIdWriteAction, DistinctIdWriteOutcome,
+    EnsurePersonVersionFloorsRequest, GetDistinctIdRowsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
     GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey, PersonVersionFloor,
-    PersonVersionFloorResult, SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest,
-    SplitPersonRequest, TeamDistinctId, UpsertHashKeyOverridesRequest, VersionBoundedPerson,
-    VersionFloorOutcome,
+    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
+    ListPersonsForTeamRequest, PersonVersionFloor, PersonVersionFloorResult, RaiseOutcome,
+    RaisePersonVersionFloorsRequest, ReadOptions, RestoreOutcome, RestorePersonsRequest,
+    RestoredDistinctId, RestoredPerson, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
+    UpsertHashKeyOverridesRequest, VersionBoundedPerson, VersionFloorOutcome,
+    WriteDistinctIdsRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1766,6 +1770,400 @@ async fn test_ensure_person_version_floors_maps_results_to_proto() {
             },
         ]
     );
+
+    ctx.cleanup().await.ok();
+}
+
+fn read_options(strong: bool) -> Option<ReadOptions> {
+    strong.then(|| ReadOptions {
+        consistency: ConsistencyLevel::Strong as i32,
+        ..Default::default()
+    })
+}
+
+#[rstest]
+#[case::eventual(false)]
+#[case::strong(true)]
+#[tokio::test]
+async fn test_get_distinct_id_rows_reports_tombstones_and_owner_state(#[case] strong: bool) {
+    let ctx = ServiceTestContext::new().await;
+    let live = ctx.insert_person("rows_live", None).await.unwrap();
+    ctx.add_distinct_id_to_person(live.id, "rows_live_gone")
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE posthog_persondistinctid SET is_deleted = true, version = 4 WHERE team_id = $1 AND distinct_id = 'rows_live_gone'",
+    )
+    .bind(ctx.team_id)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
+    let deleted = ctx.insert_person("rows_deleted", None).await.unwrap();
+    ctx.add_distinct_id_to_person(deleted.id, "rows_stray")
+        .await
+        .unwrap();
+    ctx.tombstone_person(deleted.id, Some("rows_stray"))
+        .await
+        .unwrap();
+
+    let rows = ctx
+        .service
+        .get_distinct_id_rows(Request::new(GetDistinctIdRowsRequest {
+            team_id: ctx.team_id,
+            distinct_ids: [
+                "rows_stray",
+                "rows_live",
+                "rows_missing",
+                "rows_live_gone",
+                "rows_deleted",
+            ]
+            .map(String::from)
+            .to_vec(),
+            read_options: read_options(strong),
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner()
+        .rows;
+
+    let got: Vec<(&str, i64, bool, Option<bool>)> = rows
+        .iter()
+        .map(|r| {
+            (
+                r.distinct_id.as_str(),
+                r.version,
+                r.is_deleted,
+                r.person_is_deleted,
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("rows_deleted", 1, true, Some(true)),
+            ("rows_live", 0, false, Some(false)),
+            ("rows_live_gone", 4, true, Some(false)),
+            ("rows_stray", 0, false, Some(true)),
+        ]
+    );
+    let deleted_uuid = deleted.uuid.to_string();
+    let live_uuid = live.uuid.to_string();
+    for row in &rows {
+        let (expected_id, expected_uuid) = if row.distinct_id.starts_with("rows_live") {
+            (live.id, &live_uuid)
+        } else {
+            (deleted.id, &deleted_uuid)
+        };
+        assert_eq!(row.person_id, expected_id);
+        assert_eq!(row.person_uuid.as_ref(), Some(expected_uuid));
+    }
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_get_distinct_id_rows_rejects_more_than_1000_ids() {
+    let ctx = ServiceTestContext::new().await;
+    let status = ctx
+        .service
+        .get_distinct_id_rows(Request::new(GetDistinctIdRowsRequest {
+            team_id: ctx.team_id,
+            distinct_ids: (0..1001).map(|i| format!("too_many_{i}")).collect(),
+            read_options: None,
+        }))
+        .await
+        .expect_err("over the cap");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_list_persons_for_team_pages_in_id_order_with_tombstones() {
+    let ctx = ServiceTestContext::new().await;
+    let with_ids = ctx.insert_person("list_with_ids", None).await.unwrap();
+    let tombstoned = ctx.insert_person("list_tombstoned", None).await.unwrap();
+    ctx.tombstone_person(tombstoned.id, None).await.unwrap();
+    let without_ids = ctx.insert_person("list_without_ids", None).await.unwrap();
+    ctx.delete_distinct_ids_of(without_ids.id).await.unwrap();
+    let mut expected = vec![
+        (with_ids.id, with_ids.uuid.to_string(), 0, false, true),
+        (tombstoned.id, tombstoned.uuid.to_string(), 1, true, false),
+        (
+            without_ids.id,
+            without_ids.uuid.to_string(),
+            0,
+            false,
+            false,
+        ),
+    ];
+    expected.sort();
+
+    let mut page_sizes = Vec::new();
+    let mut listed = Vec::new();
+    let mut after_person_id = 0;
+    loop {
+        let page = ctx
+            .service
+            .list_persons_for_team(Request::new(ListPersonsForTeamRequest {
+                team_id: ctx.team_id,
+                after_person_id,
+                limit: 2,
+                read_options: None,
+                before_person_id: None,
+            }))
+            .await
+            .expect("RPC failed")
+            .into_inner();
+        page_sizes.push(page.persons.len());
+        for p in &page.persons {
+            assert!(p.created_at_ms > 0);
+            listed.push((
+                p.id,
+                p.uuid.clone(),
+                p.version,
+                p.is_deleted,
+                p.has_live_distinct_ids,
+            ));
+        }
+        match page.next_after_person_id {
+            Some(id) => after_person_id = id,
+            None => break,
+        }
+    }
+
+    assert_eq!(page_sizes, vec![2, 1]);
+    assert_eq!(listed, expected);
+
+    let bounded = ctx
+        .service
+        .list_persons_for_team(Request::new(ListPersonsForTeamRequest {
+            team_id: ctx.team_id,
+            after_person_id: 0,
+            limit: 0,
+            read_options: None,
+            before_person_id: Some(expected[2].0),
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+    let bounded_ids: Vec<i64> = bounded.persons.iter().map(|p| p.id).collect();
+    assert_eq!(bounded_ids, vec![expected[0].0, expected[1].0]);
+    assert_eq!(bounded.next_after_person_id, None);
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::negative_limit(-1, false, tonic::Code::InvalidArgument)]
+#[case::limit_over_the_cap(10_001, false, tonic::Code::InvalidArgument)]
+#[case::strong_consistency(0, true, tonic::Code::FailedPrecondition)]
+#[tokio::test]
+async fn test_list_persons_for_team_rejects_bad_requests(
+    #[case] limit: i64,
+    #[case] strong: bool,
+    #[case] code: tonic::Code,
+) {
+    let ctx = ServiceTestContext::new().await;
+    let status = ctx
+        .service
+        .list_persons_for_team(Request::new(ListPersonsForTeamRequest {
+            team_id: ctx.team_id,
+            after_person_id: 0,
+            limit,
+            read_options: read_options(strong),
+            before_person_id: None,
+        }))
+        .await
+        .expect_err("rejected");
+    assert_eq!(status.code(), code);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_repair_writes_round_trip_through_the_service() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_repair", None).await.unwrap();
+
+    let raised = ctx
+        .service
+        .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
+            team_id: ctx.team_id,
+            floors: vec![PersonVersionFloor {
+                person_uuid: person.uuid.to_string(),
+                min_version: 5,
+            }],
+        }))
+        .await
+        .expect("raise")
+        .into_inner()
+        .results;
+    assert_eq!(
+        (raised[0].outcome, raised[0].version),
+        (RaiseOutcome::Raised as i32, 5)
+    );
+
+    let absent = Uuid::new_v4();
+    let restored = ctx
+        .service
+        .restore_persons(Request::new(RestorePersonsRequest {
+            team_id: ctx.team_id,
+            persons: vec![RestoredPerson {
+                person_uuid: absent.to_string(),
+                properties: br#"{"plan": "free"}"#.to_vec(),
+                created_at_ms: 1_600_000_000_000,
+                is_identified: false,
+                version: 4,
+                distinct_ids: vec![RestoredDistinctId {
+                    distinct_id: "svc_repair_restored".to_string(),
+                    version: 3,
+                }],
+            }],
+        }))
+        .await
+        .expect("restore")
+        .into_inner()
+        .results;
+    assert_eq!(restored[0].outcome, RestoreOutcome::Inserted as i32);
+    assert_eq!(restored[0].version, 4);
+    assert_eq!(
+        restored[0].restored_distinct_ids,
+        vec!["svc_repair_restored"]
+    );
+
+    let written = ctx
+        .service
+        .write_distinct_ids(Request::new(WriteDistinctIdsRequest {
+            team_id: ctx.team_id,
+            writes: vec![DistinctIdWrite {
+                distinct_id: "svc_repair_new".to_string(),
+                action: DistinctIdWriteAction::Insert as i32,
+                person_uuid: person.uuid.to_string(),
+                min_version: 6,
+                expected_version: None,
+            }],
+        }))
+        .await
+        .expect("write")
+        .into_inner()
+        .results;
+    assert_eq!(written[0].outcome, DistinctIdWriteOutcome::Applied as i32);
+    let row = written[0].row.as_ref().expect("row after the write");
+    assert_eq!(
+        (
+            row.person_id,
+            row.person_uuid.clone(),
+            row.version,
+            row.is_deleted,
+            row.person_is_deleted
+        ),
+        (
+            person.id,
+            Some(person.uuid.to_string()),
+            6,
+            false,
+            Some(false)
+        )
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[derive(Debug, Clone, Copy)]
+enum BadRepairRequest {
+    TooManyFloors,
+    DuplicateFloorUuid,
+    PropertiesNotJson,
+    PropertiesNotAnObject,
+    DuplicateRestoredDistinctId,
+    UnknownWriteAction,
+}
+
+#[rstest]
+#[case::too_many_floors(BadRepairRequest::TooManyFloors)]
+#[case::duplicate_floor_uuid(BadRepairRequest::DuplicateFloorUuid)]
+#[case::properties_not_json(BadRepairRequest::PropertiesNotJson)]
+#[case::properties_not_an_object(BadRepairRequest::PropertiesNotAnObject)]
+#[case::duplicate_restored_distinct_id(BadRepairRequest::DuplicateRestoredDistinctId)]
+#[case::unknown_write_action(BadRepairRequest::UnknownWriteAction)]
+#[tokio::test]
+async fn test_repair_writes_reject_bad_requests(#[case] bad: BadRepairRequest) {
+    let ctx = ServiceTestContext::new().await;
+    let uuid = Uuid::new_v4().to_string();
+    let floor = |u: String| PersonVersionFloor {
+        person_uuid: u,
+        min_version: 1,
+    };
+    let restore = |properties: &[u8]| RestorePersonsRequest {
+        team_id: ctx.team_id,
+        persons: vec![RestoredPerson {
+            person_uuid: uuid.clone(),
+            properties: properties.to_vec(),
+            created_at_ms: 0,
+            is_identified: false,
+            version: 1,
+            distinct_ids: vec![],
+        }],
+    };
+    let status = match bad {
+        BadRepairRequest::TooManyFloors => ctx
+            .service
+            .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
+                team_id: ctx.team_id,
+                floors: (0..251)
+                    .map(|_| floor(Uuid::new_v4().to_string()))
+                    .collect(),
+            }))
+            .await
+            .map(|_| ()),
+        BadRepairRequest::DuplicateFloorUuid => ctx
+            .service
+            .raise_person_version_floors(Request::new(RaisePersonVersionFloorsRequest {
+                team_id: ctx.team_id,
+                floors: vec![floor(uuid.clone()), floor(uuid.to_uppercase())],
+            }))
+            .await
+            .map(|_| ()),
+        BadRepairRequest::PropertiesNotJson => ctx
+            .service
+            .restore_persons(Request::new(restore(b"not json")))
+            .await
+            .map(|_| ()),
+        BadRepairRequest::PropertiesNotAnObject => ctx
+            .service
+            .restore_persons(Request::new(restore(b"[1, 2]")))
+            .await
+            .map(|_| ()),
+        BadRepairRequest::DuplicateRestoredDistinctId => {
+            let mut request = restore(b"{}");
+            let id = || RestoredDistinctId {
+                distinct_id: "svc_dup".to_string(),
+                version: 0,
+            };
+            request.persons[0].distinct_ids = vec![id(), id()];
+            ctx.service
+                .restore_persons(Request::new(request))
+                .await
+                .map(|_| ())
+        }
+        BadRepairRequest::UnknownWriteAction => ctx
+            .service
+            .write_distinct_ids(Request::new(WriteDistinctIdsRequest {
+                team_id: ctx.team_id,
+                writes: vec![DistinctIdWrite {
+                    distinct_id: "svc_bad_action".to_string(),
+                    action: DistinctIdWriteAction::Unspecified as i32,
+                    person_uuid: uuid.clone(),
+                    min_version: 1,
+                    expected_version: None,
+                }],
+            }))
+            .await
+            .map(|_| ()),
+    }
+    .expect_err("rejected");
+    assert_eq!(status.code(), tonic::Code::InvalidArgument, "{status:?}");
 
     ctx.cleanup().await.ok();
 }

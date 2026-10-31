@@ -3,9 +3,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
-
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 webhook_template = MOCK_NODE_TEMPLATES[0]

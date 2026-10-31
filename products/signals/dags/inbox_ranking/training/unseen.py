@@ -22,11 +22,6 @@ from sklearn.metrics import roc_auc_score
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import (
-    REPORT_EMBEDDINGS_FEATURE_SET,
-    TITLE_EMBEDDINGS_FEATURE_SET,
-    FeatureSet,
-)
 from products.signals.dags.inbox_ranking.training.calibration import (
     CalibrationBucket,
     bucket_rows,
@@ -40,6 +35,7 @@ from products.signals.dags.inbox_ranking.training.classification import (
 )
 from products.signals.dags.inbox_ranking.training.examples import birth_day_mask, point_in_time_mask
 from products.signals.dags.inbox_ranking.training.heads import Head
+from products.signals.dags.inbox_ranking.training.within_team import NO_TEAMS, WithinTeamAuc, within_team_auc
 
 # Stamped on every scored event, so a chart can tell this pool definition from a later one.
 POOL_NAME = "newborn"
@@ -55,14 +51,10 @@ SERVED_SCORES_TABLE = "inbox_ranking_served_scores"
 # The role of a trained candidate on the training events, and of a scored row whose event names no role.
 CANDIDATE_ROLE = "candidate"
 
-# The model family: which features and which learner, as against `model_version`, the partition day
-# it was fit on. Both are in the identity, so two families trained on one day stay apart.
-REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
-TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
 # Families this build no longer trains. Saved scores objects still hold their rows, so every reader
 # drops them through `with_model_names`: the grades stop with the family, and the rewrite guard does
 # not require rows that no re-run can produce.
-RETIRED_MODEL_NAMES = frozenset({"tabular_xgb"})
+RETIRED_MODEL_NAMES = frozenset({"tabular_xgb", "title_embeddings", "report_embeddings_v2"})
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -93,28 +85,6 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
 }
 SCORES_SCHEMA = pa.schema(_SCORE_TYPES)
 SCORE_COLUMNS = tuple(_SCORE_TYPES)
-
-
-@frozen
-class ModelFamily:
-    """One family the training job fits: its name, and the feature set its trainer fits. Every
-    family is per-head XGBoost, so the learner is not a field yet."""
-
-    name: str
-    feature_set: FeatureSet
-
-
-# The families the training job trains, in the order they are trained. A
-# family with no metadata for the day is skipped, so an entry can be added here before its trainer
-# writes its first candidate, and a family that fails costs its own series rather than every one.
-# The two embedding families read one `ReportEmbeddingsFeatureSet` instance each and fit with the
-# same module-level `XGB_PARAMS`, so their width, grain, row budget, sampling, split and booster
-# settings match by construction. Keep it that way: the pair is a measurement of the text choice,
-# and a recipe that differed between them would answer a question nobody asked.
-MODEL_FAMILIES: tuple[ModelFamily, ...] = (
-    ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
-    ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
-)
 
 
 @frozen
@@ -156,6 +126,10 @@ class HeadGrade:
     # The in-cohort rows at the threshold of the model that wrote the scores, so an early and a
     # mature grade of one cohort use the same cut.
     classification: ClassificationMetrics = UNKNOWN_THRESHOLD
+    # `auc` and `recency_auc` over the pairs inside one team only. A row without a team id is left
+    # out of these and kept in every other field.
+    within_team: WithinTeamAuc = NO_TEAMS
+    recency_within_team: WithinTeamAuc = NO_TEAMS
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
@@ -168,6 +142,8 @@ class HeadGrade:
             "calibration_buckets": len(self.calibration),
             "auc": self.auc,
             "recency_auc": self.recency_auc,
+            **self.within_team.as_dict(),
+            **self.recency_within_team.as_dict(prefix="recency_"),
             "null_auc": self.null_auc,
             "null_auc_std": self.null_auc_std,
             "null_permutations": NULL_PERMUTATIONS,
@@ -389,6 +365,8 @@ def head_grades(
         outcomes = rows["outcome"].to_numpy(dtype=bool)
         scores = rows["score"].to_numpy(dtype=float)
         at_scoring = rows["label_at_scoring"].fillna(False).to_numpy(dtype=bool)
+        team_ids = rows["team_id"].to_numpy(dtype=object)
+        newest_first = _newest_first(rows)
         band = chance_band(outcomes, scores)
         buckets = calibration_buckets(outcomes, scores)
         grades.append(
@@ -408,13 +386,15 @@ def head_grades(
                 base_rate=float(outcomes.mean()) if len(rows) else None,
                 mean_score=float(scores.mean()) if len(rows) else None,
                 auc=_auc(outcomes, scores),
-                recency_auc=_auc(outcomes, _newest_first(rows)),
+                recency_auc=_auc(outcomes, newest_first),
                 null_auc=band.auc,
                 null_auc_std=band.auc_std,
                 calibration=buckets,
                 expected_calibration_error=expected_calibration_error(buckets),
                 # Read from every scored row, so an empty cohort still reports its threshold.
                 classification=classification_metrics(outcomes, scores, saved_threshold(scored)),
+                within_team=within_team_auc(outcomes, scores, team_ids),
+                recency_within_team=within_team_auc(outcomes, newest_first, team_ids),
             )
         )
     return grades

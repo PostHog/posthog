@@ -8,9 +8,8 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.uploaded_media import sniff_image_content_type
 from posthog.models import Team, UploadedMedia, User
-from posthog.models.uploaded_media import MEDIA_PURPOSE_DESKTOP_FEEDBACK
+from posthog.models.uploaded_media import MEDIA_PURPOSE_DESKTOP_FEEDBACK, sniff_image_content_type
 from posthog.ph_client import PH_EU_API_KEY, PH_US_API_KEY, get_client
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError

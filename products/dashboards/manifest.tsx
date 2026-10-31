@@ -1,15 +1,17 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
+import type { DashboardsTab } from '../../frontend/src/scenes/dashboard/dashboards/dashboardsLogic'
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Dashboards',
     urls: {
-        dashboards: (): string => '/dashboard',
+        dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),
         dashboardTemplates: (): string => combineUrl('/dashboard', { templates: '1' }).url,
         dashboard: (id: string | number, highlightInsightId?: string): string =>
             combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -51,6 +53,15 @@ export const manifest: ProductManifest = {
             iconType: 'dashboard',
             iconColor: ['var(--color-product-dashboards-light)'],
             href: urls.dashboards(),
+            searchKeywords: ['boards', 'charts'],
+            searchTabs: [
+                { name: 'My dashboards', href: urls.dashboards('yours') },
+                {
+                    name: 'Cross-project dashboards',
+                    href: urls.dashboards('cross-project'),
+                    flag: FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS,
+                },
+            ],
             sceneKey: 'Dashboards',
             sceneKeys: ['Dashboard', 'Dashboards'],
         },

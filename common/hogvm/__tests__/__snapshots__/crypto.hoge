@@ -33,4 +33,8 @@
 32, "Hi There", 43, 2, 2, "sha1HmacChainHex", 1, 2, "print", 2, 35, 32, "rfc2202 case 2:", 32, "Jefe", 32,
 "what do ya want for nothing?", 43, 2, 2, "sha1HmacChainHex", 1, 2, "print", 2, 35, 32, "rfc2202 case 5:", 32,
 "\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f\f", 32, "Test With Truncation", 43, 2, 2, "sha1HmacChainHex", 1, 2, "print", 2,
-35, 35, 35]
+35, 32, "MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw", 32, "msg_p5jXN8AQM9LWM0D4loKWxJek.1614265330.{\"test\": 2432232314}", 32,
+"sha256HmacBase64Key(svix, 'base64'):", 36, 2, 36, 3, 32, "base64", 2, "sha256HmacBase64Key", 3, 2, "print", 2, 35, 32,
+"sha256HmacBase64Key(svix):", 36, 2, 36, 3, 2, "sha256HmacBase64Key", 2, 2, "print", 2, 35, 32,
+"sha256HmacBase64Key(unpadded):", 32, "YWI=", 32, "data", 2, "sha256HmacBase64Key", 2, 32, "YWI", 32, "data", 2,
+"sha256HmacBase64Key", 2, 11, 2, "print", 2, 35, 35, 35, 35, 35]

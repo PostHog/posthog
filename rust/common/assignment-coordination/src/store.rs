@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use etcd_client::{
@@ -8,6 +9,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::error::{Error, Result};
+use crate::failover::{error_kind, is_member_level, MemberFailover};
 
 #[derive(Debug, Clone)]
 pub struct StoreConfig {
@@ -27,6 +29,7 @@ pub struct StoreConfig {
 pub struct EtcdStore {
     client: Client,
     config: StoreConfig,
+    failover: Option<Arc<MemberFailover>>,
 }
 
 /// Records one etcd operation's wall time on drop, so every return path
@@ -68,39 +71,103 @@ fn record_payload_bytes(op: &'static str, bytes: usize) {
         .record(bytes as f64);
 }
 
+// HTTP/2 pings fail a silent connection in about 15s. A per-request timeout
+// would also end healthy watch streams, so there is none. The interval stays
+// above etcd's 5s keepalive floor, and idle pings stay off because etcd
+// counts them as strikes.
+fn connect_options() -> ConnectOptions {
+    ConnectOptions::new()
+        .with_connect_timeout(Duration::from_secs(5))
+        .with_keep_alive(Duration::from_secs(10), Duration::from_secs(5))
+        .with_keep_alive_while_idle(false)
+}
+
 fn kvs_bytes(kvs: &[etcd_client::KeyValue]) -> usize {
     kvs.iter().map(|kv| kv.key().len() + kv.value().len()).sum()
 }
 
 impl EtcdStore {
     pub async fn connect(config: StoreConfig) -> Result<Self> {
-        // Transport-level liveness so a silent network partition fails
-        // fast instead of hanging until TCP retransmission gives up
-        // (minutes — far past any lease TTL): HTTP/2 pings ride every
-        // connection, including idle ones and long-lived watch streams,
-        // and error all in-flight requests within roughly one ping
-        // interval plus its timeout of the peer going dark. Deliberately
-        // no per-request timeout — it would apply to the whole lifetime
-        // of a watch stream and kill healthy watches.
-        // The ping interval must clear etcd's server-side gRPC keepalive
-        // enforcement (--grpc-keepalive-min-time, default 5s): pings at or
-        // under the floor are strikes, and two strikes close the
-        // connection with GOAWAY. Idle pings are likewise strikes unless
-        // the server permits them, so they stay off — every component
-        // that matters holds an active watch or keepalive stream, and an
-        // idle channel is revalidated on next use within the connect
-        // timeout.
-        let options = ConnectOptions::new()
-            .with_connect_timeout(Duration::from_secs(5))
-            .with_keep_alive(Duration::from_secs(10), Duration::from_secs(5))
-            .with_keep_alive_while_idle(false);
-        let client = Client::connect(&config.endpoints, Some(options)).await?;
-        Ok(Self { client, config })
+        let client = Client::connect(&config.endpoints, Some(connect_options())).await?;
+        Ok(Self {
+            client,
+            config,
+            failover: None,
+        })
     }
 
-    #[cfg(test)]
+    /// Like `connect`, and moves to another member when this one keeps
+    /// failing. Requests carry etcd's require-leader flag, so a member
+    /// without a leader rejects them at once.
+    pub async fn connect_with_member_failover(config: StoreConfig) -> Result<Self> {
+        let options = connect_options().with_require_leader(true);
+        let client = Client::connect(&config.endpoints, Some(options.clone())).await?;
+        let failover = Arc::new(MemberFailover::new(
+            client.clone(),
+            options,
+            config.endpoints.clone(),
+        ));
+        failover.refresh_members().await;
+        Ok(Self {
+            client,
+            config,
+            failover: Some(failover),
+        })
+    }
+
+    /// Shares an existing client's channel instead of opening another.
     pub fn from_client(client: Client, config: StoreConfig) -> Self {
-        Self { client, config }
+        Self {
+            client,
+            config,
+            failover: None,
+        }
+    }
+
+    /// Records a call made outside this store's methods, such as a lease
+    /// renewal on a `LeaseKeeper`, so it counts toward member failover.
+    pub fn observe_member_outcome(&self, outcome: std::result::Result<(), &etcd_client::Error>) {
+        let Some(failover) = &self.failover else {
+            return;
+        };
+        match outcome {
+            Ok(()) => failover.note_success(),
+            Err(err) if is_member_level(err) => failover.note_failure(),
+            Err(_) => {}
+        }
+    }
+
+    /// Records a call that got no answer within `waited`, such as a lease
+    /// renewal. A long enough wait starts a switch attempt at once.
+    pub fn observe_member_unanswered(&self, waited: Duration) {
+        if let Some(failover) = &self.failover {
+            failover.note_unanswered(waited);
+        }
+    }
+
+    /// Records a call outside this store that failed without an etcd error,
+    /// such as a keepalive stream that closed.
+    pub fn observe_member_failure(&self) {
+        if let Some(failover) = &self.failover {
+            failover.note_failure();
+        }
+    }
+
+    fn observe<T>(
+        &self,
+        op: &'static str,
+        result: std::result::Result<T, etcd_client::Error>,
+    ) -> std::result::Result<T, etcd_client::Error> {
+        if let Err(err) = &result {
+            metrics::counter!(
+                "assignment_coordination_etcd_errors_total",
+                "op" => op,
+                "kind" => error_kind(err),
+            )
+            .increment(1);
+        }
+        self.observe_member_outcome(result.as_ref().map(|_| ()));
+        result
     }
 
     pub fn prefix(&self) -> &str {
@@ -115,7 +182,7 @@ impl EtcdStore {
 
     pub async fn get_raw(&self, key: &str) -> Result<Option<Vec<u8>>> {
         let _t = OpTimer::new("get_raw");
-        let resp = self.client.clone().get(key, None).await?;
+        let resp = self.observe("get_raw", self.client.clone().get(key, None).await)?;
         record_payload_bytes("get_raw", kvs_bytes(resp.kvs()));
         Ok(resp.kvs().first().map(|kv| kv.value().to_vec()))
     }
@@ -124,7 +191,7 @@ impl EtcdStore {
         let _t = OpTimer::new("put_raw");
         let value = value.into();
         record_payload_bytes("put_raw", key.len() + value.len());
-        self.client.clone().put(key, value, None).await?;
+        self.observe("put_raw", self.client.clone().put(key, value, None).await)?;
         Ok(())
     }
 
@@ -132,7 +199,7 @@ impl EtcdStore {
 
     pub async fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let _t = OpTimer::new("get");
-        let resp = self.client.clone().get(key, None).await?;
+        let resp = self.observe("get", self.client.clone().get(key, None).await)?;
         record_payload_bytes("get", kvs_bytes(resp.kvs()));
         match resp.kvs().first() {
             Some(kv) => Ok(Some(serde_json::from_slice(kv.value())?)),
@@ -142,7 +209,7 @@ impl EtcdStore {
 
     pub async fn get_versioned<T: DeserializeOwned>(&self, key: &str) -> Result<Option<(T, i64)>> {
         let _t = OpTimer::new("get_versioned");
-        let resp = self.client.clone().get(key, None).await?;
+        let resp = self.observe("get_versioned", self.client.clone().get(key, None).await)?;
         record_payload_bytes("get_versioned", kvs_bytes(resp.kvs()));
         match resp.kvs().first() {
             Some(kv) => {
@@ -164,7 +231,10 @@ impl EtcdStore {
         key: &str,
     ) -> Result<Option<(T, i64)>> {
         let _t = OpTimer::new("get_with_mod_revision");
-        let resp = self.client.clone().get(key, None).await?;
+        let resp = self.observe(
+            "get_with_mod_revision",
+            self.client.clone().get(key, None).await,
+        )?;
         record_payload_bytes("get_with_mod_revision", kvs_bytes(resp.kvs()));
         match resp.kvs().first() {
             Some(kv) => {
@@ -185,7 +255,10 @@ impl EtcdStore {
         key: &str,
     ) -> Result<(Option<T>, i64)> {
         let _t = OpTimer::new("get_with_revision");
-        let resp = self.client.clone().get(key, None).await?;
+        let resp = self.observe(
+            "get_with_revision",
+            self.client.clone().get(key, None).await,
+        )?;
         record_payload_bytes("get_with_revision", kvs_bytes(resp.kvs()));
         let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
         match resp.kvs().first() {
@@ -205,7 +278,10 @@ impl EtcdStore {
     pub async fn list_keys(&self, prefix: &str) -> Result<Vec<String>> {
         let _t = OpTimer::new("list_keys");
         let options = GetOptions::new().with_prefix().with_keys_only();
-        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        let resp = self.observe(
+            "list_keys",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_keys", kvs_bytes(resp.kvs()));
         Ok(resp
             .kvs()
@@ -219,7 +295,10 @@ impl EtcdStore {
     pub async fn list_keys_with_mod_revisions(&self, prefix: &str) -> Result<Vec<(String, i64)>> {
         let _t = OpTimer::new("list_keys_with_mod_revisions");
         let options = GetOptions::new().with_prefix().with_keys_only();
-        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        let resp = self.observe(
+            "list_keys_with_mod_revisions",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_keys_with_mod_revisions", kvs_bytes(resp.kvs()));
         Ok(resp
             .kvs()
@@ -243,7 +322,10 @@ impl EtcdStore {
     ) -> Result<(Vec<T>, i64)> {
         let _t = OpTimer::new("list_with_revision");
         let options = GetOptions::new().with_prefix();
-        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        let resp = self.observe(
+            "list_with_revision",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_with_revision", kvs_bytes(resp.kvs()));
         let revision = resp.header().map(|h| h.revision()).unwrap_or(0);
         let items = resp
@@ -263,7 +345,10 @@ impl EtcdStore {
     ) -> Result<Vec<(T, i64)>> {
         let _t = OpTimer::new("list_with_mod_revisions");
         let options = GetOptions::new().with_prefix();
-        let resp = self.client.clone().get(prefix, Some(options)).await?;
+        let resp = self.observe(
+            "list_with_mod_revisions",
+            self.client.clone().get(prefix, Some(options)).await,
+        )?;
         record_payload_bytes("list_with_mod_revisions", kvs_bytes(resp.kvs()));
         resp.kvs()
             .iter()
@@ -294,27 +379,33 @@ impl EtcdStore {
         let value = serde_json::to_string(value)?;
         record_payload_bytes("put", key.len() + value.len());
         let options = lease_id.map(|id| PutOptions::new().with_lease(id));
-        self.client.clone().put(key, value, options).await?;
+        self.observe("put", self.client.clone().put(key, value, options).await)?;
         Ok(())
     }
 
     pub async fn delete(&self, key: &str) -> Result<()> {
         let _t = OpTimer::new("delete");
-        self.client.clone().delete(key, None).await?;
+        self.observe("delete", self.client.clone().delete(key, None).await)?;
         Ok(())
     }
 
     pub async fn delete_prefix(&self, prefix: &str) -> Result<()> {
         let _t = OpTimer::new("delete_prefix");
         let options = DeleteOptions::new().with_prefix();
-        self.client.clone().delete(prefix, Some(options)).await?;
+        self.observe(
+            "delete_prefix",
+            self.client.clone().delete(prefix, Some(options)).await,
+        )?;
         Ok(())
     }
 
     pub async fn watch(&self, prefix: &str) -> Result<WatchStream> {
         let _t = OpTimer::new("watch");
         let options = WatchOptions::new().with_prefix();
-        let stream = self.client.clone().watch(prefix, Some(options)).await?;
+        let stream = self.observe(
+            "watch",
+            self.client.clone().watch(prefix, Some(options)).await,
+        )?;
         Ok(stream)
     }
 
@@ -330,7 +421,10 @@ impl EtcdStore {
         let options = WatchOptions::new()
             .with_prefix()
             .with_start_revision(start_revision);
-        let stream = self.client.clone().watch(prefix, Some(options)).await?;
+        let stream = self.observe(
+            "watch_from",
+            self.client.clone().watch(prefix, Some(options)).await,
+        )?;
         Ok(stream)
     }
 
@@ -340,7 +434,10 @@ impl EtcdStore {
     pub async fn watch_key_from(&self, key: &str, start_revision: i64) -> Result<WatchStream> {
         let _t = OpTimer::new("watch_key_from");
         let options = WatchOptions::new().with_start_revision(start_revision);
-        let stream = self.client.clone().watch(key, Some(options)).await?;
+        let stream = self.observe(
+            "watch_key_from",
+            self.client.clone().watch(key, Some(options)).await,
+        )?;
         Ok(stream)
     }
 
@@ -355,7 +452,7 @@ impl EtcdStore {
     /// request side directly instead.
     pub async fn txn(&self, txn: Txn) -> Result<TxnResponse> {
         let _t = OpTimer::new("txn");
-        Ok(self.client.clone().txn(txn).await?)
+        Ok(self.observe("txn", self.client.clone().txn(txn).await)?)
     }
 
     /// Atomically create `key` bound to `lease_id`, only if it does not
@@ -371,7 +468,7 @@ impl EtcdStore {
                 value,
                 Some(PutOptions::new().with_lease(lease_id)),
             )]);
-        let resp = self.client.clone().txn(txn).await?;
+        let resp = self.observe("put_if_absent", self.client.clone().txn(txn).await)?;
         Ok(resp.succeeded())
     }
 
@@ -379,7 +476,10 @@ impl EtcdStore {
 
     pub async fn grant_lease(&self, ttl: i64) -> Result<i64> {
         let _t = OpTimer::new("grant_lease");
-        let resp = self.client.clone().lease_grant(ttl, None).await?;
+        let resp = self.observe(
+            "grant_lease",
+            self.client.clone().lease_grant(ttl, None).await,
+        )?;
         Ok(resp.id())
     }
 
@@ -388,13 +488,19 @@ impl EtcdStore {
         lease_id: i64,
     ) -> Result<(etcd_client::LeaseKeeper, etcd_client::LeaseKeepAliveStream)> {
         let _t = OpTimer::new("keep_alive");
-        let (keeper, stream) = self.client.clone().lease_keep_alive(lease_id).await?;
+        let (keeper, stream) = self.observe(
+            "keep_alive",
+            self.client.clone().lease_keep_alive(lease_id).await,
+        )?;
         Ok((keeper, stream))
     }
 
     pub async fn revoke_lease(&self, lease_id: i64) -> Result<()> {
         let _t = OpTimer::new("revoke_lease");
-        self.client.clone().lease_revoke(lease_id).await?;
+        self.observe(
+            "revoke_lease",
+            self.client.clone().lease_revoke(lease_id).await,
+        )?;
         Ok(())
     }
 
@@ -418,4 +524,107 @@ pub fn parse_watch_value<T: DeserializeOwned>(
         .kv()
         .ok_or_else(|| Error::InvalidState("watch event missing kv".to_string()))?;
     serde_json::from_slice(kv.value()).map_err(Error::from)
+}
+
+#[cfg(test)]
+mod member_failover_tests {
+    use std::time::Instant;
+
+    use super::*;
+
+    const LIVE_ETCD: &str = "http://localhost:2379";
+    const DEAD_ENDPOINT: &str = "http://127.0.0.1:1";
+
+    async fn store_on_dead_member(known_members: Vec<String>) -> EtcdStore {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let store = EtcdStore::connect_with_member_failover(StoreConfig {
+            endpoints: vec![DEAD_ENDPOINT.to_string()],
+            prefix: format!("/test-member-failover-{nanos}/"),
+        })
+        .await
+        .expect("connect is lazy, so a dead endpoint still yields a store");
+        store
+            .failover
+            .as_ref()
+            .unwrap()
+            .set_members_for_test(known_members);
+        store
+    }
+
+    #[tokio::test]
+    async fn a_store_on_a_failing_member_moves_to_a_healthy_one() {
+        let store = store_on_dead_member(vec![LIVE_ETCD.to_string()]).await;
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            if store.get_raw("/probe").await.is_ok() {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "store never left the dead member"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert_eq!(
+            store.failover.as_ref().unwrap().current_for_test(),
+            vec![LIVE_ETCD.to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_store_without_a_member_list_reads_one_after_a_call_succeeds() {
+        let store = EtcdStore::connect_with_member_failover(StoreConfig {
+            endpoints: vec![LIVE_ETCD.to_string()],
+            prefix: "/test-member-failover-refresh/".to_string(),
+        })
+        .await
+        .unwrap();
+        let failover = store.failover.as_ref().unwrap();
+        failover.set_members_for_test(Vec::new());
+
+        store.get_raw("/probe").await.unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while failover.members_for_test().is_empty() {
+            assert!(Instant::now() < deadline, "member list never refreshed");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn only_a_long_unanswered_call_switches_at_once() {
+        let store = store_on_dead_member(vec![LIVE_ETCD.to_string()]).await;
+        let failover = store.failover.as_ref().unwrap();
+
+        store.observe_member_unanswered(Duration::from_secs(1));
+        assert!(!failover.switching_for_test());
+
+        store.observe_member_unanswered(Duration::from_secs(2));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while failover.current_for_test() != vec![LIVE_ETCD.to_string()] {
+            assert!(
+                Instant::now() < deadline,
+                "store never left the dead member"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_store_stays_put_when_no_other_member_answers() {
+        let store = store_on_dead_member(vec!["http://127.0.0.1:2".to_string()]).await;
+
+        for _ in 0..6 {
+            assert!(store.get_raw("/probe").await.is_err());
+        }
+        tokio::time::sleep(Duration::from_secs(4)).await;
+        assert_eq!(
+            store.failover.as_ref().unwrap().current_for_test(),
+            vec![DEAD_ENDPOINT.to_string()]
+        );
+    }
 }

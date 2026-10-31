@@ -6,12 +6,24 @@ import { buildLocalToolsServer } from "./local-tools-mcp";
 // succeed; nothing spawns the script — we only inspect the path.
 vi.mock("node:fs", async (importActual) => {
   const actual = await importActual<typeof import("node:fs")>();
-  return { ...actual, existsSync: vi.fn().mockReturnValue(true) };
+  return {
+    ...actual,
+    existsSync: vi.fn().mockReturnValue(true),
+    readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+      if (args[0] === "/tmp/agent-github-env") {
+        throw Object.assign(new Error("No sandbox credentials in tests"), {
+          code: "ENOENT",
+        });
+      }
+      return actual.readFileSync(...args);
+    },
+  };
 });
 
 describe("buildLocalToolsServer", () => {
   const saved = {
     sandbox: process.env.IS_SANDBOX,
+    taskRunId: process.env.POSTHOG_TASK_RUN_ID,
     ghToken: process.env.GH_TOKEN,
     githubToken: process.env.GITHUB_TOKEN,
   };
@@ -20,12 +32,14 @@ describe("buildLocalToolsServer", () => {
     // The signed-git gate reads IS_SANDBOX and the token vars; clear them so each
     // case controls the cloud signal (meta.environment) and token explicitly.
     delete process.env.IS_SANDBOX;
+    delete process.env.POSTHOG_TASK_RUN_ID;
     delete process.env.GH_TOKEN;
     delete process.env.GITHUB_TOKEN;
   });
 
   afterEach(() => {
     restore("IS_SANDBOX", saved.sandbox);
+    restore("POSTHOG_TASK_RUN_ID", saved.taskRunId);
     restore("GH_TOKEN", saved.ghToken);
     restore("GITHUB_TOKEN", saved.githubToken);
   });
@@ -85,6 +99,7 @@ describe("buildLocalToolsServer", () => {
   });
 
   it("returns a server but omits token env vars when no token is present", () => {
+    process.env.POSTHOG_TASK_RUN_ID = "run-1";
     const server = buildLocalToolsServer(
       { cwd: "/repo" },
       { environment: "cloud" },
@@ -95,6 +110,11 @@ describe("buildLocalToolsServer", () => {
     expect(envNames).toContain("POSTHOG_LOCAL_TOOLS_CTX");
     expect(envNames).not.toContain("GH_TOKEN");
     expect(envNames).not.toContain("GITHUB_TOKEN");
+    expect(
+      server?.env
+        .find((entry) => entry.name === "POSTHOG_LOCAL_TOOLS_ENABLED")
+        ?.value.split(","),
+    ).toContain("sandbox_memory_hook");
   });
 
   it("returns null when no cwd is present", () => {
@@ -121,6 +141,7 @@ describe("buildLocalToolsServer", () => {
     expect(names).toContain("speak");
     // Signed-git tools are cloud-only and must not leak into a desktop run.
     expect(names).not.toContain("git_signed_commit");
+    expect(names).not.toContain("sandbox_memory_hook");
   });
 
   it("still exposes show_actions on a desktop run with narration off", () => {

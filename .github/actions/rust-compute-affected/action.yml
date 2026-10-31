@@ -15,18 +15,30 @@ inputs:
         description: 'Previous HEAD for push events (github.event.before)'
         required: false
         default: ''
-    base-branch:
+    base-ref:
         description: |
-            Branch to resolve the merge base against, overriding the PR base ref
-            from the event payload. Pass the default branch when the caller's
-            change radius is measured against it rather than against the PR
-            base, which for a stacked PR is the layer below it.
+            A merge base the caller already resolved. When set, the action diffs
+            against it and makes no compare call, so the package graph and a
+            `changed-files` list from the caller share one base. A value that is
+            not a full commit SHA rebuilds all.
         required: false
         default: ''
     rebuild-all:
         description: 'Force a full rebuild (skip diff analysis)'
         required: false
         default: 'false'
+    changed-files:
+        description: |
+            Path to a newline-separated list of changed files. When set, the
+            binary reads the change set from it instead of running git diff,
+            so the caller's checkout needs no history. The base commit is then
+            fetched on its own, at depth 1, for the old package graph.
+        required: false
+        default: ''
+    token:
+        description: Token for the compare API call that resolves the merge base.
+        required: false
+        default: ${{ github.token }}
 
 outputs:
     crates:
@@ -72,32 +84,44 @@ runs:
               EVENT_NAME: ${{ inputs.event-name }}
               PR_BASE_SHA: ${{ inputs.pr-base-sha }}
               PUSH_BEFORE_SHA: ${{ inputs.push-before-sha }}
-              BASE_BRANCH: ${{ inputs.base-branch }}
+              BASE_REF: ${{ inputs.base-ref }}
               FORCE_REBUILD: ${{ inputs.rebuild-all }}
+              CHANGED_FILES: ${{ inputs.changed-files }}
+              REPOSITORY: ${{ github.repository }}
+              GH_TOKEN: ${{ inputs.token }}
           working-directory: rust
           run: |
               if [ "$FORCE_REBUILD" = "true" ]; then
                   echo "rebuild-all requested"
                   result=$(./target/release/affected-services --files rust/Cargo.lock)
               else
-                  if [ "$EVENT_NAME" = "push" ]; then
+                  if [ -n "$BASE_REF" ]; then
+                      if [[ "$BASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+                          base_ref="$BASE_REF"
+                      else
+                          echo "base-ref is not a commit SHA: $BASE_REF"
+                          base_ref=""
+                      fi
+                  elif [ "$EVENT_NAME" = "push" ]; then
                       base_ref="$PUSH_BEFORE_SHA"
                   else
-                      # Try to resolve the base branch name from the input or
-                      # the GitHub event payload so we diff against the current
-                      # tip rather than the potentially stale PR base SHA.
-                      base_branch="$BASE_BRANCH"
-                      if [ -z "$base_branch" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
+                      # Try to resolve the base branch name from the GitHub
+                      # event payload so we diff against the current tip rather
+                      # than the potentially stale PR base SHA.
+                      base_branch=""
+                      if [ -f "$GITHUB_EVENT_PATH" ]; then
                           base_branch=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
                       fi
 
                       if [ -n "$base_branch" ]; then
-                          git fetch --no-tags origin "$base_branch"
-                          base_ref=$(git merge-base FETCH_HEAD HEAD || true)
-                          if [ -n "$base_ref" ]; then
-                              echo "Using merge-base of origin/$base_branch and HEAD: $base_ref"
+                          head_sha=$(git rev-parse HEAD)
+                          # On an API error gh writes the error body to stdout, so
+                          # only a full SHA counts as a merge base.
+                          base_ref=$(gh api "repos/$REPOSITORY/compare/$base_branch...$head_sha?per_page=1" --jq '.merge_base_commit.sha' 2>/dev/null || true)
+                          if [[ "$base_ref" =~ ^[0-9a-f]{40}$ ]]; then
+                              echo "Using the merge base of $base_branch and HEAD from the compare API: $base_ref"
                           else
-                              echo "merge-base empty; falling back to PR base SHA"
+                              echo "The compare API gave no merge base; falling back to PR base SHA"
                               base_ref="$PR_BASE_SHA"
                           fi
                       else
@@ -109,7 +133,14 @@ runs:
                       echo "No valid base ref — rebuilding all"
                       result=$(./target/release/affected-services --files rust/Cargo.lock)
                   else
-                      result=$(./target/release/affected-services --base-ref "$base_ref")
+                      if ! git cat-file -e "$base_ref^{commit}" 2>/dev/null; then
+                          git fetch --no-tags --depth=1 --filter=blob:none origin "$base_ref" || true
+                      fi
+                      if [ -n "$CHANGED_FILES" ]; then
+                          result=$(./target/release/affected-services --stdin --base-ref "$base_ref" < "$CHANGED_FILES")
+                      else
+                          result=$(./target/release/affected-services --base-ref "$base_ref")
+                      fi
                   fi
               fi
 

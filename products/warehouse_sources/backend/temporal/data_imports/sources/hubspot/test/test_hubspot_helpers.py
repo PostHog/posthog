@@ -60,6 +60,7 @@ def _no_backoff_sleep() -> Any:
         (409, False),
         (422, False),
         (451, False),
+        (408, True),
         (429, True),
         (477, True),  # non-standard 4xx HubSpot's edge returns during transient incidents
         (499, True),

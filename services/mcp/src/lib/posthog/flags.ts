@@ -19,26 +19,30 @@ export async function isFeatureFlagEnabled(flagKey: string, distinctId: string, 
 /** Raw value from posthog-node for a single flag — `true`/`false` for boolean flags, a variant string for multivariate. */
 export type FlagValue = boolean | string | undefined
 
-/** Shape returned by {@link evaluateFeatureFlags} and threaded through the tool-filtering and instructions layers. */
 export type EvaluatedFlags = Record<string, FlagValue>
+
+export type FlagEvaluation = { flags: EvaluatedFlags; payloads: Record<string, unknown> }
 
 export async function evaluateFeatureFlags(
     flagKeys: string[],
     distinctId: string,
     groups?: FlagGroups
-): Promise<EvaluatedFlags> {
+): Promise<FlagEvaluation> {
     if (flagKeys.length === 0) {
-        return {}
+        return { flags: {}, payloads: {} }
     }
 
     const client = getPostHogClient()
     const hasGroups = groups && Object.keys(groups).length > 0
-    const allFlags = await client.getAllFlags(distinctId, { flagKeys, ...(hasGroups ? { groups } : {}) })
+    const evaluation = await client.getAllFlagsAndPayloads(distinctId, {
+        flagKeys,
+        ...(hasGroups ? { groups } : {}),
+    })
     const result: EvaluatedFlags = {}
     for (const key of flagKeys) {
-        result[key] = allFlags[key] as FlagValue
+        result[key] = evaluation.featureFlags?.[key] as FlagValue
     }
-    return result
+    return { flags: result, payloads: evaluation.featureFlagPayloads ?? {} }
 }
 
 // Env var (or Cloudflare var) holding a JSON object of flag overrides, e.g.

@@ -7,7 +7,6 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { average, median } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,6 +18,7 @@ import { TrendsFilterType } from '~/types'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { CalcColumnState } from '../InsightsTable'
+import { getAggregatedValue } from '../insightsTableDataLogic'
 
 export const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
@@ -68,32 +68,15 @@ export function AggregationColumnTitle({
 
 type AggregationColumnItemProps = {
     item: IndexedTrendResult
+    mathProperty: string | null | undefined
     isNonTimeSeriesDisplay: boolean
     aggregation: CalcColumnState
     trendsFilter: TrendsFilter | null | undefined
 }
 
-export function getAggregatedValue(
-    item: IndexedTrendResult,
-    aggregation: CalcColumnState,
-    isNonTimeSeriesDisplay: boolean
-): number | undefined {
-    if (aggregation === 'total' || isNonTimeSeriesDisplay) {
-        let value = item.count ?? item.aggregated_value
-        if (item.aggregated_value > item.count || (item.aggregated_value < 0 && item.aggregated_value < item.count)) {
-            value = item.aggregated_value
-        }
-        return value
-    } else if (aggregation === 'average') {
-        return average(item.data)
-    } else if (aggregation === 'median') {
-        return median(item.data)
-    }
-    return undefined
-}
-
 export function AggregationColumnItem({
     item,
+    mathProperty,
     isNonTimeSeriesDisplay,
     aggregation,
     trendsFilter,
@@ -106,7 +89,7 @@ export function AggregationColumnItem({
     const formattedValue: ReactNode =
         value !== undefined
             ? formatAggregationValue(
-                  item.action?.math_property,
+                  mathProperty,
                   value,
                   (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
                   formatPropertyValueForDisplay

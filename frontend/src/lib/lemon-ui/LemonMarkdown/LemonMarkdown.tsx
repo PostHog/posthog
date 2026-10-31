@@ -2,7 +2,7 @@ import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
 import React, { memo, useMemo } from 'react'
-import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
+import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 
@@ -69,12 +69,12 @@ function LemonMarkdownContainer({ children, className }: LemonMarkdownContainerP
     return <div className={clsx('LemonMarkdown', className)}>{children}</div>
 }
 
+export type LemonMarkdownComponents = Partial<Components>
+
 export interface LemonMarkdownProps {
     children: string
     /** Whether headings should just be <strong> text. Recommended for item descriptions. */
     lowKeyHeadings?: boolean
-    /** Whether to disable the docs sidebar panel behavior and always open links in a new tab */
-    disableDocsRedirect?: boolean
     /**
      * Whether to treat images as untrusted. Use for content we don't control (e.g. LLM/agent or
      * externally-sourced output), where auto-loading an image would fire a request to an arbitrary
@@ -118,6 +118,16 @@ export interface LemonMarkdownProps {
     renderChartRef?: (chartId: string, sourceOffset?: number) => React.ReactNode
     /** Without it, or on a nullish return, a `t:<ms>` target renders as its label. */
     renderTimestampRef?: (timestampMs: number) => React.ReactNode
+    /**
+     * Optional renderer for fenced code blocks other than mermaid, after `codeMaxLines` is applied. When
+     * omitted, a block renders as a compact `CodeSnippet`. Inline code is never passed to it.
+     */
+    renderCodeBlock?: (code: string, language: Language) => React.ReactNode
+    /**
+     * Element renderers that replace the built-in ones, e.g. a design system's table. Pass a stable
+     * (module-level) object: a new one each render re-renders every block.
+     */
+    components?: LemonMarkdownComponents
 }
 
 const HEADING_TAGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'] as const
@@ -151,7 +161,6 @@ export function extractTextFromChildren(children: React.ReactNode): string {
 const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     children,
     lowKeyHeadings = false,
-    disableDocsRedirect = false,
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
@@ -161,6 +170,8 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     renderMermaid,
     renderChartRef,
     renderTimestampRef,
+    renderCodeBlock,
+    components: componentOverrides,
 }: LemonMarkdownProps): JSX.Element {
     const components = useMemo(
         () => ({
@@ -181,7 +192,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     return <>{children}</>
                 }
                 return (
-                    <Link to={href} target="_blank" targetBlankIcon disableDocsPanel={disableDocsRedirect}>
+                    <Link to={href} target="_blank" targetBlankIcon>
                         {children}
                     </Link>
                 )
@@ -198,6 +209,9 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                     const lines = value.split('\n')
                     const displayedValue =
                         codeMaxLines && lines.length > codeMaxLines ? lines.slice(0, codeMaxLines).join('\n') : value
+                    if (renderCodeBlock) {
+                        return <>{renderCodeBlock(displayedValue, language)}</>
+                    }
                     return (
                         <CodeSnippet language={language} wrap={wrapCode} compact>
                             {displayedValue}
@@ -249,6 +263,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                       },
                   }
                 : {}),
+            table: ({ node, ...props }: any): JSX.Element => (
+                <div className="LemonMarkdown__table-wrapper">
+                    <table {...props} className="LemonMarkdown__table" />
+                </div>
+            ),
             span: ({ className, ...props }: any): JSX.Element => {
                 if (className === 'ph-mention') {
                     return <RichContentMention id={Number(props['data-mention-id'])} />
@@ -265,7 +284,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                           return disableLinks ? (
                               <>{alt || src}</>
                           ) : (
-                              <Link to={src} target="_blank" targetBlankIcon disableDocsPanel>
+                              <Link to={src} target="_blank" targetBlankIcon>
                                   {alt || src}
                               </Link>
                           )
@@ -314,9 +333,10 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                         ])
                     )
                   : {}),
+            ...componentOverrides,
         }),
         [
-            disableDocsRedirect,
+            componentOverrides,
             disableImages,
             disableLinks,
             lowKeyHeadings,
@@ -326,6 +346,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             renderMermaid,
             renderChartRef,
             renderTimestampRef,
+            renderCodeBlock,
         ]
     )
 
@@ -359,7 +380,6 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
 function LemonMarkdownComponent({
     children,
     lowKeyHeadings = false,
-    disableDocsRedirect = false,
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
@@ -369,13 +389,14 @@ function LemonMarkdownComponent({
     renderMermaid,
     renderChartRef,
     renderTimestampRef,
+    renderCodeBlock,
+    components,
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
         <LemonMarkdownContainer className={className}>
             <LemonMarkdownRenderer
                 lowKeyHeadings={lowKeyHeadings}
-                disableDocsRedirect={disableDocsRedirect}
                 disableImages={disableImages}
                 disableLinks={disableLinks}
                 disableMentions={disableMentions}
@@ -385,6 +406,8 @@ function LemonMarkdownComponent({
                 renderMermaid={renderMermaid}
                 renderChartRef={renderChartRef}
                 renderTimestampRef={renderTimestampRef}
+                renderCodeBlock={renderCodeBlock}
+                components={components}
             >
                 {children}
             </LemonMarkdownRenderer>

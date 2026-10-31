@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FilloutSource(SimpleSource[FilloutSourceConfig]):
+    codebase_detection = detect(env=("^FILLOUT_",), script_hosts=("server.fillout.com",), npm=("@fillout/react",))
+
     api_docs_url = "https://www.fillout.com/help/api-reference"
 
     @property
@@ -85,7 +88,7 @@ You can generate an API key in your Fillout account under **Settings → Develop
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

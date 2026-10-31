@@ -99,7 +99,7 @@ def publish(paths: Sequence[Path], *, message: str) -> list[str]:
     URLs are pinned to the created commit, so they keep serving even after the file is
     moved or deleted.
     """
-    token = github_token()
+    token = github_token(prefer_cli=True)
     if token is None:
         raise click.ClickException(
             "no GitHub token found. Set GH_TOKEN or GITHUB_TOKEN, or install gh "
@@ -134,15 +134,17 @@ def _graphql(session: requests.Session, token: str, query: str, variables: dict[
     except requests.RequestException as exc:
         raise click.ClickException(f"GitHub request failed: {exc}")
 
-    if resp.status_code in (401, 403):
-        raise click.ClickException(_denied_message())
-    if not resp.ok:
-        raise click.ClickException(f"GitHub returned HTTP {resp.status_code}")
-
     try:
         body = resp.json()
     except ValueError as exc:
+        if not resp.ok:
+            raise click.ClickException(f"GitHub returned HTTP {resp.status_code}") from exc
         raise click.ClickException(f"GitHub returned a non-JSON response: {exc}")
+
+    if not resp.ok:
+        message = body.get("message", "")
+        detail = f": {message}" if message else ""
+        raise click.ClickException(f"GitHub returned HTTP {resp.status_code}{detail}")
 
     if errors := body.get("errors"):
         raise _OperationFailed(errors)
@@ -188,10 +190,6 @@ def _commit(session: requests.Session, token: str, additions: list[dict[str, str
             if "STALE_DATA" in exc.types:
                 head = _read_head(session, token)
                 continue
-            # The head read above resolved this branch, so GitHub calling it missing here
-            # means the token can read the repo but not write to it.
-            if any("Branch not found" in reported for reported in exc.messages):
-                raise click.ClickException(_denied_message())
             raise click.ClickException(f"upload failed: {exc}")
 
         oid = ((data.get("createCommitOnBranch") or {}).get("commit") or {}).get("oid")
@@ -201,13 +199,4 @@ def _commit(session: requests.Session, token: str, additions: list[dict[str, str
 
     raise click.ClickException(
         f"{REPO} moved under the upload {_MAX_ATTEMPTS} times in a row; nothing was published, so try again"
-    )
-
-
-def _denied_message() -> str:
-    """Explain a rejected write: the token can't write to pr-assets (not an org member, or missing scope)."""
-    return (
-        f"upload denied. Writing to {REPO} needs write access to a public PostHog repo: "
-        "confirm your token is a PostHog org account with the `repo` scope "
-        "(gh users: `gh auth refresh -s repo`; or set GH_TOKEN to a PAT with the repo scope)."
     )

@@ -115,13 +115,11 @@ export function MetricsClauseRow({
                 onAggregationChange={withSelect(setAggregation)}
                 disabledReason={disabledReason}
             />
-            {clause.aggregation && (
-                <MetricsGroupByButton
-                    groupByKeys={clause.groupByKeys}
-                    onChange={withSelect(setGroupByKeys)}
-                    disabledReason={disabledReason}
-                />
-            )}
+            <MetricsGroupByButton
+                groupByKeys={clause.groupByKeys}
+                onChange={withSelect(setGroupByKeys)}
+                disabledReason={disabledReason}
+            />
             <LemonMenu
                 items={[
                     {

@@ -31,12 +31,13 @@ import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 
-from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
 from pydantic import ValidationError
+
+from posthog.dataclasses import frozen
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -53,11 +54,12 @@ from products.review_hog.backend.reviewer.artefact_content import (
     parse_artefact_content,
 )
 from products.review_hog.backend.reviewer.constants import (
-    DEFAULT_REVIEW_ARM,
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
+    SINGLE_AGENT_FLASH_ARM,
     ReviewArm,
     ReviewTier,
+    SingleAgentArms,
     is_below_human_tier,
     is_single_agent_pass,
     resolve_review_arm,
@@ -134,7 +136,7 @@ def upsert_review_report(
                 "status": ReviewReport.Status.ACTIVE,
                 "signal_report_id": signal_report_id,
                 "review_signal_priority": signal_priority.value if signal_priority is not None else None,
-                **_review_tier_fields(team_id, tier),
+                **_review_tier_fields(tier),
             }
             if trigger_source is not None:
                 create_kwargs["trigger_source"] = trigger_source
@@ -177,7 +179,7 @@ def upsert_review_report(
             # Accepted cost of the lift: this turn treats the cheap turn's findings as already
             # covered, the same as any re-turn. Rare enough (a person asking about an agent PR)
             # that quality for the person wins over a clean re-review.
-            updates.update(_review_tier_fields(team_id, ReviewTier.HUMAN))
+            updates.update(_review_tier_fields(ReviewTier.HUMAN))
         qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
 
@@ -216,18 +218,13 @@ def lift_review_tier_for_joined_trigger(*, team_id: int, repository: str, pr_num
     persisted_tier = _parse_persisted_tier(report.review_tier)
     if persisted_tier is None or not is_below_human_tier(persisted_tier):
         return False
-    qs.filter(pk=report.pk).update(**_review_tier_fields(team_id, ReviewTier.HUMAN))
+    qs.filter(pk=report.pk).update(**_review_tier_fields(ReviewTier.HUMAN))
     return True
 
 
-def _review_tier_fields(team_id: int, tier: ReviewTier) -> dict[str, object]:
-    """The tier column plus the arm bundle a report placed in `tier` reviews on.
-
-    Tiered arms are rolled out per team through the `REVIEWHOG_TEAM_IDS` dogfood gate. Other teams
-    keep the single default arm but still record their tier, so the label stays truthful and the
-    tiers can be compared on their traffic before the rollout widens.
-    """
-    arm = REVIEW_ARMS_BY_TIER[tier] if team_id in settings.REVIEWHOG_TEAM_IDS else DEFAULT_REVIEW_ARM
+def _review_tier_fields(tier: ReviewTier) -> dict[str, object]:
+    """The tier column plus the arm bundle a report placed in `tier` reviews on."""
+    arm = REVIEW_ARMS_BY_TIER[tier]
     return {
         "review_tier": tier.value,
         "review_runtime_adapter": arm.runtime_adapter.value,
@@ -394,6 +391,13 @@ def load_perspective_selection(*, team_id: int, report_id: str, head_sha: str) -
     return latest.selection if latest is not None else None
 
 
+def _review_config(review_arm: ReviewArm, *, fallback_for: ReviewArm | None = None) -> str:
+    config: dict[str, object] = asdict(review_arm)
+    if fallback_for is not None:
+        config["fallback_for"] = asdict(fallback_for)
+    return json.dumps(config, sort_keys=True)
+
+
 def persist_perspective_results(
     *,
     team_id: int,
@@ -401,8 +405,12 @@ def persist_perspective_results(
     head_sha: str,
     results: dict[tuple[int, int], IssuesReview],
     review_arm: ReviewArm,
+    fallback_for: ReviewArm | None = None,
 ) -> None:
-    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration."""
+    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration.
+
+    `fallback_for` names the arm a failed session ran on before it ran again on `review_arm`.
+    """
     if not results:
         return
     with transaction.atomic():
@@ -416,7 +424,7 @@ def persist_perspective_results(
                     chunk_id=chunk_id,
                     review=review,
                     review_model=review_arm.model,
-                    review_config=json.dumps(asdict(review_arm), sort_keys=True),
+                    review_config=_review_config(review_arm, fallback_for=fallback_for),
                 ),
                 attribution=ArtefactAttribution.system(),
             )
@@ -434,7 +442,7 @@ def load_perspective_results(
     each turn from combining the other's findings.
     """
     out: dict[tuple[int, int], IssuesReview] = {}
-    review_config = json.dumps(asdict(review_arm), sort_keys=True)
+    review_config = _review_config(review_arm)
     single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
@@ -444,6 +452,54 @@ def load_perspective_results(
             continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
+
+
+@frozen
+class SingleAgentResults:
+    reviews: dict[tuple[int, int], IssuesReview]
+    # The keys whose result came from the control arm after the session's own arm failed.
+    fallbacks: frozenset[tuple[int, int]]
+
+
+def load_single_agent_results(
+    *, team_id: int, report_id: str, head_sha: str, arms: SingleAgentArms
+) -> SingleAgentResults:
+    """The single-agent results at this head, each from its session's arm (latest wins per key).
+
+    A session on another arm that fails reruns on the control arm, so its fallback result counts when the
+    session's own arm has none. A control result without that fallback stamp came from a turn on the
+    control set, and a turn on another set does not read it.
+    """
+    own: dict[tuple[int, int], IssuesReview] = {}
+    fallback: dict[tuple[int, int], IssuesReview] = {}
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
+        if not is_single_agent_pass(content.pass_number):
+            continue
+        key = (content.pass_number, content.chunk_id)
+        session_arm = arms.for_pass(content.pass_number)
+        if content.review_config == _review_config(session_arm):
+            own[key] = content.review
+        elif content.review_config == _review_config(SINGLE_AGENT_FLASH_ARM, fallback_for=session_arm):
+            fallback[key] = content.review
+    return SingleAgentResults(reviews={**fallback, **own}, fallbacks=frozenset(fallback.keys() - own.keys()))
+
+
+def reviewed_pipeline_chunk_ids(*, team_id: int, report_id: str, head_sha: str) -> set[int]:
+    """The pipeline chunks at this head that at least one review unit finished, a perspective or the blind spot.
+
+    Any arm counts, because the question is whether a reviewer read the chunk at all.
+    """
+    chunk_ids: set[int] = set()
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
+        if not is_single_agent_pass(content.pass_number):
+            chunk_ids.add(content.chunk_id)
+    return chunk_ids
 
 
 def persist_pr_snapshot(
@@ -456,6 +512,7 @@ def persist_pr_snapshot(
     pr_files: list[PRFile],
     review_design: str = REVIEW_DESIGN_PIPELINE,
     merge_base_sha: str | None = None,
+    skipped_paths: Sequence[str] = (),
 ) -> None:
     """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
 
@@ -473,6 +530,7 @@ def persist_pr_snapshot(
             pr_files=pr_files,
             review_design=review_design,
             merge_base_sha=merge_base_sha,
+            skipped_paths=list(skipped_paths),
         ),
         attribution=ArtefactAttribution.system(),
     )
@@ -668,6 +726,32 @@ def replace_dropped_findings(
             ReviewReportArtefact.append_dropped_finding(
                 team_id=team_id, report_id=report_id, content=artefact, attribution=ArtefactAttribution.system()
             )
+
+
+def load_dropped_findings(
+    *, team_id: int, report_id: str, run_index: int, head_sha: str | None
+) -> list[DroppedFindingArtefact]:
+    """The findings a single-agent turn did not keep, in the order the turn recorded them.
+
+    Scoped to `run_index` like `load_turn_findings`. A retry replaces its turn's rows, so no latest-wins step is needed.
+    """
+    rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+        report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+    )
+    if head_sha:
+        # The denormalized column narrows the read to the turn's head, so older turns are never parsed.
+        rows = rows.filter(head_sha=head_sha)
+    rows = rows.order_by("created_at", "id")
+    dropped: list[DroppedFindingArtefact] = []
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
+            continue
+        if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+            dropped.append(content)
+    return dropped
 
 
 def persist_verdicts(
@@ -970,10 +1054,13 @@ def finalize_review_report(
     outcome (`publish_persisted_review`), and the workflow's failure activity covers a publish that
     dies past retries.
     """
+    now = timezone.now()
     updates: dict[str, object] = {
         "report_markdown": body_markdown,
         "run_count": run_index,
-        "last_run_at": timezone.now(),
+        "last_run_at": now,
+        # `QuerySet.update()` skips `auto_now`; the reviews table sorts by `updated_at`.
+        "updated_at": now,
         "completed_head_sha": head_sha,
         "run_urgency_threshold": urgency_threshold,
     }

@@ -1,5 +1,7 @@
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -475,7 +477,8 @@ class TestCompositeBranch:
         assert (branch is not None) == expected_branch
 
 
-class TestPatternsCompile(ClickhouseTestMixin, BaseTest):
+@pytest.mark.usefixtures("clickhouse_database")
+class TestPatternsCompile(ClickhouseTestMixin, SimpleTestCase):
     @parameterized.expand(
         [
             # Python's re accepts a huge bounded repeat and a POSIX class it does not know; ClickHouse

@@ -10,7 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.settings import ZOHO_CRM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source import ZohoCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+    CLIENT_REJECTED_MESSAGE,
+    CLIENT_SECRET_REJECTED_MESSAGE,
     REFRESH_TOKEN_REJECTED_MESSAGE,
+    ZohoCRMAuthError,
     ZohoCRMResumeConfig,
 )
 
@@ -116,3 +119,21 @@ class TestZohoCRMSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+@pytest.mark.parametrize(
+    ("error_code", "expected"),
+    [
+        ("invalid_code", REFRESH_TOKEN_REJECTED_MESSAGE),
+        ("invalid_client", CLIENT_REJECTED_MESSAGE),
+        ("invalid_client_secret", CLIENT_SECRET_REJECTED_MESSAGE),
+        (None, REFRESH_TOKEN_REJECTED_MESSAGE),
+    ],
+)
+def test_sync_token_failure_shows_the_message_for_its_error_code(error_code: str | None, expected: str) -> None:
+    error = str(ZohoCRMAuthError(error_code)).lower()
+    friendly = [
+        message for pattern, message in ZohoCRMSource().get_non_retryable_errors().items() if pattern.lower() in error
+    ]
+
+    assert friendly[0] == expected

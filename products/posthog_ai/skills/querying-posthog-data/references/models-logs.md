@@ -112,7 +112,7 @@ Alerts that monitor log volume and notify users when thresholds are breached. Us
 | `state`                  | varchar(20)       | NOT NULL | Current alert state (see State Values below)                        |
 | `evaluation_periods`     | integer           | NOT NULL | Number of periods in the evaluation window (M in N-of-M)            |
 | `datapoints_to_alarm`    | integer           | NOT NULL | Breaches needed to fire (N in N-of-M)                               |
-| `cooldown_minutes`       | integer           | NOT NULL | Minutes to wait after firing before re-evaluating                   |
+| `cooldown_minutes`       | integer           | NOT NULL | Minimum minutes between notifications (fire or resolve)             |
 | `snooze_until`           | timestamp with tz | NULL     | Snooze expiry (UTC)                                                 |
 | `next_check_at`          | timestamp with tz | NULL     | When the next evaluation is scheduled                               |
 | `last_notified_at`       | timestamp with tz | NULL     | When subscribers were last notified                                 |

@@ -66,6 +66,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "qclid",  # quora
     "sccid",  # snapchat
     "oppref",  # openai ads
+    "bfcid",  # freebuff
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -299,6 +300,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Recording observed (Replay Vision)",
             "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
             "primary_property": "scanner_name",
+        },
+        "$anomaly_score": {
+            "label": "Anomaly score",
+            "description": "Self-driving scored one completed bucket of one series for anomalies. Emitted once per series and bucket. The timestamp is the bucket start, so a trends insight on this event lines up with the source chart. The `$anomaly_*` properties hold the result.",
+            "primary_property": "$anomaly_series_label",
+        },
+        "$anomaly_score_shadow": {
+            "label": "Anomaly score (shadow)",
+            "description": "Same shape as Anomaly score, but scored by a profile under comparison. Use it to compare profiles. Never count it in anomaly rates.",
+            "primary_property": "$anomaly_series_label",
         },
         "$csp_violation": {
             "label": "CSP violation",
@@ -2081,6 +2092,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "oppref",
             "description": "OpenAI Ads Click ID",
         },
+        "bfcid": {
+            "label": "bfcid",
+            "description": "Freebuff Click ID",
+        },
         "irclid": {
             "label": "irclid",
             "description": "Impact Click ID",
@@ -2763,28 +2778,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_eval_source": {
             "label": "AI eval source (LLM)",
             "description": "The source that triggered this evaluation.",
-            "examples": ["signals-grouping", "sandboxed-agent", "one-shot"],
+            "examples": ["sandboxed-agent", "one-shot"],
         },
         "$ai_evaluation_type": {
             "label": "AI evaluation type (LLM)",
             "description": "The type of evaluation that was run.",
             "examples": ["llm_judge", "hog"],
         },
-        "$ai_expected": {
-            "label": "AI expected output (LLM)",
-            "description": "The expected output for comparison in this evaluation.",
-        },
         "$ai_experiment_id": {
             "label": "AI experiment ID (LLM)",
             "description": "The unique identifier of the experiment this event belongs to.",
-        },
-        "$ai_experiment_item_id": {
-            "label": "AI experiment item ID (LLM)",
-            "description": "The unique identifier of the individual item being evaluated in an experiment.",
-        },
-        "$ai_experiment_item_name": {
-            "label": "AI experiment item name (LLM)",
-            "description": "The name of the individual item being evaluated in an experiment.",
         },
         "$ai_experiment_name": {
             "label": "AI experiment name (LLM)",
@@ -2822,10 +2825,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [1024, 4096],
             "type": "Numeric",
         },
-        "$ai_metric_version": {
-            "label": "AI metric version (LLM)",
-            "description": "The version of the metric used for evaluation.",
-        },
         "$ai_output": {
             "label": "AI output (LLM)",
             "description": "The output text from a generation or the text being evaluated.",
@@ -2833,26 +2832,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_project_name": {
             "label": "AI project name (LLM)",
             "description": "The project name associated with this AI event.",
-        },
-        "$ai_result_type": {
-            "label": "AI result type (LLM)",
-            "description": "The type of result for this evaluation metric.",
-            "examples": ["binary", "numeric", "categorical"],
-        },
-        "$ai_score": {
-            "label": "AI score (LLM)",
-            "description": "The numeric score assigned by this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_max": {
-            "label": "AI score max (LLM)",
-            "description": "The maximum possible score for this evaluation metric.",
-            "type": "Numeric",
-        },
-        "$ai_score_min": {
-            "label": "AI score min (LLM)",
-            "description": "The minimum possible score for this evaluation metric.",
-            "type": "Numeric",
         },
         "$ai_span_type": {
             "label": "AI span type (LLM)",
@@ -3127,6 +3106,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The transport the MCP client used to connect to the server.",
             "examples": ["stdio", "sse", "streamable-http"],
         },
+        "$mcp_interface": {
+            "label": "MCP interface",
+            "description": "How the agent reached the tool. 'mcp' means an MCP server instrumented with the @posthog/mcp SDK. 'webmcp' means a tool a web page registered through WebMCP, captured by posthog-js in the browser. WebMCP events carry no transport or client properties, and their $mcp_server_name is the page's hostname. Older events omit this property.",
+            "examples": ["mcp", "webmcp"],
+        },
         "$mcp_consumer": {
             "label": "MCP consumer",
             "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
@@ -3309,6 +3293,100 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Observed subject email (Replay Vision)",
             "description": "Email of the person in the recording, captured when the scan ran.",
         },
+        # Anomaly scoring properties, all on `$anomaly_score` and `$anomaly_score_shadow`. The `$anomaly_`
+        # prefix keeps them apart from a project's own property names and types.
+        "$anomaly_score": {
+            "label": "Anomaly score",
+            "description": "Score from 0 to 1. It ranks buckets within one series only, so never compare or average it across series. Empty while the series warms up.",
+            "type": "Numeric",
+        },
+        "$anomaly_flag": {
+            "label": "Anomaly flag",
+            "description": "1 when the bucket is anomalous, 0 when it is not, and empty while the series warms up. Average it for an anomaly rate, and sum it for an anomaly count.",
+            "examples": [0, 1],
+            "type": "Numeric",
+        },
+        "$anomaly_value": {
+            "label": "Anomaly scored value",
+            "description": "The series value that was scored, as it was at scoring time. It can differ from the chart later, when late events arrive.",
+            "type": "Numeric",
+        },
+        "$anomaly_bucket_start": {
+            "label": "Anomaly bucket start",
+            "description": "Start of the scored bucket, with the project timezone offset.",
+            "examples": ["2026-10-22T00:00:00+01:00"],
+            "type": "String",
+        },
+        "$anomaly_interval": {
+            "label": "Anomaly interval",
+            "description": "Interval of the scored series. Filter on one interval before you average flags across series, because an hourly series writes 24 events for each event a daily series writes.",
+            "examples": ["hour", "day", "week", "month"],
+            "type": "String",
+        },
+        "$anomaly_series_key": {
+            "label": "Anomaly series key",
+            "description": "Stable ID of the scored series. Use it with Anomaly bucket start to keep the latest result for each bucket.",
+            "type": "String",
+        },
+        "$anomaly_source": {
+            "label": "Anomaly source",
+            "description": "Where the series comes from. `insight` is a saved insight, and `default` is a series PostHog scores without a saved insight.",
+            "examples": ["insight", "default"],
+            "type": "String",
+        },
+        "$anomaly_insight_id": {
+            "label": "Anomaly insight ID",
+            "description": "ID of the saved insight that holds the series. It joins to `system.insights.id` and `system.dashboard_tiles.insight_id`. Empty for default series.",
+            "type": "Numeric",
+        },
+        "$anomaly_series_label": {
+            "label": "Anomaly series label",
+            "description": "Name of the series as the chart shows it.",
+            "type": "String",
+        },
+        "$anomaly_breakdown_value": {
+            "label": "Anomaly breakdown value",
+            "description": "Breakdown value of the series. Empty when the insight has no breakdown.",
+            "type": "String",
+        },
+        "$anomaly_profile": {
+            "label": "Anomaly scoring profile",
+            "description": "Name of the scoring profile that produced the score.",
+            "examples": ["default-v1"],
+            "type": "String",
+        },
+        "$anomaly_detector": {
+            "label": "Anomaly detector",
+            "description": "Detector type of the scoring profile.",
+            "examples": ["zscore", "ensemble"],
+            "type": "String",
+        },
+        "$anomaly_detector_version": {
+            "label": "Anomaly detector version",
+            "description": "Hash of the scoring settings for the interval. A change to the settings starts a new version.",
+            "type": "String",
+        },
+        "$anomaly_scored_at": {
+            "label": "Anomaly scored at",
+            "description": "When the bucket was scored. If a bucket was scored more than once, keep the latest result.",
+            "type": "String",
+        },
+        "$anomaly_details": {
+            "label": "Anomaly details",
+            "description": "Detector-specific values for this bucket, for example ensemble sub-scores. Its shape depends on the detector.",
+            "type": "String",
+        },
+        "$anomaly_run": {
+            "label": "Anomaly scoring run",
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
+            "examples": ["train", "score"],
+            "type": "String",
+        },
+        "$anomaly_model_id": {
+            "label": "Anomaly model ID",
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "type": "String",
+        },
         "$csp_document_url": {
             "label": "Document URL",
             "description": "The URL of the document where the violation occurred.",
@@ -3416,6 +3494,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_mcp_harness": {
+            "label": "MCP harness",
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "type": "String",
+            "virtual": True,
+        },
         # LLM analytics — per-modality token counts, per-unit pricing, and per-modality costs.
         # Emitted on $ai_generation / $ai_embedding events and stored as typed columns on the ai_events table.
         "$ai_text_input_tokens": {
@@ -3469,6 +3553,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_cache_read_audio_tokens": {
             "label": "AI cache read audio tokens (LLM)",
             "description": "The number of audio tokens read from the prompt cache.",
+            "examples": [16],
+            "type": "Numeric",
+        },
+        "$ai_cache_read_image_tokens": {
+            "label": "AI cache read image tokens (LLM)",
+            "description": "The number of image tokens read from the prompt cache.",
             "examples": [16],
             "type": "Numeric",
         },

@@ -1,14 +1,18 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class SecodaEndpointConfig:
     name: str
     path: str
     # Secoda resource identifiers are workspace-unique UUIDs, so `id` is a safe primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Top-level keys removed from every row before it reaches the warehouse.
+    drop_fields: tuple[str, ...] = ()
 
 
 # Secoda v1 REST list endpoints. All are full-refresh only: Secoda's List Resources filter supports
@@ -21,6 +25,14 @@ SECODA_ENDPOINTS: dict[str, SecodaEndpointConfig] = {
     "users": SecodaEndpointConfig(name="users", path="/api/v1/user"),
     "groups": SecodaEndpointConfig(name="groups", path="/api/v1/auth/group"),
     "tags": SecodaEndpointConfig(name="tags", path="/api/v1/tag"),
+    "databases": SecodaEndpointConfig(name="databases", path="/api/v1/database/databases"),
+    "schemas": SecodaEndpointConfig(name="schemas", path="/api/v1/database/schemas"),
+    # Secoda documents `credentials` as redacted, but a credentials blob has no analytical value and
+    # must never land in the warehouse if that redaction ever changes.
+    "integrations": SecodaEndpointConfig(
+        name="integrations", path="/api/v1/integration/integrations", drop_fields=("credentials",)
+    ),
+    "lineage": SecodaEndpointConfig(name="lineage", path="/api/v1/lineage/manual/"),
 }
 
 ENDPOINTS = tuple(SECODA_ENDPOINTS.keys())

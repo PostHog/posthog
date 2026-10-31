@@ -39,6 +39,9 @@ describe("PostHogAPIClient", () => {
       const [url, request] = fetch.mock.calls[0];
       expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
       expect(request.method).toBe("POST");
+      expect(
+        (request.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe("posthog_desktop");
       expect(JSON.parse(request.body)).toEqual({
         description: "Read the report evidence",
         title: "Review report",
@@ -49,6 +52,45 @@ describe("PostHogAPIClient", () => {
           ? { signal_report_discussion_question: "What caused this?" }
           : {}),
       });
+    },
+  );
+
+  it.each([
+    { provenance: "posthog_mobile", action: "creates" },
+    { provenance: "posthog_web", action: "creates" },
+    { provenance: "posthog_mobile", action: "warms" },
+    { provenance: "posthog_web", action: "warms" },
+  ] as const)(
+    "sends $provenance provenance when it $action a task",
+    async ({ provenance, action }) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "task-1",
+            task_id: "task-1",
+            run_id: "run-1",
+          }),
+          { status: 201 },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch, taskClientProvenance: provenance },
+      );
+
+      if (action === "creates") {
+        await client.createTask({ description: "Create a task" });
+      } else {
+        await client.warmTask({ repository: null, github_integration: null });
+      }
+
+      const request = fetch.mock.calls[0]?.[1];
+      expect(
+        (request?.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe(provenance);
     },
   );
 
@@ -379,6 +421,39 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("getInsightSummary", () => {
+    it("reads the insight from cache and falls back to its derived name", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 1,
+            short_id: "sdyR2Pn8",
+            name: "",
+            derived_name: "Pageview count",
+            description: "",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getInsightSummary("sdyR2Pn8")).resolves.toEqual({
+        name: "Pageview count",
+        description: null,
+      });
+      const url = fetch.mock.calls[0][0] as URL;
+      expect(url.pathname).toBe("/api/projects/42/insights/sdyR2Pn8/");
+      expect(url.searchParams.get("basic")).toBe("true");
+      expect(url.searchParams.get("refresh")).toBe("force_cache");
+    });
+  });
+
   describe("getEvidencePreview", () => {
     it("retrieves an Inbox report from the signals endpoint", async () => {
       const fetch = vi.fn().mockResolvedValue(
@@ -438,7 +513,6 @@ describe("PostHogAPIClient", () => {
             confidence_interval: [0.01, 0.39],
           },
         ],
-        significance_code: "significant",
         is_cached: true,
         last_refresh: new Date().toISOString(),
       };
@@ -641,6 +715,34 @@ describe("PostHogAPIClient", () => {
       expect(listUrl.pathname).toBe("/api/projects/42/persons/");
       expect(listUrl.searchParams.get("search")).toBe(distinctId);
     });
+  });
+
+  it.each([
+    {
+      sources: ["posthog_desktop", "slack"],
+      sent: ["posthog_desktop", "slack"],
+    },
+    { sources: [], sent: [] },
+  ])("sends task list sources $sources as $sent", async ({ sources, sent }) => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ results: [], count: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const client = new PostHogAPIClient(
+      "https://app.posthog.test",
+      async () => "token",
+      async () => "token",
+      42,
+      { fetch },
+    );
+
+    await client.getTasksPage({ sources });
+
+    const url = fetch.mock.calls[0][0] as URL;
+    expect(url.pathname).toBe("/api/projects/42/tasks/");
+    expect(url.searchParams.getAll("sources")).toEqual(sent);
   });
 
   it("fetches later task pages before reporting complete results", async () => {
@@ -2825,14 +2927,20 @@ describe("PostHogAPIClient", () => {
 
     // A resolve stores its rationale as a `dismissal` artefact, so resolve-only
     // reasons must normalize as dismissals rather than degrade to a raw preview.
-    it.each([["fixed_outside_posthog"], ["pr_merged"]])(
+    it.each([["fixed_outside_posthog"], ["pr_merged"], ["no_action_needed"]])(
       "keeps a resolve reason %s as a dismissal row",
       async (reason) => {
         const rows = [
           {
             id: "d1",
             type: "dismissal",
-            content: { reason, note: "", user_id: 1, user_uuid: null },
+            content: {
+              state: "resolved",
+              reason,
+              note: "",
+              user_id: 1,
+              user_uuid: null,
+            },
             created_at: "2026-06-01T00:00:00Z",
           },
         ];
@@ -2848,6 +2956,9 @@ describe("PostHogAPIClient", () => {
         expect(results[0].type).toBe("dismissal");
         expect(results[0].degraded).toBeFalsy();
         expect((results[0].content as { reason: string }).reason).toBe(reason);
+        expect((results[0].content as { state: string }).state).toBe(
+          "resolved",
+        );
       },
     );
 
@@ -2900,16 +3011,21 @@ describe("PostHogAPIClient", () => {
 
     it.each([
       {
-        name: "PUTs the full-replacement content and returns the parsed artefact",
+        name: "adds only the target and keeps the full list for older servers",
+        edit: { action: "add" as const, targets: [{ user_uuid: "uuid-1" }] },
         input: [{ github_login: "octocat" }, { user_uuid: "uuid-1" }],
         responseContent: [OCTOCAT_REVIEWER],
       },
       {
-        name: "sends an empty content array when clearing reviewers",
+        name: "removes only the target with an empty legacy fallback",
+        edit: {
+          action: "remove" as const,
+          targets: [{ github_login: "octocat" }],
+        },
         input: [],
         responseContent: [],
       },
-    ])("$name", async ({ input, responseContent }) => {
+    ])("$name", async ({ input, responseContent, edit }) => {
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -2925,6 +3041,7 @@ describe("PostHogAPIClient", () => {
         "report-1",
         "art-1",
         input,
+        edit,
       );
 
       expect(result.type).toBe("suggested_reviewers");
@@ -2933,7 +3050,7 @@ describe("PostHogAPIClient", () => {
         expect.objectContaining({
           method: "put",
           path: ARTEFACT_PATH,
-          overrides: { body: JSON.stringify({ content: input }) },
+          overrides: { body: JSON.stringify({ content: input, ...edit }) },
         }),
       );
     });
@@ -2947,7 +3064,10 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(
-        client.updateSignalReportArtefact("report-1", "art-1", []),
+        client.updateSignalReportArtefact("report-1", "art-1", [], {
+          action: "remove",
+          targets: [{ github_login: "octocat" }],
+        }),
       ).rejects.toThrow("Only suggested_reviewers");
     });
 
@@ -2964,7 +3084,10 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(
-        client.updateSignalReportArtefact("report-1", "art-1", []),
+        client.updateSignalReportArtefact("report-1", "art-1", [], {
+          action: "remove",
+          targets: [{ github_login: "octocat" }],
+        }),
       ).rejects.toThrow("Unexpected response");
     });
 
@@ -2981,13 +3104,18 @@ describe("PostHogAPIClient", () => {
       });
       const client = makeClient(fetch);
 
-      await client.setSignalReportReviewers("report-1", content);
+      await client.setSignalReportReviewers("report-1", content, {
+        action: "add",
+        targets: content,
+      });
 
       expect(fetch).toHaveBeenCalledWith(
         expect.objectContaining({
           method: "put",
           path: "/api/projects/123/signals/reports/report-1/reviewers/",
-          overrides: { body: JSON.stringify({ content }) },
+          overrides: {
+            body: JSON.stringify({ content, action: "add", targets: content }),
+          },
         }),
       );
     });

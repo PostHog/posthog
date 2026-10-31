@@ -271,16 +271,26 @@ class Person(models.Model):
             )
 
             if distinct_ids_to_split is not None:
-                self._split_explicit_ids(distinct_ids_to_split)
+                self._split_explicit_ids(client, distinct_ids_to_split)
             else:
+                if main_distinct_id:
+                    self._require_own_distinct_id(client, main_distinct_id)
                 self._split_all_ids(client, main_distinct_id, max_splits)
 
-    def _split_explicit_ids(self, distinct_ids_to_split: list[str]) -> None:
-        """Partial split: caller specifies exactly which IDs to move.
+    def _require_own_distinct_id(self, client: Any, distinct_id: str) -> None:
+        """An unowned main ID would split off every ID and strand the person, so reject it before any batch runs."""
+        from posthog.personhog_client.proto import GetPersonByDistinctIdRequest
 
-        The RPC validates that every ID belongs to this person — no need to
-        fetch all distinct IDs upfront.
-        """
+        resp = client.get_person_by_distinct_id(
+            GetPersonByDistinctIdRequest(team_id=self.team_id, distinct_id=distinct_id)
+        )
+        if not resp.person or resp.person.id != self.pk:
+            raise ValueError(f"main_distinct_id is not on person_id={self.pk} (team_id={self.team_id})")
+
+    def _split_explicit_ids(self, client: Any, distinct_ids_to_split: list[str]) -> None:
+        """Partial split: the caller names the IDs to move. The RPC checks ownership; a bounded fetch checks one ID stays."""
+        from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest
+
         seen: set[str] = set()
         distinct_ids_to_process: list[str] = []
         for did in distinct_ids_to_split:
@@ -290,6 +300,18 @@ class Person(models.Model):
 
         if not distinct_ids_to_process:
             return
+
+        # One more ID than the request names: if every returned ID is in the request, none would remain.
+        remaining = client.get_distinct_ids_for_person(
+            GetDistinctIdsForPersonRequest(
+                team_id=self.team_id, person_id=self.pk, limit=len(distinct_ids_to_process) + 1
+            )
+        )
+        if all(d.distinct_id in seen for d in remaining.distinct_ids):
+            raise ValueError(
+                f"split would leave no distinct ID on person_id={self.pk} (team_id={self.team_id}), "
+                "so the person would be unreachable"
+            )
 
         logger.info(
             "split_person will split explicit distinct_ids",
@@ -365,7 +387,8 @@ class Person(models.Model):
         SplitPerson RPC. Personhog owns this write — there is no ORM path.
 
         The server creates each new person with a deterministic UUIDv5
-        (matching ``uuidFromDistinctId``) and bumps versions by 101, higher
+        (matching ``uuidFromDistinctId``), or a random UUID when a live person
+        already holds that one, and bumps versions by 101, higher
         than delete events (which use version + 100) so the split overrides
         any deleted rows. Keep in sync with:
         posthog/models/person/util.py (_delete_person) and

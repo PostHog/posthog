@@ -1,15 +1,18 @@
 import json
 import math
 from enum import StrEnum
+from functools import cached_property
 from typing import Any, Literal, Optional, Union, cast
 
+from django.db import models
+
 from posthog.constants import PropertyOperatorType
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 
 # Relocated to the Django-free posthog.property_columns module so the HogQL engine can use them
 # without booting Django; re-exported here for existing callers.
 from posthog.property_columns import PropertyName, TableColumn, TableWithProperties  # noqa: F401
+from posthog.schema_enums import PropertyOperator
 from posthog.utils import str_to_bool
 
 
@@ -89,6 +92,24 @@ NEGATED_OPERATORS = ["is_not", "not_icontains", "not_starts_with", "not_ends_wit
 # Single source of truth for the starts_with/ends_with operator family, so each backend
 # allowlist (feature flags, logs, tracing, sessions) stays in sync without hand-copying.
 STRING_PREFIX_SUFFIX_OPERATORS: tuple[str, ...] = ("starts_with", "not_starts_with", "ends_with", "not_ends_with")
+
+
+# A Choices class, so an API ChoiceField gets a stable OpenAPI enum name from it.
+# Labels equal values to keep the generated API descriptions unchanged.
+# test_semver_operators.py fails when the generated PropertyOperator enum gains a semver operator.
+class SemverOperator(models.TextChoices):
+    SEMVER_EQ = PropertyOperator.SEMVER_EQ.value, PropertyOperator.SEMVER_EQ.value
+    SEMVER_NEQ = PropertyOperator.SEMVER_NEQ.value, PropertyOperator.SEMVER_NEQ.value
+    SEMVER_GT = PropertyOperator.SEMVER_GT.value, PropertyOperator.SEMVER_GT.value
+    SEMVER_GTE = PropertyOperator.SEMVER_GTE.value, PropertyOperator.SEMVER_GTE.value
+    SEMVER_LT = PropertyOperator.SEMVER_LT.value, PropertyOperator.SEMVER_LT.value
+    SEMVER_LTE = PropertyOperator.SEMVER_LTE.value, PropertyOperator.SEMVER_LTE.value
+    SEMVER_TILDE = PropertyOperator.SEMVER_TILDE.value, PropertyOperator.SEMVER_TILDE.value
+    SEMVER_CARET = PropertyOperator.SEMVER_CARET.value, PropertyOperator.SEMVER_CARET.value
+    SEMVER_WILDCARD = PropertyOperator.SEMVER_WILDCARD.value, PropertyOperator.SEMVER_WILDCARD.value
+
+
+SEMVER_OPERATORS: tuple[str, ...] = tuple(SemverOperator.values)
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
     "dynamic-cohort",
@@ -155,6 +176,10 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
         {"time_value", "time_interval"},
         {"explicit_datetime"},
     ],
+    BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE: [
+        {"time_value", "time_interval"},
+        {"explicit_datetime"},
+    ],
 }
 
 # Mirrored in frontend/src/models/cohortsModel.ts (BEHAVIORAL_VALUE_ALIASES) so the cohort
@@ -192,8 +217,6 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "key",
         "value",
         "event_type",
-        "time_value",
-        "time_interval",
         "seq_event_type",
         "seq_event",
         "seq_time_value",
@@ -235,6 +258,11 @@ class PropertyValidationError(ValueError):
     ValueError subclass, so existing `except ValueError` callers are unaffected) — one
     owned type callers can catch, instead of having to discover each new internal raise
     site (e.g. via validate_group_type_index) by reading Property.__init__'s source."""
+
+    def __init__(self, message: str, attr: Optional[str] = None) -> None:
+        super().__init__(message)
+        # The failing attribute, so error tracking can group by it instead of by the message.
+        self.attr = attr
 
 
 class Property:
@@ -343,17 +371,19 @@ class Property:
         elif self.type == "hogql":
             pass  # keep value as None
         elif value is None:
-            raise PropertyValidationError(f"Value must be set for property type {self.type} & operator {self.operator}")
+            raise PropertyValidationError(
+                f"Value must be set for property type {self.type} & operator {self.operator}", attr="value"
+            )
         else:
             self.value = value
 
         if self.type not in VALIDATE_PROP_TYPES.keys():
-            raise PropertyValidationError(f"Invalid property type: {self.type}")
+            raise PropertyValidationError(f"Invalid property type: {self.type}", attr="type")
 
         for attr in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, attr, None) is None:
                 raise PropertyValidationError(
-                    f"Missing required attr {attr} for property type {self.type} with key {self.key}"
+                    f"Missing required attr {attr} for property type {self.type} with key {self.key}", attr=attr
                 )
 
         if self.type == "behavioral":
@@ -362,12 +392,12 @@ class Property:
             )
             required_attrs = VALIDATE_BEHAVIORAL_PROP_TYPES.get(behavioral_value)
             if required_attrs is None:
-                raise PropertyValidationError(f"Invalid behavioral value: {self.value}")
+                raise PropertyValidationError(f"Invalid behavioral value: {self.value}", attr="value")
 
             for attr in required_attrs:
                 if getattr(self, attr, None) is None:
                     raise PropertyValidationError(
-                        f"Missing required attr {attr} for property type {self.type}::{self.value}"
+                        f"Missing required attr {attr} for property type {self.type}::{self.value}", attr=attr
                     )
 
             if behavioral_value in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:

@@ -1,5 +1,6 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError } from 'lib/api-error'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
@@ -64,6 +65,41 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
     })
 }
 
+function waitForPollingReady(signal?: AbortSignal): Promise<void> {
+    const isReady = (): boolean =>
+        (typeof navigator === 'undefined' || navigator.onLine !== false) &&
+        (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+
+    if (signal?.aborted) {
+        return Promise.reject(new DOMException('Aborted', 'AbortError'))
+    }
+    if (isReady()) {
+        return Promise.resolve()
+    }
+
+    return new Promise<void>((resolve, reject) => {
+        const cleanup = (): void => {
+            window.removeEventListener('online', onReady)
+            document.removeEventListener('visibilitychange', onReady)
+            signal?.removeEventListener('abort', onAbort)
+        }
+        const onReady = (): void => {
+            if (isReady()) {
+                cleanup()
+                resolve()
+            }
+        }
+        const onAbort = (): void => {
+            cleanup()
+            reject(new DOMException('Aborted', 'AbortError'))
+        }
+
+        window.addEventListener('online', onReady)
+        document.addEventListener('visibilitychange', onReady)
+        signal?.addEventListener('abort', onAbort)
+    })
+}
+
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
@@ -73,6 +109,7 @@ const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavail
 const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
 const TRANSIENT_SUBMIT_RETRY_BUDGET_MS = 20_000
+const MAX_RECORDED_SUBMIT_TIMINGS = 6
 
 type QuerySubmitTelemetry = {
     client_query_id?: string
@@ -80,6 +117,15 @@ type QuerySubmitTelemetry = {
     retry_wait_ms: number
     retry_status: number | null
     retry_recovered: boolean
+    submit_request_timings: ApiRequestTiming[]
+    result_poll_timing?: ApiRequestTiming
+}
+
+function requestTimingProperties(telemetry: QuerySubmitTelemetry): Record<string, string | number | undefined> {
+    return {
+        ...flattenRequestTiming(telemetry.submit_request_timings.at(-1), ''),
+        ...flattenRequestTiming(telemetry.result_poll_timing, 'result_poll_'),
+    }
 }
 
 function capacityWaitMs(error: unknown): number | undefined {
@@ -107,6 +153,14 @@ function isRetryableSubmitFailure(error: unknown, refresh: RefreshType): boolean
         return refresh !== 'force_blocking' && refresh !== 'force_async' && !error.headers?.has('Retry-After')
     }
     return capacityWaitMs(error) !== undefined
+}
+
+/**
+ * A missing query status can be recovered by submitting again. An unavailable managed
+ * warehouse also answers 404, but resubmitting cannot fix that.
+ */
+export function isExpiredQueryStatusError(e: any): boolean {
+    return e?.status === 404 && e?.code !== MANAGED_WAREHOUSE_UNAVAILABLE_CODE
 }
 
 /**
@@ -156,43 +210,63 @@ export function queryExportContext<N extends DataNode>(
     return { source: query }
 }
 
+function annotatePollError(e: any, queryId: string): void {
+    // Parse error message to extract clean message and code if present
+    const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
+    e.detail = parsed.message
+
+    // Prefer the structured code from QueryStatus over one parsed out of the message
+    e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
+
+    // Attach queryId to error for downstream error handling
+    e.queryId = queryId
+}
+
 export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
-    onPoll?: (response: QueryStatus) => void
+    onPoll?: (response: QueryStatus) => void,
+    onResultPollTiming?: (timing: ApiRequestTiming) => void
 ): Promise<QueryStatus> {
-    // Measured only across time spent actually polling (page visible), not raw wall-clock time -
-    // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
-    // ever getting a chance to poll, and the query "times out" despite never really being tried.
+    // A hidden or offline tab must not consume the polling deadline while it cannot poll.
     let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
 
     while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await waitForPageVisible(methodOptions?.signal)
+        await waitForPollingReady(methodOptions?.signal)
         const iterationStart = performance.now()
         await delay(currentDelay, methodOptions?.signal)
         currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
         activeElapsedMs += performance.now() - iterationStart
+        await waitForPollingReady(methodOptions?.signal)
 
         try {
-            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
+            let pollTiming: ApiRequestTiming | undefined
+            const statusResponse = (
+                await api.queryStatus.get(
+                    queryId,
+                    true,
+                    onResultPollTiming && {
+                        onRequestTiming: (timing) => {
+                            pollTiming = timing
+                        },
+                    }
+                )
+            ).query_status
             if (statusResponse.complete) {
+                if (pollTiming) {
+                    onResultPollTiming?.(pollTiming)
+                }
                 return statusResponse
             }
             if (onPoll) {
                 onPoll(statusResponse)
             }
         } catch (e: any) {
-            // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
-            e.detail = parsed.message
-
-            // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
-
-            // Attach queryId to error for downstream error handling
-            e.queryId = queryId
-
+            if (e instanceof NetworkError && e.reason === 'offline') {
+                continue
+            }
+            annotatePollError(e, queryId)
             throw e
         }
     }
@@ -248,7 +322,15 @@ async function executeQuery<N extends DataNode>(
                 const requestStartedAt = performance.now()
                 try {
                     return await api.query(queryNode, {
-                        requestOptions: methodOptions,
+                        requestOptions: {
+                            ...methodOptions,
+                            onRequestTiming: (timing) => {
+                                if (submitTelemetry.submit_request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
+                                    submitTelemetry.submit_request_timings.push(timing)
+                                }
+                                methodOptions?.onRequestTiming?.(timing)
+                            },
+                        },
                         clientQueryId,
                         refresh: refreshParam,
                         filtersOverride,
@@ -278,6 +360,12 @@ async function executeQuery<N extends DataNode>(
                 Math.round(performance.now() - submitStartedAt - requestDurationMs)
             )
         })
+
+        // A successful response with no content (such as a 204) parses to null.
+        if (!response) {
+            const message = 'The server returned an empty response. Try again.'
+            throw new ApiError(message, undefined, undefined, { detail: message })
+        }
 
         if (response.detail) {
             throw new Error(response.detail)
@@ -313,11 +401,11 @@ async function executeQuery<N extends DataNode>(
 
     let statusResponse: QueryStatus
     try {
-        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse, (timing) => {
+            submitTelemetry.result_poll_timing = timing
+        })
     } catch (e: any) {
-        // The server keeps a query's status in Redis for 20 minutes. A backgrounded tab stops
-        // polling and stops its own give-up timer, so it can outlive that TTL and then poll for a
-        // query the server has forgotten. That query most likely finished and cached its result.
+        // A backgrounded tab can outlive the query's status. Submit once more to recover its result.
         //
         // So run it again, once. force_async becomes async, to read the cached result instead of
         // recomputing it. The query ID is reused, so cancels and log lookups still find the run;
@@ -326,12 +414,7 @@ async function executeQuery<N extends DataNode>(
         // A warehouse that is down also answers 404. Do not retry that one. A shared or exported
         // view may only read, so it cannot submit at all; report the expired status rather than
         // the permission error the server would answer with.
-        if (
-            retriedAfterExpiry ||
-            e?.status !== 404 ||
-            e?.code === MANAGED_WAREHOUSE_UNAVAILABLE_CODE ||
-            isSharedView()
-        ) {
+        if (retriedAfterExpiry || !isExpiredQueryStatusError(e) || isSharedView()) {
             throw e
         }
         return await executeQuery(
@@ -375,6 +458,7 @@ export async function performQuery<N extends DataNode>(
         retry_wait_ms: 0,
         retry_status: null,
         retry_recovered: false,
+        submit_request_timings: [],
     }
     const startTime = performance.now()
 
@@ -427,7 +511,18 @@ export async function performQuery<N extends DataNode>(
             data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
             ...submitTelemetry,
+            ...requestTimingProperties(submitTelemetry),
         })
+        const historySources = warehouseSources.filter((s) => s.uses_history_table)
+        if (historySources.length > 0) {
+            posthog.capture('data warehouse history table queried', {
+                query_kind: queryNode.kind,
+                queryId,
+                is_cached: response?.is_cached,
+                data_warehouse_source_ids: historySources.map((s) => s.id),
+                data_warehouse_source_types: historySources.map((s) => s.source_type).filter(Boolean),
+            })
+        }
         return response
     } catch (e) {
         // A superseded query or navigating away mid-request aborts, not fails — skip so the
@@ -444,6 +539,7 @@ export async function performQuery<N extends DataNode>(
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
                 ...logParams,
                 ...submitTelemetry,
+                ...requestTimingProperties(submitTelemetry),
                 retry_recovered: false,
             })
         }

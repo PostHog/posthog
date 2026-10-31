@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeConfig]):
+    codebase_detection = detect(env=("^(SERVICE_NOW|SERVICENOW)_", "^SN_SDK_"), npm=("@servicenow/sdk",))
+
     api_docs_url = "https://www.servicenow.com/docs/r/washingtondc/api-reference/rest-apis/c_TableAPI.html"
 
     # Both Table API versions stay supported; new sources default to v2 (stable since Geneva).
@@ -64,7 +67,7 @@ class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeC
             name=ExternalDataSourceType.SERVICENOW,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="ServiceNow",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync your ServiceNow ITSM data (incidents, problems, change requests, users, configuration items, and more) into the PostHog Data warehouse.
 
 Enter your ServiceNow instance URL (e.g. `https://your-instance.service-now.com`) and authenticate with either an API key or a username and password.

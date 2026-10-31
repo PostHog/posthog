@@ -11,6 +11,7 @@ import {
     captureScoutConfigChanged,
     captureSignalSourceConnected,
     INBOX_EVENTS,
+    setInboxServedRanker,
 } from './inboxAnalytics'
 import { SignalReport, SignalReportStatus } from './types'
 
@@ -42,6 +43,7 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 describe('inboxAnalytics', () => {
     beforeEach(() => {
         ;(posthog.capture as jest.Mock).mockClear()
+        setInboxServedRanker(null)
     })
 
     it('stamps every event with the cloud client discriminator', () => {
@@ -120,16 +122,12 @@ describe('inboxAnalytics', () => {
                     priority: 'P0',
                     signal_count: 3,
                     is_suggested_reviewer: true,
+                    implementation_pr_url: 'https://github.com/example/repo/pull/123',
                     ranking: {
-                        served_key: 'report_embeddings@2026-09-30',
-                        model_name: 'report_embeddings',
-                        model_version: '2026-09-30',
-                        manifest_version: 'manifest',
+                        status: 'scored',
+                        model: 'report_embeddings@2026-09-30',
                         scored_at: '2026-09-30T12:00:00Z',
-                        scores: { pr_merged: 0.4 },
-                        lifts: {},
-                        readable_heads: ['pr_merged'],
-                        stale: false,
+                        predictions: [{ outcome: 'fix', probability: 0.4, lift: null, readable: true }],
                     },
                 }),
                 makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),
@@ -142,6 +140,7 @@ describe('inboxAnalytics', () => {
             sortField: 'ranking_pr_merged',
             sortDirection: 'desc',
             createdWindow: '7d',
+            rankerId: 'fix',
         })
         const props = lastCapture(INBOX_EVENTS.REPORTS_IMPRESSED)
         expect(props).toMatchObject({
@@ -152,6 +151,8 @@ describe('inboxAnalytics', () => {
             sort_field: 'ranking_pr_merged',
             sort_direction: 'desc',
             created_window: '7d',
+            ranker_id: 'fix',
+            has_pr: true,
         })
         expect(props?.impressions).toEqual([
             expect.objectContaining({
@@ -173,7 +174,8 @@ describe('inboxAnalytics', () => {
         ])
     })
 
-    it('emits a single-report action with the report context', () => {
+    it('emits a single-report action with the report context and the ranker of the list in view', () => {
+        setInboxServedRanker('fix')
         captureInboxReportAction({
             report: makeReport(),
             actionType: 'create_pr',
@@ -185,7 +187,14 @@ describe('inboxAnalytics', () => {
             surface: 'detail_pane',
             is_bulk: false,
             bulk_size: 1,
+            ranker_id: 'fix',
         })
+    })
+
+    it('never attributes a Today action to the Inbox ranker', () => {
+        setInboxServedRanker('fix')
+        captureInboxReportAction({ report: makeReport(), actionType: 'discuss', surface: 'today' })
+        expect(lastCapture(INBOX_EVENTS.REPORT_ACTION)?.ranker_id).toBeNull()
     })
 
     it('emits a bulk action with a null report and the selection size', () => {

@@ -6,7 +6,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -419,6 +422,68 @@ describe('experimentWizardLogic', () => {
             logic.mount()
 
             expect(logic.values.currentStep).toBe('about')
+        })
+
+        it('reports each step view with the step it came from and how it was reached', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.nextStep()
+                logic.actions.setStep('about')
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardStepViewed('variants', 2, 'about', 'continue'),
+                logic.actionCreators.reportExperimentWizardStepViewed('about', 1, 'variants', 'stepper'),
+            ])
+
+            // Going back from the first step doesn't change the step, so it isn't a new view
+            await expectLogic(logic, () => {
+                logic.actions.prevStep()
+            }).toNotHaveDispatchedActions(['reportExperimentWizardStepViewed'])
+
+            await expectLogic(logic, () => {
+                logic.actions.nextStep()
+                logic.actions.prevStep()
+            }).toDispatchActions([
+                logic.actionCreators.reportExperimentWizardStepViewed('variants', 2, 'about', 'continue'),
+                logic.actionCreators.reportExperimentWizardStepViewed('about', 1, 'variants', 'back'),
+            ])
+        })
+
+        it('reports the first view as a start when the wizard opens on the first step', () => {
+            logic.unmount()
+            createLogic.unmount()
+
+            const capture = jest.spyOn(posthog, 'capture')
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            expect(capture).toHaveBeenCalledWith('experiment wizard step viewed', {
+                step: 'about',
+                step_number: 1,
+                previous_step: null,
+                navigation: 'start',
+            })
+            capture.mockRestore()
+        })
+
+        it('reports the first view as a resume when the wizard reopens on a later step', async () => {
+            logic.actions.setStep('analytics')
+            logic.unmount()
+            createLogic.unmount()
+
+            const capture = jest.spyOn(posthog, 'capture')
+            createLogic = createExperimentLogic()
+            createLogic.mount()
+            logic = experimentWizardLogic()
+            logic.mount()
+
+            expect(capture).toHaveBeenCalledWith('experiment wizard step viewed', {
+                step: 'analytics',
+                step_number: 3,
+                previous_step: null,
+                navigation: 'resume',
+            })
+            capture.mockRestore()
         })
 
         it('remount preserves step when sessionStorage is not cleared', async () => {
@@ -836,7 +901,7 @@ describe('experimentWizardLogic', () => {
             sessionStorage.clear()
             useMocks(apiMocks)
             initKeaTests()
-            // The checkbox's disabledReason fails closed when the app context carries no access
+            // The toggle's disabledReason fails closed when the app context carries no access
             // levels, which would swallow every click; grant what the backend grants an editor.
             appContextBeforeGrant = window.POSTHOG_APP_CONTEXT
             window.POSTHOG_APP_CONTEXT = {
@@ -856,6 +921,7 @@ describe('experimentWizardLogic', () => {
 
             logic = experimentWizardLogic()
             logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
         })
 
         afterEach(() => {
@@ -878,40 +944,100 @@ describe('experimentWizardLogic', () => {
             )
         }
 
+        const setArm = (arm: 'control' | 'test'): void => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD, FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER],
+                {
+                    [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
+                    [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true,
+                }
+            )
+        }
+
+        // `control` keeps the checkbox, `test` shows the card with a toggle
+        const turnOn = async (arm: 'control' | 'test'): Promise<void> => {
+            await userEvent.click(
+                arm === 'test'
+                    ? screen.getByLabelText('Compare what users do in each variant')
+                    : screen.getByText('Compare what users do in each variant')
+            )
+        }
+
         it.each([
-            {
-                desc: 'a tick without org AI consent opens the consent popover instead of arming the scanner',
-                accepted: false,
-                expectedArmed: false,
-            },
-            {
-                desc: 'a tick with org AI consent arms the scanner without the popover',
-                accepted: true,
-                expectedArmed: true,
-            },
-        ])('$desc', async ({ accepted, expectedArmed }) => {
-            ;(global as any).__consentAccepted = accepted
+            { arm: 'control' as const, accepted: false, expectedArmed: false },
+            { arm: 'control' as const, accepted: true, expectedArmed: true },
+            { arm: 'test' as const, accepted: false, expectedArmed: false },
+            { arm: 'test' as const, accepted: true, expectedArmed: true },
+        ])(
+            'in $arm, turning it on with org AI consent $accepted arms the scanner: $expectedArmed',
+            async ({ arm, accepted, expectedArmed }) => {
+                ;(global as any).__consentAccepted = accepted
+                setArm(arm)
 
-            renderAnalyticsStep()
-            await userEvent.click(screen.getByText('Watch participant behavior with Replay Vision'))
+                renderAnalyticsStep()
+                await turnOn(arm)
 
-            // Without the gate the unconsented tick lands in the logic, and the save path then
-            // creates a scanner the backend refuses with the consent 400.
-            expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
-            const popoverPrompt = screen.queryByText(/needs your approval/)
-            if (accepted) {
-                expect(popoverPrompt).not.toBeInTheDocument()
-            } else {
-                expect(popoverPrompt).toBeInTheDocument()
+                // Without the gate the unconsented click lands in the logic, and the save path then
+                // creates a scanner the backend refuses with the consent 400.
+                expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
+                const popoverPrompt = screen.queryByText(/needs your approval/)
+                if (accepted) {
+                    expect(popoverPrompt).not.toBeInTheDocument()
+                } else {
+                    expect(popoverPrompt).toBeInTheDocument()
+                }
             }
-        })
+        )
 
-        it('shows the per-session price next to the checkbox', () => {
+        it.each(['control' as const, 'test' as const])(
+            'anchors the consent popover to the option in %s',
+            async (arm) => {
+                ;(global as any).__consentAccepted = false
+                setArm(arm)
+
+                renderAnalyticsStep()
+                await turnOn(arm)
+
+                // The popover anchors to its child through a ref. Without one it never gets a position,
+                // so it sits at the top left of the page and its arrow points at nothing.
+                await waitFor(() =>
+                    expect(document.querySelector<HTMLElement>('.Popover__arrow')?.style.left).toMatch(/px$/)
+                )
+            }
+        )
+
+        it.each(['control' as const, 'test' as const])('shows the per-session price in %s', (arm) => {
             ;(global as any).__consentAccepted = true
+            setArm(arm)
 
             renderAnalyticsStep()
 
             expect(screen.getByText(/Each scanned session costs/)).toBeInTheDocument()
         })
+
+        it('shows the card with a toggle only in the test arm', () => {
+            ;(global as any).__consentAccepted = true
+            setArm('test')
+
+            renderAnalyticsStep()
+
+            expect(screen.getByLabelText('Compare what users do in each variant')).toHaveAttribute('role', 'switch')
+            expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+            expect(screen.getByText('Learn more about Replay Vision')).toBeInTheDocument()
+        })
+
+        it.each(['control' as const, 'test' as const])(
+            'offers no scanner without the experiment-scanner flag in %s',
+            (arm) => {
+                ;(global as any).__consentAccepted = true
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD], {
+                    [FEATURE_FLAGS.EXPERIMENT_WIZARD_REPLAY_VISION_CARD]: arm,
+                })
+
+                renderAnalyticsStep()
+
+                expect(screen.queryByText(/Each scanned session costs/)).not.toBeInTheDocument()
+            }
+        )
     })
 })

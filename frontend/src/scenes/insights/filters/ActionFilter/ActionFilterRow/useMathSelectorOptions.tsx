@@ -55,6 +55,7 @@ export function useMathSelectorOptions({
     onMathSelect,
     trendsDisplayCategory,
     allowedMathTypes,
+    excludedMathTypes,
     query,
     mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
@@ -140,6 +141,9 @@ export function useMathSelectorOptions({
         .filter((entry): entry is [string, MathDefinition] => !!entry[1])
         .filter(([key]) => {
             const mathTypeKey = key as MathType
+            if (excludedMathTypes?.has(key.split('::')[0])) {
+                return false
+            }
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
                 return !TRAILING_MATH_TYPES.has(mathTypeKey)

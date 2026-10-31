@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JustSiftSource(ResumableSource[JustSiftSourceConfig, JustSiftResumeConfig]):
+    codebase_detection = detect(env=("^(JUST_SIFT|JUSTSIFT)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://developers.justsift.com"
@@ -52,7 +55,7 @@ class JustSiftSource(ResumableSource[JustSiftSourceConfig, JustSiftResumeConfig]
             name=ExternalDataSourceType.JUSTSIFT,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="JustSift",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Sift API token to pull your organization's people directory and field catalog into the PostHog Data warehouse.
 
 Create a token in the [Sift admin dashboard](https://admin.justsift.com) under **API Access → New Application**, granting it access to **full people data**. This read-only token is sent as a bearer token to Sift's REST API.

@@ -119,6 +119,28 @@ describe('buildEmailMetricInvocationSearchParams', () => {
             'email_bounce_prevented',
             { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Skipping send', inv_log_levels: 'INFO' },
         ],
+        [
+            'email_missing_recipient',
+            {
+                inv_date_from: dateFrom,
+                inv_date_to: dateTo,
+                inv_search: 'has no email address',
+                inv_log_levels: 'WARN',
+            },
+        ],
+        [
+            'email_suspended',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'for this project', inv_log_levels: 'WARN' },
+        ],
+        [
+            'message_frequency_capped',
+            {
+                inv_date_from: dateFrom,
+                inv_date_to: dateTo,
+                inv_search: 'reached the frequency cap',
+                inv_log_levels: 'INFO',
+            },
+        ],
     ])('maps %s to the expected Invocations-tab params', (metricKey, expected) => {
         expect(buildEmailMetricInvocationSearchParams(metricKey, dateFrom, dateTo)).toEqual(expected)
     })
@@ -179,6 +201,8 @@ describe('buildEmailMetricRows', () => {
                 email_bounced_hard: 4,
                 email_bounced_transient: 2,
                 email_bounce_prevented: 2,
+                email_missing_recipient: 5,
+                message_frequency_capped: 3,
                 email_blocked: 4,
                 email_untracked: 7,
             },
@@ -196,6 +220,8 @@ describe('buildEmailMetricRows', () => {
                 bouncedSoft: 2,
                 bouncedUnknown: 0,
                 bouncePrevented: 2,
+                missingRecipient: 5,
+                frequencyCapped: 3,
                 markedAsSpam: 4,
                 untracked: 7,
                 trackedSends: 93,

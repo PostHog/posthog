@@ -69,7 +69,6 @@ from . import (
     search,
     sharing,
     tagged_item,
-    team,
     uploaded_media,
     user,
     user_facet_settings,
@@ -83,12 +82,13 @@ from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .emoji_search import EmojiSearchViewSet
 from .event_filter_config import EventFilterConfigViewSet
-from .file_system import file_system, file_system_shortcut, user_product_list
+from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 from .taxonomic_search_intent import SearchIntentViewSet
+from .team import viewsets
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -106,7 +106,7 @@ routers.set_root(router)
 
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
-projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
+projects_router.register(r"environments", viewsets.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 
 projects_router.register(r"sdk_health", SdkHealthViewSet, "project_sdk_health", ["project_id"])
 projects_router.register(
@@ -231,13 +231,6 @@ projects_router.register(
     ["team_id"],
 )
 
-
-projects_router.register(
-    r"user_product_list",
-    user_product_list.UserProductListViewSet,
-    "project_user_product_list",
-    ["team_id"],
-)
 
 projects_router.register(
     r"event_definitions",
@@ -478,16 +471,8 @@ projects_router.register(
 projects_router.register(r"sessions", SessionViewSet, "project_sessions", ["team_id"])
 
 if EE_AVAILABLE:
-    from ee.clickhouse.views.groups import GroupsTypesViewSet, GroupsViewSet, GroupUsageMetricViewSet
     from ee.clickhouse.views.person import EnterprisePersonViewSet, LegacyEnterprisePersonViewSet
 
-    projects_router.register(r"groups", GroupsViewSet, "project_groups", ["team_id"])
-    group_types_router = projects_router.register(
-        r"groups_types", GroupsTypesViewSet, "project_groups_types", ["project_id"]
-    )
-    group_types_router.register(
-        r"metrics", GroupUsageMetricViewSet, "project_groups_metrics", ["project_id", "group_type_index"]
-    )
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, "persons")
     vercel_installations_router = router.register(

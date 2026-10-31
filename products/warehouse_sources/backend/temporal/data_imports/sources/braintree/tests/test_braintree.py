@@ -3,7 +3,6 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree import (
     BRAINTREE_VERSION_2019_01_01,
@@ -18,37 +17,39 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     _build_query,
     _format_created_at,
     _normalize_node,
-    braintree_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.settings import (
     BRAINTREE_ENDPOINTS,
     ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.source import BraintreeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.braintree import (
+    BraintreeSourceConfig,
+)
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.braintree.braintree"
 _VERSION = BRAINTREE_VERSION_2026_07_14
 
 
-def _make_manager(resume_state: BraintreeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(
+        BraintreeSource(),
+        BraintreeSourceConfig(environment="production", public_key="pub", private_key="priv"),
+    )
 
 
-def _search_response(endpoint: str, edges: list[dict[str, Any]], has_next: bool = False) -> mock.MagicMock:
+def _search_response(endpoint: str, edges: list[dict[str, Any]], has_next: bool = False) -> ScriptedResponse:
     config = BRAINTREE_ENDPOINTS[endpoint]
     payload: Any = {config.connection_field: {"pageInfo": {"hasNextPage": has_next}, "edges": edges}}
     for wrapper in reversed(config.query_path):
         payload = {wrapper: payload}
 
-    resp = mock.MagicMock()
-    resp.json.return_value = {"data": payload}
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+    return ScriptedResponse(json={"data": payload})
 
 
 def _edge(node_id: str) -> dict[str, Any]:
@@ -125,149 +126,122 @@ class TestFormatCreatedAt:
 
 
 class TestValidateCredentials:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_valid_on_pong(self, mock_session):
-        resp = mock.MagicMock()
-        resp.json.return_value = {"data": {"ping": "pong"}}
-        resp.status_code = 200
-        resp.ok = True
-        mock_session.return_value.post.return_value = resp
+    def test_valid_on_pong(self) -> None:
+        with scripted_network([ScriptedResponse(json={"data": {"ping": "pong"}})]) as network:
+            assert validate_credentials("production", "pub", "priv", _VERSION) is True
 
-        assert validate_credentials("production", "pub", "priv", _VERSION) is True
+        assert network.requests_log[0].path == "/graphql"
+        assert network.requests_log[0].json() == {"query": "query { ping }", "variables": {}}
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_invalid_on_graphql_error(self, mock_session):
-        resp = mock.MagicMock()
-        resp.json.return_value = {"errors": [{"message": "Invalid API key"}]}
-        resp.status_code = 200
-        resp.ok = True
-        mock_session.return_value.post.return_value = resp
+    def test_invalid_on_graphql_error(self) -> None:
+        with scripted_network([ScriptedResponse(json={"errors": [{"message": "Invalid API key"}]})]) as network:
+            assert validate_credentials("production", "pub", "priv", _VERSION) is False
 
-        assert validate_credentials("production", "pub", "priv", _VERSION) is False
+        assert network.requests_log[0].path == "/graphql"
 
 
 class TestGetRows:
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_paginates_via_relay_cursors(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _search_response("transactions", [_edge("t1"), _edge("t2")], has_next=True),
-            _search_response("transactions", [_edge("t3")], has_next=False),
-        ]
+    def test_paginates_via_relay_cursors(self) -> None:
+        result = _driver().run(
+            "transactions",
+            [
+                _search_response("transactions", [_edge("t1"), _edge("t2")], has_next=True),
+                _search_response("transactions", [_edge("t3")], has_next=False),
+            ],
+            api_version=_VERSION,
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == ["t1", "t2", "t3"]
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0].after == "cur-t2"
-        second_vars = mock_session.return_value.post.call_args_list[1].kwargs["json"]["variables"]
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == ["t1", "t2", "t3"]
+        assert result.saved_states == [BraintreeResumeConfig(after="cur-t2")]
+        assert result.committed_states == [BraintreeResumeConfig(after="cur-t2")]
+        second_vars = result.requests[1].json()["variables"]
         assert second_vars["after"] == "cur-t2"
 
         # Braintree rejects `first` above its cap on the very first page, so assert
         # against the vendor ceiling rather than echoing our own page size back.
-        for call in mock_session.return_value.post.call_args_list:
-            requested = call.kwargs["json"]["variables"]["first"]
+        for request in result.requests:
+            requested = request.json()["variables"]["first"]
             assert 0 < requested <= MAX_PAGE_SIZE
 
     @pytest.mark.parametrize("endpoint", ["transactions", "refunds", "customers", "recurring_billing_subscriptions"])
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_search_input_has_gte_filter(self, mock_session, endpoint):
-        mock_session.return_value.post.return_value = _search_response(endpoint, [])
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "production",
-                "pub",
-                "priv",
-                endpoint,
-                _VERSION,
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+    def test_incremental_search_input_has_gte_filter(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_search_response(endpoint, [])],
+            api_version=_VERSION,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
-        variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
+        assert result.raised is None
+        variables = result.requests[0].json()["variables"]
         assert variables["input"] == {"createdAt": {"greaterThanOrEqualTo": "2024-01-02T00:00:00Z"}}
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_reads_rows_nested_under_the_connection_wrappers(self, mock_session):
-        mock_session.return_value.post.return_value = _search_response(
-            "merchant_accounts", [{"cursor": "c1", "node": {"id": "ma1"}}]
+    def test_reads_rows_nested_under_the_connection_wrappers(self) -> None:
+        result = _driver().run(
+            "merchant_accounts",
+            [_search_response("merchant_accounts", [{"cursor": "c1", "node": {"id": "ma1"}}])],
+            api_version=_VERSION,
         )
 
-        manager = _make_manager()
-        batches = list(get_rows("production", "pub", "priv", "merchant_accounts", _VERSION, mock.MagicMock(), manager))
-
-        assert [item["id"] for batch in batches for item in batch] == ["ma1"]
+        assert result.raised is None
+        assert [item["id"] for item in result.rows] == ["ma1"]
         # A connection taking no search input must not send an `input` variable the
         # query never declares.
-        assert "input" not in mock_session.return_value.post.call_args.kwargs["json"]["variables"]
+        assert "input" not in result.requests[0].json()["variables"]
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_yields_subscriptions_with_a_root_level_created_at(self, mock_session):
-        mock_session.return_value.post.return_value = _search_response(
+    def test_yields_subscriptions_with_a_root_level_created_at(self) -> None:
+        result = _driver().run(
             "recurring_billing_subscriptions",
-            [{"cursor": "c1", "node": {"id": "s1", "timeline": {"createdAt": "2024-01-02T03:04:05Z"}}}],
-        )
-
-        manager = _make_manager()
-        batches = list(
-            get_rows(
-                "production", "pub", "priv", "recurring_billing_subscriptions", _VERSION, mock.MagicMock(), manager
-            )
+            [
+                _search_response(
+                    "recurring_billing_subscriptions",
+                    [{"cursor": "c1", "node": {"id": "s1", "timeline": {"createdAt": "2024-01-02T03:04:05Z"}}}],
+                )
+            ],
+            api_version=_VERSION,
         )
 
         # The partition key and the incremental cursor both read `createdAt` off the row.
-        assert batches[0][0]["createdAt"] == "2024-01-02T03:04:05Z"
+        assert result.raised is None
+        assert result.rows[0]["createdAt"] == "2024-01-02T03:04:05Z"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_incremental_omits_filter_when_search_input_lacks_created_at(self, mock_session):
-        mock_session.return_value.post.return_value = _search_response("disputes", [])
-
-        manager = _make_manager()
-        list(
-            get_rows(
-                "production",
-                "pub",
-                "priv",
-                "disputes",
-                _VERSION,
-                mock.MagicMock(),
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+    def test_incremental_omits_filter_when_search_input_lacks_created_at(self) -> None:
+        result = _driver().run(
+            "disputes",
+            [_search_response("disputes", [])],
+            api_version=_VERSION,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
         )
 
         # `DisputeSearchInput` declares no createdAt field, so filtering on it fails
         # GraphQL validation and takes the whole sync down.
-        variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
+        assert result.raised is None
+        variables = result.requests[0].json()["variables"]
         assert variables["input"] == {}
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_resumes_from_saved_cursor(self, mock_session):
-        mock_session.return_value.post.return_value = _search_response("transactions", [])
+    def test_resumes_from_saved_cursor(self) -> None:
+        result = _driver().run(
+            "transactions",
+            [_search_response("transactions", [])],
+            resume_state=BraintreeResumeConfig(after="cur-resume"),
+            api_version=_VERSION,
+        )
 
-        manager = _make_manager(BraintreeResumeConfig(after="cur-resume"))
-        list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
-
-        variables = mock_session.return_value.post.call_args.kwargs["json"]["variables"]
+        assert result.raised is None
+        variables = result.requests[0].json()["variables"]
         assert variables["after"] == "cur-resume"
 
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_graphql_error_raises(self, mock_session):
-        resp = mock.MagicMock()
-        resp.json.return_value = {"errors": [{"message": "validation error"}]}
-        resp.status_code = 200
-        resp.ok = True
-        mock_session.return_value.post.return_value = resp
+    def test_graphql_error_raises(self) -> None:
+        result = _driver().run(
+            "transactions",
+            [ScriptedResponse(json={"errors": [{"message": "validation error"}]})],
+            api_version=_VERSION,
+        )
 
-        manager = _make_manager()
-        with pytest.raises(BraintreeGraphQLError):
-            list(get_rows("production", "pub", "priv", "transactions", _VERSION, mock.MagicMock(), manager))
+        assert isinstance(result.raised, BraintreeGraphQLError)
 
     @pytest.mark.parametrize(
         "api_version",
@@ -279,24 +253,23 @@ class TestGetRows:
             BRAINTREE_VERSION_2026_10_06,
         ],
     )
-    @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_session_uses_basic_auth_and_version_header(self, mock_session, api_version):
-        mock_session.return_value.post.return_value = _search_response("transactions", [])
+    def test_session_uses_basic_auth_and_version_header(self, api_version: str) -> None:
+        result = _driver().run("transactions", [_search_response("transactions", [])], api_version=api_version)
 
-        manager = _make_manager()
-        list(get_rows("production", "pub", "priv", "transactions", api_version, mock.MagicMock(), manager))
-
-        assert mock_session.return_value.auth == ("pub", "priv")
-        headers = mock_session.call_args.kwargs["headers"]
-        assert headers["Braintree-Version"] == api_version
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == "Basic cHViOnByaXY="
+        assert result.requests[0].headers["braintree-version"] == api_version
 
 
 class TestBraintreeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_response_metadata_per_endpoint(self, endpoint):
+    def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = BRAINTREE_ENDPOINTS[endpoint]
-        response = braintree_source("production", "pub", "priv", endpoint, _VERSION, mock.MagicMock(), _make_manager())
+        result = _driver().run(endpoint, [_search_response(endpoint, [])], api_version=_VERSION)
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
         # Search ordering is undocumented — watermark commits only at run end.

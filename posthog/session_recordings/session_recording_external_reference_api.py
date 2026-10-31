@@ -10,8 +10,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.integration import (
     GitHubIntegration,
     GitLabIntegration,
@@ -44,8 +46,15 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
     config = serializers.JSONField(write_only=True)
     session_recording_id = serializers.CharField(write_only=True)
     integration = SessionRecordingExternalReferenceIntegrationSerializer(read_only=True)
-    integration_id = TeamScopedPrimaryKeyRelatedField(
-        write_only=True, queryset=Integration.objects.all(), source="integration"
+    integration_id = IntegrationReferenceField(
+        kinds=[
+            Integration.IntegrationKind.LINEAR,
+            Integration.IntegrationKind.GITHUB,
+            Integration.IntegrationKind.GITLAB,
+            Integration.IntegrationKind.JIRA,
+        ],
+        write_only=True,
+        source="integration",
     )
     external_url = serializers.SerializerMethodField()
     title = serializers.SerializerMethodField()
@@ -74,7 +83,9 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
             url_key = LinearIntegration(reference.integration).url_key()
             return f"https://linear.app/{url_key}/issue/{external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
-            org = GitHubIntegration(reference.integration).organization()
+            org = GitHubIntegration(
+                reference.integration, source="replay_external_references", priority=Priority.NORMAL
+            ).organization()
             repository = external_context.get("repository", "")
             issue_number = external_context.get("id", "").lstrip("#")
             return f"https://github.com/{org}/{repository}/issues/{issue_number}"
@@ -148,7 +159,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         """
         team = self.context["get_team"]()
         session_recording: SessionRecording = validated_data.get("session_recording")
-        integration: Integration = validated_data.get("integration")
+        integration: IntegrationRecord = validated_data.get("integration")
         config: dict[str, Any] = validated_data.get("config")
 
         recording_url = self._build_recording_url(team.pk, session_recording.session_id, config)
@@ -161,7 +172,9 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         elif integration.kind == Integration.IntegrationKind.GITHUB:
             title = config.get("title", "")
             config["body"] = f"{config.get('body', '')}\n\n**PostHog recording:** {recording_url}"
-            response = GitHubIntegration(integration).create_issue(config)
+            response = GitHubIntegration(
+                integration, source="replay_external_references", priority=Priority.CRITICAL
+            ).create_issue(config)
             external_context = {
                 "id": f"#{response.get('number', '')}",
                 "title": title,
@@ -193,7 +206,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
 
         instance = SessionRecordingExternalReference.objects.create(
             session_recording=session_recording,
-            integration=integration,
+            integration_id=integration.id,
             external_context=external_context,
         )
 

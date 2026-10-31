@@ -16,6 +16,7 @@ from owners_yaml import TeamTestCensus, census, runner_for_path
 
 from posthog.api.capture import capture_batch_internal
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration.github import _is_safe_github_repo_path
 from posthog.models.team import Team
 
@@ -43,6 +44,7 @@ def collect_repo_census(repository: str, access_token: str, *, timeout: int = 30
                 timeout=timeout,
                 allow_redirects=True,
                 stream=True,
+                priority=Priority.BATCH,
             )
         ) as response:
             raise_if_github_rate_limited(response)

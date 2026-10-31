@@ -7,16 +7,22 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.spacelift.settings import (
+    RUN_CHANGE_SELECTION,
+    RUN_CHANGES_PAGE_SIZE,
     RUNS_INCREMENTAL_LOOKBACK_SECONDS,
     SPACELIFT_ENDPOINTS,
     SPACELIFT_HOST_TEMPLATE,
     SpaceliftEndpointConfig,
+    SpaceliftParentConfig,
 )
 
 # Spacelift publishes no rate limits; ride out transient 429/5xx bursts in-process
@@ -65,10 +71,16 @@ class SpaceliftPermissionError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SpaceliftResumeConfig:
-    # Relay `after` cursor of the next page to fetch for the current endpoint.
+    # Relay `after` cursor of the next page to fetch for the current endpoint. For
+    # per-parent endpoints it is the cursor of the parent page being walked.
     cursor: str
+    # Parents on that parent page whose child rows are all synced.
+    completed_parent_ids: list[str] = dataclasses.field(default_factory=list)
+    # Parent whose child rows are partly synced, and the cursor of its next child page.
+    child_parent_id: str | None = None
+    child_cursor: str | None = None
 
 
 def normalize_account_name(account_name: str) -> str:
@@ -113,6 +125,79 @@ query Search($input: SearchInput!) {{
 """
 
 
+def _connection_query(operation: str, field_call: str, node_selection: str) -> str:
+    return f"""
+query {operation} {{
+    {field_call} {{
+        edges {{
+            cursor
+            node {{ {node_selection} }}
+        }}
+        pageInfo {{
+            endCursor
+            hasNextPage
+        }}
+    }}
+}}
+"""
+
+
+def build_run_changes_query() -> str:
+    node_selection = f"""
+isModule
+stack {{ id }}
+run {{
+    id
+    createdAt
+    changesV2(input: $changesInput) {{
+        edges {{ node {{ {RUN_CHANGE_SELECTION} }} }}
+        pageInfo {{ endCursor hasNextPage }}
+    }}
+}}
+"""
+    return _connection_query(
+        "SearchRunChanges($input: SearchInput!, $changesInput: EntityChangeCollectionInputV2!)",
+        "searchRuns(input: $input)",
+        node_selection,
+    )
+
+
+RUN_CHANGES_OVERFLOW_QUERY = f"""
+query RunChanges($id: ID!, $changesInput: EntityChangeCollectionInputV2!) {{
+    run(id: $id) {{
+        changesV2(input: $changesInput) {{
+            edges {{ node {{ {RUN_CHANGE_SELECTION} }} }}
+            pageInfo {{ endCursor hasNextPage }}
+        }}
+    }}
+}}
+"""
+
+
+def build_parent_query(parent: SpaceliftParentConfig) -> str:
+    return _connection_query("SearchParents($input: SearchInput!)", f"{parent.search_field}(input: $input)", "id")
+
+
+def build_child_query(config: SpaceliftEndpointConfig) -> str:
+    assert config.parent is not None
+    return f"""
+query SearchChildren($id: ID!, $input: SearchInput!) {{
+    {config.parent.lookup_field}(id: $id) {{
+        {config.graphql_field}(input: $input) {{
+            edges {{
+                cursor
+                node {{ {config.node_selection} }}
+            }}
+            pageInfo {{
+                endCursor
+                hasNextPage
+            }}
+        }}
+    }}
+}}
+"""
+
+
 def to_unix_seconds(value: Any) -> int | None:
     """Coerce an incremental watermark into the Unix-seconds Int Spacelift timestamps use."""
     if value is None:
@@ -138,7 +223,9 @@ def to_unix_seconds(value: Any) -> int | None:
     return None
 
 
-def build_incremental_predicates(incremental_field: str, last_value: Any) -> list[dict[str, Any]] | None:
+def build_incremental_predicates(
+    incremental_field: str, last_value: Any, lookback_seconds: int = RUNS_INCREMENTAL_LOOKBACK_SECONDS
+) -> list[dict[str, Any]] | None:
     """Build the server-side `timeInRange` predicate for an incremental sync.
 
     Mirrors the filter the Spacelift UI itself sends to `searchRuns`. The watermark is
@@ -150,7 +237,7 @@ def build_incremental_predicates(incremental_field: str, last_value: Any) -> lis
     start = to_unix_seconds(last_value)
     if start is None:
         return None
-    start = max(0, start - RUNS_INCREMENTAL_LOOKBACK_SECONDS)
+    start = max(0, start - lookback_seconds)
     return [{"field": incremental_field, "constraint": {"timeInRange": {"start": start}}}]
 
 
@@ -177,7 +264,7 @@ class SpaceliftClient:
     def close(self) -> None:
         self._session.close()
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(SpaceliftRetryableError),
         stop=stop_after_attempt(SPACELIFT_MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=1, max=30),
@@ -276,6 +363,203 @@ def _normalize_run_node(node: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _next_cursor(page_info: dict[str, Any], name: str) -> str | None:
+    if not page_info.get("hasNextPage"):
+        return None
+    end_cursor = page_info.get("endCursor")
+    if not end_cursor:
+        # A hasNextPage=True page with no cursor would loop forever on itself;
+        # fail loudly instead of silently returning partial results.
+        raise Exception(f"Spacelift: hasNextPage=True but endCursor is empty for {name}")
+    return end_cursor
+
+
+def _build_search_input(
+    endpoint_config: SpaceliftEndpointConfig,
+    logger: FilteringBoundLogger | None = None,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    incremental_field: str | None = None,
+) -> dict[str, Any]:
+    search_input: dict[str, Any] = {"first": endpoint_config.page_size, "after": None}
+    if endpoint_config.order_by:
+        search_input["orderBy"] = endpoint_config.order_by
+
+    if should_use_incremental_field and incremental_field:
+        predicates = build_incremental_predicates(
+            endpoint_config.incremental_predicate_field or incremental_field,
+            db_incremental_field_last_value,
+            endpoint_config.incremental_lookback_seconds,
+        )
+        if predicates:
+            search_input["predicates"] = predicates
+            if logger is not None:
+                logger.debug(f"Spacelift: incremental sync for {endpoint_config.name} with predicates {predicates}")
+
+    return search_input
+
+
+def _normalize_run_change(run: dict[str, Any], stack_id: Any, is_module: Any, change: dict[str, Any]) -> dict[str, Any]:
+    entity = change.get("entity") or {}
+    return {
+        "runId": run.get("id"),
+        "stackId": stack_id,
+        "isModule": is_module,
+        "runCreatedAt": run.get("createdAt"),
+        "phase": change.get("phase"),
+        "changeType": change.get("type"),
+        "address": entity.get("address"),
+        "entityId": entity.get("id"),
+        "entityName": entity.get("name"),
+        "entityType": entity.get("type"),
+        "parent": entity.get("parent"),
+    }
+
+
+def _collect_run_changes(client: SpaceliftClient, node: dict[str, Any]) -> list[dict[str, Any]]:
+    run = node.get("run") or {}
+    stack_id = (node.get("stack") or {}).get("id")
+    changes = run.get("changesV2") or {}
+    rows: list[dict[str, Any]] = []
+
+    while True:
+        for edge in changes.get("edges") or []:
+            change = edge.get("node")
+            if change is not None:
+                rows.append(_normalize_run_change(run, stack_id, node.get("isModule"), change))
+
+        # Runs with more changes than fit in the nested page are finished with per-run queries.
+        after = _next_cursor(changes.get("pageInfo") or {}, f"run_changes of run {run.get('id')}")
+        if after is None:
+            return rows
+        data = client.execute(
+            RUN_CHANGES_OVERFLOW_QUERY,
+            {"id": run.get("id"), "changesInput": {"first": RUN_CHANGES_PAGE_SIZE, "after": after}},
+        )
+        changes = (data.get("run") or {}).get("changesV2") or {}
+
+
+def _get_run_change_rows(
+    client: SpaceliftClient,
+    endpoint_config: SpaceliftEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[SpaceliftResumeConfig],
+    search_input: dict[str, Any],
+) -> Iterator[list[dict[str, Any]]]:
+    query = build_run_changes_query()
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None and resume_config.cursor:
+        search_input["after"] = resume_config.cursor
+
+    while True:
+        data = client.execute(query, {"input": search_input, "changesInput": {"first": RUN_CHANGES_PAGE_SIZE}})
+        connection = data.get(endpoint_config.graphql_field) or {}
+
+        rows: list[dict[str, Any]] = []
+        for edge in connection.get("edges") or []:
+            rows.extend(_collect_run_changes(client, edge.get("node") or {}))
+
+        end_cursor = _next_cursor(connection.get("pageInfo") or {}, endpoint_config.name)
+        if end_cursor is not None:
+            resumable_source_manager.save_state(SpaceliftResumeConfig(cursor=end_cursor))
+
+        if rows:
+            yield rows
+        else:
+            # Tasks and failed runs have no changes, so whole pages can come back empty.
+            resumable_source_manager.safe_point()
+
+        if end_cursor is None:
+            break
+        search_input["after"] = end_cursor
+
+
+def _iter_parent_pages(
+    client: SpaceliftClient, parent: SpaceliftParentConfig, after: str | None, name: str
+) -> Iterator[tuple[str | None, list[str]]]:
+    """Yield `(cursor used to fetch the page, parent ids on the page)` for each parent page."""
+    query = build_parent_query(parent)
+    while True:
+        data = client.execute(query, {"input": {"first": parent.page_size, "after": after}})
+        connection = data.get(parent.search_field) or {}
+        parent_ids = [(edge.get("node") or {}).get("id") for edge in connection.get("edges") or [] if edge.get("node")]
+        yield after, [parent_id for parent_id in parent_ids if parent_id]
+
+        after = _next_cursor(connection.get("pageInfo") or {}, f"{name} parents")
+        if after is None:
+            return
+
+
+def _iter_child_pages(
+    client: SpaceliftClient, endpoint_config: SpaceliftEndpointConfig, parent_id: str, after: str | None
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Yield `(rows, cursor of the next child page or None)` for each child page of one parent."""
+    assert endpoint_config.parent is not None
+    query = build_child_query(endpoint_config)
+    search_input = _build_search_input(endpoint_config)
+    if after:
+        search_input["after"] = after
+
+    while True:
+        data = client.execute(query, {"id": parent_id, "input": search_input})
+        # A parent deleted after it was listed resolves to null.
+        connection = (data.get(endpoint_config.parent.lookup_field) or {}).get(endpoint_config.graphql_field) or {}
+        rows = [
+            {**edge["node"], endpoint_config.parent.id_column: parent_id}
+            for edge in connection.get("edges") or []
+            if edge.get("node") is not None
+        ]
+
+        after = _next_cursor(connection.get("pageInfo") or {}, endpoint_config.name)
+        yield rows, after
+        if after is None:
+            return
+        search_input["after"] = after
+
+
+def _get_child_rows(
+    client: SpaceliftClient,
+    endpoint_config: SpaceliftEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[SpaceliftResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    assert endpoint_config.parent is not None
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    completed_parent_ids = list(resume_config.completed_parent_ids) if resume_config is not None else []
+    child_parent_id = resume_config.child_parent_id if resume_config is not None else None
+    child_cursor = resume_config.child_cursor if resume_config is not None else None
+    start_cursor = resume_config.cursor if resume_config is not None and resume_config.cursor else None
+
+    for page_cursor, parent_ids in _iter_parent_pages(
+        client, endpoint_config.parent, start_cursor, endpoint_config.name
+    ):
+        for parent_id in parent_ids:
+            if parent_id in completed_parent_ids:
+                continue
+
+            after = child_cursor if parent_id == child_parent_id else None
+            for rows, next_after in _iter_child_pages(client, endpoint_config, parent_id, after):
+                if next_after is None:
+                    completed_parent_ids.append(parent_id)
+                resumable_source_manager.save_state(
+                    SpaceliftResumeConfig(
+                        cursor=page_cursor or "",
+                        completed_parent_ids=list(completed_parent_ids),
+                        child_parent_id=parent_id if next_after is not None else None,
+                        child_cursor=next_after,
+                    )
+                )
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+
+        # The saved progress only applies to the parent page it was recorded on.
+        completed_parent_ids = []
+        child_parent_id = None
+        child_cursor = None
+
+
 def _get_rows(
     client: SpaceliftClient,
     endpoint_config: SpaceliftEndpointConfig,
@@ -295,13 +579,17 @@ def _get_rows(
                 yield rows
             return
 
-        search_input: dict[str, Any] = {"first": endpoint_config.page_size, "after": None}
+        if endpoint_config.parent is not None:
+            yield from _get_child_rows(client, endpoint_config, resumable_source_manager)
+            return
 
-        if should_use_incremental_field and incremental_field:
-            predicates = build_incremental_predicates(incremental_field, db_incremental_field_last_value)
-            if predicates:
-                search_input["predicates"] = predicates
-                logger.debug(f"Spacelift: incremental sync for {endpoint_config.name} with predicates {predicates}")
+        search_input = _build_search_input(
+            endpoint_config, logger, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        )
+
+        if endpoint_config.flatten_run_changes:
+            yield from _get_run_change_rows(client, endpoint_config, resumable_source_manager, search_input)
+            return
 
         resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
         if resume_config is not None and resume_config.cursor:

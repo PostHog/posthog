@@ -1,5 +1,6 @@
 import dataclasses
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, cast
 
 from requests import Request, Response
 
@@ -9,7 +10,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -39,6 +45,18 @@ def _normalize_item(item: dict[str, Any]) -> dict[str, Any]:
             # Integer division keeps the int64 type that delta tables expect.
             item[ts_field] = value // 1000
     return item
+
+
+def _explode_nested_rows(rows_field: str) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    def _explode(item: dict[str, Any]) -> list[dict[str, Any]]:
+        rows = item.get(rows_field) or []
+        for row in rows:
+            if not isinstance(row, dict):
+                # An unexpanded id means Lever ignored `expand`; fail rather than sync an empty table.
+                raise ValueError(f"Lever: expected expanded {rows_field} objects but got {type(row).__name__}")
+        return [_normalize_item(row) for row in rows]
+
+    return _explode
 
 
 class LeverPaginator(BasePaginator):
@@ -122,7 +140,7 @@ def _build_initial_params(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": config.page_size}
+    params: dict[str, Any] = {"limit": config.page_size, **config.params}
 
     if should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None:
         filter_param = config.incremental_filter_params.get(incremental_field)
@@ -132,6 +150,49 @@ def _build_initial_params(
             params[filter_param] = int(db_incremental_field_last_value) * 1000
 
     return params
+
+
+def _client_config(api_key: str, endpoint: str) -> ClientConfig:
+    return {
+        "base_url": LEVER_BASE_URL,
+        # Lever uses HTTP Basic auth with the API key as the username and a blank password.
+        # Supplying it through the framework auth keeps it off logged URLs/bodies.
+        "auth": {"type": "http_basic", "username": api_key, "password": ""},
+        "paginator": LeverPaginator(endpoint),
+    }
+
+
+def _fanout_source(api_key: str, config: LeverEndpointConfig, team_id: int, job_id: str) -> SourceResponse:
+    assert config.fanout is not None
+    # No resume: completed parents would be checkpointed one id each, which grows without bound
+    # on large accounts, and the parent listing is re-fetched each run anyway.
+    resource = cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=LEVER_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(api_key, config.name),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra={"data_selector": "data"},
+        ),
+    ).add_map(_normalize_item)
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode="asc",
+    )
 
 
 def lever_source(
@@ -146,18 +207,15 @@ def lever_source(
 ) -> SourceResponse:
     config = LEVER_ENDPOINTS[endpoint]
 
+    if config.fanout is not None:
+        return _fanout_source(api_key, config, team_id, job_id)
+
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": LEVER_BASE_URL,
-            # Lever uses HTTP Basic auth with the API key as the username and a blank password.
-            # Supplying it through the framework auth keeps it off logged URLs/bodies.
-            "auth": {"type": "http_basic", "username": api_key, "password": ""},
-            "paginator": LeverPaginator(endpoint),
-        },
+        "client": _client_config(api_key, endpoint),
         "resource_defaults": {},
         "resources": [
             {
@@ -168,7 +226,9 @@ def lever_source(
                     "data_selector": "data",
                 },
                 # Convert Lever's epoch-millisecond timestamps to epoch seconds per row.
-                "data_map": _normalize_item,
+                "data_map": _explode_nested_rows(config.nested_rows_field)
+                if config.nested_rows_field
+                else _normalize_item,
             }
         ],
     }

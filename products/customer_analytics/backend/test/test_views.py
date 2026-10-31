@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1114,7 +1115,7 @@ class TestAccountViewSet(APIBaseTest):
             account.tagged_items.create(tag=billing_tag)
             account.tagged_items.create(tag=urgent_tag)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             # Query budget for a tag-filtered account list. Constant regardless of result count
             # because tagged_items and notebooks are prefetched once. If a query is added, please
             # confirm it does not scale with the number of accounts before raising the limit:
@@ -1832,6 +1833,21 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
+
+    def test_list_without_pagination_preserves_envelope(self):
+        self._create(name="A")
+        self._create(name="B")
+        paginated = self.client.get(self.endpoint_base, {"limit": 1})
+        complete = self.client.get(self.endpoint_base, {"limit": "1", "offset": "1", "pagination": "none"})
+
+        self.assertEqual(paginated.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(paginated.json()["results"]), 1)
+        self.assertIsNotNone(paginated.json()["next"])
+        self.assertEqual(complete.status_code, status.HTTP_200_OK)
+        self.assertEqual([definition["name"] for definition in complete.json()["results"]], ["A", "B"])
+        self.assertEqual(complete.json()["count"], 2)
+        self.assertIsNone(complete.json()["next"])
+        self.assertIsNone(complete.json()["previous"])
 
     def _create(self, **overrides):
         payload = {"name": "ARR", "display_type": "currency", "is_big_number": True}
@@ -2556,9 +2572,12 @@ class TestCustomPropertySourceViewSet(APIBaseTest):
         return created.json()["id"]
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
+    @override_settings(WAREHOUSE_PERSON_PROPERTIES_ENABLED_SELF_HOSTED=False)
     def test_person_source_actions_are_flag_gated(self, _flag):
         # Regression: sync/backfill must 400 when WAREHOUSE_PERSON_PROPERTIES is off. The gate lives in
         # the facade; a viewset refactor that dropped it would ship an ungated (billable) trigger.
+        # Both the Cloud rollout flag (mocked False above) and its self-hosted kill-switch equivalent
+        # are turned off here so this holds regardless of which code path the test runs under.
         source_id = self._create_person_source()
         for action in ("sync", "backfill"):
             response = self.client.post(f"{self.endpoint}{source_id}/{action}/")
@@ -3007,6 +3026,21 @@ class TestAccountRelationshipDefinitionViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.endpoint_base = f"/api/projects/{self.team.id}/account_relationship_definitions/"
+
+    def test_list_without_pagination_preserves_envelope(self):
+        self._create(name="A")
+        self._create(name="B")
+        paginated = self.client.get(self.endpoint_base, {"limit": 1})
+        complete = self.client.get(self.endpoint_base, {"limit": "1", "offset": "1", "pagination": "none"})
+
+        self.assertEqual(paginated.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(paginated.json()["results"]), 1)
+        self.assertIsNotNone(paginated.json()["next"])
+        self.assertEqual(complete.status_code, status.HTTP_200_OK)
+        self.assertEqual([definition["name"] for definition in complete.json()["results"]], ["A", "B"])
+        self.assertEqual(complete.json()["count"], 2)
+        self.assertIsNone(complete.json()["next"])
+        self.assertIsNone(complete.json()["previous"])
 
     def _create(self, **overrides):
         payload = {"name": "CSM", "description": "Customer success manager"}

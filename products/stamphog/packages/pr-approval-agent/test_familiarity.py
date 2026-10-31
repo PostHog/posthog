@@ -26,7 +26,8 @@ from policy import (  # noqa: E402
     FamiliarityPolicy,
     FamiliarityStrong,
     PolicyError,
-    default_policy_path,
+    bundled_defaults_dir,
+    load_effective_policy,
     load_policy,
 )
 
@@ -411,11 +412,11 @@ def test_band_thresholds(blame: float, prior: int, days: int | None, expected: s
 
 
 def _valid_policy_dict() -> dict:
-    return yaml.safe_load(default_policy_path().read_text())
+    return yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text())
 
 
 def test_familiarity_section_loaded() -> None:
-    policy = load_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    policy = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert policy.familiarity.strong.min_blame_overlap_pct == 70
     assert policy.familiarity.moderate.min_prior_prs == 5
     assert policy.familiarity.moderate.max_days_since_touch == 180

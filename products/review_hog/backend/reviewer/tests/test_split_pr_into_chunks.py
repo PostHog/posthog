@@ -59,8 +59,15 @@ class TestGenerateChunkingPrompt:
     def test_prompt_embeds_files_and_comments_as_json_arrays(self, pr_metadata: PRMetadata) -> None:
         # The chunker is told to size chunks from each file's `additions` field, so the file/comment
         # blocks must be one parseable JSON array — not Python's str(list) repr of pre-encoded strings.
+        # Only the author's comments go in: the chunk summary reaches every review prompt, so another
+        # reviewer's finding there would steer the review.
         comments = [
-            PRComment(id=7, path="a.py", line=3, body="prior note", diff_hunk="@@", user="hedgehog", created_at="c")
+            PRComment(
+                id=7, path="a.py", line=3, body="prior note", diff_hunk="@@", user=pr_metadata.author, created_at="c"
+            ),
+            PRComment(
+                id=8, path="a.py", line=5, body="bot finding", diff_hunk="@@", user="greptile-apps[bot]", created_at="c"
+            ),
         ]
         files = [_file("a.py", additions=12, deletions=1), _file("b.py", additions=30)]
 

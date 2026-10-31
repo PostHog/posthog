@@ -1,10 +1,9 @@
 import posthog from 'posthog-js'
 
-import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
+    ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -15,59 +14,15 @@ import {
     BaseMathType,
     BehavioralEventType,
     ChartDisplayType,
-    type DashboardTile,
-    type DashboardType,
     FilterLogicalOperator,
     FunnelVizType,
     PropertyFilterType,
     StepOrderValue,
 } from '~/types'
 
-import {
-    type OnboardingEventProperties,
-    dashboardViewedProperties,
-    eventUsageLogic,
-    getEventPropertiesForMetric,
-    sanitizeQuery,
-} from './eventUsageLogic'
+import { eventUsageLogic, getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
-    describe('onboarding funnel events', () => {
-        let capture: jest.SpyInstance
-
-        beforeEach(() => {
-            initKeaTests()
-            eventUsageLogic.mount()
-            capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        })
-
-        afterEach(() => {
-            capture.mockRestore()
-        })
-
-        const cases: [string, OnboardingEventProperties | undefined, string][] = [
-            ['legacy', undefined, 'product_selection'],
-            ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome'],
-        ]
-
-        it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
-            eventUsageLogic.actions.reportOnboardingStarted(properties)
-            eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics', properties)
-
-            for (const event of [
-                'onboarding started',
-                'onboarding step completed',
-                'onboarding step skipped',
-                'onboarding completed',
-            ]) {
-                const call = capture.mock.calls.find(([name]) => name === event)
-                expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
-            }
-        })
-    })
-
     describe('experiments list viewed', () => {
         it('sends the state of the list under its pinned property names', () => {
             initKeaTests()
@@ -414,78 +369,12 @@ describe('eventUsageLogic', () => {
         })
     })
 
-    describe('dashboardViewedProperties', () => {
-        const dashboard = (tiles: Partial<DashboardTile>[]): DashboardType =>
-            ({
-                id: 7,
-                created_at: '2026-01-01T00:00:00Z',
-                is_shared: false,
-                pinned: true,
-                creation_mode: 'default',
-                created_by: { uuid: 'creator' },
-                tiles,
-            }) as unknown as DashboardType
+    it('reports only the kind for a legacy metric', () => {
+        const metric = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: { series: [{ kind: NodeKind.EventsNode }] },
+        } as ExperimentFunnelsQuery
 
-        const insightTile = (query: unknown, is_sample = false): Partial<DashboardTile> =>
-            ({ insight: { query, is_sample } }) as unknown as Partial<DashboardTile>
-
-        const cases: [string, Partial<DashboardTile>[], Record<string, unknown>][] = [
-            ['no tiles', [], { item_count: 0, sample_items_count: 0 }],
-            [
-                'an insight tile with a query',
-                [insightTile({ kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } })],
-                { item_count: 1, text_count: 1, uses_data_warehouse_source: false, data_warehouse_tiles_count: 0 },
-            ],
-            ['an insight tile without a query', [insightTile(null)], { item_count: 1, empty_count: 1 }],
-            [
-                'a sample insight tile that reads the warehouse',
-                [insightTile({ kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.DataWarehouseNode }] }, true)],
-                {
-                    item_count: 1,
-                    text_count: 1,
-                    sample_items_count: 1,
-                    uses_data_warehouse_source: true,
-                    data_warehouse_tiles_count: 1,
-                },
-            ],
-            [
-                'text and widget tiles',
-                [{ text: { body: 'hi' } }, { text: { body: 'there' } }, { widget: {} }] as Partial<DashboardTile>[],
-                { item_count: 3, text_tiles_count: 2, widget_tiles_count: 1 },
-            ],
-        ]
-
-        it.each(cases)('counts %s', (_, tiles, expected) => {
-            expect(dashboardViewedProperties(dashboard(tiles), null, 'viewer')).toEqual({
-                created_at: '2026-01-01T00:00:00Z',
-                is_shared: false,
-                pinned: true,
-                creation_mode: 'default',
-                viewer_is_creator: false,
-                created_by_system: false,
-                dashboard_id: 7,
-                lastRefreshed: undefined,
-                refreshAge: undefined,
-                sample_items_count: 0,
-                uses_data_warehouse_source: false,
-                data_warehouse_tiles_count: 0,
-                ...expected,
-            })
-        })
-
-        const viewerCases: [string, { uuid: string } | null, string | undefined, boolean | undefined][] = [
-            ['the creator views it', { uuid: 'creator' }, 'creator', true],
-            ['another user views it', { uuid: 'creator' }, 'viewer', false],
-            ['the viewer is unknown', { uuid: 'creator' }, undefined, undefined],
-            ['the system created it', null, 'viewer', undefined],
-        ]
-
-        it.each(viewerCases)('reports viewer_is_creator when %s', (_, created_by, viewerUuid, expected) => {
-            const withCreator = { ...dashboard([]), created_by } as unknown as DashboardType
-            expect(dashboardViewedProperties(withCreator, null, viewerUuid)).toMatchObject({
-                viewer_is_creator: expected,
-                created_by_system: created_by === null,
-            })
-        })
+        expect(getEventPropertiesForMetric(metric)).toEqual({ kind: NodeKind.ExperimentFunnelsQuery })
     })
 })

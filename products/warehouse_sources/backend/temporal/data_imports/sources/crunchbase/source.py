@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CrunchbaseSource(ResumableSource[CrunchbaseSourceConfig, CrunchbaseResumeConfig]):
+    codebase_detection = detect(env=("^CRUNCHBASE_",))
+
     supported_versions = ("v4",)
     default_version = "v4"
     api_docs_url = "https://data.crunchbase.com/docs"
@@ -69,7 +72,7 @@ class CrunchbaseSource(ResumableSource[CrunchbaseSourceConfig, CrunchbaseResumeC
 You can find your user key in [Crunchbase account settings](https://www.crunchbase.com/account/integrations/crunchbase-api). Note that the Search API used for syncing requires a Crunchbase Enterprise or Applications license.""",
             iconPath="/static/services/crunchbase.png",
             docsUrl="https://posthog.com/docs/cdp/sources/crunchbase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -4,6 +4,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
@@ -97,7 +98,9 @@ class Command(BaseCommand):
                 f"The stored review used {review_mode} mode. Omit --review-mode or use --review-mode {review_mode}."
             )
 
-        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, repository, source="review_hog", priority=Priority.CRITICAL
+        )
         if github is None:
             raise CommandError(
                 f"No GitHub App installation for team {team_id} that can access {repository} "

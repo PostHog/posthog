@@ -26,6 +26,7 @@ import {
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { FeatureFlagsSet } from '../logic/featureFlagLogic'
+import { noticeLink } from './noticeLink'
 import { characterOffsetToUtf16 } from './offsets'
 import { getContextSourceQuery } from './sourceQueryUtils'
 
@@ -234,6 +235,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             hogQLAIFixPrompt: error.fix?.startsWith('ai_prompt:')
                                 ? error.fix.slice('ai_prompt:'.length)
                                 : undefined,
+                            code: noticeLink(error.url, props.monaco),
                         }
                     }
 

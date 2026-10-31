@@ -55,11 +55,11 @@ const ChipClose = React.forwardRef<HTMLButtonElement, React.ComponentProps<typeo
 )
 ChipClose.displayName = 'ChipClose'
 
-function ChipGroup({
-    className,
-    ...props
-}: React.ComponentProps<typeof ButtonGroup> & VariantProps<typeof buttonGroupVariants>): React.ReactElement {
-    return <ButtonGroup data-slot="chip-group" className={cn('flex-wrap gap-0', className)} {...props} />
-}
+const ChipGroup = React.forwardRef<
+    React.ComponentRef<typeof ButtonGroup>,
+    React.ComponentProps<typeof ButtonGroup> & VariantProps<typeof buttonGroupVariants>
+>(function ChipGroup({ className, ...props }, ref) {
+    return <ButtonGroup ref={ref} data-slot="chip-group" className={cn('flex-wrap gap-0', className)} {...props} />
+})
 
 export { Chip, ChipClose, ChipGroup }

@@ -11,7 +11,7 @@ import {
     IconSidebarOpen,
     IconTrends,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -20,25 +20,21 @@ import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
-import {
-    displayConventionalCommitTitle,
-    parseConventionalCommitTitle,
-    parsePrUrlParts,
-    safeHttpUrl,
-} from '../../utils/reportPresentation'
+import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
@@ -51,10 +47,12 @@ import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
+import { ReportClaimPill } from './ReportClaimPill'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -81,7 +79,7 @@ export function ReportDetailBadges({
         <>
             <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
             {!isStatusRedundantWithActionability(report.status, report.actionability) && (
-                <SignalReportStatusBadge status={report.status} />
+                <SignalReportStatusBadge status={report.status} suppressionSource={report.suppression_source} />
             )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
@@ -119,10 +117,6 @@ const DETAIL_CONTAINER_CLASS =
 const DETAIL_ASIDE_CLASS =
     'order-2 flex w-full min-w-0 flex-col gap-5 border-t border-primary p-5 @5xl:order-none @5xl:w-[26rem] @5xl:shrink-0 @5xl:self-stretch @5xl:border-t-0 @5xl:border-r'
 const DETAIL_MAIN_CLASS = 'order-1 flex min-w-0 flex-1 flex-col px-6 py-5 @5xl:order-none @5xl:px-8'
-// The rail folded away: a strip holding only the control that brings it back, in the same place the
-// hide control sat, so the toggle never jumps across the page.
-const DETAIL_ASIDE_COLLAPSED_CLASS =
-    'order-2 flex w-full items-start border-t border-primary px-5 py-2 @5xl:order-none @5xl:w-auto @5xl:self-stretch @5xl:border-t-0 @5xl:border-r @5xl:px-2 @5xl:py-5'
 
 /**
  * Layout-faithful placeholder shown while a report's base record loads on a cold open (deep link
@@ -194,9 +188,9 @@ interface InboxDetailFrameProps {
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
- * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
- * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The status section collects the report and pull request state. The
+ * one row over a bordered container: the evidence rail on the left (Evidence first, then reviewers,
+ * runs, activity, and the PR checks and conversation), and the report summary on the right under its
+ * own "Report summary" header. The status section collects the report and pull request state. The
  * summary's title stands alone; the priority, the size of the change, and the created/updated times
  * head the "Files changed" tab, where a reviewer weighs the change. The rail can be hidden (a
  * persisted preference) so the report column, and above all the diff, takes the full width.
@@ -212,6 +206,21 @@ export function InboxDetailFrame({
     pullRequestNote,
     children,
 }: InboxDetailFrameProps): JSX.Element {
+    const reportContextGroup = `inbox_report:${report.id}`
+    useAttachedContext([
+        { type: 'inbox_report', key: report.id, label: 'Self-driving Inbox Report', dismissGroup: reportContextGroup },
+        {
+            type: 'instructions',
+            hidden: true,
+            dismissGroup: reportContextGroup,
+            value:
+                'The inbox_report item identifies the open Self-driving report. ' +
+                'Use inbox-reports-retrieve for report details and inbox-report-artefacts-list for evidence, notes, ' +
+                'code references, and task_run links. Read individual artefacts with inbox-report-artefacts-retrieve. ' +
+                'Follow task_id and run_id from task_run entries with tasks-retrieve, tasks-runs-retrieve, and ' +
+                'tasks-runs-session-logs-retrieve as needed. Load the signals skill for raw contributing signals.',
+        },
+    ])
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
     // feed) redirects the back button there instead of the inbox list tab.
@@ -234,10 +243,17 @@ export function InboxDetailFrame({
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        implementationDisabledReason,
         reportChecks,
         reportChecksError,
+        prioritySaving,
+        reportClaimant,
+        isClaimedByMe,
+        report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+        inboxReportDetailLogic(logicProps)
+    )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -260,7 +276,6 @@ export function InboxDetailFrame({
             extra: { section },
         })
 
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
@@ -268,7 +283,14 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton = showCreatePr || reportTaskToOpen ? <ImplementButton report={report} /> : null
+    const implementButton =
+        showCreatePr || reportTaskToOpen ? (
+            <ImplementButton
+                report={report}
+                reportTaskToOpen={reportTaskToOpen}
+                implementationDisabledReason={implementationDisabledReason}
+            />
+        ) : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
@@ -286,15 +308,24 @@ export function InboxDetailFrame({
     )
 
     // Hiding the rail gives the report column the full width, which is what reading a diff needs.
-    // Both controls live on the rail: hide in the header of its first section, show in the strip
-    // the rail folds to.
+    // One toggle sits in the page toolbar and keeps its place in both states, so it never jumps.
     const onToggleRail = (): void => {
         toggleEvidenceRail()
         captureSectionToggle('evidence_rail')(!evidenceRailCollapsed)
     }
-    const hideRailButton = (
+    const railToggleButton = evidenceRailCollapsed ? (
         <LemonButton
-            size="xsmall"
+            size="small"
+            type="tertiary"
+            icon={<IconSidebarOpen />}
+            tooltip="Show evidence"
+            aria-label="Show evidence"
+            onClick={onToggleRail}
+            data-attr="inbox-report-show-evidence-rail"
+        />
+    ) : (
+        <LemonButton
+            size="small"
             type="tertiary"
             icon={<IconSidebarClose />}
             tooltip="Hide evidence to widen the report"
@@ -303,25 +334,17 @@ export function InboxDetailFrame({
             data-attr="inbox-report-hide-evidence-rail"
         />
     )
-    const showRailButton = (
-        <LemonButton
-            size="xsmall"
-            type="tertiary"
-            icon={<IconSidebarOpen />}
-            tooltip="Show evidence"
-            aria-label="Show evidence"
-            onClick={onToggleRail}
-            data-attr="inbox-report-show-evidence-rail"
-        />
-    )
 
     const titleHeading = (
-        <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
-            {conventionalTitle && (
-                <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-            )}
-            {displayTitle}
-        </h1>
+        <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">{displayTitle}</h1>
+    )
+
+    const claimPill = (
+        <ReportClaimPill
+            claimant={reportClaimant}
+            isClaimedByMe={isClaimedByMe}
+            claimedAt={(currentReport ?? report).assignee?.claimed_at ?? null}
+        />
     )
 
     // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
@@ -342,10 +365,22 @@ export function InboxDetailFrame({
         expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
             <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
+    const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            {titleHeading}
+            {report.research_context?.mode === 'data_only' && (
+                <LemonBanner type="info">
+                    This report uses only your PostHog data. Without code access, agents can find problems but can't
+                    trace them to the underlying code, so findings may be less specific.{' '}
+                    <Link to={urls.settings('environment-integrations', 'integration-github')}>GitHub access</Link>{' '}
+                    helps agents investigate root causes and pinpoint what to change.
+                </LemonBanner>
+            )}
+            <div className="flex flex-col gap-2">
+                {titleHeading}
+                {claimPill}
+            </div>
 
             <ReportChartsContext.Provider value={chartsById}>
                 <div>
@@ -357,6 +392,7 @@ export function InboxDetailFrame({
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
+                            planBlock={planBlock}
                         />
                     ) : (
                         <div className="flex flex-col gap-6">
@@ -366,6 +402,7 @@ export function InboxDetailFrame({
                             {pullRequestNote}
                             {impactMetrics}
                             {expectedImpact}
+                            {planBlock}
                         </div>
                     )}
                     {trailingCharts.length > 0 && (
@@ -396,6 +433,7 @@ export function InboxDetailFrame({
                 )}
                 {titleHeading}
             </div>
+            {claimPill}
             <div className="flex flex-wrap items-center gap-2 text-xs text-tertiary">
                 {diffStat && (
                     <>
@@ -423,11 +461,13 @@ export function InboxDetailFrame({
     const overviewBody = (
         <BindLogic logic={inboxReportDetailLogic} props={logicProps}>
             <div className={DETAIL_CONTAINER_CLASS}>
-                {evidenceRailCollapsed ? (
-                    <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
-                ) : (
+                {!evidenceRailCollapsed && (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        <ReportStatusSection
+                            report={currentReport ?? report}
+                            onPriorityChange={updatePriority}
+                            prioritySaving={prioritySaving}
+                        />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -474,7 +514,7 @@ export function InboxDetailFrame({
                                 )}
                             </DetailSection>
                         )}
-                        {/* Pull request checks (when present), then reviewers, runs, and activity. */}
+                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
                         <ReportTasksSection report={report} />
@@ -542,16 +582,19 @@ export function InboxDetailFrame({
     return (
         <div className={DETAIL_PAGE_CLASS}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconArrowLeft />}
-                    to={backOverride ?? urls.inbox('reports')}
-                    className="-ml-4 w-fit"
-                    data-attr="inbox-report-back"
-                >
-                    {backLabel}
-                </LemonButton>
+                <div className="-ml-4 flex items-center gap-1">
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconArrowLeft />}
+                        to={backOverride ?? urls.inbox('reports')}
+                        className="w-fit"
+                        data-attr="inbox-report-back"
+                    >
+                        {backLabel}
+                    </LemonButton>
+                    {railToggleButton}
+                </div>
                 <div className="flex items-center gap-2">
                     {primaryAction}
                     {!summaryHasSolution && implementButton}
@@ -705,9 +748,16 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     </div>
                 ) : undefined
             }
-            // The PR conversation closes the evidence rail, under Activity; CI checks sit higher in
-            // the same rail. Both drop themselves when there's nothing to show.
-            asideFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+            // CI checks and the PR conversation close the evidence rail, under Activity, so they do not
+            // push the reviewers down. Both drop themselves when there's nothing to show.
+            asideFooter={
+                hasPr ? (
+                    <>
+                        <PrChecksSection report={report} />
+                        <PrCommentsSection report={report} />
+                    </>
+                ) : undefined
+            }
         >
             {reportPullRequests(report).length > 1 && (
                 <LemonSelect
@@ -720,7 +770,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     data-attr="inbox-report-select-pull-request"
                 />
             )}
-            {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrame>
     )
 }

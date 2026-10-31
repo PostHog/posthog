@@ -1,5 +1,6 @@
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -22,7 +23,7 @@ class TestGenerator(EventDefinitionGenerator):
         return ""  # Not needed for hash tests
 
 
-class TestEventDefinitionGeneratorBase(BaseTest):
+class TestEventDefinitionGeneratorBase(SimpleTestCase):
     @parameterized.expand(
         [
             (

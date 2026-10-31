@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { Counter } from 'prom-client'
 
+import { disableGeoipWithoutClientIp } from '~/common/services/internal-capture'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
@@ -44,6 +45,14 @@ export type PushCaptureEvent = {
     properties: Record<string, any>
 }
 
+/** Capture refuses every event for a project over its billing limit, until the limit lifts. */
+export class CaptureBillingLimitError extends Error {
+    constructor() {
+        super('capture returned 402')
+        this.name = 'CaptureBillingLimitError'
+    }
+}
+
 export class PushCaptureService {
     private origin: string
 
@@ -68,7 +77,7 @@ export class PushCaptureService {
             uuid: randomUUID(),
             distinct_id: event.distinctId,
             timestamp: now,
-            properties,
+            properties: disableGeoipWithoutClientIp(properties),
         }
         if (Object.keys(options).length > 0) {
             entry.options = options
@@ -83,6 +92,10 @@ export class PushCaptureService {
         for (let attempt = 1; ; attempt++) {
             const response = await this.post(event.token, body, attempt)
 
+            if (response.status === 402) {
+                captureCounter.inc({ outcome: 'billing_limited' })
+                throw new CaptureBillingLimitError()
+            }
             if (response.status < 200 || response.status >= 300) {
                 captureCounter.inc({ outcome: 'rejected' })
                 logger.warn('push_subscription_capture_rejected', { status: response.status })

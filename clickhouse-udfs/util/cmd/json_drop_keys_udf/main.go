@@ -96,6 +96,11 @@ var parserPool = sync.Pool{
 }
 
 func processLine(keys jsonKey, rawLine []byte, buf *bytes.Buffer) error {
+	// A legacy events JSON column stores '' when its producer omits the value. An empty value has no key to drop.
+	if len(rawLine) == 0 {
+		buf.Reset()
+		return nil
+	}
 	parser := parserPool.Get().(*cachedParser)
 	defer parserPool.Put(parser)
 	if parser.maxInput > max(64*1024, 2*len(rawLine)) {

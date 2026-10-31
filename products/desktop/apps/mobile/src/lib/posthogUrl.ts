@@ -99,6 +99,7 @@ function labelForProjectView(
   const [section, refId, nestedId] = projectSegments;
 
   switch (section) {
+    case "feature-flags":
     case "feature_flags": {
       const search = parsed.searchParams.get("search")?.trim();
       if (refId) return labelWithId("Feature flag", refId);
@@ -147,6 +148,7 @@ function labelForApp(parsed: URL, segments: string[]): string {
     case "recordings":
     case "session_replay":
       return refId ? labelWithId("Replay", refId) : "Replay";
+    case "feature-flags":
     case "feature_flags":
       return refId ? labelWithId("Feature flag", refId) : "Feature flags";
     case "experiments":
@@ -179,11 +181,13 @@ function refIdForApp(_parsed: URL, segments: string[]): string | null {
     case "replay":
     case "recordings":
     case "session_replay":
+    case "feature-flags":
     case "feature_flags":
     case "experiments":
       return refId ?? null;
     case "project":
       switch (segments[2]) {
+        case "feature-flags":
         case "feature_flags":
         case "experiments":
         case "insights":

@@ -1,7 +1,7 @@
 import json
 import time
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Container, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -12,11 +12,14 @@ from xml.etree.ElementTree import Element
 import requests
 import defusedxml.ElementTree as DET
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.security.url_validation import is_url_allowed
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.settings import (
@@ -212,7 +215,7 @@ def _parse_xml(text: str) -> Element:
     return root
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             QualysVmdrRetryableError,
@@ -281,7 +284,7 @@ def _element_to_value(element: Element) -> Any:
     return result
 
 
-def _element_to_row(element: Element, skip_tags: set[str] | None = None) -> dict[str, Any]:
+def _element_to_row(element: Element, skip_tags: Container[str] | None = None) -> dict[str, Any]:
     """Convert one record element to a flat row dict.
 
     Scalar children become string columns. Nested children (CVE_LIST, DNS_DATA, TAGS, ...) are
@@ -300,8 +303,17 @@ def _element_to_row(element: Element, skip_tags: set[str] | None = None) -> dict
 
 def _extract_rows(root: Element, config: QualysVmdrEndpointConfig) -> Iterator[dict[str, Any]]:
     for item in root.iter(config.item_tag):
+        if config.flatten_ip_set:
+            for entry in item:
+                value = (entry.text or "").strip()
+                if entry.tag not in ("IP", "IP_RANGE") or not value:
+                    continue
+                start_ip, _, end_ip = value.partition("-")
+                yield {"ip_range": value, "start_ip": start_ip, "end_ip": end_ip or start_ip}
+            continue
+
         if not config.flatten_host_detections:
-            yield _element_to_row(item)
+            yield _element_to_row(item, skip_tags=config.drop_tags)
             continue
 
         # One row per (host, detection): host scalars prefixed host_* merged with the

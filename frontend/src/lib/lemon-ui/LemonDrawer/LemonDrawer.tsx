@@ -7,10 +7,10 @@ import Modal from 'react-modal'
 
 import { IconX } from '@posthog/icons'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { Tooltip } from '../Tooltip'
@@ -28,6 +28,8 @@ interface LemonDrawerBaseProps {
     width?: number | string
     /** Enable drag-to-resize on the left edge of the drawer */
     resizable?: boolean
+    /** Key for the resize state. Give a drawer that opens over another its own, so the two size independently. */
+    resizerLogicKey?: string
     description?: React.ReactNode
     footer?: React.ReactNode
     hideCloseButton?: boolean
@@ -81,6 +83,7 @@ export function LemonDrawer({
     simple,
     hideCloseButton = false,
     resizable = false,
+    resizerLogicKey = 'lemon-drawer',
     overlayTransparent = false,
     forceAbovePopovers = false,
     contentRef,
@@ -98,7 +101,7 @@ export function LemonDrawer({
     const containerRef = useRef<HTMLDivElement>(null)
     const resizerLogicProps: ResizerLogicProps = {
         containerRef,
-        logicKey: 'lemon-drawer',
+        logicKey: resizerLogicKey,
         persistent: false,
         placement: 'left',
     }

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ def validate_history_days(history_days: Optional[int]) -> str | None:
 
 @SourceRegistry.register
 class RKICovidSource(SimpleSource[RKICovidSourceConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://api.corona-zahlen.org/docs/"
 
@@ -120,7 +123,7 @@ class RKICovidSource(SimpleSource[RKICovidSourceConfig]):
             name=ExternalDataSourceType.RKICOVID,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="RKI COVID-19",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["covid", "corona", "coronavirus", "rki", "germany", "public health"],
             caption="""Pull German COVID-19 statistics (nationwide, per state, and per district) into the PostHog Data warehouse from the public RKI COVID-19 API at [api.corona-zahlen.org](https://api.corona-zahlen.org).
 
@@ -134,6 +137,7 @@ Optionally limit the history tables to the last N days; leave empty to sync the 
                 [
                     SourceFieldInputConfig(
                         name="history_days",
+                        sync_setting=True,
                         label="History window (days)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

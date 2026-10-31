@@ -1,6 +1,8 @@
+import { HttpResponse } from 'msw'
 import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
@@ -98,7 +100,8 @@ describe('query', () => {
             limit: 100,
         })
         captureSpy.mockClear()
-        await performQuery(q)
+        const onRequestTiming = jest.fn()
+        await performQuery(q, { onRequestTiming })
         const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
         expect(queryCompletedCalls).toHaveLength(1)
         expect(queryCompletedCalls[0][1]).toMatchObject({
@@ -109,7 +112,23 @@ describe('query', () => {
             retry_wait_ms: expect.any(Number),
             retry_status: null,
             retry_recovered: false,
+            submit_request_timings: [
+                expect.objectContaining({
+                    request_total_ms: expect.any(Number),
+                    time_to_headers_ms: expect.any(Number),
+                    body_read_ms: expect.any(Number),
+                    json_parse_ms: expect.any(Number),
+                    http_status: 200,
+                }),
+            ],
+            time_to_headers_ms: expect.any(Number),
+            body_read_ms: expect.any(Number),
+            json_parse_ms: expect.any(Number),
+            resource_timing_status: 'missing_request_id',
         })
+        expect(onRequestTiming).toHaveBeenCalledTimes(1)
+        expect(onRequestTiming).toHaveBeenCalledWith(queryCompletedCalls[0][1]?.submit_request_timings?.[0])
+        expect(queryCompletedCalls[0][1]).not.toHaveProperty('result_poll_timing')
     })
 
     it('emits a specific event on a HogQLQuery', async () => {
@@ -128,6 +147,125 @@ describe('query', () => {
             clickhouse_sql: expect.any(String),
             is_cached: false,
         })
+    })
+
+    it('keeps each retry timing on the existing completion event and flattens the final attempt', async () => {
+        const requestIds = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
+        let attempts = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => {
+                    const headers = { 'X-Request-ID': requestIds[attempts] }
+                    return ++attempts === 1
+                        ? HttpResponse.json({ detail: 'temporarily unavailable' }, { status: 502, headers })
+                        : HttpResponse.json({ results: [] }, { headers })
+                },
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+        const query: HogQLQuery = { kind: NodeKind.HogQLQuery, query: 'select 1' }
+
+        await expect(performQuery(query)).resolves.toMatchObject({ results: [] })
+
+        const completed = captureSpy.mock.calls.filter(([event]) => event === 'query completed')
+        expect(completed).toHaveLength(1)
+        expect(completed[0][1]).toMatchObject({
+            submit_attempts: 2,
+            submit_request_timings: [
+                expect.objectContaining({ http_status: 502, http_request_id: requestIds[0] }),
+                expect.objectContaining({ http_status: 200, http_request_id: requestIds[1] }),
+            ],
+            http_request_id: requestIds[1],
+            body_read_ms: expect.any(Number),
+        })
+    })
+
+    it('records only the poll that returns the completed async result', async () => {
+        const pollRequestIds = ['33333333-3333-4333-8333-333333333333', '44444444-4444-4444-8444-444444444444']
+        let polls = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [
+                    200,
+                    { query_status: { id: 'async-query', complete: false } },
+                ],
+            },
+            get: {
+                '/api/environments/:team_id/query/:id': () => {
+                    const complete = polls === 1
+                    const headers = { 'X-Request-ID': pollRequestIds[polls++] }
+                    return HttpResponse.json(
+                        { query_status: { id: 'async-query', complete, results: complete ? { results: [] } : null } },
+                        { headers }
+                    )
+                },
+            },
+        })
+        jest.useFakeTimers()
+        const captureSpy = jest.spyOn(posthog, 'capture').mockClear()
+        const query: HogQLQuery = { kind: NodeKind.HogQLQuery, query: 'select 1' }
+
+        try {
+            const promise = performQuery(query, undefined, 'async')
+            await jest.advanceTimersByTimeAsync(1000)
+            await expect(promise).resolves.toEqual({ results: [] })
+        } finally {
+            jest.useRealTimers()
+        }
+
+        expect(polls).toBe(2)
+        const completed = captureSpy.mock.calls.filter(([event]) => event === 'query completed')
+        expect(completed).toHaveLength(1)
+        expect(completed[0][1]).toMatchObject({
+            result_poll_timing: expect.objectContaining({
+                http_status: 200,
+                http_request_id: pollRequestIds[1],
+                body_read_ms: expect.any(Number),
+                json_parse_ms: expect.any(Number),
+            }),
+            result_poll_http_request_id: pollRequestIds[1],
+            result_poll_body_read_ms: expect.any(Number),
+            result_poll_json_parse_ms: expect.any(Number),
+        })
+        expect(completed[0][1]?.submit_request_timings).toHaveLength(1)
+    })
+
+    it.each([
+        [true, 1],
+        [undefined, 0],
+    ])('when uses_history_table is %s, sends %i history queried events', async (usesHistoryTable, expectedEvents) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [
+                    200,
+                    {
+                        results: [],
+                        is_cached: false,
+                        used_data_warehouse_sources: [
+                            {
+                                id: 'src-1',
+                                source_type: 'Postgres',
+                                table_name: 'orders_cdc',
+                                uses_history_table: usesHistoryTable,
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q: HogQLQuery = setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'select * from orders_cdc' })
+        captureSpy.mockClear()
+        await performQuery(q)
+        const historyCalls = captureSpy.mock.calls.filter((call) => call[0] === 'data warehouse history table queried')
+        expect(historyCalls).toHaveLength(expectedEvents)
+        if (expectedEvents) {
+            expect(historyCalls[0][1]).toMatchObject({
+                query_kind: NodeKind.HogQLQuery,
+                data_warehouse_source_ids: ['src-1'],
+                data_warehouse_source_types: ['Postgres'],
+            })
+        }
     })
 
     it('captures precompute strategy and staleness from web analytics responses', async () => {
@@ -167,6 +305,11 @@ describe('query', () => {
             duration: expect.any(Number),
             error_status: 500,
             error_code: null,
+            submit_request_timings: [
+                expect.objectContaining({ request_total_ms: expect.any(Number), http_status: 500 }),
+            ],
+            time_to_headers_ms: expect.any(Number),
+            resource_timing_status: 'missing_request_id',
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
@@ -293,6 +436,104 @@ describe('query', () => {
         })
     })
 
+    describe('pollForResults while offline', () => {
+        const originalVisibilityState = document.visibilityState
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+        })
+
+        afterEach(() => {
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            jest.restoreAllMocks()
+            jest.useRealTimers()
+        })
+
+        it.each(['before polling', 'during the poll delay', 'while hidden'])(
+            'waits for reconnect %s without using the deadline',
+            async (when) => {
+                const online = jest.spyOn(navigator, 'onLine', 'get')
+                online.mockReturnValue(when === 'during the poll delay')
+                const status = { complete: true, results: ['ok'] }
+                const statusSpy = jest.spyOn(api.queryStatus, 'get').mockResolvedValue({ query_status: status } as any)
+                const promise = pollForResults('test-query-id')
+
+                if (when === 'during the poll delay') {
+                    await jest.advanceTimersByTimeAsync(100)
+                    online.mockReturnValue(false)
+                }
+                await jest.advanceTimersByTimeAsync(11 * 60 * 1000)
+                expect(statusSpy).not.toHaveBeenCalled()
+
+                if (when === 'while hidden') {
+                    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+                }
+                online.mockReturnValue(true)
+                window.dispatchEvent(new Event('online'))
+                if (when === 'while hidden') {
+                    await jest.advanceTimersByTimeAsync(1000)
+                    expect(statusSpy).not.toHaveBeenCalled()
+                    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+                    document.dispatchEvent(new Event('visibilitychange'))
+                }
+                await jest.advanceTimersByTimeAsync(300)
+                await expect(promise).resolves.toEqual(status)
+            }
+        )
+
+        it.each([false, true])('recovers an offline poll when already reconnected is %s', async (reconnected) => {
+            const online = jest.spyOn(navigator, 'onLine', 'get')
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockResolvedValue({ query_status: { id: 'test-query-id', complete: false } } as any)
+            const statusSpy = jest
+                .spyOn(api.queryStatus, 'get')
+                .mockImplementationOnce(async () => {
+                    online.mockReturnValue(reconnected)
+                    throw new NetworkError('offline')
+                })
+                .mockResolvedValueOnce({ query_status: { complete: true, results: ['ok'] } } as any)
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            const promise = performQuery({ kind: NodeKind.EventsQuery, select: ['*'] }, undefined, 'async')
+
+            await jest.advanceTimersByTimeAsync(300)
+            if (!reconnected) {
+                await jest.advanceTimersByTimeAsync(11 * 60 * 1000)
+                expect(statusSpy).toHaveBeenCalledTimes(1)
+                online.mockReturnValue(true)
+                window.dispatchEvent(new Event('online'))
+            }
+            await jest.advanceTimersByTimeAsync(375)
+
+            await expect(promise).resolves.toEqual(['ok'])
+            expect(querySpy).toHaveBeenCalledTimes(1)
+            expect(statusSpy.mock.calls.map(([id]) => id)).toEqual(['test-query-id', 'test-query-id'])
+            expect(capture.mock.calls.filter(([event]) => event === 'query failed')).toHaveLength(0)
+            expect(capture.mock.calls.filter(([event]) => event === 'query completed')).toHaveLength(1)
+        })
+
+        it.each(['before polling', 'while waiting'])('cancels offline polling %s', async (when) => {
+            jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+            const statusSpy = jest.spyOn(api.queryStatus, 'get')
+            const controller = new AbortController()
+            if (when === 'before polling') {
+                controller.abort()
+            }
+            const promise = pollForResults('test-query-id', { signal: controller.signal })
+            // oxlint-disable-next-line jest/valid-expect -- awaited after the abort below; awaiting here hangs the test
+            const rejected = expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+            await jest.advanceTimersByTimeAsync(0)
+            controller.abort()
+            await rejected
+
+            jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(true)
+            window.dispatchEvent(new Event('online'))
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(statusSpy).not.toHaveBeenCalled()
+        })
+    })
+
     describe('polling a query the server has forgotten', () => {
         const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
         const submitted = (id: string): any => ({ query_status: { id, complete: false } })
@@ -341,7 +582,28 @@ describe('query', () => {
         })
 
         it.each([
+            { name: 'a failed rerun', results: undefined, error: true, recovered: false },
+            { name: 'an empty result', results: [], error: false, recovered: true },
+        ])('records recovery accurately for $name after expiry', async ({ results, error, recovered }) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            jest.spyOn(api, 'query').mockResolvedValueOnce(submitted('gone')).mockResolvedValueOnce(submitted('rerun'))
+            jest.spyOn(api.queryStatus, 'get')
+                .mockRejectedValueOnce(forgotten())
+                .mockResolvedValueOnce({ query_status: { id: 'rerun', complete: true, error, results } } as any)
+
+            await expect(performQuery(query, undefined, 'async')).resolves.toEqual(results)
+
+            expect(capture.mock.calls.find(([event]) => event === 'query completed')?.[1]).toMatchObject({
+                submit_attempts: 2,
+                retry_status: 404,
+                retry_recovered: recovered,
+            })
+        })
+
+        it.each([
             ['an error that is not a 404', new ApiError('boom', 500), undefined],
+            ['a network failure while online', new NetworkError('network'), undefined],
+            ['a request during navigation', new NetworkError('navigating'), undefined],
             ['an error with a caller-supplied ID', new ApiError('boom', 500), 'client-query-id'],
             [
                 'a warehouse whose connection is down',
@@ -358,7 +620,7 @@ describe('query', () => {
             expect(querySpy).toHaveBeenCalledTimes(1)
             const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
             expect(queryFailedCalls).toHaveLength(1)
-            expect(queryFailedCalls[0][1]).toMatchObject({ queryId: 'gone', error_status: failure.status })
+            expect(queryFailedCalls[0][1]).toMatchObject({ queryId: 'gone', error_status: failure.status ?? null })
             expect(captureSpy.mock.calls.filter((call) => call[0] === 'query completed')).toHaveLength(0)
         })
 
@@ -395,6 +657,19 @@ describe('query', () => {
 
             expect(querySpy).not.toHaveBeenCalled()
         })
+    })
+
+    it('throws a readable ApiError when the query endpoint returns no content', async () => {
+        jest.spyOn(api, 'query').mockResolvedValueOnce(null as any)
+
+        const promise = performQuery(
+            { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery,
+            undefined,
+            'blocking'
+        )
+        await expect(promise).rejects.toBeInstanceOf(ApiError)
+        await expect(promise).rejects.toMatchObject({ detail: expect.stringContaining('empty response') })
+        jest.restoreAllMocks()
     })
 
     describe('transient query submission failures', () => {

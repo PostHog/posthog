@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, cast
 
@@ -76,6 +77,23 @@ class TestPagerDutyBody(SimpleTestCase):
         assert key(IncidentAction.RESOLVE, episode_started_at=datetime(2026, 9, 30, 9)) == trigger
         assert key(IncidentAction.TRIGGER, grouping_key="search") != trigger
         assert key(IncidentAction.TRIGGER, episode_started_at=datetime(2026, 9, 30, 11)) != trigger
+
+    @parameterized.expand(
+        [
+            ("taken_over_from_its_source", "posthog-alert-legacy-1", "posthog-alert-legacy-1"),
+            ("never_opened_here", None, "cfg-1::unknown"),
+        ]
+    )
+    def test_a_resolve_of_a_firing_with_no_known_start(
+        self, _name: str, source_incident_key: str | None, expected: str
+    ) -> None:
+        message = replace(
+            _message(IncidentAction.RESOLVE, episode_started_at=None), source_incident_key=source_incident_key
+        )
+
+        body = pagerduty_body(message, routing_key=ROUTING_KEY, severity=PagerDutySeverity.ERROR)
+
+        assert body["dedup_key"] == expected
 
     def test_an_oversized_key_stays_within_what_pagerduty_accepts(self) -> None:
         body = pagerduty_body(

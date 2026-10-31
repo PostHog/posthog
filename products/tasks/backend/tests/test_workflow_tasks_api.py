@@ -15,7 +15,6 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.cdp.workflow_step_resume import RESULT_STRING_CAP
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -23,7 +22,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.authentication_checks import covers_authentication
 
+from products.cdp.backend.workflow_step_resume import RESULT_STRING_CAP
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.tasks.backend.logic.services.workflow_tasks import (
@@ -34,6 +35,10 @@ from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.presentation.views.workflow_tasks import (
+    WorkflowTaskCreateSerializer,
+    WorkflowTasksJWTAuthentication,
+)
 
 SECRET = "test-tasks-create-jwt"
 
@@ -108,6 +113,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             ]
         )
 
+    @covers_authentication(WorkflowTasksJWTAuthentication)
     def test_creates_a_task_and_run_attributed_to_the_workflow_and_its_owner(self) -> None:
         response = self._post()
 
@@ -440,14 +446,19 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
-    def test_rejects_creation_when_the_owner_is_over_the_usage_limit(self, usage_limit_response_mock) -> None:
-        usage_limit_response_mock.return_value = object()  # any non-None reply means blocked
-
-        response = self._post()
+    @parameterized.expand(
+        [
+            # Any non-None reply from the Desktop usage gate means blocked.
+            ("owner_over_usage_limit", "usage_limit_response", object(), "usage limit"),
+            ("team_out_of_ai_credits", "is_team_over_credit_budget", True, "monthly PostHog AI credits"),
+        ]
+    )
+    def test_rejects_creation_when_usage_is_blocked(self, _name: str, gate: str, blocked: Any, detail: str) -> None:
+        with patch(f"products.tasks.backend.logic.services.workflow_tasks.{gate}", return_value=blocked):
+            response = self._post()
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
-        assert "usage limit" in response.json()["detail"]
+        assert detail in response.json()["detail"]
         assert Task.objects.count() == 0
 
     def test_replaying_an_idempotency_key_returns_the_existing_task(self) -> None:
@@ -587,18 +598,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert later_run.state["config_snapshot"]["connectors"]["mcp_gateway_server_ids"] == ["server-1"]
 
-    @parameterized.expand([("with_repository", True), ("without_repository", False)])
-    def test_pr_creation_follows_the_repository(self, _name: str, with_repository: bool) -> None:
-        body: dict = {}
-        if with_repository:
-            Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
-            body["repository"] = "posthog/posthog"
+    @parameterized.expand(
+        [
+            ("repositories", {"repositories": ["posthog/posthog", "posthog/posthog.com"]}),
+            ("legacy_repository", {"repository": "posthog/posthog"}),
+            ("no_repository", {}),
+        ]
+    )
+    def test_the_task_works_in_the_requested_repositories(self, _name: str, body: dict) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        expected = body.get("repositories") or ([body["repository"]] if "repository" in body else [])
 
         response = self._post(body)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.repositories == expected
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["pending_dispatch"]["create_pr"] is with_repository
+        assert run.state["pending_dispatch"]["create_pr"] is bool(expected)
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:
         teammate = self._create_user("teammate@posthog.com")
@@ -936,6 +953,28 @@ class TestWorkflowTasksAPI(APIBaseTest):
         mapping = SlackThreadTaskMapping.objects.get()
         assert str(mapping.task_run_id) == response.json()["run_id"]
         assert mapping.mentioning_slack_user_id == "U123"
+
+
+class TestWorkflowTaskCreateRepositories(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_slash", {"repositories": ["just-a-name"]}, "repositories"),
+            ("too_many_slashes", {"repositories": ["org/repo/extra"]}, "repositories"),
+            ("duplicate_in_another_case", {"repositories": ["org/repo", "ORG/Repo"]}, "repositories"),
+            ("legacy_no_slash", {"repository": "just-a-name"}, "repository"),
+        ]
+    )
+    def test_rejects_repositories_the_sandbox_cannot_clone(self, _name, body, field):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", **body})
+
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+    def test_lowercases_repositories(self):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", "repositories": ["Org/Repo"]})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["repositories"] == ["org/repo"]
 
 
 class TestWorkflowOriginIsReserved(SimpleTestCase):

@@ -29,12 +29,6 @@ class TestBaseUrlFor:
         assert _base_url_for(_config(data_center=data_center)) == expected
 
 
-class TestSurveyMonkeyGetSchemas:
-    def test_filters_by_names(self) -> None:
-        schemas = SurveyMonkeySource().get_schemas(_config(), team_id=1, names=["surveys", "collectors"])
-        assert {s.name for s in schemas} == {"surveys", "collectors"}
-
-
 class TestSurveyMonkeySourceForPipeline:
     def _inputs(self, schema_name: str = "surveys") -> MagicMock:
         inputs = MagicMock()

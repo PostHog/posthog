@@ -6,18 +6,22 @@ Layered top-down: builder source-readers → `compute_project_profile` end-to-en
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -32,7 +36,7 @@ from products.business_knowledge.backend.models.knowledge_source import Knowledg
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -43,6 +47,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalSourceConfig,
 )
+from products.signals.backend.scout_harness.lazy_seed import canonical_precheck_queries
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
@@ -72,6 +77,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _scout_fleet,
     _signal_source_configs,
     _top_events,
+    build_surfaces,
 )
 from products.signals.backend.scout_harness.profile.schema import ScoutFleetEntry
 from products.signals.backend.scout_harness.tools.emit import emit_eligibility, emit_eligibility_for_run
@@ -80,10 +86,13 @@ from products.signals.backend.scout_harness.tools.profile import (
     compute_project_profile,
     get_project_profile,
 )
+from products.signals.backend.tasks import build_signal_project_profile
 from products.skills.backend.models.skills import LLMSkill
 from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.facade.testing import create_workflow_for_test
+
+BUILDERS = "products.signals.backend.scout_harness.profile.builders"
 
 
 class TestProjectContext(BaseTest):
@@ -162,6 +171,12 @@ class TestIntegrations(BaseTest):
         Integration.objects.create(team=self.team, kind="slack", config={})
         result = _integrations(self.team)
         assert sorted(r["kind"] for r in result) == ["github", "slack"]
+
+    def test_skips_warehouse_source_rows(self) -> None:
+        Integration.objects.create(team=self.team, kind="slack", config={})
+        Integration.objects.create(team=self.team, kind="github", config={SOURCE_MARKER_CONFIG_KEY: "Github"})
+        result = _integrations(self.team)
+        assert [r["kind"] for r in result] == ["slack"]
 
     def test_does_not_leak_config_or_sensitive_config(self) -> None:
         # Defensive: integration config/sensitive_config can hold tokens; only kind + created_at
@@ -451,6 +466,31 @@ class TestScoutFleet(BaseTest):
 
         assert entry["last_emitted_at"] is None
 
+    @parameterized.expand(
+        [
+            ("own_query", {"precheck_query": "SELECT 1"}, "config"),
+            ("disabled", {"precheck_query": "SELECT 1", "precheck_disabled": True}, None),
+            ("no_query", {}, None),
+        ]
+    )
+    def test_carries_precheck_state(self, _name: str, config_kwargs: dict[str, Any], source: str | None) -> None:
+        last_run = timezone.now() - timedelta(days=5)
+        checked = timezone.now() - timedelta(minutes=10)
+        self._config(
+            "signals-scout-logs",
+            last_run_at=last_run,
+            last_precheck_at=checked,
+            last_precheck_outcome=SignalScoutConfig.PrecheckOutcome.SKIP,
+            **config_kwargs,
+        )
+
+        entry = _scout_fleet(self.team)["enabled"][0]
+
+        assert entry["precheck_source"] == source
+        assert (entry["last_precheck_outcome"], entry["last_precheck_at"]) == ("skip", checked.isoformat())
+        assert entry["last_run_at"] == last_run.isoformat()
+        ScoutFleetEntry.model_validate(entry)
+
     def test_team_isolated(self) -> None:
         other = Team.objects.create(organization=self.organization, name="other")
         LLMSkill.objects.create(team=other, name="signals-scout-logs", description="d", body="b")
@@ -600,19 +640,22 @@ class TestRecentExperiments(BaseTest):
 
     def test_running_count_only_counts_started_unfinished_unarchived(self) -> None:
         now = timezone.now()
-        Experiment.objects.create(
-            team=self.team, name="running", feature_flag=self._flag("ff-r"), start_date=now - timedelta(days=1)
+        create_experiment(
+            team_id=self.team.id,
+            name="running",
+            feature_flag_id=self._flag("ff-r").id,
+            start_date=now - timedelta(days=1),
         )
-        Experiment.objects.create(team=self.team, name="draft", feature_flag=self._flag("ff-d"))
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(team_id=self.team.id, name="draft", feature_flag_id=self._flag("ff-d").id)
+        create_experiment(
+            team_id=self.team.id,
             name="stopped",
-            feature_flag=self._flag("ff-s"),
+            feature_flag_id=self._flag("ff-s").id,
             start_date=now - timedelta(days=10),
             end_date=now - timedelta(days=1),
         )
-        Experiment.objects.create(
-            team=self.team, name="archived", feature_flag=self._flag("ff-a"), start_date=now, archived=True
+        create_experiment(
+            team_id=self.team.id, name="archived", feature_flag_id=self._flag("ff-a").id, start_date=now, archived=True
         )
         result = _recent_experiments(self.team)
         assert result["total_count"] == 4
@@ -626,14 +669,16 @@ class TestRecentExperiments(BaseTest):
         }
 
     def test_carries_feature_flag_key_for_cross_reference(self) -> None:
-        Experiment.objects.create(team=self.team, name="exp", feature_flag=self._flag("my-exp-flag"))
+        create_experiment(team_id=self.team.id, name="exp", feature_flag_id=self._flag("my-exp-flag").id)
         result = _recent_experiments(self.team)
         assert result["recent"][0]["feature_flag_key"] == "my-exp-flag"
 
     def test_team_isolated(self) -> None:
         other = self.organization.teams.create(name="other")
-        Experiment.objects.create(
-            team=other, name="x", feature_flag=FeatureFlag.objects.create(team=other, key="o", created_by=self.user)
+        create_experiment(
+            team_id=other.id,
+            name="x",
+            feature_flag_id=FeatureFlag.objects.create(team=other, key="o", created_by=self.user).id,
         )
         result = _recent_experiments(self.team)
         assert result["total_count"] == 0
@@ -933,6 +978,8 @@ class TestRecentReviewerCorrections(BaseTest):
             "report_title": "Report title",
             "before": ["alice"],
             "after": ["bob"],
+            "removal_reason": None,
+            "removal_reason_reviewers": [],
             "at": correction.created_at.isoformat(),
         }
 
@@ -1016,6 +1063,66 @@ class TestTopEvents(BaseTest):
         ]
 
 
+class TestSurfaces(ClickhouseTestMixin, BaseTest):
+    def test_every_shipped_default_runs_and_reads_a_quiet_surface_as_not_in_use(self) -> None:
+        # An empty project: a backstop row (surveys) or a bad placeholder binding would read as in use.
+        surfaces = build_surfaces(self.team)
+
+        assert set(surfaces) == set(canonical_precheck_queries())
+        assert {name: (entry["source"], entry["in_use"]) for name, entry in surfaces.items()} == dict.fromkeys(
+            surfaces, ("skill_default", False)
+        )
+
+    def test_an_event_outside_top_events_still_marks_its_surface_in_use(self) -> None:
+        _create_event(
+            team=self.team, event="$csp_violation", distinct_id="d1", timestamp=timezone.now() - timedelta(days=2)
+        )
+        flush_persons_and_events()
+
+        entry = build_surfaces(self.team)["signals-scout-csp-violations"]
+
+        assert (entry["in_use"], entry["source"], entry["row_count"]) == (True, "skill_default", 1)
+        assert entry["evaluated_at"] is not None
+
+    @parameterized.expand(
+        [
+            ("rows", SimpleNamespace(columns=["n"], results=[[3]]), True, "skill_default", 1),
+            ("no_rows", SimpleNamespace(columns=["n"], results=[]), False, "skill_default", 0),
+            ("zero_count", SimpleNamespace(columns=["n"], results=[[0]]), False, "skill_default", 1),
+            ("query_error", RuntimeError("clickhouse down"), None, "query_error", None),
+        ]
+    )
+    def test_reads_rows_as_the_acting_user_and_survives_a_failed_query(
+        self, _name, response, in_use, source, row_count
+    ) -> None:
+        with (
+            patch(f"{BUILDERS}.canonical_precheck_queries", return_value={"signals-scout-x": "SELECT 1"}),
+            patch(
+                "products.signals.backend.scout_harness.precheck.execute_hogql_query", side_effect=[response]
+            ) as query,
+        ):
+            surfaces = build_surfaces(self.team)
+
+        assert surfaces["signals-scout-x"]["in_use"] is in_use
+        assert (surfaces["signals-scout-x"]["source"], surfaces["signals-scout-x"]["row_count"]) == (source, row_count)
+        # With no user, every access-scoped `system.*` and warehouse table reads as empty.
+        assert query.call_args.kwargs["user"] == self.user
+
+    def test_withheld_scout_is_absent(self) -> None:
+        queries = {"signals-scout-unreleased": "SELECT 1", "signals-scout-x": "SELECT 1"}
+        with (
+            patch(f"{BUILDERS}.canonical_precheck_queries", return_value=queries),
+            patch(f"{BUILDERS}.withheld_skills_for_team", return_value={"signals-scout-unreleased"}),
+            patch(
+                "products.signals.backend.scout_harness.precheck.execute_hogql_query",
+                return_value=SimpleNamespace(columns=["n"], results=[[1]]),
+            ),
+        ):
+            surfaces = build_surfaces(self.team)
+
+        assert list(surfaces) == ["signals-scout-x"]
+
+
 class TestBuildInventory(BaseTest):
     def test_returns_a_validated_inventory_with_all_sections(self) -> None:
         inventory = build_inventory(self.team)
@@ -1044,6 +1151,7 @@ class TestBuildInventory(BaseTest):
             "recent_actions",
             "business_knowledge",
             "top_events",
+            "surfaces",
         }
 
     def test_persisted_payload_revalidates_against_the_schema(self) -> None:
@@ -1117,17 +1225,118 @@ class TestGetProjectProfile(BaseTest):
         assert fresh is not None and fresh.profile_id != cached.profile_id
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 2
 
-    def test_lazy_build_false_returns_none_on_cache_miss_without_building(self) -> None:
+    @parameterized.expand([("no_row", False), ("row_on_an_older_schema", True)])
+    def test_lazy_build_false_returns_none_on_cache_miss_without_building(
+        self, _name: str, seed_old_schema_row: bool
+    ) -> None:
         # Read-only callers (untrusted, CSRF-reachable GETs) pass `lazy_build=False` so a
         # miss returns None instead of running the inventory build + persisting a row.
-        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        if seed_old_schema_row:
+            old = compute_project_profile(team=self.team)
+            SignalProjectProfile.objects.filter(id=old.profile_id).update(source_version="v0_legacy")
+        rows_before = SignalProjectProfile.objects.filter(team=self.team).count()
         result = get_project_profile(team_id=self.team.id, lazy_build=False)
         assert result is None
-        assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
+        assert SignalProjectProfile.objects.filter(team=self.team).count() == rows_before
 
-    def test_lazy_build_false_returns_cached_row_when_fresh(self) -> None:
+    def test_background_build_lets_a_read_only_caller_find_a_profile(self) -> None:
+        assert get_project_profile(team_id=self.team.id, lazy_build=False) is None
+        build_signal_project_profile(self.team.id)
+        result = get_project_profile(team_id=self.team.id, lazy_build=False)
+        assert result is not None and result.stale is False
+        sources = {entry["source"] for entry in result.payload["inventory"]["surfaces"].values()}
+        assert sources and "deferred" not in sources
+
+    @parameterized.expand(
+        [
+            ("recent_answers", "recent", True),
+            ("answers_older_than_the_copy_window", "old", False),
+            ("failed_queries", "failed", False),
+            ("no_row", None, False),
+        ]
+    )
+    def test_cache_miss_read_defers_surface_queries_to_a_background_build(
+        self, _name: str, seed: str | None, copies_stored: bool
+    ) -> None:
+        cache.clear()
+        stored = {}
+        if seed is not None:
+            with (
+                patch(f"{BUILDERS}.run_precheck_query", side_effect=RuntimeError("query failed"))
+                if seed == "failed"
+                else nullcontext()
+            ):
+                old = compute_project_profile(team=self.team)
+            payload = old.payload
+            if seed == "old":
+                answered_at = (timezone.now() - 3 * PROFILE_TTL).isoformat()
+                for entry in payload["inventory"]["surfaces"].values():
+                    entry["evaluated_at"] = answered_at
+            SignalProjectProfile.objects.filter(id=old.profile_id).update(
+                expires_at=timezone.now() - timedelta(minutes=1), payload=payload
+            )
+            stored = payload["inventory"]["surfaces"]
+        with (
+            patch(f"{BUILDERS}.run_precheck_query", side_effect=AssertionError("surface query on a read")),
+            patch("products.signals.backend.tasks.build_signal_project_profile.delay") as mock_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = get_project_profile(team_id=self.team.id)
+        assert result is not None
+        surfaces = result.payload["inventory"]["surfaces"]
+        assert set(surfaces) == set(canonical_precheck_queries())
+        if copies_stored:
+            assert surfaces == stored
+        else:
+            assert {entry["source"] for entry in surfaces.values()} == {"deferred"}
+        mock_delay.assert_called_once_with(self.team.id)
+
+    def test_background_build_fills_surfaces_on_the_read_row_and_skips_a_duplicate(self) -> None:
+        cache.clear()
+        with patch("products.signals.backend.tasks.build_signal_project_profile.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                read = get_project_profile(team_id=self.team.id)
+            assert read is not None
+            build_signal_project_profile(self.team.id)
+        row = SignalProjectProfile.objects.get(team=self.team)
+        assert str(row.id) == read.profile_id
+        assert "deferred" not in {entry["source"] for entry in row.payload["inventory"]["surfaces"].values()}
+        with patch(f"{BUILDERS}.run_precheck_query", side_effect=AssertionError("duplicate surface query")):
+            build_signal_project_profile(self.team.id)
+
+    @parameterized.expand([("queued", None, 1), ("broker_down", ConnectionError("broker down"), 2)])
+    def test_cache_hit_with_deferred_surfaces_queues_a_build_without_failing_the_read(
+        self, _name: str, delay_error: Exception | None, expected_enqueues: int
+    ) -> None:
+        cache.clear()
+        cached = compute_project_profile(team=self.team, defer_surfaces=True)
+        cache.clear()
+        with patch(
+            "products.signals.backend.tasks.build_signal_project_profile.delay", side_effect=delay_error
+        ) as mock_delay:
+            first = get_project_profile(team_id=self.team.id)
+            get_project_profile(team_id=self.team.id)
+        assert first is not None and first.profile_id == cached.profile_id
+        assert mock_delay.call_count == expected_enqueues
+
+    def test_force_refresh_queues_a_surface_build_inside_the_dedupe_window(self) -> None:
+        cache.clear()
+        with (
+            patch("products.signals.backend.tasks.build_signal_project_profile.delay") as mock_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            get_project_profile(team_id=self.team.id)
+            get_project_profile(team_id=self.team.id, force_refresh=True)
+        assert mock_delay.call_count == 2
+
+    @parameterized.expand([("fresh", timedelta(minutes=30), False), ("expired", -timedelta(days=1), True)])
+    def test_lazy_build_false_returns_newest_row_whatever_its_age(
+        self, _name: str, expires_in: timedelta, stale: bool
+    ) -> None:
         cached = compute_project_profile(team=self.team)
+        SignalProjectProfile.objects.filter(id=cached.profile_id).update(expires_at=timezone.now() + expires_in)
         result = get_project_profile(team_id=self.team.id, lazy_build=False)
         assert result is not None and result.profile_id == cached.profile_id
+        assert result.stale is stale
         # No new row — the read-only path served the cache.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1

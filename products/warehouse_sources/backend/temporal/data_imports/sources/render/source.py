@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RenderSource(ResumableSource[RenderSourceConfig, RenderResumeConfig]):
+    # RENDER_ is a generic word in front-end code - exact key only.
+    codebase_detection = detect(env=("^RENDER_API_KEY$",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -48,7 +52,7 @@ class RenderSource(ResumableSource[RenderSourceConfig, RenderResumeConfig]):
             name=ExternalDataSourceType.RENDER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Render",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Render API key to pull your services, deploys, jobs, and databases into the PostHog Data warehouse.
 
 You can create an API key in your [Render account settings](https://dashboard.render.com/settings#api-keys).

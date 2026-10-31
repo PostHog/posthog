@@ -9,16 +9,9 @@ export interface SourceReleaseTagProps {
 }
 
 export function SourceReleaseTag({ releaseStatus }: SourceReleaseTagProps): JSX.Element | null {
-    if (releaseStatus === 'alpha') {
-        return (
-            <Tooltip title="Alpha means this is a new source and hasn't been extensively tested yet">
-                <LemonTag type="danger">Alpha</LemonTag>
-            </Tooltip>
-        )
-    }
     if (releaseStatus === 'beta') {
         return (
-            <Tooltip title="Beta means this source has been tested and most rough edges have been ironed out — getting ready for general availability">
+            <Tooltip title="Beta means this is a new source that is still being validated with real syncs">
                 <LemonTag type="completion">Beta</LemonTag>
             </Tooltip>
         )

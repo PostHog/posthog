@@ -1,45 +1,37 @@
-import json
-from collections.abc import Iterable
 from datetime import date
-from typing import Any, cast
+from typing import Any
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 from requests import (
     ConnectionError as RequestsConnectionError,
     HTTPError,
-    Response,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.steam import SteamSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.steam.source import SteamSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam import (
-    parse_steam_ids,
-    player_key,
-    steam_source,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam import parse_steam_ids, player_key
 
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.steam.steam"
 ADA = "76561197960287930"
 GRACE = "76561197960435530"
 TEAM_ID = 1
 
 
-def _response(status_code: int, body: dict[str, Any] | None = None) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response.url = "https://api.steampowered.com/"
-    response._content = json.dumps({"response": body or {}}).encode()
-    return response
+def _ok(body: dict[str, Any] | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"response": body or {}})
 
 
-def _rows(endpoint: str, session: MagicMock, steam_ids: list[str]) -> list[dict[str, Any]]:
-    with patch(f"{MODULE}.make_tracked_session", return_value=session):
-        response = steam_source("key", TEAM_ID, steam_ids, endpoint, MagicMock())
-        return [row for batch in cast(Iterable[list[dict[str, Any]]], response.items()) for row in batch]
+def _driver(api_key: str = "key", steam_ids: str = ADA) -> SourceDriver:
+    return SourceDriver(SteamSource(), SteamSourceConfig(api_key=api_key, steam_ids=steam_ids))
 
 
 class TestSteam:
@@ -61,26 +53,23 @@ class TestSteam:
 
     def test_a_private_profile_does_not_block_the_other_players(self) -> None:
         game = {"appid": 620, "name": "Portal 2", "playtime_forever": 600, "rtime_last_played": 1791288000}
-        session = MagicMock()
-        session.get.side_effect = lambda url, **kwargs: (
-            _response(200) if kwargs["params"]["steamid"] == GRACE else _response(200, {"games": [game]})
-        )
 
-        rows = _rows("owned_games", session, [GRACE, ADA])
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            return _ok() if request.param("steamid") == GRACE else _ok({"games": [game]})
 
-        assert [(row["player_key"], row["app_id"], row["playtime_2weeks_minutes"]) for row in rows] == [
+        result = _driver(steam_ids=f"{GRACE},{ADA}").run("owned_games", script)
+
+        assert [(row["player_key"], row["app_id"], row["playtime_2weeks_minutes"]) for row in result.rows] == [
             (player_key(TEAM_ID, ADA), 620, 0)
         ]
 
     def test_snapshots_are_keyed_by_the_day_they_were_read(self) -> None:
         game = {"appid": 620, "name": "Portal 2", "playtime_forever": 600, "playtime_2weeks": 90}
-        session = MagicMock()
-        session.get.return_value = _response(200, {"games": [game]})
 
         with time_machine.travel("2026-10-07T23:30:00Z", tick=False):
-            rows = _rows("playtime_snapshots", session, [ADA])
+            result = _driver().run("playtime_snapshots", [_ok({"games": [game]})])
 
-        assert rows == [
+        assert result.rows == [
             {
                 "player_key": player_key(TEAM_ID, ADA),
                 "app_id": 620,
@@ -100,37 +89,27 @@ class TestSteam:
             "loccountrycode": "GB",
             "timecreated": 1063407589,
         }
-        session = MagicMock()
-        session.get.return_value = _response(200, {"players": [player]})
 
-        rows = _rows("players", session, [ADA])
+        result = _driver().run("players", [_ok({"players": [player]})])
 
-        assert rows == [{"player_key": player_key(TEAM_ID, ADA), "is_public": True}]
+        assert result.rows == [{"player_key": player_key(TEAM_ID, ADA), "is_public": True}]
         assert ADA not in player_key(TEAM_ID, ADA)
         assert player_key(TEAM_ID, ADA) != player_key(TEAM_ID + 1, ADA)
 
     def test_a_rejected_key_fails_the_sync_without_the_key_in_the_error(self) -> None:
-        response = _response(403)
-        response.reason = "Forbidden"
-        response.url = "https://api.steampowered.com/?key=secret-key"
-        session = MagicMock()
-        session.get.return_value = response
+        result = _driver().run("players", [ScriptedResponse(status=403, json={"response": {}})])
 
-        with pytest.raises(HTTPError) as error:
-            _rows("players", session, [ADA])
-
-        assert str(error.value) == "403 Client Error: Forbidden"
+        assert isinstance(result.raised, HTTPError)
+        assert str(result.raised) == "403 Client Error: Forbidden"
 
     def test_a_connection_failure_keeps_the_key_out_of_the_error(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = RequestsConnectionError("Max retries exceeded with url: /?key=secret-key&steamids=1")
+        result = _driver(api_key="secret-key").run(
+            "players",
+            always(RequestsConnectionError("Max retries exceeded with url: /?key=secret-key&steamids=1")),
+        )
 
-        with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            response = steam_source("secret-key", TEAM_ID, [ADA], "players", MagicMock())
-            with pytest.raises(RequestsConnectionError) as error:
-                list(cast(Iterable[Any], response.items()))
-
-        assert "secret-key" not in str(error.value)
+        assert isinstance(result.raised, RequestsConnectionError)
+        assert "secret-key" not in str(result.raised)
 
     @parameterized.expand(
         [

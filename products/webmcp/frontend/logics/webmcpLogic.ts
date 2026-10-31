@@ -9,6 +9,7 @@ import type { PreflightStatus, UserType } from '~/types'
 
 import { webmcpExecCreate, webmcpToolRetrieve } from '../generated/api'
 import type { WebMCPExecResultApi } from '../generated/api.schemas'
+import { WebMCPToolError } from '../webmcpToolError'
 
 interface WebMCPToolAnnotations {
     readOnlyHint?: boolean
@@ -130,7 +131,7 @@ export const webmcpLogic = kea<webmcpLogicType>([
                             )
                             const text = formatExecResult(result)
                             if (result.is_error) {
-                                throw new Error(text)
+                                throw new WebMCPToolError(text)
                             }
                             return text
                         },

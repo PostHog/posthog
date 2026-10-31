@@ -3,13 +3,25 @@ from typing import cast
 from zoneinfo import ZoneInfo
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_flag_evaluations,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 
 class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
@@ -26,6 +38,37 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             )
             with self.assertRaises(ValueError):
                 HogQLCohortQuery(cohort=cohort).get_query()
+
+    def test_performed_event_multiple_without_time_range_raises_validation_error(self) -> None:
+        # Recalculation maps a DRF ValidationError to the VALIDATION_ERROR code, not UNKNOWN.
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="no time range",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": "performed_event_multiple",
+                                    "event_type": "events",
+                                    "operator": "gte",
+                                    "operator_value": 2,
+                                    "conditionHash": "abc123",
+                                    "bytecode": ["_H", 1, 29],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        with self.assertRaisesMessage(ValidationError, "needs either a valid time range or an explicit_datetime"):
+            HogQLCohortQuery(cohort=cohort).get_query()
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_multiple_person_properties_optimization(self, mock_feature_enabled: MagicMock) -> None:
@@ -508,6 +551,69 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(str(new_person.uuid), member_ids)
         self.assertNotIn(str(old_person.uuid), member_ids)
 
+    @parameterized.expand(
+        [
+            ("email", "starts_with", "first", "first"),
+            ("email", "not_starts_with", "first", "second"),
+            ("email", "ends_with", ".org", "second"),
+            ("email", "not_ends_with", ".org", "first"),
+            ("app_version", "semver_eq", "1.2.4", "first"),
+            ("app_version", "semver_neq", "1.2.4", "second"),
+            ("app_version", "semver_gt", "1.2.4", "second"),
+            ("app_version", "semver_gte", "2.0.0", "second"),
+            ("app_version", "semver_lt", "2.0.0", "first"),
+            ("app_version", "semver_lte", "1.2.4", "first"),
+            ("app_version", "semver_tilde", "1.2.3", "first"),
+            ("app_version", "semver_caret", "1.2.3", "first"),
+            ("app_version", "semver_wildcard", "2.*", "second"),
+            ("birth_date", "is_set", None, "first"),
+            ("birth_date", "is_not_set", None, "second"),
+        ]
+    )
+    def test_person_property_operators_calculate_cohort_membership(
+        self, key: str, operator: str, value: str | None, expected_member: str
+    ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="birth_date",
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.PERSON,
+        )
+        members = {
+            "first": _create_person(
+                team=self.team,
+                distinct_ids=["first"],
+                properties={"email": "first@example.com", "app_version": "1.2.4", "birth_date": "2000-01-01"},
+                immediate=True,
+            ),
+            "second": _create_person(
+                team=self.team,
+                distinct_ids=["second"],
+                properties={"email": "second@example.org", "app_version": "2.0.0"},
+                immediate=True,
+            ),
+        }
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name=f"{operator} cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": key, "type": "person", "operator": operator, "value": value}],
+                        }
+                    ],
+                }
+            },
+        )
+
+        cohort.calculate_people_ch(pending_version=0)
+
+        self.assertEqual(self._cohort_member_ids(cohort, 0), {str(members[expected_member].uuid)})
+
     def _cohort_member_ids(self, cohort: Cohort, version: int) -> set[str]:
         rows = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
@@ -515,6 +621,57 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             {"cohort_id": cohort.pk, "team_id": self.team.pk, "version": version},
         )
         return {str(row[0]) for row in rows}
+
+    def test_performed_flag_call_criterion_reads_flag_evaluations_when_the_rewrite_is_on(self) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        caller = _create_person(team=self.team, distinct_ids=["caller"], immediate=True)
+        other_caller = _create_person(team=self.team, distinct_ids=["other-caller"], immediate=True)
+        flush_persons_and_events()
+        _create_flag_evaluations(self.team.pk, "probe-flag", distinct_id="caller", person_id=caller.uuid)
+        _create_flag_evaluations(self.team.pk, "other-flag", distinct_id="other-caller", person_id=other_caller.uuid)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="called probe-flag",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "$feature_flag_called",
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                    "event_filters": [
+                                        {
+                                            "key": "$feature_flag",
+                                            "type": "event",
+                                            "value": "probe-flag",
+                                            "operator": "exact",
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            cohort.calculate_people_ch(pending_version=0)
+
+        self.assertEqual(self._cohort_member_ids(cohort, 0), {str(caller.uuid)})
 
     def test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings(self) -> None:
         internal = _create_person(

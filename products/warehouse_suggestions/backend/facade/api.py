@@ -1,20 +1,25 @@
 """Facade for warehouse_suggestions."""
 
 from collections.abc import Sequence
-from datetime import timedelta
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from ..logic import accept, suggestions
-from ..logic.access import SubjectAccess, readable_table_ids, visible_suggestions
+from products.warehouse_sources.backend.facade.api import source_locations_for_tables
+from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
+
+from ..logic import accept, assignment, suggestions
+from ..logic.access import CATALOG_KINDS, SubjectAccess, readable_table_ids, visible_suggestions
 from ..logic.analytics import SuggestionOutcome, report_outcomes
 from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.payloads import payload_from_json, payload_view, source_table_ids
 from ..logic.rules import RULES
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
+    AcceptOptions,
     CatalogEditAccessRequiredError,
     SubjectEditAccessRequiredError,
+    SubjectKinds,
     Suggestion,
     SuggestionDraft,
     SuggestionNotFoundError,
@@ -38,6 +43,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "accept_suggestion",
+    "assign_suggestion",
     "dismiss_suggestion",
     "get_suggestion",
     "is_warehouse_suggestions_enabled",
@@ -46,8 +52,6 @@ __all__ = [
     "suggestion_status",
     "upsert_suggestions",
 ]
-
-CATALOG_KINDS = frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionKind.DEPRECATE})
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
@@ -60,10 +64,21 @@ def list_suggestions(
     *,
     kind: WarehouseSuggestionKind | None,
     status: WarehouseSuggestionStatus | None,
+    subject_id: UUID | None,
+    assignee_id: int | None = None,
+    subject_kinds: SubjectKinds,
     limit: int,
     offset: int,
 ) -> SuggestionPage:
-    visible, access = visible_suggestions(team_id, user_access_control, kind=kind, status=status)
+    visible, access = visible_suggestions(
+        team_id,
+        user_access_control,
+        kind=kind,
+        status=status,
+        subject_id=subject_id,
+        assignee_id=assignee_id,
+        subject_kinds=subject_kinds,
+    )
     page = list(visible[offset : offset + limit])
     return SuggestionPage(count=visible.count(), results=_to_contracts(team_id, user_access_control, page, access))
 
@@ -80,8 +95,14 @@ def suggestion_status(team_id: int) -> SuggestionStatus:
     )
 
 
-def get_suggestion(team_id: int, user_access_control: "UserAccessControl", suggestion_id: UUID) -> Suggestion:
-    row, access = _visible_suggestion(team_id, user_access_control, suggestion_id)
+def get_suggestion(
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    suggestion_id: UUID,
+    *,
+    subject_kinds: SubjectKinds,
+) -> Suggestion:
+    row, access = _visible_suggestion(team_id, user_access_control, suggestion_id, subject_kinds)
     return _single_contract(team_id, user_access_control, row, access)
 
 
@@ -93,8 +114,9 @@ def dismiss_suggestion(
     user: "User",
     reason: WarehouseSuggestionDismissalReason,
     note: str | None,
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
-    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     dismissed = suggestions.transition_to(
         row.id,
         team.pk,
@@ -109,14 +131,41 @@ def dismiss_suggestion(
 
 
 def resume_suggestion(
-    team: "Team", user_access_control: "UserAccessControl", suggestion_id: UUID, *, user: "User"
+    team: "Team",
+    user_access_control: "UserAccessControl",
+    suggestion_id: UUID,
+    *,
+    user: "User",
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
-    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     resumed = suggestions.transition_to(
         row.id, team.pk, WarehouseSuggestionStatus.PROPOSED, user_id=user.id, transitions=suggestions.HUMAN_TRANSITIONS
     )
     report_outcomes(SuggestionOutcome.RESUMED, [resumed], team=team, user=user)
     return _single_contract(team.pk, user_access_control, resumed, access)
+
+
+def assign_suggestion(
+    team: "Team",
+    user_access_control: "UserAccessControl",
+    suggestion_id: UUID,
+    *,
+    user: "User",
+    assignee_id: int | None,
+    subject_kinds: SubjectKinds,
+) -> Suggestion:
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
+    result = assignment.assign(team, row.id, assignee_id, assigned_by=user)
+    if result.changed:
+        report_outcomes(
+            SuggestionOutcome.ASSIGNED,
+            [result.suggestion],
+            team=team,
+            user=user,
+            properties={"unassigned": assignee_id is None, "self_assigned": assignee_id == user.id},
+        )
+    return _single_contract(team.pk, user_access_control, result.suggestion, access)
 
 
 def accept_suggestion(
@@ -125,27 +174,35 @@ def accept_suggestion(
     suggestion_id: UUID,
     *,
     user: "User",
-    refresh_interval: timedelta | None,
+    options: AcceptOptions,
     was_impersonated: bool,
+    subject_kinds: SubjectKinds,
 ) -> Suggestion:
-    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id)
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
     _require_catalog_edit_access(row, user_access_control)
     outcome = accept.accept(
         team.pk,
         row.id,
-        accept.AcceptRequest(
-            team=team, user=user, refresh_interval=refresh_interval, was_impersonated=was_impersonated
-        ),
+        accept.AcceptRequest(team=team, user=user, options=options, was_impersonated=was_impersonated),
     )
     if outcome.newly_accepted:
-        report_outcomes(SuggestionOutcome.ACCEPTED, [outcome.suggestion], team=team, user=user)
+        report_outcomes(
+            SuggestionOutcome.ACCEPTED,
+            [outcome.suggestion],
+            team=team,
+            user=user,
+            properties={"changed_fields": list(outcome.changed_fields), **asdict(outcome.savings)},
+        )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 
 
 def _actionable_suggestion(
-    team_id: int, user_access_control: "UserAccessControl", suggestion_id: UUID
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    suggestion_id: UUID,
+    subject_kinds: SubjectKinds,
 ) -> tuple[WarehouseSuggestion, SubjectAccess]:
-    row, access = _visible_suggestion(team_id, user_access_control, suggestion_id)
+    row, access = _visible_suggestion(team_id, user_access_control, suggestion_id, subject_kinds)
     if not access.can_act_on(row):
         raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind(row.subject_kind))
     return row, access
@@ -166,9 +223,14 @@ def _single_contract(
 
 
 def _visible_suggestion(
-    team_id: int, user_access_control: "UserAccessControl", suggestion_id: UUID
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    suggestion_id: UUID,
+    subject_kinds: SubjectKinds,
 ) -> tuple[WarehouseSuggestion, SubjectAccess]:
-    visible, access = visible_suggestions(team_id, user_access_control, suggestion_id=suggestion_id)
+    visible, access = visible_suggestions(
+        team_id, user_access_control, suggestion_id=suggestion_id, subject_kinds=subject_kinds
+    )
     row = visible.first()
     if row is None:
         raise SuggestionNotFoundError(suggestion_id)
@@ -185,10 +247,19 @@ def _to_contracts(
         row.id: payload_from_json(WarehouseSuggestionKind(row.kind), row.payload_version, row.payload) for row in rows
     }
     readable = readable_table_ids(team_id, user_access_control, source_table_ids(stored.values()))
-    return [_to_contract(row, access, payload_view(stored[row.id], readable)) for row in rows]
+    table_ids = {row.subject_id for row in rows if row.subject_kind == WarehouseSuggestionSubjectKind.TABLE}
+    locations = source_locations_for_tables(team_id, table_ids)
+    return [
+        _to_contract(row, access, payload_view(stored[row.id], readable), locations.get(row.subject_id)) for row in rows
+    ]
 
 
-def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: SuggestionPayloadView) -> Suggestion:
+def _to_contract(
+    row: WarehouseSuggestion,
+    access: SubjectAccess,
+    payload: SuggestionPayloadView,
+    location: TableSourceLocation | None,
+) -> Suggestion:
     return Suggestion(
         id=row.id,
         kind=WarehouseSuggestionKind(row.kind),
@@ -200,20 +271,24 @@ def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: Sugge
         evidence_window_start=row.evidence_window_start,
         evidence_window_end=row.evidence_window_end,
         last_seen_at=row.last_seen_at,
-        score=row.score,
         status=WarehouseSuggestionStatus(row.status),
         surfaced_at=row.surfaced_at,
-        reviewed_by=_to_reviewer(row),
+        reviewed_by=_to_user(row.reviewed_by),
         reviewed_at=row.reviewed_at,
         dismissal_reason=WarehouseSuggestionDismissalReason(row.dismissal_reason) if row.dismissal_reason else None,
         dismissal_note=row.dismissal_note,
         created_asset=row.created_asset,
         asset_outcome=WarehouseSuggestionAssetOutcome(row.asset_outcome) if row.asset_outcome else None,
+        realized_seconds_saved_per_month=row.realized_seconds_saved_per_month,
+        realized_bytes_saved_per_month=row.realized_bytes_saved_per_month,
         can_act=access.can_act_on(row),
+        subject_source_id=location.source_id if location else None,
+        subject_schema_id=location.schema_id if location else None,
+        assignee=_to_user(row.assignee),
     )
 
 
-def _to_reviewer(row: WarehouseSuggestion) -> SuggestionReviewer | None:
-    if row.reviewed_by is None:
+def _to_user(user: "User | None") -> SuggestionReviewer | None:
+    if user is None:
         return None
-    return SuggestionReviewer(id=row.reviewed_by.id, first_name=row.reviewed_by.first_name, email=row.reviewed_by.email)
+    return SuggestionReviewer(id=user.id, first_name=user.first_name, email=user.email)

@@ -5,10 +5,13 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.engineering_analytics.backend.facade.contracts import (
     AttentionPullRequestList,
     Author,
+    AuthorLLMSpendList,
+    AuthorPRLLMSpend,
     BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
     CIStatusRollup,
+    LLMSpendCoverage,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -23,7 +26,6 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
-    ci_engine_field,
 )
 
 
@@ -57,11 +59,10 @@ class PullRequestSerializer(DataclassSerializer):
 
 
 class PRLifecycleEventSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
     class Meta:
         dataclass = PRLifecycleEvent
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "kind": {
                 "help_text": "Event kind: opened, ready_for_review, converted_to_draft, ci_started, "
                 "ci_finished, merged, or closed."
@@ -130,11 +131,10 @@ class WorkflowCostSerializer(DataclassSerializer):
 
 
 class RunCostSerializer(DataclassSerializer):
-    ci_engine = ci_engine_field()
-
     class Meta:
         dataclass = RunCost
         extra_kwargs = {
+            "ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "run_id": {"help_text": "Integer run id this cost is for; unique only together with ci_engine."},
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this run attempt."},
@@ -158,6 +158,69 @@ class PRLLMSpendSerializer(DataclassSerializer):
             "generations": {
                 "help_text": "Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch).",
             },
+            "cache_read_input_tokens": {
+                "help_text": "Total prompt tokens read from the provider's prompt cache across the attributed "
+                "generations ($ai_cache_read_input_tokens). Not included in input_tokens.",
+            },
+            "cache_creation_input_tokens": {
+                "help_text": "Total prompt tokens written to the provider's prompt cache across the attributed "
+                "generations ($ai_cache_creation_input_tokens). Not included in input_tokens.",
+            },
+            "peak_context_tokens": {
+                "help_text": "Largest prompt any single attributed generation sent: input plus cache read plus "
+                "cache write tokens.",
+            },
+        }
+
+
+class AuthorPRLLMSpendSerializer(DataclassSerializer):
+    llm_spend = PRLLMSpendSerializer(
+        allow_null=True,
+        help_text="Agent LLM token spend attributed to this pull request, by the same rule as `pr_cost`, or null "
+        "when no generation matched.",
+    )
+
+    class Meta:
+        dataclass = AuthorPRLLMSpend
+        extra_kwargs = {
+            "number": {"help_text": "Pull request number."},
+            "title": {"help_text": "Pull request title."},
+            "state": {"help_text": "Pull request state: open, closed, or merged."},
+            "head_branch": {"help_text": "The pull request's head branch, which attribution joins on."},
+            "created_at": {"help_text": "When the pull request was opened."},
+        }
+
+
+class AuthorLLMSpendListSerializer(DataclassSerializer):
+    items = AuthorPRLLMSpendSerializer(
+        many=True,
+        help_text="The author's pull requests active in the window, newest first, capped at `limit`. Each "
+        "spend covers the pull request's whole attribution window, so it can include spend from before "
+        "date_from.",
+    )
+
+    class Meta:
+        dataclass = AuthorLLMSpendList
+        extra_kwargs = {
+            "truncated": {"help_text": "True when more pull requests matched than `limit`."},
+            "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class LLMSpendCoverageSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = LLMSpendCoverage
+        extra_kwargs = {
+            "cost_usd": {
+                "help_text": "Total cost in USD of the $ai_generation events stamped with this repository "
+                "($ai_git_repo) in the window. Generations with no repository stamp are not counted.",
+            },
+            "attributed_cost_usd": {
+                "help_text": "The part of cost_usd that the branch and session attribution credits to a pull "
+                "request. A generation credited to several pull requests counts once.",
+            },
+            "generations": {"help_text": "Number of $ai_generation events in cost_usd."},
+            "attributed_generations": {"help_text": "Number of $ai_generation events in attributed_cost_usd."},
         }
 
 

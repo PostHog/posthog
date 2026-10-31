@@ -1,8 +1,8 @@
 """DRF views for warehouse_suggestions."""
 
 from collections.abc import Callable
-from datetime import timedelta
-from typing import Any, cast
+from functools import cached_property
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -14,32 +14,41 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
-from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
+from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 from posthog.utils import UUID_REGEX
 
 from ..facade import api
 from ..facade.api import is_warehouse_suggestions_enabled
 from ..facade.contracts import (
+    SUBJECT_SCOPE_OBJECTS,
+    WAREHOUSE_SCOPE_OBJECT,
     AcceptFailedError,
+    AcceptOptionRefusedError,
+    AcceptOptions,
+    AssigneeCannotActError,
     CatalogEditAccessRequiredError,
-    RefreshIntervalRefusedError,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
+    SubjectKinds,
     Suggestion,
     SuggestionAlreadyDecidedError,
     SuggestionNotFoundError,
+    SuggestionNotOpenError,
+    SuggestionOutdatedError,
     SuggestionPage,
     SuggestionSubjectGoneError,
 )
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
+    AssignWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
     WarehouseSuggestionListQuerySerializer,
     WarehouseSuggestionSerializer,
@@ -62,7 +71,13 @@ ALREADY_CERTIFIED = {
     WarehouseSuggestionSubjectKind.TABLE: "This table already has a certification.",
 }
 CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
-ACCEPT_SCOPES = ["warehouse_objects:write", "data_catalog_approval:write", "warehouse_view:write"]
+ASSIGNEE_CANNOT_ACT = (
+    "This person can't accept this suggestion. Pick someone with edit access to the view or table, "
+    "and to the data catalog for certify and deprecate suggestions."
+)
+ONLY_OPEN_ASSIGNABLE = "Only open suggestions can be assigned."
+ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
+ScopeLevel = Literal["read", "write"]
 
 
 class SuggestionPagination(LimitOffsetPagination):
@@ -85,9 +100,9 @@ class ProjectAccessPermission(BasePermission):
 
 
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "warehouse_objects"
+    scope_object = WAREHOUSE_SCOPE_OBJECT
     scope_object_read_actions = ["list", "retrieve", "status"]
-    scope_object_write_actions = ["accept", "dismiss", "resume"]
+    scope_object_write_actions = ["accept", "assign", "dismiss", "resume"]
     pagination_class = SuggestionPagination
     lookup_value_regex = UUID_REGEX
 
@@ -98,6 +113,36 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         super().initial(request, *args, **kwargs)
         if not is_warehouse_suggestions_enabled(self.team):
             raise PermissionDenied("Warehouse suggestions are not enabled for this project.")
+
+    def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
+        level = self._scope_level
+        fallback = f"{SUBJECT_SCOPE_OBJECTS[WarehouseSuggestionSubjectKind.SAVED_QUERY]}:{level}"
+        subject_scope = next(iter(self._token_scopes_by_kind(level).values()), fallback)
+        return [subject_scope, *ACCEPT_SCOPES] if self.action == "accept" else [subject_scope]
+
+    @property
+    def _scope_level(self) -> ScopeLevel:
+        return "write" if self.action in self.scope_object_write_actions else "read"
+
+    def _token_scopes_by_kind(self, level: ScopeLevel) -> dict[WarehouseSuggestionSubjectKind, str]:
+        held = get_authenticator_scopes(self.request.successful_authenticator) or ()
+        reaching: dict[WarehouseSuggestionSubjectKind, str] = {}
+        for subject_kind, scope_object in SUBJECT_SCOPE_OBJECTS.items():
+            candidates = (f"{self.scope_object}:{level}", f"{scope_object}:{level}")
+            held_scope = next((scope for scope in candidates if not scopes_not_covered(held, [scope])), None)
+            if held_scope is not None:
+                reaching[subject_kind] = held_scope
+        return reaching
+
+    def _kinds_reached(self, level: ScopeLevel) -> frozenset[WarehouseSuggestionSubjectKind]:
+        held = get_authenticator_scopes(self.request.successful_authenticator)
+        if held is None or "*" in held:
+            return frozenset(WarehouseSuggestionSubjectKind)
+        return frozenset(self._token_scopes_by_kind(level))
+
+    @cached_property
+    def _subject_kinds(self) -> SubjectKinds:
+        return SubjectKinds(readable=self._kinds_reached("read"), actionable=self._kinds_reached("write"))
 
     @validated_request(
         query_serializer=WarehouseSuggestionListQuerySerializer,
@@ -113,6 +158,9 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 self.user_access_control,
                 kind=WarehouseSuggestionKind(kind) if kind else None,
                 status=WarehouseSuggestionStatus(status) if status else None,
+                subject_id=request.validated_query_data.get("subject_id"),
+                assignee_id=request.validated_query_data.get("assignee_id"),
+                subject_kinds=self._subject_kinds,
                 limit=limit,
                 offset=offset,
             ),
@@ -125,7 +173,11 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @extend_schema(responses={200: WarehouseSuggestionSerializer})
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        return self._respond(lambda: api.get_suggestion(self.team_id, self.user_access_control, UUID(pk)))
+        return self._respond(
+            lambda: api.get_suggestion(
+                self.team_id, self.user_access_control, UUID(pk), subject_kinds=self._subject_kinds
+            )
+        )
 
     @validated_request(
         request_serializer=DismissWarehouseSuggestionSerializer,
@@ -141,6 +193,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 user=cast(User, request.user),
                 reason=request.validated_data["reason"],
                 note=request.validated_data.get("note") or None,
+                subject_kinds=self._subject_kinds,
             )
         )
 
@@ -148,17 +201,34 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         request_serializer=AcceptWarehouseSuggestionSerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
-    @action(detail=True, methods=["post"], required_scopes=ACCEPT_SCOPES)
-    def accept(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        interval_seconds = request.validated_data.get("refresh_interval_seconds")
+    @action(detail=True, methods=["post"])
+    def accept(self, request: TypedRequest[AcceptOptions], pk: str, **kwargs: Any) -> Response:
         return self._respond(
             lambda: api.accept_suggestion(
                 self.team,
                 self.user_access_control,
                 UUID(pk),
                 user=cast(User, request.user),
-                refresh_interval=timedelta(seconds=interval_seconds) if interval_seconds else None,
+                options=request.validated_data,
                 was_impersonated=is_impersonated(request),
+                subject_kinds=self._subject_kinds,
+            )
+        )
+
+    @validated_request(
+        request_serializer=AssignWarehouseSuggestionSerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
+    )
+    @action(detail=True, methods=["post"])
+    def assign(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        return self._respond(
+            lambda: api.assign_suggestion(
+                self.team,
+                self.user_access_control,
+                UUID(pk),
+                user=cast(User, request.user),
+                assignee_id=request.validated_data["assignee_id"],
+                subject_kinds=self._subject_kinds,
             )
         )
 
@@ -166,7 +236,13 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(detail=True, methods=["post"])
     def resume(self, request: Request, pk: str, **kwargs: Any) -> Response:
         return self._respond(
-            lambda: api.resume_suggestion(self.team, self.user_access_control, UUID(pk), user=cast(User, request.user))
+            lambda: api.resume_suggestion(
+                self.team,
+                self.user_access_control,
+                UUID(pk),
+                user=cast(User, request.user),
+                subject_kinds=self._subject_kinds,
+            )
         )
 
     def _respond(self, decide_or_read: Callable[[], Suggestion]) -> Response:
@@ -184,7 +260,13 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise Conflict(ALREADY_CERTIFIED[error.subject_kind])
         except SuggestionSubjectGoneError as error:
             raise ValidationError({"subject_id": SUBJECT_GONE[error.subject_kind]})
-        except RefreshIntervalRefusedError as error:
-            raise ValidationError({"refresh_interval_seconds": str(error)})
+        except AcceptOptionRefusedError as error:
+            raise ValidationError({error.field: str(error)})
+        except SuggestionOutdatedError as error:
+            raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))
+        except AssigneeCannotActError:
+            raise ValidationError({"assignee_id": ASSIGNEE_CANNOT_ACT})
+        except SuggestionNotOpenError:
+            raise Conflict(ONLY_OPEN_ASSIGNABLE)

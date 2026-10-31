@@ -285,4 +285,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "Status of the resource within the network: ok, attaching, detaching, updating or error.",
         },
     },
+    "zone_rrsets": {
+        "description": "DNS resource record sets (RRSets) of each zone. One row per record name and type.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "zone": "ID of the zone the RRSet belongs to.",
+            "id": "ID of the RRSet, composed of its name and type joined with a slash (e.g. www/AAAA).",
+            "name": "Name of the RRSet relative to the zone. The zone apex is @.",
+            "type": "DNS record type of the RRSet, e.g. A, AAAA, CNAME, MX or TXT.",
+            "ttl": "Time to live (TTL) of the RRSet, in seconds. Null when the zone's default TTL applies.",
+            "records": "Records of the RRSet, each with its value and an optional comment.",
+            "protection": "Protection configuration of the RRSet.",
+            "labels": "User-defined key/value labels attached to the RRSet.",
+        },
+    },
 }

@@ -1,4 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 # Yousign signs deliveries with X-Yousign-Signature-256: sha256=<hex hmac-sha256 of the raw
 # request body>, keyed with the subscription's secret_key (returned on webhook creation and

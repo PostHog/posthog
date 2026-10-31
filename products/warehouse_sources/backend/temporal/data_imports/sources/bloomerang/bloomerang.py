@@ -1,3 +1,4 @@
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -7,15 +8,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bloomerang
     BLOOMERANG_ENDPOINTS,
     PAGE_SIZE,
     BloomerangEndpointConfig,
+    BloomerangFanoutConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -26,16 +33,23 @@ BASE_URL = "https://api.bloomerang.co/v2"
 
 @frozen
 class BloomerangResumeConfig:
-    # Next `skip` value to resume from. Matches OffsetPaginator's own resume-state shape.
+    # Next `skip` value to resume from. Matches OffsetPaginator's own resume-state shape. For a
+    # fan-out table it is the `skip` of the parent page.
     next_offset: int
+    # Fan-out tables only: the first parent on that parent page that is not fully read.
+    parent_index: int = 0
+
+
+# A constituent or pledge can be deleted between the parent listing and the child request.
+_IGNORE_NOT_FOUND = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name="bloomerang")
 
 
 def _flatten_audit_trail(item: dict[str, Any]) -> dict[str, Any]:
     """Promote AuditTrail.CreatedDate/LastModifiedDate onto the row root.
 
-    Constituents, Transactions, and Interactions nest their timestamps under an `AuditTrail`
-    object; flattening them makes `CreatedDate` usable as a partition key and `LastModifiedDate`
-    usable as the incremental cursor column.
+    Every endpoint except Appeals, Campaigns, Funds, and Phones nests its timestamps under an
+    `AuditTrail` object; flattening them makes `CreatedDate` usable as a partition key and
+    `LastModifiedDate` usable as the incremental cursor column.
     """
     audit_trail = item.pop("AuditTrail", None)
     if isinstance(audit_trail, dict):
@@ -59,18 +73,32 @@ def _build_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
 ) -> dict[str, Any]:
+    params: dict[str, Any] = dict(config.extra_params)
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value:
-        return {
-            "lastModified": _format_last_modified(db_incremental_field_last_value),
-            "orderBy": "LastModifiedDate",
-            "orderDirection": "Asc",
-        }
-    if config.supports_sort:
+        params.update(
+            {
+                "lastModified": _format_last_modified(db_incremental_field_last_value),
+                "orderBy": "LastModifiedDate",
+                "orderDirection": "Asc",
+            }
+        )
+    elif config.supports_sort:
         # Explicit stable sort even for full refresh: Bloomerang's own default order direction
         # varies by endpoint (Transactions defaults to Desc), so an unstated default can't be
         # relied on to keep page boundaries stable as rows are inserted mid-sync.
-        return {"orderBy": "Id", "orderDirection": "Asc"}
-    return {}
+        params.update({"orderBy": config.sort_field, "orderDirection": "Asc"})
+    return params
+
+
+def _paginator() -> OffsetPaginator:
+    return OffsetPaginator(
+        limit=PAGE_SIZE,
+        offset_param="skip",
+        limit_param="take",
+        # TotalFiltered reflects whatever filters we send (e.g. lastModified); it equals the
+        # unfiltered Total when we send none.
+        total_path="TotalFiltered",
+    )
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -78,23 +106,118 @@ def _client_config(api_key: str) -> ClientConfig:
         "base_url": BASE_URL,
         "headers": {"Accept": "application/json"},
         "auth": {"type": "api_key", "name": "X-Api-Key", "api_key": api_key, "location": "header"},
-        # `capture=False`: Constituents, Transactions, and Interactions carry donor PII and
-        # free-form interaction notes that the name-based sample scrubbers can't recognise, so
+        # `capture=False`: Constituents, Transactions, Interactions, Notes, and Tasks carry donor PII
+        # and free-form notes that the name-based sample scrubbers can't recognise, so
         # keep every response body out of HTTP sample storage. Requests stay metered and logged.
         "session": make_tracked_session(redact_values=(api_key,), capture=False),
         # `X-Api-Key` isn't the standard Authorization header, which `requests` strips on a
         # cross-origin redirect, so a hostile redirect could otherwise harvest it — disable
         # redirects for production syncs the same way the credential probe below already does.
         "allow_redirects": False,
-        "paginator": OffsetPaginator(
-            limit=PAGE_SIZE,
-            offset_param="skip",
-            limit_param="take",
-            # TotalFiltered reflects whatever filters we send (e.g. lastModified); it equals the
-            # unfiltered Total when we send none.
-            total_path="TotalFiltered",
-        ),
+        "paginator": _paginator(),
     }
+
+
+def _rest_client(api_key: str) -> RESTClient:
+    return RESTClient(
+        base_url=BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=APIKeyAuth(api_key=api_key, name="X-Api-Key", location="header"),
+        # Same reasons as `_client_config`: donor PII stays out of samples, and no redirects.
+        session=make_tracked_session(redact_values=(api_key,), capture=False),
+        allow_redirects=False,
+    )
+
+
+def _parent_ids(row: dict[str, Any], fanout: BloomerangFanoutConfig) -> list[int]:
+    if fanout.designation_type is None:
+        ids = [row.get("Id")]
+    else:
+        ids = [
+            designation.get("Id")
+            for designation in row.get("Designations") or []
+            if isinstance(designation, dict) and designation.get("Type") == fanout.designation_type
+        ]
+    return [parent_id for parent_id in ids if isinstance(parent_id, int)]
+
+
+def _fanout_rows(
+    client: RESTClient,
+    config: BloomerangEndpointConfig,
+    fanout: BloomerangFanoutConfig,
+    resumable_source_manager: ResumableSourceManager[BloomerangResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the child endpoint for each parent, one parent page at a time.
+
+    The resume state is a position in the parent list, not the framework's fan-out state, which
+    keeps a list of every finished parent and grows with the size of the donor database.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    offset = resume.next_offset if resume else 0
+    first_parent = resume.parent_index if resume else 0
+    child_has_more_pages = False
+
+    def track_child_page(_state: Optional[dict[str, Any]], has_next_page: bool) -> None:
+        nonlocal child_has_more_pages
+        child_has_more_pages = has_next_page
+
+    for parent_page in client.paginate(
+        path=fanout.parent_path,
+        params=dict(fanout.parent_params),
+        paginator=_paginator(),
+        data_selector="Results",
+        data_selector_required=True,
+        initial_paginator_state={"offset": offset} if resume else None,
+    ):
+        resumable_source_manager.safe_point()
+        parent_ids = [
+            parent_id for row in parent_page if isinstance(row, dict) for parent_id in _parent_ids(row, fanout)
+        ]
+        for index in range(first_parent, len(parent_ids)):
+            parent_id = parent_ids[index]
+            after_parent = (
+                BloomerangResumeConfig(next_offset=offset, parent_index=index + 1)
+                if index + 1 < len(parent_ids)
+                else BloomerangResumeConfig(next_offset=offset + PAGE_SIZE)
+            )
+            yielded = False
+            for child_page in client.paginate(
+                path=config.path.replace("{id}", str(parent_id)),
+                paginator=_paginator(),
+                data_selector="Results",
+                data_selector_required=True,
+                hooks=_IGNORE_NOT_FOUND,
+                page_state_hook=track_child_page,
+            ):
+                rows = [{**row, fanout.parent_id_column: parent_id} for row in child_page if isinstance(row, dict)]
+                if not rows:
+                    continue
+                # A parent with child pages still to read is read again from its first page.
+                resumable_source_manager.save_state(
+                    BloomerangResumeConfig(next_offset=offset, parent_index=index)
+                    if child_has_more_pages
+                    else after_parent
+                )
+                yield rows
+                yielded = True
+            if not yielded:
+                resumable_source_manager.safe_point()
+        first_parent = 0
+        offset += PAGE_SIZE
+
+
+def _source_response(config: BloomerangEndpointConfig, items: Callable[[], Any]) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        sort_mode="asc",
+    )
 
 
 def bloomerang_source(
@@ -107,6 +230,11 @@ def bloomerang_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = BLOOMERANG_ENDPOINTS[endpoint]
+    fanout = config.fanout
+    if fanout is not None:
+        client = _rest_client(api_key)
+        return _source_response(config, lambda: _fanout_rows(client, config, fanout, resumable_source_manager))
+
     is_incremental = config.supports_incremental and should_use_incremental_field
 
     rest_config: RESTAPIConfig = {
@@ -153,17 +281,7 @@ def bloomerang_source(
     if config.has_audit_trail:
         resource = resource.add_map(_flatten_audit_trail)
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=config.primary_keys,
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="month" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
-    )
+    return _source_response(config, lambda: resource)
 
 
 def validate_credentials(api_key: str) -> tuple[bool, int | None]:

@@ -59,7 +59,7 @@ type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], in
 
 
 class BillingLimitsWillBeReachedException(NonReportableError):
-    """The sync was intentionally halted because the account will cross its Data Warehouse billing
+    """The sync was intentionally halted because the account will cross its Sources billing
     limit. Expected control flow, not a defect: the workflow marks the job BILLING_LIMIT_TOO_LOW,
     and subclassing NonReportableError keeps it out of error tracking."""
 
@@ -470,6 +470,9 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     debug_info = f'{{"load_id": {load_id}}}'
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
+    # Source data can already carry `_ph_debug`, e.g. files written by an earlier PostHog sync.
+    if "_ph_debug" in table.column_names:
+        return table.set_column(table.schema.get_field_index("_ph_debug"), "_ph_debug", column)
     return table.append_column("_ph_debug", column)
 
 
@@ -495,6 +498,16 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 
 
 INTERNAL_COLUMN_NAMES = frozenset({"_ph_debug", PARTITION_KEY, "_dlt_id", "_dlt_load_id"})
+
+
+def drop_internal_columns(table: pa.Table) -> pa.Table:
+    """Drop the columns the pipeline adds itself from a source batch.
+
+    A source can return them when it reads a table PostHog wrote, such as a Delta table in a bucket.
+    Kept, they would exist twice in the batch once the pipeline adds its own.
+    """
+    internal = [name for name in table.column_names if name in INTERNAL_COLUMN_NAMES]
+    return table.drop_columns(internal) if internal else table
 
 
 def _fold_column_name_for_match(name: str) -> str:
@@ -1904,6 +1917,9 @@ def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal[
     the latest occurrence of a key carries the freshest data. Either way the merge
     receives at most one source row per key, avoiding ambiguous multi-match merge
     semantics (and the duplicate inserts `when_not_matched_insert_all` would produce).
+
+    When no PK tuple repeats, the input table itself is returned, so the caller does not hold a
+    second copy of it.
     """
     if not pk_columns or pa_table.num_rows == 0:
         return pa_table
@@ -1922,6 +1938,10 @@ def first_per_pk_table(pa_table: pa.Table, pk_columns: list[str], keep: Literal[
 
     # 2. Group by PK, keeping only one position per PK
     grouped = indexed.group_by(pk_columns).aggregate([(idx_col_name, aggregate)])
+
+    # One group per row keeps every row in its place, and `take` would only copy the whole table.
+    if grouped.num_rows == pa_table.num_rows:
+        return pa_table
 
     # 3. Sort those positions ascending so the output mirrors the input row order
     kept_indices = np.sort(grouped.column(f"{idx_col_name}_{aggregate}").to_numpy())

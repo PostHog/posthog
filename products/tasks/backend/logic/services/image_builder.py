@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import logging
 
-from products.tasks.backend.constants import vm_sandbox_allowed_origins
+from products.tasks.backend.constants import (
+    get_vm_sandbox_flag_payload,
+    vm_sandbox_allowed_origin_products,
+    vm_sandbox_default_base_origin_products,
+    vm_sandbox_origin_rollout_percentages,
+)
 from products.tasks.backend.logic.services.image_spec import (
     SANDBOX_IMAGE_SPEC_PATH,
     SandboxImageSpec,
@@ -14,11 +19,19 @@ from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
 logger = logging.getLogger(__name__)
 
 
-def is_custom_images_enabled(*, distinct_id: str, organization_id: str) -> bool:
+def is_custom_images_enabled(*, distinct_id: str, organization_id: str, origin_product: str | None = None) -> bool:
     """Custom images require the Modal VM runtime flag with `user_created` in its origin allowlist."""
     try:
-        allowed = vm_sandbox_allowed_origins(distinct_id=distinct_id, organization_id=organization_id)
-        return Task.OriginProduct.USER_CREATED.value in allowed
+        payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
+        allowed = vm_sandbox_allowed_origin_products(payload)
+        if Task.OriginProduct.USER_CREATED.value not in allowed:
+            return False
+        return (
+            origin_product is None
+            or origin_product in allowed
+            or origin_product in vm_sandbox_default_base_origin_products(payload)
+            or vm_sandbox_origin_rollout_percentages(payload).get(origin_product, 0) >= 100
+        )
     except Exception as e:
         logger.warning("custom_images_flag_check_failed", extra={"error": str(e)})
         return False

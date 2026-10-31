@@ -16,13 +16,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
     DAY_DIMENSION_WINDOW_DAYS,
     DAY_FIELD,
     DEFAULT_LOOKBACK_DAYS,
+    FULL_REFRESH_PRIMARY_KEYS,
     MAX_CHANNELS_PER_PAGE,
-    MAX_RESULTS_PER_PAGE,
+    MAX_PER_VIDEO_REPORT_VIDEOS,
+    MAX_PLAYLISTS_PER_PAGE,
+    MAX_VIDEOS_PER_PAGE,
     MIN_START_DATE,
+    PER_VIDEO_REPORTS,
+    VIDEO_PARTS,
+    VIDEOS,
     YOUTUBE_ANALYTICS_HOST,
     YOUTUBE_ANALYTICS_REPORTS,
     YOUTUBE_DATA_HOST,
     YouTubeAnalyticsReportConfig,
+    YouTubeAnalyticsVideoReportConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 120
@@ -71,7 +78,7 @@ def rows_from_result(body: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 class YouTubeAnalyticsClient:
-    """Queries `reports.query` with the connected Google account's access token."""
+    """Queries `reports.query` and the YouTube Data API with the connected Google account's access token."""
 
     def __init__(
         self,
@@ -95,8 +102,9 @@ class YouTubeAnalyticsClient:
         return f"{YOUTUBE_ANALYTICS_HOST}/{self._api_version}/reports"
 
     def query(self, params: dict[str, str]) -> dict[str, Any]:
-        url = f"{self.reports_url}?{urlencode(params)}"
+        return self.get_json(f"{self.reports_url}?{urlencode(params)}")
 
+    def get_json(self, url: str) -> dict[str, Any]:
         def _get(token: str) -> requests.Response:
             return self._session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -222,6 +230,7 @@ def _fetch_window(
     ids: str,
     window_start: date,
     window_end: date,
+    filter_value: str | None = None,
 ) -> list[dict[str, Any]]:
     dimensions = ((DAY_FIELD,) if report.day_is_dimension else ()) + report.dimensions
     stamped_day = coerce_day(window_start)
@@ -234,24 +243,55 @@ def _fetch_window(
             "startDate": window_start.isoformat(),
             "endDate": window_end.isoformat(),
             "metrics": ",".join(report.metrics),
-            "maxResults": str(MAX_RESULTS_PER_PAGE),
+            "maxResults": str(report.max_results),
             "startIndex": str(start_index),
         }
         if dimensions:
             params["dimensions"] = ",".join(dimensions)
         if report.sort:
             params["sort"] = report.sort
+        if report.filter_dimension and filter_value is not None:
+            params["filters"] = f"{report.filter_dimension}=={filter_value}"
 
         rows = rows_from_result(client.query(params))
         for row in rows:
             row[DAY_FIELD] = coerce_day(row.get(DAY_FIELD)) if report.day_is_dimension else stamped_day
+            if report.filter_dimension and filter_value is not None:
+                row[report.filter_dimension] = filter_value
         collected.extend(rows)
 
-        if report.single_page or len(rows) < MAX_RESULTS_PER_PAGE:
+        if report.single_page or len(rows) < report.max_results:
             break
         start_index += len(rows)
 
     return collected
+
+
+def _playlist_ids(
+    client: YouTubeAnalyticsClient,
+    channel_id: str | None,
+    resumable_source_manager: ResumableSourceManager[YouTubeAnalyticsResumeConfig],
+) -> list[str]:
+    """IDs of the playlists the channel owns. Playlist reports only cover the owner's playlists."""
+    params = {"part": "id", "maxResults": str(MAX_PLAYLISTS_PER_PAGE)}
+    cleaned = (channel_id or "").strip()
+    if cleaned:
+        params["channelId"] = cleaned
+    else:
+        params["mine"] = "true"
+    # A playlist created mid-walk shifts the list, which can repeat a playlist on the next page.
+    playlist_ids: dict[str, None] = {}
+    while True:
+        body = client.get_json(f"{YOUTUBE_DATA_HOST}/playlists?{urlencode(params)}")
+        for item in body.get("items") or []:
+            if item.get("id"):
+                playlist_ids[item["id"]] = None
+        page_token = body.get("nextPageToken")
+        if not page_token:
+            return list(playlist_ids)
+        params["pageToken"] = page_token
+        # No report row has been read yet, so a hand-off here loses nothing.
+        resumable_source_manager.safe_point()
 
 
 def get_rows(
@@ -285,15 +325,27 @@ def get_rows(
             cursor = resumed.date()
             logger.debug(f"YouTube Analytics: resuming {endpoint} from {cursor.isoformat()}")
 
+    filter_values: tuple[str | None, ...] = report.filter_values or (None,)
+    if report.filter_values_from_playlists:
+        filter_values = tuple(_playlist_ids(client, channel_id, resumable_source_manager))
+        if not filter_values:
+            logger.debug(f"YouTube Analytics: the channel owns no playlists, so {endpoint} has nothing to sync")
+            resumable_source_manager.clear_state()
+            return
+
     while cursor <= end_day:
         if report.day_is_dimension:
             window_end = min(cursor + timedelta(days=DAY_DIMENSION_WINDOW_DAYS - 1), end_day)
         else:
             window_end = cursor
 
-        rows = _fetch_window(client, report, ids, cursor, window_end)
-        if rows:
-            yield rows
+        for filter_value in filter_values:
+            rows = _fetch_window(client, report, ids, cursor, window_end, filter_value)
+            if rows:
+                yield rows
+            else:
+                # The staged cursor is this window's start, so a hand-off here re-reads only this window.
+                resumable_source_manager.safe_point()
 
         cursor = window_end + timedelta(days=1)
         # Saved after the window is yielded: a crash re-yields the last window and the merge
@@ -301,6 +353,126 @@ def get_rows(
         resumable_source_manager.save_state(YouTubeAnalyticsResumeConfig(next_start_date=cursor.isoformat()))
 
     resumable_source_manager.clear_state()
+
+
+def _uploads_playlist_id(client: YouTubeAnalyticsClient, channel_id: str | None) -> str | None:
+    params = {"part": "contentDetails", "maxResults": "1"}
+    cleaned = (channel_id or "").strip()
+    if cleaned:
+        params["id"] = cleaned
+    else:
+        params["mine"] = "true"
+    body = client.get_json(f"{YOUTUBE_DATA_HOST}/channels?{urlencode(params)}")
+    for item in body.get("items") or []:
+        uploads = ((item.get("contentDetails") or {}).get("relatedPlaylists") or {}).get("uploads")
+        if uploads:
+            return uploads
+    return None
+
+
+def get_video_rows(
+    access_token: str,
+    refresh_access_token: AccessTokenRefresher | None,
+    channel_id: str | None,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[YouTubeAnalyticsResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Every video in the channel's uploads playlist, with its metadata and lifetime statistics."""
+    client = YouTubeAnalyticsClient(access_token, refresh_access_token=refresh_access_token, logger=logger)
+
+    playlist_id = _uploads_playlist_id(client, channel_id)
+    if playlist_id is None:
+        logger.warning("YouTube Analytics: the channel has no uploads playlist, so no videos to sync")
+        return
+
+    seen: set[str] = set()
+    page_token: str | None = None
+    while True:
+        params = {"part": "contentDetails", "playlistId": playlist_id, "maxResults": str(MAX_VIDEOS_PER_PAGE)}
+        if page_token:
+            params["pageToken"] = page_token
+        try:
+            page = client.get_json(f"{YOUTUBE_DATA_HOST}/playlistItems?{urlencode(params)}")
+        except requests.HTTPError as e:
+            # A channel that never uploaded has no readable uploads playlist.
+            if page_token is None and e.response is not None and e.response.status_code == 404:
+                return
+            raise
+
+        # A video uploaded mid-walk shifts the playlist, which can repeat a video on the next page.
+        video_ids = []
+        for item in page.get("items") or []:
+            video_id = (item.get("contentDetails") or {}).get("videoId")
+            if video_id and video_id not in seen:
+                seen.add(video_id)
+                video_ids.append(video_id)
+
+        rows: list[dict[str, Any]] = []
+        if video_ids:
+            video_params = {"part": VIDEO_PARTS, "id": ",".join(video_ids), "maxResults": str(MAX_VIDEOS_PER_PAGE)}
+            rows = client.get_json(f"{YOUTUBE_DATA_HOST}/videos?{urlencode(video_params)}").get("items") or []
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+        page_token = page.get("nextPageToken")
+        if not page_token:
+            break
+
+
+def get_per_video_rows(
+    report: YouTubeAnalyticsVideoReportConfig,
+    access_token: str,
+    refresh_access_token: AccessTokenRefresher | None,
+    channel_id: str | None,
+    start_date: str | None,
+    api_version: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[YouTubeAnalyticsResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """One report per video over the sync window, for the channel's top videos by views in that window."""
+    client = YouTubeAnalyticsClient(
+        access_token, refresh_access_token=refresh_access_token, api_version=api_version, logger=logger
+    )
+    today = datetime.now(UTC).date()
+    end_day = today - timedelta(days=DATA_LATENCY_DAYS)
+    start_day = resolve_start_day(start_date, False, None, today)
+    if start_day > end_day:
+        return
+
+    window = {"ids": channel_ids_param(channel_id), "startDate": start_day.isoformat(), "endDate": end_day.isoformat()}
+    top_videos_params = {
+        **window,
+        "dimensions": "video",
+        "metrics": "views",
+        "sort": "-views",
+        "maxResults": str(MAX_PER_VIDEO_REPORT_VIDEOS),
+    }
+    if report.video_filter:
+        top_videos_params["filters"] = report.video_filter
+    top_videos = rows_from_result(client.query(top_videos_params))
+
+    for video_id in [row.get("video") for row in top_videos]:
+        if not video_id:
+            continue
+        # The report accepts exactly one video per request.
+        rows = rows_from_result(
+            client.query(
+                {
+                    **window,
+                    "dimensions": report.dimension,
+                    "metrics": ",".join(report.metrics),
+                    "filters": f"video=={video_id}",
+                }
+            )
+        )
+        for row in rows:
+            row["video"] = video_id
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
 
 
 def youtube_analytics_source(
@@ -315,6 +487,36 @@ def youtube_analytics_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    if endpoint == VIDEOS:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_video_rows(
+                access_token=access_token,
+                refresh_access_token=refresh_access_token,
+                channel_id=channel_id,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+            ),
+            primary_keys=FULL_REFRESH_PRIMARY_KEYS[VIDEOS],
+        )
+
+    if endpoint in PER_VIDEO_REPORTS:
+        per_video_report = PER_VIDEO_REPORTS[endpoint]
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_per_video_rows(
+                report=per_video_report,
+                access_token=access_token,
+                refresh_access_token=refresh_access_token,
+                channel_id=channel_id,
+                start_date=start_date,
+                api_version=api_version,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+            ),
+            primary_keys=per_video_report.primary_keys,
+        )
+
     report = YOUTUBE_ANALYTICS_REPORTS[endpoint]
 
     return SourceResponse(
@@ -337,5 +539,5 @@ def youtube_analytics_source(
         partition_mode="datetime",
         partition_format="month",
         partition_keys=[DAY_FIELD],
-        sort_mode="asc",
+        sort_mode="asc" if report.rows_ascend_by_day else None,
     )

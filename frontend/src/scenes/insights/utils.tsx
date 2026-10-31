@@ -13,6 +13,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -31,6 +32,7 @@ import {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InsightQueryNode,
     InsightVizNode,
     Node,
     NodeKind,
@@ -47,9 +49,12 @@ import {
     isDataTableNode,
     isEventsNode,
     isGroupNode,
+    isHogQLQuery,
     isInsightVizNode,
+    isNodeWithSource,
 } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
+import { getResultSeriesIndex } from '~/scenes/insights/utils/resultSeries'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionFilter,
@@ -607,17 +612,18 @@ export function getFunnelDatasetKey(dataset: { breakdown_value?: BreakdownKeyTyp
 
 /** Identifies the base series — deliberately excludes `compare_label`, so that current and
  * previous period datasets share a single result customization. */
-export function getTrendDatasetKey(dataset: IndexedTrendResult): string {
+export function getTrendDatasetKey(
+    dataset: IndexedTrendResult,
+    querySource: InsightQueryNode | null | undefined
+): string {
     // for formulas, the position (not seriesIndex) identifies the base series: with compare
     // enabled, previous-period datasets have offset series indexes, but share the position
     // with their current-period counterpart
     const formulaPosition = getTrendDatasetPosition(dataset)
     const payload = {
-        series: Number.isInteger(dataset.action?.order)
-            ? dataset.action?.order
-            : formulaPosition > 0
-              ? `formula${formulaPosition + 1}`
-              : 'formula',
+        series:
+            getResultSeriesIndex(querySource, dataset) ??
+            (formulaPosition > 0 ? `formula${formulaPosition + 1}` : 'formula'),
         breakdown_value:
             dataset.breakdown_value !== undefined && !Array.isArray(dataset.breakdown_value)
                 ? [dataset.breakdown_value]
@@ -655,10 +661,11 @@ export function getFunnelDatasetPosition(
 
 export function getTrendResultCustomizationKey(
     resultCustomizationBy: ResultCustomizationBy | null | undefined,
-    dataset: IndexedTrendResult
+    dataset: IndexedTrendResult,
+    querySource: InsightQueryNode | null | undefined
 ): string {
     const assignmentByValue = resultCustomizationBy == null || resultCustomizationBy === ResultCustomizationBy.Value
-    return assignmentByValue ? getTrendDatasetKey(dataset) : getTrendDatasetPosition(dataset).toString()
+    return assignmentByValue ? getTrendDatasetKey(dataset, querySource) : getTrendDatasetPosition(dataset).toString()
 }
 
 export function getTrendResultCustomization(
@@ -668,9 +675,10 @@ export function getTrendResultCustomization(
         | Record<string, ResultCustomizationByValue>
         | Record<number, ResultCustomizationByPosition>
         | null
-        | undefined
+        | undefined,
+    querySource: InsightQueryNode | null | undefined
 ): ResultCustomization | undefined {
-    const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
+    const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset, querySource)
     return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
         ? (resultCustomizations as any)[resultCustomizationKey]
         : undefined
@@ -694,9 +702,15 @@ export function getTrendResultCustomizationColorToken(
         | null
         | undefined,
     theme: DataColorTheme,
-    dataset: IndexedTrendResult
+    dataset: IndexedTrendResult,
+    querySource: InsightQueryNode | null | undefined
 ): DataColorToken {
-    const resultCustomization = getTrendResultCustomization(resultCustomizationBy, dataset, resultCustomizations)
+    const resultCustomization = getTrendResultCustomization(
+        resultCustomizationBy,
+        dataset,
+        resultCustomizations,
+        querySource
+    )
 
     // for result customizations without a configuration, the color is determined
     // by the position in the dataset (shared by current/previous period pairs).
@@ -904,13 +918,27 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
 }
 
 export const getOverrideWarningPropsForButton = (
+    query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
     variablesOverride: Record<string, HogQLVariable> | null | undefined
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
+    // The backend applies dashboard filters to a SQL query only through a {filters} placeholder, and
+    // dashboard variables only to the variables the query declares. Other overrides do not change
+    // the result, so editing discards nothing.
+    const hogQLSource = isHogQLQuery(query)
+        ? query
+        : isNodeWithSource(query) && isHogQLQuery(query.source)
+          ? query.source
+          : null
     const filterOverridesExist =
         isObject(filtersOverride) &&
-        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
-    const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
+        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0)) &&
+        (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
+    const variableOverridesExist =
+        isObject(variablesOverride) &&
+        (hogQLSource
+            ? Object.keys(variablesOverride).some((variableId) => !!hogQLSource.variables?.[variableId])
+            : !isEmptyObject(variablesOverride))
 
     const overrideType =
         filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'

@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -21,8 +23,12 @@ PAGE_KEY_PARAM = "page_key"
 # re-reads from midnight of the watermark's day. The merge dedupes those rows on the primary key.
 INCREMENTAL_START_PARAM = "after"
 
+EARNINGS_ENDPOINT = "earnings"
+# Gumroad launched in 2011, so no account has a tax year before it.
+EARNINGS_FIRST_YEAR = 2011
 
-@dataclass
+
+@frozen
 class GumroadEndpointConfig:
     name: str
     path: str
@@ -39,6 +45,8 @@ class GumroadEndpointConfig:
     # Path probed to tell whether the token carries the OAuth scope this table needs.
     permission_probe_path: str = "/v2/user"
     required_scope: str = "view_public"
+    # Shown in place of the missing-scope message when the probe can fail for another reason too.
+    permission_error: str | None = None
 
 
 # Every product-scoped table fans out over `/v2/products`, carrying the parent's `id` in as
@@ -146,6 +154,69 @@ GUMROAD_ENDPOINTS: dict[str, GumroadEndpointConfig] = {
         paginated=False,
         fanout=_PRODUCT_FANOUT,
         permission_probe_path="/v2/products",
+    ),
+    "emails": GumroadEndpointConfig(
+        name="emails",
+        path="/v2/emails",
+        data_selector="emails",
+        primary_key=["id"],
+        # No server-side date filter on this endpoint — full refresh.
+        partition_key="created_at",
+        permission_probe_path="/v2/emails",
+        required_scope="edit_emails",
+    ),
+    "workflows": GumroadEndpointConfig(
+        name="workflows",
+        path="/v2/workflows",
+        data_selector="workflows",
+        primary_key=["id"],
+        paginated=False,
+        partition_key="created_at",
+        permission_probe_path="/v2/workflows",
+        required_scope="edit_emails",
+    ),
+    "workflow_emails": GumroadEndpointConfig(
+        name="workflow_emails",
+        # The list endpoint omits the email steps; only the per-workflow read carries them and
+        # their delivery statistics.
+        path="/v2/workflows/{workflow_id}",
+        data_selector="workflow.emails",
+        primary_key=["workflow_id", "id"],
+        paginated=False,
+        partition_key="created_at",
+        fanout=DependentEndpointConfig(
+            parent_name="workflows",
+            resolve_param="workflow_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "workflow_id"},
+        ),
+        permission_probe_path="/v2/workflows",
+        required_scope="edit_emails",
+    ),
+    "upcoming_payouts": GumroadEndpointConfig(
+        name="upcoming_payouts",
+        path="/v2/payouts/upcoming",
+        data_selector="payouts",
+        # Upcoming payouts have a null `id`; `created_at` is the scheduled payout date, and there
+        # is at most one upcoming payout per date.
+        primary_key=["created_at"],
+        paginated=False,
+        permission_probe_path="/v2/payouts",
+        required_scope="view_payouts",
+    ),
+    "earnings": GumroadEndpointConfig(
+        name="earnings",
+        # Read one tax year per request; see `_earnings_rows`.
+        path="/v2/earnings",
+        data_selector="",
+        primary_key=["year"],
+        paginated=False,
+        permission_probe_path="/v2/earnings",
+        required_scope="view_tax_data",
+        permission_error=(
+            "Earnings need the view_tax_data scope and a US-based Gumroad account with the Tax Center enabled."
+        ),
     ),
 }
 

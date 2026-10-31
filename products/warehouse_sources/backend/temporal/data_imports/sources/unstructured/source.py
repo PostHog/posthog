@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class UnstructuredSource(ResumableSource[UnstructuredSourceConfig, UnstructuredResumeConfig]):
+    codebase_detection = detect(
+        env=("^UNSTRUCTURED_",), npm=("unstructured-client",), pypi=("unstructured", "unstructured-client")
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.unstructured.io/api-reference"
@@ -54,7 +59,7 @@ class UnstructuredSource(ResumableSource[UnstructuredSourceConfig, UnstructuredR
             name=ExternalDataSourceType.UNSTRUCTURED,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Unstructured",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Unstructured API key to pull your [Unstructured](https://unstructured.io) document-pipeline metadata into the PostHog Data warehouse.
 
 Generate an API key in the [Unstructured platform dashboard](https://platform.unstructuredapp.io). The key has account-wide read access, so no extra scopes are needed.
@@ -152,4 +157,6 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

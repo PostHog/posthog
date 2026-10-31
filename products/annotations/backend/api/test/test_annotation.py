@@ -13,6 +13,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
@@ -375,7 +376,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         instance = Annotation.objects.create(organization=self.organization, team=self.team, created_by=self.user)
         self.client.force_login(new_user)
 
-        with patch("posthog.api.team.report_user_action"):
+        with patch("posthog.api.team.viewsets.report_user_action"):
             response = self.client.delete(f"/api/projects/{self.team.id}/annotations/{instance.pk}/")
 
         assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
@@ -509,6 +510,39 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response.status_code == 400
         assert response.json()["detail"] == f"Invalid date range: {error_message}"
 
+    @parameterized.expand([("dashboard", "dashboard_id"), ("dashboard_item", "dashboard_item")])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_attaching_needs_viewer_access_to_the_parent(self, scope: str, field: str) -> None:
+        parent: Dashboard | Insight
+        if scope == "dashboard":
+            parent = Dashboard.objects.create(team=self.team, name="Restricted")
+            AccessControl.objects.create(
+                team=self.team, resource="dashboard", resource_id=str(parent.id), access_level="none"
+            )
+            stored = Annotation.objects.create(
+                organization=self.organization, team=self.team, scope=scope, dashboard=parent
+            )
+        else:
+            parent = Insight.objects.create(team=self.team, name="Restricted")
+            AccessControl.objects.create(
+                team=self.team, resource="insight", resource_id=str(parent.id), access_level="none"
+            )
+            stored = Annotation.objects.create(
+                organization=self.organization, team=self.team, scope=scope, dashboard_item=parent
+            )
+        self.client.force_login(self._create_user("annotation-member@example.com"))
+        payload = {"content": "x", "scope": scope, "date_marker": "2024-01-01T00:00:00.000000Z", field: parent.id}
+
+        created = self.client.post(f"/api/projects/{self.team.id}/annotations/", payload)
+        edited = self.client.patch(f"/api/projects/{self.team.id}/annotations/{stored.id}/", payload)
+
+        assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
+        assert created.json()["attr"] == field
+        assert Annotation.objects.filter(team=self.team).count() == 1
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+
     def test_creating_annotation_with_dashboard_from_same_team(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
 
@@ -609,6 +643,64 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == self.validation_error_response("Dashboard not found.", attr="dashboard_id")
+
+    @parameterized.expand(
+        [
+            ("create_insight_scope", None, {"scope": "dashboard_item"}, "dashboard_item"),
+            ("create_dashboard_scope", None, {"scope": "dashboard"}, "dashboard_id"),
+            ("patch_to_insight_scope", "project", {"scope": "dashboard_item"}, "dashboard_item"),
+            ("patch_to_dashboard_scope", "project", {"scope": "dashboard"}, "dashboard_id"),
+            ("patch_clears_insight", "insight", {"scope": "dashboard_item", "dashboard_item": None}, "dashboard_item"),
+            ("patch_keeps_stored_insight", "insight", {"scope": "dashboard_item"}, None),
+            ("patch_keeps_stored_dashboard", "dashboard", {"scope": "dashboard"}, None),
+            ("patch_without_scope_on_default_row", "none", {"content": "edited"}, None),
+            ("patch_clears_dashboard_without_scope", "dashboard", {"dashboard_id": None}, "dashboard_id"),
+            ("patch_clears_insight_without_scope", "insight", {"dashboard_item": None}, "dashboard_item"),
+            (
+                "ui_edit_of_default_row",
+                "none",
+                {"content": "edited", "scope": "dashboard_item", "dashboard_item": None, "dashboard_id": None},
+                None,
+            ),
+            (
+                "ui_edit_of_detached_dashboard_row",
+                "detached_dashboard",
+                {"content": "edited", "scope": "dashboard", "dashboard_item": None, "dashboard_id": None},
+                None,
+            ),
+        ]
+    )
+    def test_insight_and_dashboard_scopes_require_the_matching_id(
+        self, _name: str, existing_parent: str | None, payload: dict[str, Any], error_attr: str | None
+    ) -> None:
+        if existing_parent is None:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/annotations/",
+                {"content": "Scoped annotation", "date_marker": "2024-01-01T00:00:00.000000Z", **payload},
+            )
+        else:
+            annotation = Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                created_by=self.user,
+                content="Original annotation",
+                scope={
+                    "dashboard": Annotation.Scope.DASHBOARD,
+                    "detached_dashboard": Annotation.Scope.DASHBOARD,
+                    "project": Annotation.Scope.PROJECT,
+                }.get(existing_parent, Annotation.Scope.INSIGHT),
+                dashboard_item=Insight.objects.create(team=self.team) if existing_parent == "insight" else None,
+                dashboard=Dashboard.objects.create(team=self.team) if existing_parent == "dashboard" else None,
+            )
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/annotations/{annotation.id}/", payload, format="json"
+            )
+
+        if error_attr is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["attr"] == error_attr
 
     def test_creating_annotation_with_insight_from_different_team_returns_400(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

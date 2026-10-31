@@ -6,17 +6,18 @@ use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message;
+use rdkafka::error::KafkaError;
 use rdkafka::message::Message as KafkaMessage;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::buffer::{BufferedPerson, PersonBuffer};
-use crate::kafka::PersonConsumer;
+use crate::kafka::{PersonConsumer, Source};
 
 /// Batch of persons and their Kafka offsets, sent from consumer to writer.
 pub struct FlushBatch {
     pub persons: Vec<BufferedPerson>,
-    pub offsets: HashMap<i32, i64>,
+    pub offsets: HashMap<Source, i64>,
     /// Timestamp of the oldest Kafka message in this batch (millis since epoch).
     /// Used to compute end-to-end latency from ingestion to PG commit.
     pub oldest_message_ts_ms: Option<i64>,
@@ -31,7 +32,7 @@ fn drop_revoked_partitions(consumer: &PersonConsumer, lanes: &mut [Lane]) {
     }
     let dropped: usize = lanes
         .iter_mut()
-        .map(|lane| lane.buffer.remove_partitions(&revoked))
+        .map(|lane| lane.buffer.remove_sources(&revoked))
         .sum();
     counter!("personhog_writer_partitions_revoked_total").increment(revoked.len() as u64);
     counter!("personhog_writer_revoked_rows_dropped_total", "stage" => "buffer")
@@ -61,6 +62,8 @@ pub struct ConsumerTask {
     flush_interval: Duration,
     flush_buffer_size: usize,
     handle: Handle,
+    /// The last message's topic, shared by every row from it.
+    topic: Arc<str>,
 }
 
 impl ConsumerTask {
@@ -99,15 +102,30 @@ impl ConsumerTask {
                 flush_tx,
             })
             .collect();
+        let topic = Arc::from(consumer.topic().as_str());
         Self {
             consumer,
             lanes,
             flush_interval,
             flush_buffer_size,
             handle,
+            topic,
         }
     }
+}
 
+/// Rows share one allocation per topic; the cache is the last topic seen.
+fn source_from(cache: &mut Arc<str>, topic: &str, partition: i32) -> Source {
+    if &**cache != topic {
+        *cache = Arc::from(topic);
+    }
+    Source {
+        topic: Arc::clone(cache),
+        partition,
+    }
+}
+
+impl ConsumerTask {
     pub async fn run(mut self) {
         let _guard = self.handle.process_scope();
         let mut flush_timer = tokio::time::interval(self.flush_interval);
@@ -160,6 +178,8 @@ impl ConsumerTask {
                             let partition = borrowed_msg.partition();
                             let offset = borrowed_msg.offset();
                             let ts_ms = borrowed_msg.timestamp().to_millis();
+                            let source =
+                                source_from(&mut self.topic, borrowed_msg.topic(), partition);
 
                             drop_revoked_partitions(&self.consumer, &mut self.lanes);
 
@@ -170,7 +190,7 @@ impl ConsumerTask {
                                             .increment(1);
                                         let idx = (partition as usize) % self.lanes.len();
                                         let lane = &mut self.lanes[idx];
-                                        lane.buffer.insert(person, partition, offset, ts_ms);
+                                        lane.buffer.insert(person, source, offset, ts_ms);
 
                                         // Size-triggered flushes never block the
                                         // consume loop: if this lane's writer is
@@ -198,6 +218,11 @@ impl ConsumerTask {
                                 }
                             }
                         }
+                        Err(KafkaError::PartitionEOF(partition)) => {
+                            if self.consumer.is_draining() {
+                                self.flush_partition_end(partition).await;
+                            }
+                        }
                         Err(e) => {
                             counter!("personhog_writer_kafka_errors_total").increment(1);
                             warn!(error = %e, "Kafka recv error");
@@ -222,6 +247,18 @@ impl ConsumerTask {
         info!("Consumer task stopped");
     }
 
+    /// A sealed partition's tail flushes at once instead of waiting out the timer.
+    async fn flush_partition_end(&mut self, partition: i32) {
+        let idx = (partition as usize) % self.lanes.len();
+        while !self.lanes[idx].buffer.is_empty() {
+            counter!("personhog_writer_flushes_by_trigger_total", "trigger" => "partition_end")
+                .increment(1);
+            self.send_flush(idx).await;
+        }
+        counter!("personhog_writer_partition_ends_total").increment(1);
+        info!(partition, "reached the end of a sealed partition");
+    }
+
     /// Drain up to `flush_buffer_size` rows (whole partitions only) from a
     /// lane's buffer into a batch. Offset and buffer-size gauges are
     /// recorded here, per flush — updating them per message is too
@@ -231,10 +268,10 @@ impl ConsumerTask {
         let lane = &mut self.lanes[idx];
         let batch = lane.buffer.drain_up_to(self.flush_buffer_size)?;
 
-        for (partition, offset) in &batch.offsets {
+        for (source, offset) in &batch.offsets {
             gauge!(
                 "personhog_writer_partition_offset",
-                "partition" => partition.to_string()
+                "partition" => source.partition.to_string()
             )
             .set(*offset as f64);
         }

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import re
 import json
+import time
 import asyncio
 import logging
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
@@ -21,8 +22,14 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.facade.contracts import AgentTaskRunDTO
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
+from products.tasks.backend.facade.api import upload_task_run_artifacts
+from products.tasks.backend.facade.contracts import AgentStartupFailure, AgentTaskRunDTO, SessionFile
+from products.tasks.backend.logic.services.startup_failure import (
+    AgentStartupFailed,
+    SandboxRunFailed as SandboxRunFailed,
+    read_startup_failure,
+)
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -38,6 +45,7 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+FINAL_POLL_READ_SECONDS = 5
 # Turn-relevant log silence required before salvaging a dropped-finalization turn, sized to one SSE
 # read window (SSE_READ_TIMEOUT_SECONDS): if the turn produced no real output for a whole read window,
 # a live stream would have. The poll loop measures this silence over turn-relevant lines only, because
@@ -46,7 +54,7 @@ MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 # a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
 # finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
 # rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
-# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# Signals scout passes 1200s): a floor near the budget would salvage only turns that fell silent early
 # and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
@@ -130,6 +138,17 @@ class CustomPromptSandboxContext:
     Codex-only: the claude adapter ignores it. ``None`` keeps the provider default. ``"flex"`` buys
     a cheaper, slower queue, but codex omits any tier its model catalogue does not advertise, so a
     tier the pinned model doesn't list is a no-op (codex logs it and sends the request untiered)."""
+    codex_max_subagents: int | None = None
+    """Codex sub-agents one session may run at once, not counting the main agent. Codex-only.
+    ``None`` keeps the Codex default of 3."""
+    codex_shared_prompt_cache: bool = False
+    """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
+    agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
+    sub-agents included."""
+    disable_repo_hooks: bool = False
+    """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
+    can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
+    Claude-only."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -151,6 +170,7 @@ class CustomPromptSandboxContext:
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
     prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
+    system_prompt: dict[str, str] | None = None
     mcp_exclude_tools: tuple[str, ...] = ()
     """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
     Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
@@ -258,6 +278,51 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
+class RepositoryContextUnavailable(SandboxRunFailed):
+    def __init__(self, error_type: str, message: str | None = None) -> None:
+        super().__init__(message or error_type, error_type=error_type)
+
+
+SESSION_FILE_ARTIFACT_TYPE = "context"
+
+
+def _with_session_files(
+    files: Sequence[SessionFile],
+    description: str,
+    team_id: int,
+    before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None,
+) -> Callable[[UUID], dict[str, JsonValue] | None]:
+    """Wrap `before_task_dispatch` so the run has its files before the workflow starts."""
+
+    def attach(run_id: UUID) -> dict[str, JsonValue] | None:
+        state = before_task_dispatch(run_id) if before_task_dispatch is not None else None
+        task_id = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).get()
+        artifact_ids: list[JsonValue] = [uuid4().hex for _ in files]
+        artifacts = [
+            {
+                "id": artifact_id,
+                "name": file.name,
+                "type": SESSION_FILE_ARTIFACT_TYPE,
+                "content_bytes": file.content.encode("utf-8"),
+                "content_type": "text/plain; charset=utf-8",
+            }
+            for artifact_id, file in zip(artifact_ids, files, strict=True)
+        ]
+        if upload_task_run_artifacts(run_id, task_id, team_id, artifacts=artifacts) is None:
+            raise RuntimeError(f"Could not attach session files to run {run_id}")
+        # The prompt goes as the pending message, because only that path sends the files with it.
+        pending: dict[str, JsonValue] = {
+            **(state or {}),
+            "pending_user_message": description,
+            "pending_user_artifact_ids": artifact_ids,
+        }
+        # Startup and the pending-message forwarder both deliver this prompt and dedupe on the id.
+        stamp_pending_user_message_id(pending)
+        return pending
+
+    return attach
+
+
 async def _create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -272,10 +337,13 @@ async def _create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    mcp_tool_allowlist: list[str] | None = None,
     origin_key: str | None = None,
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
+    files: Sequence[SessionFile] = (),
+    spend_signal_id: str | None = None,
 ) -> tuple[Task, TaskRun]:
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -285,14 +353,24 @@ async def _create_task_and_trigger(
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
     extra_run_state: dict[str, Any] = {}
+    if context.system_prompt is not None:
+        extra_run_state["systemPrompt"] = context.system_prompt
     if context.mcp_exclude_tools:
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:
         extra_run_state["caller_ends_run"] = True
+    if context.codex_max_subagents is not None:
+        extra_run_state["codex_max_subagents"] = context.codex_max_subagents
+    if context.codex_shared_prompt_cache:
+        extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_repo_hooks:
+        extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
             extra_run_state["analytics_query_context"] = queries
+    if files:
+        before_task_dispatch = _with_session_files(files, description, context.team_id, before_task_dispatch)
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -305,6 +383,7 @@ async def _create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
         posthog_mcp_scopes=posthog_mcp_scopes,
@@ -324,6 +403,7 @@ async def _create_task_and_trigger(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
+        mcp_tool_allowlist=mcp_tool_allowlist,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
         origin_key=origin_key,
@@ -353,6 +433,7 @@ async def create_task_and_trigger(
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
     analytics_query_context: list[dict[str, object]] | None = None,
+    spend_signal_id: str | None = None,
 ) -> AgentTaskRunDTO:
     task, task_run = await _create_task_and_trigger(
         description,
@@ -361,6 +442,7 @@ async def create_task_and_trigger(
         step_name=step_name,
         origin_product=origin_product,
         signal_report_id=signal_report_id,
+        spend_signal_id=spend_signal_id,
         ai_stage=ai_stage,
         ai_agent_name=ai_agent_name,
         internal=internal,
@@ -428,6 +510,7 @@ async def poll_for_turn(
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
     max_poll_seconds: int | None = None,
+    poll_deadline: float | None = None,
 ) -> TurnPollResult:
     """Poll S3 logs until the agent finishes a turn.
 
@@ -436,8 +519,11 @@ async def poll_for_turn(
     runs once this budget is exhausted, so a caller must keep it below its own activity
     `start_to_close_timeout` or the salvage never gets a chance to fire (the Signals
     scout passes its 15-minute per-run budget for exactly this reason).
+    `poll_deadline` uses the monotonic clock so setup, I/O, and earlier turns cannot
+    extend the caller's shared time budget. Leave recovery time after this deadline.
     """
     poll_budget = MAX_POLL_SECONDS if max_poll_seconds is None else max_poll_seconds
+    started_at = time.monotonic()
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
@@ -454,22 +540,42 @@ async def poll_for_turn(
     # boundary (which would return a stale previous-turn response in multi-turn sessions).
     original_skip_lines = skip_lines
     while elapsed < poll_budget:
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
-        elapsed += POLL_INTERVAL_SECONDS
+        if poll_deadline is not None:
+            remaining = poll_deadline - time.monotonic()
+            if remaining > 0:
+                await asyncio.sleep(min(POLL_INTERVAL_SECONDS, remaining))
+            elapsed = int(time.monotonic() - started_at)
+        else:
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            elapsed += POLL_INTERVAL_SECONDS
         # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent
         # the workflow's inactivity timeout from firing while the agent is still working
-        if workflow_handle is not None:
+        if workflow_handle is not None and (poll_deadline is None or time.monotonic() < poll_deadline):
             try:
-                await workflow_handle.signal("heartbeat")
+                heartbeat = workflow_handle.signal("heartbeat")
+                if poll_deadline is None:
+                    await heartbeat
+                else:
+                    await asyncio.wait_for(heartbeat, timeout=max(0, poll_deadline - time.monotonic()))
             except Exception:
                 logger.warning("custom_prompt - poll_for_turn: failed to send workflow heartbeat", exc_info=True)
         try:
             # Poll the logs.
-            log_state = await sync_to_async(
+            read_logs = sync_to_async(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
             )(task_run, skip_lines)
+            if poll_deadline is None:
+                log_state = await read_logs
+            else:
+                remaining = poll_deadline - time.monotonic()
+                log_state = await asyncio.wait_for(
+                    read_logs, timeout=remaining if remaining > 0 else FINAL_POLL_READ_SECONDS
+                )
+                elapsed = int(time.monotonic() - started_at)
+        except TimeoutError:
+            break
         except ObjectStorageError:
             consecutive_storage_errors += 1
             logger.warning(
@@ -555,6 +661,8 @@ async def poll_for_turn(
         # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
         # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
         skip_lines = max(skip_lines, log_state.total_lines)
+        if poll_deadline is not None and time.monotonic() >= poll_deadline:
+            break
         refreshed = await _refresh_task_run(task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
@@ -575,6 +683,8 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
+                failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+                startup_failure=read_startup_failure(refreshed.state),
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -583,6 +693,8 @@ async def poll_for_turn(
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
     refreshed = await _refresh_task_run(task_run.id)
+    if poll_deadline is not None:
+        elapsed = int(time.monotonic() - started_at)
     if refreshed.status in {
         TaskRun.Status.COMPLETED,
         TaskRun.Status.FAILED,
@@ -598,6 +710,8 @@ async def poll_for_turn(
             task_run,
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
+            failure_error_type=(refreshed.state or {}).get("failure_error_type"),
+            startup_failure=read_startup_failure(refreshed.state),
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -650,6 +764,7 @@ async def poll_for_agent_task(
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
     max_poll_seconds: int | None = None,
+    poll_deadline: float | None = None,
 ) -> TurnPollResult:
     run = await sync_to_async(TaskRun.objects.get)(
         id=task_run.run_id, task_id=task_run.task_id, team_id=task_run.team_id
@@ -662,6 +777,7 @@ async def poll_for_agent_task(
         output_fn=output_fn,
         workflow_handle=workflow_handle,
         max_poll_seconds=max_poll_seconds,
+        poll_deadline=poll_deadline,
     )
 
 
@@ -778,6 +894,8 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
+    failure_error_type: str | None = None,
+    startup_failure: AgentStartupFailure | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -794,6 +912,13 @@ async def _drain_final_log(
     stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
+    if refreshed_status == TaskRun.Status.FAILED and startup_failure is not None:
+        raise AgentStartupFailed(
+            failure=startup_failure,
+            task_id=str(task_run.task_id),
+            run_id=str(task_run.id),
+            error_type=failure_error_type,
+        )
     final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_state.last_message:
@@ -820,9 +945,18 @@ async def _drain_final_log(
             )
     reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
-    )
+    message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
+    if refreshed_status == TaskRun.Status.FAILED:
+        if failure_error_type in {
+            "RepositoryAccessError",
+            "RepositoryCloneError",
+            "GitHubAuthenticationError",
+            "GitHubIntegrationError",
+            "GitHubRateLimitedError",
+        }:
+            raise RepositoryContextUnavailable(failure_error_type, f"{message} ({failure_error_type})")
+        raise SandboxRunFailed(message, error_type=failure_error_type)
+    raise RuntimeError(message)
 
 
 def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:

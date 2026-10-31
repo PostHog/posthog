@@ -144,4 +144,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             goal="The goal the update relates to, if any.",
         ),
     },
+    "user_tasks": {
+        "description": "A pending task assigned to a Lattice user, such as a review to write or a goal to update.",
+        "docs_url": "https://developers.lattice.com/reference/api_user_tasks",
+        "columns": {
+            "id": "Unique identifier for the task.",
+            "user_id": "ID of the user the task is assigned to.",
+        },
+    },
+    "user_custom_attributes": {
+        "description": "A custom HR attribute value set on a Lattice user, with the attribute definition it belongs to.",
+        "docs_url": "https://developers.lattice.com/reference/api_user_customattributes",
+        "columns": {
+            "user_id": "ID of the user the attribute value is set on.",
+            "custom_attribute_id": "ID of the custom attribute, copied from customAttribute.",
+            "custom_attribute_value_id": "ID of the custom attribute value, copied from customAttributeValue.",
+            "customAttribute": "The custom attribute definition: its name, type, and who can see it.",
+            "customAttributeValue": "The value of the custom attribute for this user, with its displayed text.",
+        },
+    },
 }

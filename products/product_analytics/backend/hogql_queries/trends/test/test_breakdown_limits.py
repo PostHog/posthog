@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.hogql import ast
 from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH
@@ -6,7 +6,7 @@ from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH
 from products.product_analytics.backend.hogql_queries.trends.breakdown import Breakdown
 
 
-class TestBreakdownValueTruncation(BaseTest):
+class TestBreakdownValueTruncation(SimpleTestCase):
     def test_replace_null_values_transform_includes_left_truncation(self):
         node = ast.Field(chain=["properties", "$browser"])
         result = Breakdown.get_replace_null_values_transform(node)

@@ -2,8 +2,9 @@ import re
 import time
 import random
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterator
 from typing import Any, Optional, TypeVar, cast
+from urllib.parse import quote
 
 import gspread
 import requests
@@ -11,13 +12,14 @@ from cachetools import Cache, TTLCache, cached
 from google.auth import exceptions as google_auth_exceptions
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2 import service_account
-from gspread.utils import numericise_all
+from gspread.utils import absolute_range_name, fill_gaps, numericise_all
 
+from posthog.credentials_service.errors import CredentialsSecretError
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
@@ -44,8 +46,22 @@ _REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (30.0, 120.0)
 GOOGLE_SHEETS_API_VERSION_V4 = "v4"
 
 
+class GoogleSheetsServiceAccountKeyInvalidError(CredentialsSecretError):
+    """PostHog's own Google Sheets service account key does not parse, for example it is not valid PEM.
+
+    Not reportable: the key is PostHog's, so the customer can't fix it, and a bad read clears when
+    the key is good again. The sync activities log it as a warning and Temporal retries them.
+    """
+
+    reportable = False
+
+    def __init__(self) -> None:
+        key = "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"
+        super().__init__(key, f"{key} is not a valid service account key")
+
+
 def google_sheets_client() -> gspread.Client:
-    resolved = integration_secrets.get_secrets(
+    resolved = credentials_service.get_secrets(
         [
             "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY",
             "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID",
@@ -53,15 +69,19 @@ def google_sheets_client() -> gspread.Client:
             "GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL",
         ]
     )
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"],
-            "private_key_id": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
-            "token_uri": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI"],
-            "client_email": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
-        },
-        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
-    )
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            {
+                "private_key": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"],
+                "private_key_id": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID"],
+                "token_uri": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI"],
+                "client_email": resolved["GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL"],
+            },
+            scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"],
+        )
+    except ValueError as e:
+        # google-auth raises a bare ValueError for a malformed key, for example not valid PEM.
+        raise GoogleSheetsServiceAccountKeyInvalidError() from e
     # gspread skips wrapping any session you pass in with `AuthorizedSession`, so a plain
     # `requests.Session` would send unauthenticated requests and Google returns 403. Build the
     # `AuthorizedSession` ourselves and mount the tracked adapter to keep request metering.
@@ -75,9 +95,20 @@ def google_sheets_client() -> gspread.Client:
 
 
 cache: Cache[Any, Any] = TTLCache(maxsize=500, ttl=120)  # 120 seconds
-max_attempts = 10
-jitter_in_seconds = 10
-sleep_per_attempt_in_seconds = 30
+
+
+@frozen
+class _RetryBudget:
+    max_attempts: int
+    sleep_per_attempt_in_seconds: float
+    jitter_in_seconds: float
+
+
+# Syncs run in Temporal activities, so they can wait out a per-minute quota (429) window.
+_SYNC_RETRY_BUDGET = _RetryBudget(max_attempts=10, sleep_per_attempt_in_seconds=30, jitter_in_seconds=10)
+# Schema discovery runs inside a web request while the user waits on the source wizard. A long
+# backoff only holds the request open, so fail fast and let the user try again.
+_DISCOVERY_RETRY_BUDGET = _RetryBudget(max_attempts=3, sleep_per_attempt_in_seconds=2, jitter_in_seconds=1)
 
 # Transient Google Sheets API failures worth retrying: 429 (per-minute quota exhausted), the
 # 5xx server-side errors Google returns intermittently (e.g. "[500]: Internal error encountered."),
@@ -222,7 +253,7 @@ def _is_retryable_api_error(e: gspread.exceptions.APIError) -> bool:
         return False
 
 
-def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
+def _retry_on_transient_api_error(execute: Callable[[], T], budget: _RetryBudget = _SYNC_RETRY_BUDGET) -> T:
     """Run `execute` with linear backoff, retrying transient Google Sheets API
     errors. Google Sheets has a 300 request quota per minute, and also returns
     transient 5xx server errors (see `_RETRYABLE_API_ERROR_CODES`). We retry both
@@ -269,14 +300,23 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
                 is_retryable = _is_transient_refresh_error(e)
             else:
                 is_retryable = True
-            if not is_retryable or attempts >= max_attempts:
+            if not is_retryable or attempts >= budget.max_attempts:
                 raise
 
-            jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)
-            sleep_with_jitter = sleep_per_attempt_in_seconds + jitter
+            jitter = random.uniform(-budget.jitter_in_seconds, budget.jitter_in_seconds)
+            sleep_with_jitter = budget.sleep_per_attempt_in_seconds + jitter
 
             time.sleep(sleep_with_jitter * attempts)
             attempts = attempts + 1
+
+
+def _open_spreadsheet(client: gspread.Client, spreadsheet_url: str) -> gspread.Spreadsheet:
+    try:
+        return client.open_by_url(spreadsheet_url)
+    except PermissionError as e:
+        raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+    except gspread.exceptions.SpreadsheetNotFound as e:
+        raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
 
 
 @cached(cache)
@@ -286,14 +326,7 @@ def _get_worksheet(
     # `api_version` participates in the memoization key so a future version whose client differs
     # can't collide with a cached handle built for another version.
     def execute() -> gspread.Worksheet:
-        client = google_sheets_client()
-        try:
-            spreadsheet = client.open_by_url(spreadsheet_url)
-        except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
-        except gspread.exceptions.SpreadsheetNotFound as e:
-            raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
-        return spreadsheet.get_worksheet_by_id(worksheet_id)
+        return _open_spreadsheet(google_sheets_client(), spreadsheet_url).get_worksheet_by_id(worksheet_id)
 
     return _retry_on_transient_api_error(execute)
 
@@ -314,30 +347,115 @@ def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
 
 
 def get_worksheets(config: GoogleSheetsSourceConfig) -> list[DiscoveredWorksheet]:
+    _, worksheets = _list_worksheets(config, _SYNC_RETRY_BUDGET)
+    return [_discovered_worksheet(worksheet) for worksheet in worksheets]
+
+
+def _list_worksheets(
+    config: GoogleSheetsSourceConfig, budget: _RetryBudget
+) -> tuple[gspread.Spreadsheet, list[gspread.Worksheet]]:
+    client = google_sheets_client()
 
     # `open_by_url` and `worksheets()` hit the Sheets API and so are subject to the same
     # transient quota (429) and 5xx server errors as `_get_worksheet` — retry them with backoff
     # rather than letting a transient blip fail the whole sync during schema discovery.
-    def execute():
-        client = google_sheets_client()
-        try:
-            spreadsheet = client.open_by_url(config.spreadsheet_url)
-        except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
-        except gspread.exceptions.SpreadsheetNotFound as e:
-            raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
-        return spreadsheet.worksheets()
+    def execute() -> tuple[gspread.Spreadsheet, list[gspread.Worksheet]]:
+        spreadsheet = _open_spreadsheet(client, config.spreadsheet_url)
+        return spreadsheet, spreadsheet.worksheets()
 
-    worksheets = _retry_on_transient_api_error(execute)
+    return _retry_on_transient_api_error(execute, budget)
 
+
+def _discovered_worksheet(worksheet: gspread.Worksheet) -> DiscoveredWorksheet:
+    return DiscoveredWorksheet(
+        name=NamingConvention.normalize_identifier(worksheet.title),
+        title=worksheet.title,
+        worksheet_id=worksheet.id,
+    )
+
+
+@frozen
+class DiscoveredWorksheetSchema:
+    worksheet: DiscoveredWorksheet
+    incremental_fields: list[IncrementalField]
+
+
+def discover_worksheet_schemas(
+    config: GoogleSheetsSourceConfig, names: Collection[str] | None = None
+) -> list[DiscoveredWorksheetSchema]:
+    """List the worksheets once and read the header rows in as few batched requests as the URL allows.
+
+    Discovery runs while the user waits in the source wizard, and every Sheets request spends a quota
+    that all PostHog customers share. One read per worksheet lets a spreadsheet with many tabs outlast
+    the request timeout."""
+    spreadsheet, handles = _list_worksheets(config, _DISCOVERY_RETRY_BUDGET)
+    selected = [handle for handle in handles if names is None or _discovered_worksheet(handle).name in names]
+    header_rows = _read_header_rows(spreadsheet, selected, _DISCOVERY_RETRY_BUDGET)
     return [
-        DiscoveredWorksheet(
-            name=NamingConvention.normalize_identifier(worksheet.title),
-            title=worksheet.title,
-            worksheet_id=worksheet.id,
+        DiscoveredWorksheetSchema(
+            worksheet=_discovered_worksheet(handle),
+            incremental_fields=_incremental_fields_from_rows(rows),
         )
-        for worksheet in worksheets
+        for handle, rows in zip(selected, header_rows, strict=True)
     ]
+
+
+def _is_unparseable_range_error(e: gspread.exceptions.APIError) -> bool:
+    return e.code == 400 and "Unable to parse range" in str(e)
+
+
+# `values:batchGet` is a GET, so every range goes into the URL, and Google rejects a URL much past
+# 16 KB. A spreadsheet with hundreds of long tab names needs several batches.
+_MAX_BATCH_RANGES_URL_LENGTH = 8000
+
+
+def _header_range(worksheet: gspread.Worksheet) -> str:
+    return absolute_range_name(worksheet.title, "1:2")
+
+
+def _header_read_batches(worksheets: list[gspread.Worksheet]) -> Iterator[list[gspread.Worksheet]]:
+    batch: list[gspread.Worksheet] = []
+    batch_length = 0
+    for worksheet in worksheets:
+        length = len("&ranges=") + len(quote(_header_range(worksheet), safe=""))
+        if batch and batch_length + length > _MAX_BATCH_RANGES_URL_LENGTH:
+            yield batch
+            batch, batch_length = [], 0
+        batch.append(worksheet)
+        batch_length += length
+    if batch:
+        yield batch
+
+
+def _read_header_rows(
+    spreadsheet: gspread.Spreadsheet, worksheets: list[gspread.Worksheet], budget: _RetryBudget
+) -> list[list[list[Any]]]:
+    rows: list[list[list[Any]]] = []
+    for batch in _header_read_batches(worksheets):
+        rows.extend(_read_header_rows_batch(spreadsheet, batch, budget))
+    return rows
+
+
+def _read_header_rows_batch(
+    spreadsheet: gspread.Spreadsheet, worksheets: list[gspread.Worksheet], budget: _RetryBudget
+) -> list[list[list[Any]]]:
+    ranges = [_header_range(worksheet) for worksheet in worksheets]
+    try:
+        response = _retry_on_transient_api_error(lambda: spreadsheet.values_batch_get(ranges), budget)
+    except gspread.exceptions.APIError as e:
+        if not _is_unparseable_range_error(e):
+            raise
+        # One unreadable worksheet fails the whole batch, so read each worksheet on its own to find it.
+        return [_read_worksheet_header_rows(worksheet, budget) for worksheet in worksheets]
+    return [_padded_rows(value_range.get("values", [[]])) for value_range in response.get("valueRanges", [])]
+
+
+def _padded_rows(rows: list[list[Any]]) -> list[list[Any]]:
+    # Mirrors `Worksheet.get_all_values`, which pads short rows to the widest one.
+    try:
+        return fill_gaps(rows)
+    except KeyError:
+        return [[]]
 
 
 def _resolve_worksheet_id(
@@ -359,14 +477,9 @@ def _resolve_worksheet_id(
     return selected_worksheet[0]
 
 
-def get_schema_incremental_fields(
-    config: GoogleSheetsSourceConfig, worksheet_name: str, api_version: str = GOOGLE_SHEETS_API_VERSION_V4
-) -> list[IncrementalField]:
-    worksheet_id = _resolve_worksheet_id(config, worksheet_name, None, api_version)
-    worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
-
+def _read_worksheet_header_rows(worksheet: gspread.Worksheet, budget: _RetryBudget) -> list[list[Any]]:
     try:
-        rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"))  # Get the first two rows
+        return _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"), budget)  # Get the first two rows
     except gspread.exceptions.APIError as e:
         # Google rejects the unbounded "1:2" row range with a 400 "Unable to parse range" for
         # some worksheets (e.g. empty sheets, or sheets resized to have no columns). This is
@@ -375,10 +488,12 @@ def get_schema_incremental_fields(
         # incremental field — return [] rather than letting one odd sheet break schema discovery
         # for the entire spreadsheet. Other API errors (e.g. transient 5xx) still propagate so
         # they can be retried.
-        if e.code == 400 and "Unable to parse range" in str(e):
+        if _is_unparseable_range_error(e):
             return []
         raise
 
+
+def _incremental_fields_from_rows(rows: list[list[Any]]) -> list[IncrementalField]:
     if len(rows) > 1 and "id" in rows[0]:
         index_of_id = rows[0].index("id")
         value_of_id_col = rows[1][index_of_id]
@@ -409,7 +524,7 @@ def google_sheets_source(
     try:
         headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
     except gspread.exceptions.APIError as e:
-        # Same deterministic 400 handled in `get_schema_incremental_fields` above (e.g. empty
+        # Same deterministic 400 handled in `_incremental_fields_from_header` above (e.g. empty
         # sheets, or sheets resized to have no columns) — treat it as a worksheet with no header
         # row rather than failing the sync.
         if e.code == 400 and "Unable to parse range" in str(e):

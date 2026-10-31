@@ -22,7 +22,7 @@ Depot provides managed, ephemeral, single-tenant GitHub Actions runners. Drop-in
 ## Depot runners are not Depot CI
 
 Depot runners keep GitHub Actions as the engine, so the workflow lives in `.github/workflows/` and the checks still come from the `github-actions` app.
-Depot CI is a different product: it reads `.depot/workflows/`, which GitHub Actions ignores, and posts its own check runs from the `depot-code-access` app.
+Depot CI is a different product. It reads `.depot/workflows/`, which GitHub Actions ignores, and posts its own check runs from one of [three Depot apps](../depot-ci/references/posthog-check-run-semantics.md#which-app-posts-a-depot-check).
 Use the `depot-ci` skill for that one.
 
 Its [references/posthog-check-run-semantics.md](../depot-ci/references/posthog-check-run-semantics.md) compares what each engine reports for a skipped, empty-matrix or `continue-on-error` job, and how GitHub and the Trunk merge queue score those conclusions.
@@ -55,12 +55,12 @@ Use a single label. Format: `depot-{os}-{version}[-{arch}][-{size}]`
 
 | Label                   | CPUs | RAM    | Disk   | $/min  | Minutes multiplier |
 | ----------------------- | ---- | ------ | ------ | ------ | ------------------ |
-| `depot-ubuntu-24.04`    | 2    | 8 GB   | 100 GB | $0.004 | 1x                 |
-| `depot-ubuntu-24.04-4`  | 4    | 16 GB  | 130 GB | $0.008 | 2x                 |
-| `depot-ubuntu-24.04-8`  | 8    | 32 GB  | 150 GB | $0.016 | 4x                 |
-| `depot-ubuntu-24.04-16` | 16   | 64 GB  | 180 GB | $0.032 | 8x                 |
-| `depot-ubuntu-24.04-32` | 32   | 128 GB | 200 GB | $0.064 | 16x                |
-| `depot-ubuntu-24.04-64` | 64   | 256 GB | 250 GB | $0.128 | 32x                |
+| `depot-ubuntu-24.04`    | 2    | 8 GB   | 100 GB | $0.006 | 1x                 |
+| `depot-ubuntu-24.04-4`  | 4    | 16 GB  | 130 GB | $0.012 | 2x                 |
+| `depot-ubuntu-24.04-8`  | 8    | 32 GB  | 150 GB | $0.024 | 4x                 |
+| `depot-ubuntu-24.04-16` | 16   | 64 GB  | 180 GB | $0.048 | 8x                 |
+| `depot-ubuntu-24.04-32` | 32   | 128 GB | 200 GB | $0.096 | 16x                |
+| `depot-ubuntu-24.04-64` | 64   | 256 GB | 250 GB | $0.192 | 32x                |
 
 The minutes multiplier is the billing driver: billed minutes = elapsed minutes × multiplier, so larger runners consume your included minutes faster.
 
@@ -86,15 +86,15 @@ Windows Server 2022 also available: `depot-windows-2022`, etc.
 
 | Label                                   | CPUs | RAM   | Disk   | $/min |
 | --------------------------------------- | ---- | ----- | ------ | ----- |
-| `depot-macos-26`                        | 8    | 24 GB | 400 GB | $0.08 |
-| `depot-macos-15` / `depot-macos-latest` | 8    | 24 GB | 400 GB | $0.08 |
+| `depot-macos-26` / `depot-macos-latest` | 8    | 24 GB | 400 GB | $0.08 |
+| `depot-macos-15`                        | 8    | 24 GB | 400 GB | $0.08 |
 | `depot-macos-14`                        | 8    | 24 GB | 400 GB | $0.08 |
 
 macOS is NOT fully elastic — fixed pool with FIFO queuing.
 
 ### Aliases
 
-`depot-ubuntu-latest` → Ubuntu 24.04, `depot-windows-latest` → Windows 2025, `depot-macos-latest` → macOS 15
+`depot-ubuntu-latest` → Ubuntu 24.04, `depot-windows-latest` → Windows 2025, `depot-macos-latest` → macOS 26
 
 ## Migration Example
 
@@ -127,18 +127,21 @@ Actions using the GitHub Actions cache API automatically use **Depot Cache** —
 
 **Pre-configured build tool caches** (zero config on Depot runners):
 
-| Tool      | What's pre-configured                                          |
-| --------- | -------------------------------------------------------------- |
-| Turborepo | `TURBO_API` env var set — just run `turbo build`               |
-| Bazel     | `~/.bazelrc` pre-populated — just run `bazel build //...`      |
-| sccache   | `SCCACHE_WEBDAV_ENDPOINT` set — use `RUSTC_WRAPPER: 'sccache'` |
-| Maven     | `settings.xml` pre-populated (cache id `depot-cache`)          |
-| Pants     | `pants.toml` pre-configured — just run `pants package ::`      |
-| moonrepo  | Env vars set — just run `moon run build`                       |
+| Tool      | What's pre-configured                                                     |
+| --------- | ------------------------------------------------------------------------- |
+| Turborepo | `TURBO_API` env var set — just run `turbo build`                          |
+| Bazel     | `~/.bazelrc` pre-populated — just run `bazel build //...`                 |
+| sccache   | `SCCACHE_WEBDAV_ENDPOINT` set — use `RUSTC_WRAPPER: 'sccache'`            |
+| Maven     | `settings.xml` pre-populated (cache id `depot-cache`)                     |
+| Pants     | `pants.toml` pre-configured — just run `pants package ::`                 |
+| moonrepo  | Env vars set — just run `moon run build`                                  |
+| Xcode 26+ | Compilation caching uses Depot Cache automatically on Depot macOS runners |
 
 Cache behavior: repository-scoped, no branch isolation, encrypted, up to 1000 MiB/s throughput, configurable retention (7/14/30 days).
 
 To disable auto-cache: org settings → turn off "Allow Actions jobs to automatically connect to Depot Cache."
+
+For Xcode, the runner sets `XCODE_XCCONFIG_FILE` only when the job does not supply its own configuration file. Set `DEPOT_XCODE_CACHE_ENABLED: '0'` to opt out for a job or workflow. Add `depot/xcode-compilation-cache-summary@v1` after the build to report cache statistics. Xcode compilation caching is not supported on local workstations. See https://depot.dev/docs/cache/integrations/xcode for build settings and troubleshooting.
 
 ## Dagger Integration
 

@@ -26,6 +26,13 @@
         transform-origin: var(--transform-origin);
     }
 
+    /* A shared tooltip slides to its next trigger. Base UI writes the position to these properties. */
+    .quill-tooltip__positioner[data-glide] {
+        transition-timing-function: cubic-bezier(0.645, 0.045, 0.355, 1);
+        transition-duration: 180ms;
+        transition-property: top, left, right, bottom, transform;
+    }
+
     .quill-tooltip__content[data-starting-style],
     .quill-tooltip__content[data-ending-style] {
         opacity: 0;
@@ -61,6 +68,7 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
+        .quill-tooltip__positioner[data-glide],
         .quill-tooltip__content,
         .quill-tooltip__content[data-starting-style],
         .quill-tooltip__content[data-ending-style] {

@@ -1,6 +1,11 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.octolens import (
     OctolensSourceConfig,
 )
@@ -16,29 +21,42 @@ class TestOctolensSource:
         self.config = OctolensSourceConfig(api_key="octolens-key")
 
     @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+        "response, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid or expired Octolens API key"),
-            (403, False, "boom"),
-            (0, False, "boom"),
+            (ScriptedResponse(json={"organizationId": "org_1"}), True, None),
+            (
+                ScriptedResponse(status=401, json={"error": {"message": "boom"}}),
+                False,
+                "Invalid or expired Octolens API key",
+            ),
+            (ScriptedResponse(status=403, json={"error": {"message": "boom"}}), False, "boom"),
+            (ConnectionError("boom"), False, "Could not connect to Octolens"),
         ],
     )
-    @mock.patch(f"{SOURCE_MODULE}.check_access")
     def test_validate_credentials(
-        self, mock_check: mock.MagicMock, status: int, expected_valid: bool, expected_message: str | None
+        self,
+        response: ScriptedResponse | ConnectionError,
+        expected_valid: bool,
+        expected_message: str | None,
     ) -> None:
-        mock_check.return_value = (status, "boom")
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert message == expected_message
+        with scripted_network(always(response)):
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id)
 
-    @mock.patch(f"{SOURCE_MODULE}.check_access")
-    def test_validate_credentials_rejects_unknown_schema_without_probing(self, mock_check: mock.MagicMock) -> None:
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
+        assert is_valid is expected_valid
+        if isinstance(response, ConnectionError):
+            assert message is not None
+            assert expected_message is not None
+            assert expected_message in message
+        else:
+            assert message == expected_message
+
+    def test_validate_credentials_rejects_unknown_schema_without_probing(self) -> None:
+        with scripted_network([]) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
+
         assert is_valid is False
         assert message == "Unknown Octolens schema 'not_a_table'"
-        mock_check.assert_not_called()
+        assert network.requests_log == []
 
     @mock.patch(f"{SOURCE_MODULE}.octolens_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_octolens_source: mock.MagicMock) -> None:

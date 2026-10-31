@@ -3,6 +3,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.servicenow import (
     ServiceNowAuthMethodConfig,
@@ -104,20 +108,17 @@ class TestServiceNowSource:
     @parameterized.expand(
         [
             # no pin resolves to the default (v2); a present pin is honored verbatim.
-            ("unpinned", None, "v2"),
-            ("pinned_v1", "v1", "v1"),
-            ("pinned_v2", "v2", "v2"),
+            ("unpinned", None, "/api/now/v2/table/incident"),
+            ("pinned_v1", "v1", "/api/now/table/incident"),
+            ("pinned_v2", "v2", "/api/now/v2/table/incident"),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.source.servicenow_source")
-    def test_source_for_pipeline_resolves_api_version(
-        self, _name: str, pin: str | None, expected: str, mock_source: mock.Mock
-    ) -> None:
-        inputs = _source_inputs(api_version=pin)
-        self.source.source_for_pipeline(_api_key_config(), mock.MagicMock(), inputs)
+    def test_source_for_pipeline_resolves_api_version(self, _name: str, pin: str | None, expected_path: str) -> None:
+        result = SourceDriver(self.source, _api_key_config()).run(
+            "incidents", [ScriptedResponse(json={"result": []})], api_version=pin
+        )
 
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_version"] == expected
+        assert result.requests[0].path == expected_path
 
 
 class TestValidateCredentialsResolvedPin:

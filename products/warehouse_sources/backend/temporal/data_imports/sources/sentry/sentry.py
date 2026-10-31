@@ -1278,6 +1278,15 @@ def validate_credentials(
             "Copy the token again from Sentry, then reconnect.",
         )
 
+    # Organization tokens carry a fixed CI-only scope that can't be widened, so the generic
+    # "missing scopes" advice below would send the user to create another token that fails the same way.
+    if auth_token.strip().startswith("sntrys_"):
+        return (
+            False,
+            "This is a Sentry organization token, which can't read your Sentry data. "
+            "Create a personal token with these scopes, then reconnect: " + ", ".join(REQUIRED_SENTRY_SCOPES) + ".",
+        )
+
     headers = _auth_headers(auth_token)
 
     try:
@@ -1289,7 +1298,7 @@ def validate_credentials(
         if response.status_code == 403:
             return (
                 False,
-                "Sentry token is missing required scopes. Create a token with these scopes and reconnect: "
+                "Your Sentry token is missing required scopes. Create a personal token with these scopes, then reconnect: "
                 + ", ".join(REQUIRED_SENTRY_SCOPES)
                 + ".",
             )

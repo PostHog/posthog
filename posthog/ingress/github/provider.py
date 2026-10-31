@@ -2,20 +2,24 @@
 
 Two apps share this incarnation: the customer-facing PostHog App (`posthog`, secret in
 instance settings so an operator can rotate it without a deploy) and the Stamphog review App
-(`stamphog`, secret in env because it is instance-wide infrastructure).
+(`stamphog`, secret in env because it is instance-wide infrastructure). Both secrets are read from
+the credentials service first, and from those settings while the service does not hold them.
 """
 
 from collections.abc import Callable, Mapping, Sequence
+from datetime import timedelta
 from typing import Any
 
-from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 
+from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.instance_settings import get_or_instance_setting
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.ingress.contracts import ProviderSpec, WebhookConsumer, WebhookDelivery
 from posthog.ingress.providers import WebhookProvider, require_known_app
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
-from posthog.models.instance_setting import get_instance_setting
 
 # What each App is subscribed to. A consumer for an event type outside its App's set fails
 # registry validation, which is the point: it would never run. The two Apps are subscribed
@@ -36,13 +40,16 @@ GITHUB_EVENT_TYPES = frozenset(
 STAMPHOG_EVENT_TYPES = frozenset({"pull_request", "installation", "installation_repositories"})
 
 
+# Every delivery is verified, so each secret is read under a cache and not once per request. A
+# rotation reaches each process within five minutes.
+@cache_for(timedelta(minutes=5))
 def _posthog_app_secret() -> str | None:
-    secret = get_instance_setting("GITHUB_WEBHOOK_SECRET")
-    return secret if secret else None
+    return get_or_instance_setting("GITHUB_WEBHOOK_SECRET", CredentialsCaller.INTEGRATIONS) or None
 
 
+@cache_for(timedelta(minutes=5))
 def _stamphog_app_secret() -> str | None:
-    return getattr(settings, "STAMPHOG_GITHUB_APP_WEBHOOK_SECRET", "") or None
+    return get_or_settings("STAMPHOG_GITHUB_APP_WEBHOOK_SECRET", CredentialsCaller.STAMPHOG) or None
 
 
 _SECRET_GETTERS: Mapping[str, Callable[[], str | None]] = {

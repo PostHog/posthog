@@ -105,6 +105,7 @@ export function TaxonomicFilter({
         excludedOperators,
         selectingKeyOnly,
         collapseUrlsToContainsRow,
+        hideSearchInput,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

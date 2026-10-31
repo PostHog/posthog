@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import field
 from typing import TYPE_CHECKING, Any, cast
 
@@ -19,9 +20,12 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQuery
 
     from posthog.hogql import ast
+    from posthog.hogql.constants import LimitContext
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -171,15 +175,26 @@ def prepare_hogql_to_trino_compiler(
         raise TrinoTargetUnavailable("The physical table mapping does not match the requested project")
 
     additional_tables = catalog_manifest.tables if catalog_manifest is not None else ()
-    if any(table.logical_name in {"events", "persons"} for table in additional_tables):
+    if any(table.logical_name in {"events", "persons", "groups", "raw_groups"} for table in additional_tables):
         _reject_pure_compilation(
             TrinoLoweringError(
                 "TRINO_PURE_CORE_TABLE_OVERRIDE",
                 "core table manifest",
-                detail="Managed warehouse compilation owns the events and persons physical mappings.",
+                detail="Managed warehouse compilation owns the core table physical mappings.",
             ),
             feature_code="TRINO_PURE_CORE_TABLE_OVERRIDE",
         )
+    groups_tables = (
+        tuple(
+            TrinoManifestTable(
+                logical_name=logical_name,
+                locator=(catalog_name, "posthog", membership.table_names.groups_table),
+            )
+            for logical_name in ("groups", "raw_groups")
+        )
+        if membership.table_names.groups_table is not None
+        else ()
+    )
     pure_manifest = TrinoCatalogManifest(
         tables=(
             TrinoManifestTable(
@@ -190,6 +205,7 @@ def prepare_hogql_to_trino_compiler(
                 logical_name="persons",
                 locator=(catalog_name, "posthog", membership.table_names.persons_table),
             ),
+            *groups_tables,
             *additional_tables,
         ),
         timezone=team.timezone,
@@ -209,26 +225,34 @@ def compile_hogql_to_trino_sql(
     *,
     team: Team | None = None,
     user: User | None = None,
+    user_access_control: UserAccessControl | None = None,
+    limit_top_select: bool = False,
+    limit_context: LimitContext | None = None,
     bypass_warehouse_access_control: bool = False,
+    allowed_system_tables: Collection[str] | None = None,
     include_hogql: bool = False,
     expansion_mode: TrinoExpansionMode = TrinoExpansionMode.PURE,
     catalog_manifest: TrinoCatalogManifest | None = None,
     select_transform: Callable[[ast.SelectQuery | ast.SelectSetQuery], ast.SelectQuery | ast.SelectSetQuery]
     | None = None,
+    preserve_clickhouse_output_names: bool = False,
 ) -> TrinoCompiledQuery:
     """Compile HogQL for the ready Trino catalog that serves the team's DuckLake data.
 
     Set ``bypass_warehouse_access_control`` only for trusted internal callers that compile
-    without a user. This entry point does not execute the returned SQL or alter query routing.
+    without a user. ``allowed_system_tables`` exposes those scoped system tables to a userless
+    Django-mode compilation. This entry point does not execute the returned SQL or alter query routing.
     Set ``include_hogql`` to render normalized HogQL for diagnostics. Pure manifest-backed
     compilation is the default; select ``TrinoExpansionMode.DJANGO`` only when the query needs
     actions, cohorts, saved queries, variables, filters, or other Django-backed semantics.
     ``select_transform`` rewrites the parsed query after placeholders are replaced, so it sees the
     same AST the printer does. It needs ``TrinoExpansionMode.DJANGO``.
+    ``preserve_clickhouse_output_names`` resolves the query locally for both dialects and gives the
+    Trino output the names that ClickHouse derives. It does not execute a ClickHouse query.
     """
     if expansion_mode == TrinoExpansionMode.PURE:
-        if select_transform is not None:
-            raise ValueError("A select transform needs Django expansion")
+        if select_transform is not None or preserve_clickhouse_output_names:
+            raise ValueError("A select transform or ClickHouse output names need Django expansion")
         return prepare_hogql_to_trino_compiler(
             team_id,
             team=team,
@@ -242,10 +266,11 @@ def compile_hogql_to_trino_sql(
     from posthog.hogql.modifiers import create_default_modifiers_for_team  # noqa: PLC0415
     from posthog.hogql.parser import parse_select, sanitize_client_parser_mode  # noqa: PLC0415
     from posthog.hogql.placeholders import find_placeholders, replace_placeholders  # noqa: PLC0415
+    from posthog.hogql.printer.clickhouse import ClickHousePrinter  # noqa: PLC0415
     from posthog.hogql.printer.trino_hogql import (
         TrinoHogQLPrinter,  # noqa: PLC0415 -- keeps compiler imports off Django startup
     )
-    from posthog.hogql.printer.utils import prepare_and_print_ast  # noqa: PLC0415
+    from posthog.hogql.printer.utils import prepare_and_print_ast, prepare_ast_for_printing  # noqa: PLC0415
     from posthog.hogql.resolver import resolve_types  # noqa: PLC0415 -- keeps compiler imports off Django startup
     from posthog.hogql.variables import replace_variables  # noqa: PLC0415
     from posthog.hogql.visitor import clone_expr  # noqa: PLC0415
@@ -280,9 +305,11 @@ def compile_hogql_to_trino_sql(
         team_id,
         team=team,
         user=user,
+        user_access_control=user_access_control,
         modifiers=query_modifiers,
         # Preserve an explicit trusted-internal bypass; the public default remains fail-closed.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
+        allowed_system_tables=allowed_system_tables,
         trigger="trino",
     )
     placeholders = find_placeholders(parsed)
@@ -300,6 +327,30 @@ def compile_hogql_to_trino_sql(
     if select_transform is not None:
         parsed = select_transform(parsed)
 
+    clickhouse_output_names: list[str] | None = None
+    if preserve_clickhouse_output_names:
+        clickhouse_context = HogQLContext(
+            team_id=team_id,
+            team=team,
+            user=user,
+            user_access_control=user_access_control,
+            enable_select_queries=True,
+            limit_top_select=False,
+            modifiers=query_modifiers.model_copy(deep=True),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
+            database=database,
+        )
+        clickhouse_ast = prepare_ast_for_printing(clone_expr(parsed), clickhouse_context, dialect="clickhouse")
+        if clickhouse_ast is None:
+            raise ValueError("ClickHouse preparation returned an empty query")
+
+        clickhouse_output = clickhouse_ast
+        while isinstance(clickhouse_output, ast.SelectSetQuery):
+            clickhouse_output = clickhouse_output.initial_select_query
+        clickhouse_output_names = ClickHousePrinter(
+            context=clickhouse_context, stack=[clickhouse_output]
+        ).select_column_names(clickhouse_output)
+
     trino_table_locators = build_trino_table_locators(
         database,
         team_id,
@@ -310,8 +361,10 @@ def compile_hogql_to_trino_sql(
         team_id=team_id,
         team=team,
         user=user,
+        user_access_control=user_access_control,
         enable_select_queries=True,
-        limit_top_select=False,
+        limit_top_select=limit_top_select,
+        limit_context=limit_context,
         modifiers=query_modifiers,
         # Match the access-controlled database above instead of widening it during resolution.
         bypass_warehouse_access_control=bypass_warehouse_access_control,
@@ -319,7 +372,73 @@ def compile_hogql_to_trino_sql(
         trino_table_locators=trino_table_locators,
     )
     hogql_ast = clone_expr(parsed) if include_hogql else None
-    trino_sql, _ = prepare_and_print_ast(parsed, trino_context, dialect="trino")
+
+    def preserve_output_names(prepared: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if clickhouse_output_names is None:
+            return prepared
+
+        output_types: list[ast.SelectSetQueryType] = []
+        trino_output = prepared
+        while isinstance(trino_output, ast.SelectSetQuery):
+            if isinstance(trino_output.type, ast.SelectSetQueryType):
+                output_types.append(trino_output.type)
+            trino_output = trino_output.initial_select_query
+
+        if len(trino_output.select) != len(clickhouse_output_names):
+            raise ValueError(
+                "ClickHouse and Trino preparation produced different output column counts "
+                f"({len(clickhouse_output_names)} and {len(trino_output.select)})"
+            )
+
+        named_columns: dict[str, ast.Type] = {}
+        named_select: list[ast.Expr] = []
+        for column, name in zip(trino_output.select, clickhouse_output_names):
+            expression = column.expr if isinstance(column, ast.Alias) else column
+            column_type = column.type.type if isinstance(column.type, ast.FieldAliasType) else column.type
+            alias_type = ast.FieldAliasType(alias=name, type=column_type or ast.UnknownType())
+            named_select.append(ast.Alias(alias=name, expr=expression, type=alias_type))
+            named_columns[name] = alias_type
+        trino_output.select = named_select
+        if isinstance(trino_output.type, ast.SelectQueryType):
+            trino_output.type.columns = named_columns
+        for output_type in output_types:
+            output_type.columns = named_columns
+
+        # The output can read a derived table by column name, as the incremental guard does. Trino
+        # does not name an unaliased expression, so give each one the name the resolver referenced.
+        derived = trino_output.select_from.table if trino_output.select_from is not None else None
+        while isinstance(derived, ast.SelectSetQuery):
+            derived = derived.initial_select_query
+        if isinstance(derived, ast.SelectQuery) and isinstance(derived.type, ast.SelectQueryType):
+            resolved_names = {id(column_type): name for name, column_type in derived.type.columns.items()}
+            derived.select = [
+                ast.Alias(
+                    alias=resolved_names[id(column.type)],
+                    expr=column,
+                    type=ast.FieldAliasType(alias=resolved_names[id(column.type)], type=column.type),
+                )
+                if not isinstance(column, ast.Alias) and column.type is not None and id(column.type) in resolved_names
+                else column
+                for column in derived.select
+            ]
+        return prepared
+
+    needs_row_type_probe = True
+
+    def prepare_output(prepared: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        nonlocal needs_row_type_probe
+        output = prepared
+        while isinstance(output, ast.SelectSetQuery):
+            output = output.initial_select_query
+        needs_row_type_probe = any(_may_hold_anonymous_row(column, trino_context) for column in output.select)
+        return preserve_output_names(prepared) if preserve_clickhouse_output_names else prepared
+
+    trino_sql, _ = prepare_and_print_ast(
+        parsed,
+        trino_context,
+        dialect="trino",
+        prepared_ast_transform=prepare_output,
+    )
 
     hogql_pretty: str | None = None
     if hogql_ast is not None:
@@ -327,8 +446,10 @@ def compile_hogql_to_trino_sql(
             team_id=team_id,
             team=team,
             user=user,
+            user_access_control=user_access_control,
             enable_select_queries=True,
-            limit_top_select=False,
+            limit_top_select=limit_top_select,
+            limit_context=limit_context,
             modifiers=query_modifiers,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
             database=database,
@@ -338,4 +459,32 @@ def compile_hogql_to_trino_sql(
         resolved_hogql = resolve_types(hogql_ast, hogql_context, dialect="trino")
         hogql_pretty = TrinoHogQLPrinter(context=hogql_context).visit(resolved_hogql)
 
-    return TrinoCompiledQuery(sql=trino_sql, values=dict(trino_context.values), hogql=hogql_pretty)
+    return TrinoCompiledQuery(
+        sql=trino_sql,
+        values=dict(trino_context.values),
+        hogql=hogql_pretty,
+        needs_row_type_probe=needs_row_type_probe,
+    )
+
+
+def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
+    """Whether the resolved type of an output column is, or contains, a tuple or an unknown type."""
+    from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
+
+    def check(constant_type: ast.ConstantType) -> bool:
+        if isinstance(constant_type, ast.TupleType | ast.UnknownType):
+            return True
+        if isinstance(constant_type, ast.ArrayType):
+            return check(constant_type.item_type)
+        if isinstance(constant_type, ast.MapType):
+            return check(constant_type.key_type) or check(constant_type.value_type)
+        if isinstance(constant_type, ast.AggregateStateType):
+            return check(constant_type.wrapped_type)
+        return False
+
+    if column.type is None:
+        return True
+    try:
+        return check(column.type.resolve_constant_type(context))
+    except Exception:  # noqa: BLE001 -- a type that cannot be resolved is probed, which is always safe
+        return True

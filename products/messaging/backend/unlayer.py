@@ -5,6 +5,8 @@ from django.conf import settings
 
 import requests
 
+from products.messaging.backend.facade.contracts import UnlayerNotConfiguredError, UnlayerRenderError
+
 # Unlayer renders synchronously; exports of large designs take a few seconds.
 EXPORT_TIMEOUT_SECONDS = 30
 
@@ -14,18 +16,6 @@ EXPORT_TIMEOUT_SECONDS = 30
 # a tool's slug to the option holding the html its editor-side exporter returns, so the block can be
 # expanded before the export call. Keep in sync with the registered tools.
 CUSTOM_TOOL_HTML_OPTIONS = {"unsubscribe_link": "unsubscribe_link_content"}
-
-
-class UnlayerError(Exception):
-    pass
-
-
-class UnlayerNotConfiguredError(UnlayerError):
-    pass
-
-
-class UnlayerRenderError(UnlayerError):
-    pass
 
 
 def _dicts(value: Any) -> list[dict[str, Any]]:

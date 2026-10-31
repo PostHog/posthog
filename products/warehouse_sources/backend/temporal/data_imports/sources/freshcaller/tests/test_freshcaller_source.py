@@ -1,17 +1,19 @@
 from typing import Optional
 
 import pytest
-from unittest import mock
 
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source import FreshcallerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshcaller import (
     FreshcallerSourceConfig,
 )
-
-PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.source.validate_freshcaller_credentials"
 
 
 def _make_inputs(schema_name: str = "calls") -> SourceInputs:
@@ -45,11 +47,6 @@ class TestFreshcallerSource:
         # The subdomain is where the stored key is sent; editing it must re-require the secret.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["calls"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "calls"
-
     @pytest.mark.parametrize(
         "subdomain, status, schema_name, expected_valid",
         [
@@ -65,12 +62,14 @@ class TestFreshcallerSource:
         self, subdomain: str, status: Optional[int], schema_name: Optional[str], expected_valid: bool
     ) -> None:
         config = FreshcallerSourceConfig(subdomain=subdomain, api_key="key")
-        with mock.patch(PATCH_VALIDATE, return_value=status) as mock_validate:
+        script = always(ConnectionError("nope")) if status is None else [ScriptedResponse(status=status)]
+
+        with scripted_network(script) as network:
             is_valid, _ = self.source.validate_credentials(config, self.team_id, schema_name)
 
         assert is_valid is expected_valid
         if "!" in subdomain or " " in subdomain:
-            mock_validate.assert_not_called()
+            assert network.requests_log == []
 
     def test_source_for_pipeline_full_refresh_endpoint_has_no_partition(self) -> None:
         inputs = _make_inputs("users")

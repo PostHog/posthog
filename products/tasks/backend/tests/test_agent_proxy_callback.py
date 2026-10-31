@@ -2,7 +2,7 @@ import json
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.test import TestCase, override_settings
 
@@ -19,6 +19,14 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
+
+PROCESS_KILLED = {
+    "comm": "bash",
+    "signal": "SIGTERM",
+    "tree_rss_bytes": 12 * 1024**3,
+    "memory_current_bytes": 14 * 1024**3,
+    "memory_limit_bytes": 16 * 1024**3,
+}
 
 
 @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
@@ -234,13 +242,7 @@ class TestAgentProxyCallback(TestCase):
         expected_status: int,
         expected_count: int,
     ) -> None:
-        killed = {
-            "comm": "bash",
-            "signal": "SIGTERM",
-            "tree_rss_bytes": 12 * 1024**3,
-            "memory_current_bytes": 14 * 1024**3,
-            "memory_limit_bytes": 16 * 1024**3,
-        }
+        killed = dict(PROCESS_KILLED)
         if isinstance(overrides.get("process_killed"), dict):
             killed.update(overrides["process_killed"])
         body = self._body(kind="process_killed", agent_active=False, sequence=5, process_killed=killed)
@@ -353,6 +355,20 @@ class TestAgentProxyCallback(TestCase):
         notify.assert_not_called()
         signal_turn_completed.assert_called_once_with(succeeded=expected_succeeded)
 
+    @parameterized.expand([("interactive", True), ("background", False)])
+    def test_permission_requested_pushes_only_for_interactive_run(self, mode: str, expect_push: bool) -> None:
+        run = self.task.create_run(mode=mode)
+        body = self._body(kind="permission_requested", agent_active=False, sequence=3, request_id="request-1")
+        with patch(
+            "products.tasks.backend.push_dispatcher.notify_task_run_awaiting_input", return_value=True
+        ) as notify:
+            response = self._post(body, token=self._token(run), run_id=str(run.id))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["dispatched"], expect_push)
+        self.assertEqual(notify.call_count, int(expect_push))
+        if expect_push:
+            notify.assert_called_once_with(run, on_enqueued=ANY)
+
     def test_turn_failed_signals_workflow_completion_as_failed(self) -> None:
         with patch(
             "products.tasks.backend.agent_proxy_callback.signal_workflow_completion"
@@ -360,9 +376,22 @@ class TestAgentProxyCallback(TestCase):
             response = self._post(self._body(kind="turn_failed", agent_active=False), token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["dispatched"])
-        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
+        signal_workflow_completion.assert_called_once_with(
+            str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE, "pi_runtime_error"
+        )
 
-    def test_turn_failed_not_dispatched_for_unknown_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("heartbeat", {"agent_active": True}),
+            ("command_dispatched", {"agent_active": False}),
+            ("agent_activity", {"agent_active": True}),
+            ("awaiting_input", {"agent_active": False}),
+            ("permission_requested", {"agent_active": False}),
+            ("turn_failed", {"agent_active": False}),
+            ("process_killed", {"agent_active": False, "sequence": 5, "process_killed": PROCESS_KILLED}),
+        ]
+    )
+    def test_unknown_run_returns_200_not_dispatched(self, kind: str, overrides: dict[str, Any]) -> None:
         run = self.task.create_run()
         run_id = str(run.id)
         token = self._token(run)
@@ -370,18 +399,26 @@ class TestAgentProxyCallback(TestCase):
         with patch(
             "products.tasks.backend.agent_proxy_callback.signal_workflow_completion"
         ) as signal_workflow_completion:
-            response = self._post(self._body(kind="turn_failed", agent_active=False), token=token, run_id=run_id)
+            response = self._post(self._body(kind=kind, **overrides), token=token, run_id=run_id)
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
         signal_workflow_completion.assert_not_called()
 
-    def test_unknown_run_returns_200_not_dispatched(self) -> None:
-        run = self.task.create_run()
-        run_id = str(run.id)
-        token = self._token(run)
-        TaskRun.objects.filter(id=run_id).delete()
-        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
-            response = self._post(self._body(kind="heartbeat", agent_active=True), token=token, run_id=run_id)
-        self.assertEqual(response.status_code, 200)
+    @parameterized.expand(
+        [
+            ("heartbeat", {"agent_active": True}, "heartbeat_workflow", 200),
+            (
+                "process_killed",
+                {"agent_active": False, "sequence": 5, "process_killed": PROCESS_KILLED},
+                "capture_event",
+                503,
+            ),
+        ]
+    )
+    def test_handler_exception_is_logged_not_raised(
+        self, kind: str, overrides: dict[str, Any], method: str, expected_status: int
+    ) -> None:
+        with patch.object(TaskRun, method, side_effect=RuntimeError("down")):
+            response = self._post(self._body(kind=kind, **overrides), token=self._token())
+        self.assertEqual(response.status_code, expected_status)
         self.assertFalse(response.json()["dispatched"])
-        heartbeat.assert_not_called()

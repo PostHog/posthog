@@ -18,13 +18,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { dayjs } from 'lib/dayjs'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import {
-    LemonTree,
-    LemonTreeRef,
-    LemonTreeSelectMode,
-    LemonTreeSize,
-    TreeDataItem,
-} from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -69,12 +63,6 @@ interface ProjectTreeBaseProps {
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
     disableScroll?: boolean
-    /** Override the select mode from the internal logic */
-    selectModeOverride?: LemonTreeSelectMode
-    /** Override the checked items from the internal logic */
-    checkedItemsOverride?: Record<string, boolean>
-    /** Override the onItemChecked handler from the internal logic */
-    onItemCheckedOverride?: (id: string, checked: boolean) => void
     /**
      * Runs in addition to the tree's own click handling, not instead of it. A caller that renders
      * the tree inside a larger surface uses this to report the click in that surface's own terms.
@@ -99,7 +87,6 @@ export type ProjectTreeProps = ProjectTreeBaseProps &
           }
     )
 
-export const PROJECT_TREE_KEY = 'project-tree'
 let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
@@ -114,9 +101,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         searchPlaceholder,
         treeSize = 'default',
         showRecents,
-        selectModeOverride,
-        checkedItemsOverride,
-        onItemCheckedOverride,
         onItemClicked,
         isActiveInPanel,
     } = props
@@ -138,7 +122,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         scrollTargetId,
         editingItemId,
         sortMethod: projectSortMethod,
-        selectMode: projectTreeSelectMode,
+        selectMode,
         sortMethod,
     } = useValues(projectTreeLogic(projectTreeLogicProps))
     const {
@@ -150,16 +134,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
-        onItemChecked: projectTreeOnItemChecked,
+        onItemChecked,
         moveCheckedItems,
         clearScrollTarget,
         setEditingItemId,
         setSortMethod,
         setSelectMode,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
-
-    const selectMode = selectModeOverride ?? projectTreeSelectMode
-    const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
@@ -174,18 +155,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const showFilterDropdown = root === 'project://'
     const showSortMenuItems = root === 'project://'
 
-    let treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
-
-    // Apply checked items override for external control (e.g. product selection)
-    if (checkedItemsOverride) {
-        const applyChecked = (items: TreeDataItem[]): TreeDataItem[] =>
-            items.map((item) => ({
-                ...item,
-                checked: checkedItemsOverride[item.id] ?? false,
-                children: item.children ? applyChecked(item.children) : undefined,
-            }))
-        treeData = applyChecked(treeData)
-    }
+    const treeData: TreeDataItem[] = withHomeFolderEmptyState([...fullFileSystemFiltered], currentHomeFolder)
 
     if (fullFileSystemFiltered.length <= 5) {
         if (
@@ -453,9 +423,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
 
                 const showDropdownMenu =
-                    root === 'products://' ||
-                    root === 'custom-products://' ||
-                    (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
+                    root === 'products://' || (root === 'shortcuts://' && !!getSidebarProduct(item.record?.href))
 
                 const menuButtonIcon = showDropdownMenu ? PRODUCT_MENU_BUTTON_ICONS[item.name] : undefined
                 if (menuButtonIcon) {
@@ -493,12 +461,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (
-                    root === 'products://' ||
-                    root === 'data://' ||
-                    root === 'persons://' ||
-                    root === 'custom-products://'
-                ) {
+                if (root === 'products://' || root === 'data://' || root === 'persons://') {
                     const key = item.record?.sceneKey
 
                     return (
@@ -524,7 +487,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     return <>Create a new {nameNode}</>
                 }
 
-                if (root === 'data-and-people://' || root === 'project://' || root === 'shortcuts://') {
+                if (root === 'project://' || root === 'shortcuts://') {
                     const key = item.record?.sceneKey
                     const description = sceneConfigurations[key]?.description
                     if (description) {
@@ -559,7 +522,6 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 }
                 // A shortcut's created_at is when it was starred, not when the item was created.
                 const isNew =
-                    root !== 'custom-products://' &&
                     root !== 'shortcuts://' &&
                     item.record?.created_at &&
                     dayjs().diff(dayjs(item.record?.created_at), 'minutes') < 3

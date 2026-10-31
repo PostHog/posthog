@@ -207,8 +207,8 @@ export const SearchAutocomplete = forwardRef<HTMLDivElement, SearchAutocompleteP
         }
 
         const handleKeydown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-            if (!open || suggestions.length === 0) {
-                onKeyDown?.(e)
+            onKeyDown?.(e)
+            if (e.defaultPrevented || !open || suggestions.length === 0) {
                 return
             }
 

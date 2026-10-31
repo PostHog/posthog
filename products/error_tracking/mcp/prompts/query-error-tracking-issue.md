@@ -1,6 +1,6 @@
 Get compact details for one Error tracking issue.
 
-Use this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.
+Use this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, trend, top in-app frame, and first and latest release metadata.
 
 Defaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.
 
@@ -8,9 +8,16 @@ Defaults are intentionally useful: last 7 days, test accounts filtered out, aggr
 
 - `issueId`: required Error tracking issue UUID.
 - `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.
-- `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.
+- `includeSparkline`: set true only if the shape of the volume over time helps answer the user. To ask whether the issue is getting worse or better, read `trend` instead. When true, `volumeResolution` defaults to 12 if not provided.
 - `volumeResolution`: integer count of equal-width buckets across `dateRange`, from 0 to 200, when sparkline data is needed. It is not a unit such as `hour` or `day`. For daily buckets over the default 7-day range, send `7`.
 - `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.
+
+# Response fields
+
+- `summary`: a model-written summary with `what_happened`, `likely_cause`, `who_is_affected`, `suggested_next_step` and `category`. Use it to answer quickly, and check it against the facts in the same response. `likely_cause` is a hypothesis. Report it as a possible cause, never as a fact, and check it against a stack trace from `query-error-tracking-issue-events` before you act on it.
+- `summary_status`: `ready` when `summary` is present. `generating` means a summary may still be written. If the user needs it, call this tool once more after a few seconds. If it is still `generating`, continue without it. `unavailable` means no summary is available for this issue. Do not mention a missing summary to the user.
+- `first_release`: the release on the issue's first event, in the same shape as `latest_release`. It does not depend on `dateRange`. When the user asks which release caused the issue, compare it with `latest_release`. It is absent when the first event has no release metadata.
+- `trend`: occurrences in the second half of `dateRange` against the first half. Read `direction` (`new`, `increasing`, `decreasing` or `stable`) and do not do the arithmetic again. `increasing` and `decreasing` mean a change of at least 25%. `new` means the issue was first seen in the second half. With small counts, check `current_occurrences` and `previous_occurrences` before you call a change significant. `trend` is absent when the issue has no occurrences in `dateRange`.
 
 # Next steps
 

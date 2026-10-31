@@ -4,7 +4,10 @@ from typing import TypedDict, TypeVar
 
 from django.conf import settings
 
+import pyarrow as pa
 import deltalake
+import pyarrow.compute as pc
+import botocore.exceptions
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
@@ -13,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_invalid_version_race,
+    is_missing_scan_file_race,
     is_transient_maintenance_error,
     is_transient_object_store_error,
 )
@@ -44,6 +48,14 @@ OBJECT_STORE_PERMISSION_DENIED_ERRORS = (
     "The AWS Access Key Id you provided does not exist in our records.",
 )
 
+# Codes s3fs also maps onto PermissionError (see ERROR_CODE_TO_EXCEPTION in its errors module) but
+# whose s3fs-translated message isn't the fixed, matchable text the needles above rely on — our
+# backend returns a generic "Invalid argument." Message for SignatureDoesNotMatch instead of AWS's
+# usual signature-mismatch sentence. The code itself still names a definitive, non-racy refusal
+# (unlike a bodyless 403, see is_object_store_permission_denied), so it's read off the chained
+# ClientError instead of guessed from message text.
+_PERMISSION_DENIED_CLIENT_ERROR_CODES = ("SignatureDoesNotMatch",)
+
 # Reaches the customer as the sync run's error text, so it names neither the bucket nor the object
 # key. The data warehouse bucket is PostHog's own and the worker authenticates to it with its own
 # role, which means a refusal here is never caused by the customer's source or credentials.
@@ -71,6 +83,13 @@ class ObjectStorePermissionDeniedError(Exception):
 
 
 def is_object_store_permission_denied(error: BaseException) -> bool:
+    cause = error.__cause__
+    if (
+        isinstance(error, OSError)
+        and isinstance(cause, botocore.exceptions.ClientError)
+        and cause.response.get("Error", {}).get("Code") in _PERMISSION_DENIED_CLIENT_ERROR_CODES
+    ):
+        return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in OBJECT_STORE_PERMISSION_DENIED_ERRORS
     )
@@ -122,7 +141,9 @@ async def execute_with_conflict_retry(
 
     See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget. Also
     retries `is_invalid_version_race` — the same race surfacing as a plain `DeltaError` rather than
-    `CommitFailedError` because delta-rs's Python binding doesn't give that variant its own class.
+    `CommitFailedError` because delta-rs's Python binding doesn't give that variant its own class —
+    and `is_missing_scan_file_race`, where a concurrent vacuum deletes a file the operation's stale
+    handle still plans to scan.
 
     An object-store refusal (see is_object_store_permission_denied) is raised as
     `ObjectStorePermissionDeniedError` on the first attempt, so a refused vacuum or compaction can't
@@ -150,7 +171,11 @@ async def execute_with_conflict_retry(
                 raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
             if not isinstance(e, deltalake.exceptions.DeltaError):
                 raise
-            if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
+            if (
+                not isinstance(e, deltalake.exceptions.CommitFailedError)
+                and not is_invalid_version_race(e)
+                and not is_missing_scan_file_race(e)
+            ):
                 raise
             if attempt >= conflict_retries:
                 raise
@@ -173,14 +198,84 @@ async def execute_with_conflict_retry(
 # property when it commits, so both writers checkpoint on the same cadence.
 DELTA_TABLE_PROPERTIES: dict[str, str] = {"delta.checkpointInterval": "25"}
 
+MiB = 1024 * 1024
+TARGET_FILE_SIZE_PROPERTY = "delta.targetFileSize"
+#: deltalite and delta-rs both write files up to this size when a table does not set the property.
+DEFAULT_TARGET_FILE_SIZE_BYTES = 100 * MiB
 
-async def ensure_table_properties(table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> bool:
+# A merge rewrites every file that holds a matched row, and deltalite writes each file as a single
+# row group. When rows are wide, a default-size file holds few rows, so a small update set touches
+# almost every file and copies many unchanged rows. A large row group also leaves the memory
+# governor room for fewer readers and partition workers in one upsert's slice, often only one of
+# each. Smaller files for these tables lower both costs.
+#: Stored bytes per row at or above which a merge table counts as wide. A default-size file of such
+#: rows holds at most 12,800 rows.
+WIDE_ROW_MIN_STORED_BYTES_PER_ROW = 8 * 1024
+#: Rows that one file of a wide-row table holds, before the size band below applies.
+WIDE_ROW_TARGET_ROWS_PER_FILE = 1024
+#: Smaller files cost more footer probes and log entries than they save on a rewrite.
+WIDE_ROW_MIN_TARGET_FILE_SIZE_BYTES = 16 * MiB
+#: Small enough that the governor can plan several readers and partition workers per upsert.
+WIDE_ROW_MAX_TARGET_FILE_SIZE_BYTES = 32 * MiB
+#: A smaller table fits in one file at either target, and its per-row estimate still includes the
+#: Parquet footer overhead, so the decision waits until the table holds this much data.
+WIDE_ROW_MIN_TABLE_BYTES = WIDE_ROW_MAX_TARGET_FILE_SIZE_BYTES
+
+
+def table_target_file_size(table: deltalake.DeltaTable) -> int:
+    """The table's `delta.targetFileSize` in bytes, or the writers' default when it is absent or invalid."""
+    raw = (table.metadata().configuration or {}).get(TARGET_FILE_SIZE_PROPERTY)
+    if not isinstance(raw, str) or not raw.strip().isdigit() or int(raw) <= 0:
+        return DEFAULT_TARGET_FILE_SIZE_BYTES
+    return int(raw)
+
+
+def wide_row_target_file_size(add_actions: pa.Table) -> int | None:
+    """A smaller `delta.targetFileSize` for a table of wide rows, or None to keep the default.
+
+    Bytes per row come from the add actions: the stored size and the row count of each file that
+    records its row count. The result is a whole number of MiB, so the same table always gets the same value.
+    """
+    if add_actions.num_rows == 0 or not {"size_bytes", "num_records"} <= set(add_actions.column_names):
+        return None
+    counted = add_actions.filter(pc.greater(add_actions["num_records"], pa.scalar(0)))
+    stored_bytes = pc.sum(counted["size_bytes"]).as_py() or 0
+    rows = pc.sum(counted["num_records"]).as_py() or 0
+    if rows == 0 or stored_bytes < WIDE_ROW_MIN_TABLE_BYTES:
+        return None
+    bytes_per_row = stored_bytes / rows
+    if bytes_per_row < WIDE_ROW_MIN_STORED_BYTES_PER_ROW:
+        return None
+    target_mib = round(WIDE_ROW_TARGET_ROWS_PER_FILE * bytes_per_row / MiB)
+    return max(WIDE_ROW_MIN_TARGET_FILE_SIZE_BYTES, min(WIDE_ROW_MAX_TARGET_FILE_SIZE_BYTES, target_mib * MiB))
+
+
+def _may_hold_wide_rows(batch: pa.Table) -> bool:
+    # Arrow holds a row in at least as many bytes as Parquet stores it in, so a narrow batch rules
+    # out a wide table without the add-action read, which costs O(files) on every write.
+    return batch.num_rows > 0 and batch.nbytes / batch.num_rows >= WIDE_ROW_MIN_STORED_BYTES_PER_ROW
+
+
+def _wide_row_table_properties(table: deltalake.DeltaTable) -> dict[str, str]:
+    add_actions = pa.table(table.get_add_actions(flatten=False)).select(["size_bytes", "num_records"])
+    target = wide_row_target_file_size(add_actions)
+    return {} if target is None else {TARGET_FILE_SIZE_PROPERTY: str(target)}
+
+
+async def ensure_table_properties(
+    table: deltalake.DeltaTable, logger: FilteringBoundLogger, *, merge_batch: pa.Table | None = None
+) -> bool:
     """Apply DELTA_TABLE_PROPERTIES to a table that was created without them.
 
     A metadata-only commit, made once per table: the check reads the handle's own snapshot, and
     `set_table_properties` refreshes that snapshot, so a table that already carries the values costs
     nothing here. Never raises, because the data write has already committed and a property that
     fails to land only waits for the next write. Returns True when it committed.
+
+    `merge_batch` is the batch just merged into a table that loads by merging on a primary key, and
+    None for every other write. Such a table of wide rows also gets a smaller `delta.targetFileSize`
+    (see `wide_row_target_file_size`). The value is set only when the table has none, so it never
+    changes after that and never replaces a value set by hand.
     """
     try:
         # The metadata read is in the same best-effort boundary as the write below: it touches the
@@ -188,6 +283,8 @@ async def ensure_table_properties(table: deltalake.DeltaTable, logger: Filtering
         # the data commit has already landed either way, so a failure here must not propagate either.
         current = table.metadata().configuration or {}
         missing = {key: value for key, value in DELTA_TABLE_PROPERTIES.items() if current.get(key) != value}
+        if merge_batch is not None and TARGET_FILE_SIZE_PROPERTY not in current and _may_hold_wide_rows(merge_batch):
+            missing.update(await asyncio.to_thread(_wide_row_table_properties, table))
         if not missing:
             return False
         await execute_with_conflict_retry(

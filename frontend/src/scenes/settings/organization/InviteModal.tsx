@@ -12,11 +12,11 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { isEmail } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
@@ -309,7 +309,7 @@ export function InviteTeamMatesComponent({
     hideProjectAccessSelector?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
+    const { invitesToSend, inviteContainsOwnerLevel, messageError, recipientNameError } = useValues(inviteLogic)
     const { appendInviteRow, updateMessage, setIsInviteConfirmed, ensureAllMembersLoaded } = useActions(inviteLogic)
 
     useOnMountEffect(ensureAllMembersLoaded)
@@ -355,6 +355,11 @@ export function InviteTeamMatesComponent({
                         isDeletable={areInvitesDeletable}
                     />
                 ))}
+                {recipientNameError && (
+                    <div className="text-danger text-xs" data-attr="invite-name-error">
+                        {recipientNameError}
+                    </div>
+                )}
 
                 <div className="mt-2 flex justify-end">
                     {areInvitesCreatable && (
@@ -374,6 +379,11 @@ export function InviteTeamMatesComponent({
                         placeholder="Tell your teammates why you're inviting them to PostHog"
                         onChange={(e) => updateMessage(e)}
                     />
+                    {messageError && (
+                        <div className="text-danger text-xs mt-1" data-attr="invite-message-error">
+                            {messageError}
+                        </div>
+                    )}
                 </div>
             )}
 

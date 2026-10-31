@@ -59,7 +59,32 @@ describe('template function in newDashboardLogic', () => {
         })
     })
 
-    it('replaces variables in query based tiles', () => {
+    it.each([
+        [
+            'replaces variables in query based tiles',
+            NodeKind.TrendsQuery,
+            { id: '$pageview' },
+            { event: '$pageview', kind: 'EventsNode', math: 'total' },
+        ],
+        [
+            "removes the math property from query based tiles that don't support it",
+            NodeKind.LifecycleQuery,
+            { id: '$pageview' },
+            { event: '$pageview', kind: 'EventsNode' },
+        ],
+        [
+            'keeps a funnel math in funnel tiles',
+            NodeKind.FunnelsQuery,
+            { id: '$pageview', math: 'first_time_for_user' as any },
+            { event: '$pageview', kind: 'EventsNode', math: 'first_time_for_user' },
+        ],
+        [
+            'removes a math that funnel tiles do not support',
+            NodeKind.FunnelsQuery,
+            { id: '$pageview', math: 'total' as any },
+            { event: '$pageview', kind: 'EventsNode' },
+        ],
+    ])('%s', (_, queryKind, variableDefault, expected) => {
         expect(
             applyTemplate(
                 { a: '{VARIABLE_1}' },
@@ -67,49 +92,15 @@ describe('template function in newDashboardLogic', () => {
                     {
                         id: 'VARIABLE_1',
                         name: 'a',
-                        default: {
-                            id: '$pageview',
-                        },
+                        default: variableDefault,
                         description: 'The description of the variable',
                         required: true,
                         type: 'event',
                     },
                 ],
-                NodeKind.TrendsQuery
+                queryKind
             )
-        ).toEqual({
-            a: {
-                event: '$pageview',
-                kind: 'EventsNode',
-                math: 'total',
-            },
-        })
-    })
-
-    it("removes the math property from query based tiles that don't support it", () => {
-        expect(
-            applyTemplate(
-                { a: '{VARIABLE_1}' },
-                [
-                    {
-                        id: 'VARIABLE_1',
-                        name: 'a',
-                        default: {
-                            id: '$pageview',
-                        },
-                        description: 'The description of the variable',
-                        required: true,
-                        type: 'event',
-                    },
-                ],
-                NodeKind.LifecycleQuery
-            )
-        ).toEqual({
-            a: {
-                event: '$pageview',
-                kind: 'EventsNode',
-            },
-        })
+        ).toEqual({ a: expected })
     })
 
     it('removes the math property from retention insight tiles', () => {

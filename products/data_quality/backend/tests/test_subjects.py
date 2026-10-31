@@ -41,6 +41,7 @@ class TestSubjectResolver(BaseTest):
             name="revenue",
             description="Revenue",
             definition={"kind": "HogQLQuery", "query": "SELECT 2"},
+            overwrite=True,
         )
         updated = resolve_subject(self.team.id, "metric", metric.id)
         assert updated.metric_definition is not None

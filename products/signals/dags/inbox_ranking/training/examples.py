@@ -64,14 +64,16 @@ def state_columns(feature_set: FeatureSet) -> tuple[str, ...]:
     return (*BASE_STATE_COLUMNS, *(name for name in feature_set.state_columns if name not in BASE_STATE_COLUMNS))
 
 
-# The moment spine, before any feature set's columns are added to it.
-MOMENT_COLUMNS = ("head", "report_id", "snapshot_date", "report_created_at", "label")
+# The moment spine, before any feature set's columns are added to it. `team_id` is the report's team
+# on the moment's snapshot. No feature set reads it: the trainer reads it to grade the order inside
+# one team.
+MOMENT_COLUMNS = ("head", "report_id", "snapshot_date", "report_created_at", "team_id", "label")
 
 
 def example_columns(feature_set: FeatureSet) -> tuple[str, ...]:
     """The examples Parquet columns for `feature_set`. One object per set, because two sets carry
     different feature columns."""
-    return ("head", "report_id", "snapshot_date", "report_created_at", *feature_set.feature_names, "label")
+    return (*MOMENT_COLUMNS[:-1], *feature_set.feature_names, MOMENT_COLUMNS[-1])
 
 
 def state_rows(state: pd.DataFrame, feature_set: FeatureSet) -> pd.DataFrame:
@@ -330,6 +332,7 @@ def example_moments(
                     "report_id": kept_ids.to_numpy(),
                     "snapshot_date": date,
                     "report_created_at": pd.to_datetime(state.loc[kept_ids, "report_created_at"], utc=True).to_numpy(),
+                    "team_id": _team_ids(state, kept_ids),
                     "label": head.label(labels_later.loc[kept_ids]).astype(int).to_numpy(),
                 }
             )
@@ -337,6 +340,12 @@ def example_moments(
     if not frames:
         return pd.DataFrame(columns=list(MOMENT_COLUMNS))
     return pd.concat(frames, ignore_index=True)
+
+
+def _team_ids(state: pd.DataFrame, ids: pd.Index) -> pd.api.extensions.ExtensionArray:
+    if "report_team_id" not in state:
+        return pd.array([None] * len(ids), dtype="Int64")
+    return pd.to_numeric(state.loc[ids, "report_team_id"], errors="coerce").astype("Int64").array
 
 
 def birth_day_positives(examples: pd.DataFrame) -> int:
@@ -408,6 +417,35 @@ def _with_features(
             examples[name] = features[name].to_numpy()
         frames.append(examples)
     return pd.concat(frames, ignore_index=True)[columns]
+
+
+@frozen
+class ActivityVector:
+    embedding: list[float]
+    generated_at: datetime.datetime
+    age: datetime.timedelta
+
+
+def activity_vector_as_of(
+    vectors: pd.DataFrame, *, team_id: int, user_id: int, as_of: datetime.datetime, max_age: datetime.timedelta
+) -> ActivityVector | None:
+    """The activity summary vector user `user_id` of team `team_id` had at `as_of`, read from the union
+    of `inbox_activity_summary_vectors` partitions.
+
+    That is the newest vector generated strictly before `as_of`, so a summary built after the moment
+    never leaks into it. None when the user has no such vector, or when the newest one is older than
+    `max_age`: a summary that stale no longer describes what the user does."""
+    known = vectors.loc[
+        (vectors["team_id"] == team_id) & (vectors["user_id"] == user_id) & (vectors["generated_at"] < as_of)
+    ]
+    if known.empty:
+        return None
+    latest = known.loc[known["generated_at"].idxmax()]
+    generated_at = pd.Timestamp(latest["generated_at"]).to_pydatetime()
+    age = as_of - generated_at
+    if age > max_age:
+        return None
+    return ActivityVector(embedding=list(latest["embedding_small"]), generated_at=generated_at, age=age)
 
 
 def holdout_mask(examples: pd.DataFrame, holdout_days: int) -> pd.Series:

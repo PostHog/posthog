@@ -1,6 +1,11 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kommo import KommoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
     ENDPOINT_CONFIG,
@@ -28,28 +33,26 @@ class TestKommoSource:
         }
 
     @pytest.mark.parametrize("subdomain", ["acme.amocrm.ru", "evil.example.com/acme", "", "acme_corp"])
-    @mock.patch(f"{_MODULE}.validate_kommo_credentials")
-    def test_validate_credentials_rejects_a_bad_subdomain_without_calling_kommo(
-        self, mock_validate: mock.MagicMock, subdomain: str
-    ) -> None:
+    def test_validate_credentials_rejects_a_bad_subdomain_without_calling_kommo(self, subdomain: str) -> None:
         config = KommoSourceConfig(subdomain=subdomain, api_key="test-token")
 
-        is_valid, message = self.source.validate_credentials(config, self.team_id)
+        with scripted_network([]) as network:
+            is_valid, message = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is False
         assert message is not None and "subdomain" in message
-        mock_validate.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize("raw_subdomain", ["acme", "https://acme.kommo.com/"])
-    @mock.patch(f"{_MODULE}.validate_kommo_credentials")
-    def test_validate_credentials_probes_the_normalized_account(
-        self, mock_validate: mock.MagicMock, raw_subdomain: str
-    ) -> None:
-        mock_validate.return_value = (True, None)
+    def test_validate_credentials_probes_the_normalized_account(self, raw_subdomain: str) -> None:
         config = KommoSourceConfig(subdomain=raw_subdomain, api_key="test-token")
 
-        assert self.source.validate_credentials(config, self.team_id) == (True, None)
-        mock_validate.assert_called_once_with("test-token", "acme")
+        with scripted_network([ScriptedResponse(status=200, json={})]) as network:
+            assert self.source.validate_credentials(config, self.team_id) == (True, None)
+
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].url == "https://acme.kommo.com/api/v4/account"
+        assert network.requests_log[0].headers["authorization"] == "Bearer test-token"
 
     @mock.patch(f"{_MODULE}.kommo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
@@ -92,13 +95,10 @@ class TestKommoSource:
         assert kwargs["should_use_incremental_field"] is False
         assert kwargs["db_incremental_field_last_value"] is None
 
-    @mock.patch(f"{_MODULE}.kommo_source")
-    def test_source_for_pipeline_rejects_a_bad_subdomain(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Leads"
+    def test_source_for_pipeline_rejects_a_bad_subdomain(self) -> None:
         config = KommoSourceConfig(subdomain="evil.example.com", api_key="test-token")
 
-        with pytest.raises(ValueError):
-            self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, config).run("Leads", [])
 
-        mock_source.assert_not_called()
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []

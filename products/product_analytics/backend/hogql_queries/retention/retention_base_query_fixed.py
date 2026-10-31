@@ -7,7 +7,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
 
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_builder import (
     RetentionBaseQueryBuilder,
@@ -557,7 +557,11 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
-        where_expr = None if entity_is_dwh else ast.And(exprs=self._arm_where_filters(entity, query_kind))
+        where_expr: ast.Expr | None = None
+        if not entity_is_dwh:
+            where_expr = ast.And(exprs=self._arm_where_filters(entity, query_kind))
+        elif dwh_filters := self._dwh_arm_where_filters(entity, query_kind, timestamp_field):
+            where_expr = ast.And(exprs=dwh_filters)
 
         select_fields: list[ast.Expr] = [
             ast.Alias(alias="actor_id", expr=actor_field),
@@ -848,26 +852,6 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
     def _event_filters(self) -> list[ast.Expr]:
         return [*self.global_event_filters, *self._cohort_breakdown_filters()]
 
-    def _cohort_breakdown_filters(self) -> list[ast.Expr]:
-        if (
-            self.query.breakdownFilter
-            and self.query.breakdownFilter.breakdowns
-            and len(self.query.breakdownFilter.breakdowns) == 1
-            and self.query.breakdownFilter.breakdowns[0].type == "cohort"
-        ):
-            cohort_id = self.query.breakdownFilter.breakdowns[0].property
-            # Don't add cohort filter for "all users" (cohort_id = 0)
-            if int(cohort_id) != ALL_USERS_COHORT_ID:
-                return [
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.InCohort,
-                        left=ast.Field(chain=["person_id"]),
-                        right=ast.Constant(value=int(cohort_id)),
-                    )
-                ]
-
-        return []
-
     def _arm_scan_predicate(self, entity: RetentionEntity, query_kind: Literal["start", "return"]) -> ast.Expr:
         # First-ever anchors the start side against the property-stripped stream (its minIf pair needs
         # rows that match the entity but not necessarily its property filters); every other role only
@@ -888,6 +872,24 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         predicate = self._arm_scan_predicate(entity, query_kind)
         if not (isinstance(predicate, ast.Constant) and predicate.value is True):
             filters.append(predicate)
+        return filters
+
+    def _dwh_arm_where_filters(
+        self, entity: RetentionEntity, query_kind: Literal["start", "return"], timestamp_field: ast.Expr
+    ) -> list[ast.Expr]:
+        """The warehouse counterpart of _arm_where_filters. Every aggregate that a warehouse arm computes already
+        conditions on its entity and the query window. Apart from the global property filters, these filters therefore
+        drop only rows that no aggregate reads."""
+        filters = list(self.runner.global_property_filters)
+        # A first-time start arm finds the first start row of each actor across all time.
+        # It reads rows outside the window.
+        if query_kind == "return" or not (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            filters.append(self.events_timestamp_filter(field=timestamp_field))
+        predicate = self._arm_scan_predicate(entity, query_kind)
+        if not (isinstance(predicate, ast.Constant) and predicate.value is True):
+            filters.append(predicate)
+        if self.runner.group_type_index is not None:
+            filters.append(parse_expr("toString({actor}) != ''", {"actor": self.entity_actor_id_expr(entity)}))
         return filters
 
     def _is_valid_start_interval_expr(self, start_event_timestamps_field: str = "start_event_timestamps") -> ast.Expr:

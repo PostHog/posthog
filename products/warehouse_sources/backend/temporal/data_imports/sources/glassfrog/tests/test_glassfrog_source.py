@@ -1,19 +1,15 @@
-import json
-from collections.abc import Iterable
-from typing import Any, cast
-
 from unittest.mock import MagicMock, patch
 
-import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.glassfrog import (
     GlassfrogSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog import (
-    glassfrog,
-    source as source_module,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.glassfrog.source import GlassfrogSource
 
@@ -49,35 +45,16 @@ class TestGlassfrogCredentials:
 
 
 class TestGlassfrogPipelineHandoff:
-    @patch.object(glassfrog, "make_tracked_session")
-    def test_source_for_pipeline_plumbs_endpoint_and_key(self, mock_session_factory: MagicMock) -> None:
-        session = MagicMock()
-        session.headers = {}
-        prepared_requests: list[requests.PreparedRequest] = []
+    def test_source_for_pipeline_plumbs_endpoint_and_key(self) -> None:
+        result = SourceDriver(GlassfrogSource(), _config()).run(
+            "circles", [ScriptedResponse(json={"circles": [{"id": 1, "name": "General Company Circle"}]})]
+        )
 
-        def _prepare(request: requests.Request) -> requests.PreparedRequest:
-            prepared = request.prepare()
-            prepared_requests.append(prepared)
-            return prepared
-
-        response = requests.Response()
-        response.status_code = 200
-        response._content = json.dumps({"circles": [{"id": 1, "name": "General Company Circle"}]}).encode()
-        session.prepare_request.side_effect = _prepare
-        session.send.return_value = response
-        mock_session_factory.return_value = session
-
-        inputs = MagicMock()
-        inputs.schema_name = "circles"
-        inputs.team_id = 1
-        inputs.job_id = "job_1"
-
-        source_response = GlassfrogSource().source_for_pipeline(_config(), inputs)
-
-        assert source_response.name == "circles"
-        assert source_response.primary_keys == ["id"]
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == "circles"
+        assert result.response.primary_keys == ["id"]
 
         # The items thunk should actually pull rows using the configured key/endpoint.
-        rows = list(cast(Iterable[Any], source_response.items()))
-        assert rows == [[{"id": 1, "name": "General Company Circle"}]]
-        assert prepared_requests[0].headers["X-Auth-Token"] == "gf_test_key"
+        assert result.items == [[{"id": 1, "name": "General Company Circle"}]]
+        assert result.requests[0].headers["x-auth-token"] == "gf_test_key"

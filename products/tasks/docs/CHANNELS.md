@@ -79,7 +79,7 @@ The context prompt includes the server's `team_id` and `channel_id` so a new Spa
 When no eligible population exists, setup records the measure as unknown and does not invent a target. The loops still start enabled; the Plan loop keeps trying to verify the measure on each run.
 
 Before enabling `code-space-setup`, deploy the setup endpoint and sync the workflow templates.
-Enable `workflow-ai-task-action` for the target project and `loops` plus `loops-hog-flows` for its Desktop users.
+Enable `workflow-ai-task-action` for the target project and `loops` for its Desktop users.
 Reconcile enabled context wikis before rollout so legacy `channels/` pages move under `projects/<project-id>/spaces/`.
 Verify a setup in a test project: the Context page saves with `autonomy: propose`, the plan and status keys hold the first plan, all four goal loops appear enabled, and their test runs succeed.
 Keep the setup flag off if any dependency check fails.

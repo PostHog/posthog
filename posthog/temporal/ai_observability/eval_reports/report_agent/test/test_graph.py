@@ -124,7 +124,18 @@ class TestSystemPromptFormat(SimpleTestCase):
             ),
             (
                 "generation",
-                ["sample_generation_details", "get_generation_detail", "add_citation(generation_id=generation_id"],
+                [
+                    "sample_generation_details",
+                    "get_generation_detail",
+                    "add_citation(generation_id=generation_id",
+                    "must call `get_generation_detail` before claiming",
+                    "cache_read_input_tokens",
+                    "cache_creation_input_tokens",
+                    "input_length",
+                    "Prompt caching is normal",
+                    "A trace can contain many generations",
+                    "Recheck any such caveat from a prior report",
+                ],
                 ["sample_trace_details", "sample_session_details"],
             ),
             (

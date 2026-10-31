@@ -82,6 +82,9 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
         rerun_existing: false,
         total_count: 10,
         dispatched_count: 8,
+        completed_count: null,
+        evaluation_skipped_count: 0,
+        status_reason: '',
         skipped_count: 2,
         failed_count: 0,
         remaining_count: null,
@@ -367,6 +370,17 @@ describe('evaluationBackfillsLogic', () => {
         }
     )
 
+    it('blocks the start button on a disabled evaluation even when the estimate has a count', async () => {
+        await mountAndSettle()
+
+        saveEvaluation({ enabled: false })
+        logic.actions.requestEstimateSuccess(estimate({ total_units: 42 }))
+
+        await expectLogic(logic).toMatchValues({
+            startDisabledReason: 'Enable the evaluation before backfilling it',
+        })
+    })
+
     it('says it is counting while an estimate is in flight, then surfaces the failure', async () => {
         await mountAndSettle()
 
@@ -618,5 +632,83 @@ describe('evaluationBackfillsLogic', () => {
 
         expect(cancelMock).toHaveBeenCalledWith(expect.any(String), EVALUATION_ID, 'backfill-1')
         await expectLogic(logic).toMatchValues({ transitioningIds: [] })
+    })
+
+    it.each(['backfill-1', 'backfill-2'])(
+        'guards a concurrent retry of %s and keeps existing results',
+        async (secondId) => {
+            const previous = backfill({ status: 'interrupted', rerun_existing: true })
+            listMock.mockResolvedValue({
+                count: 2,
+                results: [previous, backfill({ id: 'backfill-2', status: 'interrupted' })],
+            })
+            await mountAndSettle()
+            let finish!: (value: EvaluationBackfillApi) => void
+            createMock.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        finish = resolve
+                    })
+            )
+
+            logic.actions.retryBackfill(previous.id)
+            logic.actions.retryBackfill(secondId)
+            expect(createMock).toHaveBeenCalledTimes(1)
+            expect(createMock).toHaveBeenCalledWith(expect.any(String), EVALUATION_ID, {
+                window_start: previous.window_start,
+                window_end: previous.window_end,
+                conditions: previous.conditions.map((condition, index) => ({ ...condition, id: `retry-${index}` })),
+                rerun_existing: false,
+            })
+            expect(new Set(logic.values.transitioningIds)).toEqual(new Set([previous.id]))
+            expect(logic.values.startDisabledReason).toEqual('Wait for the current retry or cancel to finish')
+            finish(backfill({ status: 'running' }))
+            await expectLogic(logic).toDispatchActions(['transitionBackfillDone', 'loadBackfills'])
+            expect(logic.values.transitioningIds).toEqual([])
+        }
+    )
+
+    it('refuses a retry after the evaluation target changed', async () => {
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'interrupted' })] })
+        await mountAndSettle()
+        saveEvaluation({ target: 'trace' })
+
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+
+        expect(createMock).not.toHaveBeenCalled()
+        expect(logic.values.transitioningIds).toEqual([])
+    })
+
+    it('lets a retry run again after a rejected one and reports each click', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        listMock.mockResolvedValue({
+            count: 1,
+            results: [backfill({ status: 'interrupted', status_reason: 'execution_failed' })],
+        })
+        await mountAndSettle()
+        createMock.mockRejectedValueOnce(new Error('nope'))
+
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+        expect(toastError).toHaveBeenCalled()
+        expect(logic.values.transitioningIds).toEqual([])
+
+        createMock.mockResolvedValueOnce(backfill({ status: 'running' }))
+        logic.actions.retryBackfill('backfill-1')
+        await expectLogic(logic).toDispatchActions(['transitionBackfillDone'])
+
+        expect(createMock).toHaveBeenCalledTimes(2)
+        expect(capture.mock.calls.filter(([event]) => event === 'llma evaluation backfill retry clicked')).toEqual(
+            Array(2).fill([
+                'llma evaluation backfill retry clicked',
+                {
+                    evaluation_id: EVALUATION_ID,
+                    backfill_id: 'backfill-1',
+                    status: 'interrupted',
+                    status_reason: 'execution_failed',
+                },
+            ])
+        )
     })
 })

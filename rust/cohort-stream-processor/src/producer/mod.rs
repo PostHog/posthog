@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use cohort_core::seed::RunId;
 // Hoisted to the shared seed contract so the seeder's marker watcher and this producer agree on the
 // wire bytes; re-exported here so processor call sites keep their `crate::producer` import path.
-pub use cohort_core::seed::ReconcileCompleteMarker;
+pub use cohort_core::seed::{ReconcileCompleteMarker, ReconcileMarker, ReconcileWithheldMarker};
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;
@@ -55,7 +55,8 @@ pub struct CohortMembershipChange {
     /// Backfill provenance; `None` on the live path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin: Option<ChangeOrigin>,
-    /// The backfill run that emitted this change; set iff `origin` is.
+    /// The backfill run that emitted this change. A cascade keeps `origin` but not `run_id`, because
+    /// the membership writer sweeps each (run_id, cohort) and the referrer cohort is not in that run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_id: Option<RunId>,
 }

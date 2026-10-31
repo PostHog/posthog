@@ -82,4 +82,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "amortized_commitment_total_amortized_commitment": "Total amortized Savings Plans commitment for the period.",
         },
     },
+    "dimension_values": {
+        "description": "Linked accounts, services and regions that have Cost Explorer data in the synced range. Join on linked_account or service to label cost rows.",
+        "docs_url": "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetDimensionValues.html",
+        "columns": {
+            "dimension": "Cost Explorer dimension the value belongs to (LINKED_ACCOUNT, SERVICE or REGION).",
+            "value": "Dimension value, for example an account ID, a service name or a region code.",
+            "description": "Account name of a LINKED_ACCOUNT value.",
+        },
+    },
+    "cost_and_usage_with_resources_daily": {
+        "description": "Daily AWS cost and usage per resource for the last 14 days, grouped by service and resource ID. Needs resource-level data enabled in Cost Explorer settings.",
+        "docs_url": "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsageWithResources.html",
+        "columns": {
+            **{k: v for k, v in _COST_AND_USAGE_COLUMNS.items() if k != "linked_account"},
+            "resource_id": "ID of the resource the cost belongs to, from the RESOURCE_ID dimension. 'NoResourceId' groups usage AWS does not attribute to a resource.",
+        },
+    },
+    "reservation_coverage_daily": {
+        "description": "Daily share of reservation eligible usage that reservations covered, per service (EC2, RDS, ElastiCache and Redshift).",
+        "docs_url": "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetReservationCoverage.html",
+        "columns": {
+            "period_start": "Inclusive start of the period the coverage covers.",
+            "period_end": "Exclusive end of the period the coverage covers.",
+            "granularity": "Bucket size AWS aggregated the period to (DAILY).",
+            "service": "AWS service the coverage belongs to, for example 'Amazon Relational Database Service'.",
+            "coverage_hours_on_demand_hours": "Instance hours that ran at On-Demand rates.",
+            "coverage_hours_reserved_hours": "Instance hours that reservations covered.",
+            "coverage_hours_total_running_hours": "Total instance hours that ran in the period.",
+            "coverage_hours_coverage_hours_percentage": "Percentage of the running instance hours that reservations covered.",
+            "coverage_normalized_units_on_demand_normalized_units": "Normalized units that ran at On-Demand rates.",
+            "coverage_normalized_units_reserved_normalized_units": "Normalized units that reservations covered.",
+            "coverage_normalized_units_total_running_normalized_units": "Total normalized units that ran in the period.",
+            "coverage_normalized_units_coverage_normalized_units_percentage": "Percentage of the running normalized units that reservations covered.",
+            "coverage_cost_on_demand_cost": "Cost of the instances that ran at On-Demand rates.",
+        },
+    },
+    "savings_plans_coverage_daily": {
+        "description": "Daily share of Savings Plans eligible spend that Savings Plans covered, across the account.",
+        "docs_url": "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetSavingsPlansCoverage.html",
+        "columns": {
+            "period_start": "Inclusive start of the period the coverage covers.",
+            "period_end": "Exclusive end of the period the coverage covers.",
+            "granularity": "Bucket size AWS aggregated the period to (DAILY).",
+            "spend_covered_by_savings_plans": "Eligible spend that Savings Plans covered.",
+            "on_demand_cost": "Eligible spend that ran at On-Demand rates.",
+            "total_cost": "Total eligible spend, covered and On-Demand.",
+            "coverage_percentage": "Percentage of the eligible spend that Savings Plans covered.",
+        },
+    },
 }

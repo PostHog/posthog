@@ -209,19 +209,22 @@ async def test_a_second_signup_dispatch_keeps_its_first_leg_while_a_recheck_is_p
     assert enrich.await_count == 2
 
 
-async def test_recheck_skips_deleted_organization():
-    """The 4h recheck must not enrich or emit for an org deleted during the delay."""
+@pytest.mark.parametrize(
+    "domain,org_exists,skip_key",
+    [("gone.dev", False, "org_deleted"), ("proton.me", True, "not_work_email")],
+)
+async def test_recheck_skips_without_enriching_or_emitting(domain, org_exists, skip_key):
     inputs = SignupEnrichmentInputs(
-        organization_id="00000000-0000-0000-0000-00000000dead", distinct_id="d1", domain="gone.dev"
+        organization_id="00000000-0000-0000-0000-00000000dead", distinct_id="d1", domain=domain
     )
     with (
         patch(f"{_MODULE}.enrich_organization") as enrich_mock,
         patch(f"{_MODULE}.get_regional_ph_client") as client_mock,
         patch("posthog.models.Organization.objects") as org_objects,
     ):
-        org_objects.filter.return_value.exists.return_value = False
+        org_objects.filter.return_value.exists.return_value = org_exists
         result = await enrich_signup_organization_activity(inputs, is_recheck=True)
-    assert result["org_deleted"] is True
+    assert result[skip_key] is True
     assert result["matched"] is False
     enrich_mock.assert_not_called()
     client_mock.assert_not_called()

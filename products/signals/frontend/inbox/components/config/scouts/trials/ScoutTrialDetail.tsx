@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconDownload, IconRefresh } from '@posthog/icons'
+import { IconArrowLeft, IconDownload, IconRefresh, IconUndo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -43,6 +43,22 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            {trial?.archived && (
+                <LemonBanner
+                    type="info"
+                    action={{
+                        children: 'Restore trial',
+                        icon: <IconUndo />,
+                        loading: props.archiving.includes(trial.comparison_id),
+                        onClick: () => props.archiveComparison(trial.comparison_id, false),
+                    }}
+                >
+                    This trial is archived. Its report and run details are still available.
+                </LemonBanner>
+            )}
+            {trial && props.archiveErrors[trial.comparison_id] && (
+                <LemonBanner type="error">{props.archiveErrors[trial.comparison_id]}</LemonBanner>
+            )}
             {props.managedComparison ? (
                 <>
                     {submitting ? (
@@ -99,6 +115,10 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                                 loading={props.comparisonState.resuming}
                                 disabledReason={
                                     props.trialsDisabledReason ||
+                                    (trial?.archived ? 'Restore this trial before retrying it.' : undefined) ||
+                                    (trial && props.archiving.includes(trial.comparison_id)
+                                        ? 'Wait for the archive request to finish.'
+                                        : undefined) ||
                                     (props.comparisonState.loading ? 'Wait for the current status.' : undefined)
                                 }
                                 data-attr="scout-comparison-resume"
@@ -126,58 +146,6 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                         </LemonButton>
                         {selectedConfig && <ScoutRubricsButton config={selectedConfig} />}
                     </div>
-                    {!props.evaluationState.value?.report && props.comparisonRows.length > 0 && (
-                        <div className="flex flex-col gap-2">
-                            <p className="m-0 text-sm font-semibold">Runs in this trial</p>
-                            {props.comparisonRows.map((row) => (
-                                <LemonCard
-                                    key={row.launchId}
-                                    hoverEffect={false}
-                                    className="flex flex-wrap items-center justify-between gap-2 p-3"
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <strong className="break-words">{row.variant}</strong>
-                                        <p className="m-0 text-xs text-muted break-words">{`${row.model || 'Saved model'} · ${row.effort || 'default'} effort`}</p>
-                                        {row.error && (
-                                            <p className="m-0 text-xs text-danger break-words">{row.error}</p>
-                                        )}
-                                    </div>
-                                    <LemonTag
-                                        type={
-                                            row.status === 'completed'
-                                                ? 'success'
-                                                : row.status === 'failed'
-                                                  ? 'danger'
-                                                  : 'muted'
-                                        }
-                                    >
-                                        {row.status === 'not_started' ? 'Queued' : row.status.replaceAll('_', ' ')}
-                                    </LemonTag>
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="tertiary"
-                                        onClick={() => props.selectResult(row.launchId)}
-                                        disabledReason={!row.result ? 'Run details have not loaded yet.' : undefined}
-                                    >
-                                        Run details
-                                    </LemonButton>
-                                    {row.result?.task_id &&
-                                        row.result.task_run_id &&
-                                        (trialIsActive(row.status) || trialTaskIsActive(row.result.task_status)) && (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="tertiary"
-                                                status="danger"
-                                                loading={props.canceling.includes(row.launchId)}
-                                                onClick={() => props.cancelRun(row.launchId)}
-                                            >
-                                                Stop run
-                                            </LemonButton>
-                                        )}
-                                </LemonCard>
-                            ))}
-                        </div>
-                    )}
                 </>
             ) : (
                 <>
@@ -204,11 +172,14 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconRefresh />}
-                            loading={props.evaluationState.loading}
+                            loading={props.evaluationState.loading || props.refreshing}
                             disabledReason={
                                 props.evaluationState.scoring ? 'Wait for judging to be submitted.' : undefined
                             }
-                            onClick={() => props.loadEvaluation(props.selectedComparison!.id)}
+                            onClick={() => {
+                                props.loadEvaluation(props.selectedComparison!.id)
+                                props.refreshResults(true)
+                            }}
                         >
                             Refresh status
                         </LemonButton>
@@ -232,22 +203,102 @@ export function ScoutTrialDetail(props: ScoutTrialsViewProps): JSX.Element {
                     )}
                 </>
             )}
+            {!props.evaluationState.value?.report && props.comparisonRows.length > 0 && (
+                <div className="flex flex-col gap-2">
+                    <p className="m-0 text-sm font-semibold">Runs in this trial</p>
+                    {props.comparisonRows.map((row) => (
+                        <LemonCard
+                            key={row.launchId}
+                            hoverEffect={false}
+                            className="flex flex-wrap items-center justify-between gap-2 p-3"
+                        >
+                            <div className="min-w-0 flex-1">
+                                <strong className="break-words">{row.variant}</strong>
+                                <p className="m-0 text-xs text-muted break-words">{`${row.model || 'Saved model'} · ${row.effort || 'default'} effort`}</p>
+                                {props.resultErrors[row.launchId] && (
+                                    <p className="m-0 text-xs text-danger break-words">
+                                        {props.resultErrors[row.launchId]}
+                                    </p>
+                                )}
+                                {props.cancelErrors[row.launchId] &&
+                                    (trialIsActive(row.status) || trialTaskIsActive(row.result?.task_status)) && (
+                                        <p className="m-0 text-xs text-danger break-words">
+                                            {props.cancelErrors[row.launchId]}
+                                        </p>
+                                    )}
+                            </div>
+                            <LemonTag
+                                type={
+                                    row.status === 'completed'
+                                        ? 'success'
+                                        : row.status === 'failed'
+                                          ? 'danger'
+                                          : 'muted'
+                                }
+                            >
+                                {row.status === 'not_started' ? 'Queued' : row.status.replaceAll('_', ' ')}
+                            </LemonTag>
+                            <LemonButton size="xsmall" type="tertiary" onClick={() => props.selectResult(row.launchId)}>
+                                Run details
+                            </LemonButton>
+                            {props.resultErrors[row.launchId] && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => props.retryResult(row.launchId)}
+                                    loading={props.refreshingLaunchIds.includes(row.launchId)}
+                                    data-attr="scout-trial-run-retry"
+                                >
+                                    Retry
+                                </LemonButton>
+                            )}
+                            {row.result?.task_id &&
+                                row.result.task_run_id &&
+                                (trialIsActive(row.status) || trialTaskIsActive(row.result.task_status)) && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        status="danger"
+                                        loading={props.canceling.includes(row.launchId)}
+                                        onClick={() => props.cancelRun(row.launchId)}
+                                    >
+                                        Stop run
+                                    </LemonButton>
+                                )}
+                        </LemonCard>
+                    ))}
+                </div>
+            )}
             {props.evaluationState.value?.report && (
-                <>
-                    <ScoutTrialComparisonReport
-                        report={props.evaluationState.value.report}
-                        rows={props.comparisonRows}
-                        onSelectRun={props.selectResult}
-                    />
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconDownload />}
-                        onClick={props.downloadEvaluation}
-                    >
-                        Download report
-                    </LemonButton>
-                </>
+                <ScoutTrialComparisonReport
+                    report={props.evaluationState.value.report}
+                    rows={props.comparisonRows}
+                    onSelectRun={props.selectResult}
+                />
+            )}
+            {(props.evaluationState.value?.report || props.comparisonRows.some((row) => row.result)) && (
+                <div className="flex flex-wrap gap-2">
+                    {props.evaluationState.value?.report && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconDownload />}
+                            onClick={props.downloadEvaluation}
+                        >
+                            Download report
+                        </LemonButton>
+                    )}
+                    {props.comparisonRows.some((row) => row.result) && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconDownload />}
+                            onClick={props.downloadResults}
+                        >
+                            Download results
+                        </LemonButton>
+                    )}
+                </div>
             )}
             {(props.evaluationState.value?.status === 'completed' ||
                 props.evaluationState.value?.status === 'failed') && (

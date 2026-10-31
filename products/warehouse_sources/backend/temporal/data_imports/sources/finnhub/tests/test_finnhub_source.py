@@ -46,10 +46,6 @@ class TestGetSchemas:
         schemas = {s.name: s for s in FinnhubSource().get_schemas(_config(), team_id=1)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    def test_names_filter(self) -> None:
-        schemas = FinnhubSource().get_schemas(_config(), team_id=1, names=["quote", "country"])
-        assert {s.name for s in schemas} == {"quote", "country"}
-
 
 class TestSourceForPipeline:
     def test_plumbs_schema_into_source_response(self) -> None:

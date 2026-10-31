@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DropboxSignSource(ResumableSource[DropboxSignSourceConfig, DropboxSignResumeConfig]):
+    codebase_detection = detect(
+        env=("^(DROPBOX_SIGN|DROPBOXSIGN)_",),
+        npm=("@dropbox/sign", "hellosign-embedded", "hellosign-sdk"),
+        pypi=("dropbox-sign", "hellosign-python-sdk"),
+        composer=("dropbox/sign", "dropbox/dropbox-sdk"),
+        maven=("com.dropbox.sign:dropbox-sign",),
+        rubygems=("dropbox-sign",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3",)
     default_version = "v3"
@@ -48,7 +58,7 @@ class DropboxSignSource(ResumableSource[DropboxSignSourceConfig, DropboxSignResu
             name=ExternalDataSourceType.DROPBOXSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="Dropbox Sign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Dropbox Sign API key to automatically pull your Dropbox Sign data into the PostHog Data warehouse.
 
 You can create an API key in your [Dropbox Sign API settings](https://app.hellosign.com/home/myAccount#api). The API key is used with HTTP Basic authentication (the key as the username, with a blank password).""",

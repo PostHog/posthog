@@ -12,6 +12,7 @@ import structlog
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import redis
 from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.constants import SDK_CACHE_EXPIRY, SDK_TYPES, SdkTypes, github_sdk_versions_key
@@ -53,6 +54,17 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     "posthog-aspnetcore": lambda: fetch_sdk_data_from_releases(
         "PostHog/posthog-dotnet", tag_prefixes=["PostHog.AspNetCore-v"]
     ),
+    "posthog-rs": lambda: fetch_rust_sdk_data(),
+    "posthog-rs-mcp": lambda: fetch_rust_sdk_data(),
+    "posthog-godot": lambda: fetch_sdk_data_from_releases(
+        "PostHog/posthog-godot", tag_prefixes=[UNPREFIXED_SEMVER_TAG]
+    ),
+    "posthog-unreal": lambda: fetch_sdk_data_from_releases(
+        "PostHog/posthog-unreal", tag_prefixes=[UNPREFIXED_SEMVER_TAG]
+    ),
+    "posthog-go-mcp": lambda: fetch_go_sdk_data(),
+    "posthog-ruby-mcp": lambda: fetch_ruby_sdk_data(),
+    "js": lambda: fetch_js_lite_sdk_data(),
 }
 
 
@@ -173,7 +185,7 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
             logger.info(f"[SDK Health] Fetching releases from {url}")
 
             # Identity-blind, unauthenticated call — records volume telemetry, no installation budget.
-            response = github_request("GET", url, source="growth", timeout=10)
+            response = github_request("GET", url, source="growth", timeout=10, priority=Priority.BATCH)
 
             if not response.ok:
                 logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)
@@ -244,6 +256,22 @@ def fetch_node_sdk_data() -> dict[str, Any]:
     }
 
 
+def fetch_js_lite_sdk_data() -> dict[str, Any]:
+    posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-js-lite@"])
+    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-web-v"])
+
+    if not posthog_js or not posthog_js_lite:
+        return {}
+
+    return {
+        "latestVersion": posthog_js["latestVersion"],
+        "releaseDates": {
+            **posthog_js_lite.get("releaseDates", {}),
+            **posthog_js["releaseDates"],
+        },
+    }
+
+
 def fetch_react_native_sdk_data() -> dict[str, Any]:
     """Fetch React Native SDK data from GitHub releases API"""
 
@@ -300,6 +328,10 @@ def fetch_java_sdk_data() -> dict[str, Any]:
 def fetch_java_server_sdk_data() -> dict[str, Any]:
     """Fetch Java server SDK data from its dedicated tags in the Android monorepo."""
     return fetch_sdk_data_from_releases("PostHog/posthog-android", tag_prefixes=["server-v"])
+
+
+def fetch_rust_sdk_data() -> dict[str, Any]:
+    return fetch_sdk_data_from_releases("PostHog/posthog-rs", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 def fetch_go_sdk_data() -> dict[str, Any]:

@@ -39,14 +39,19 @@ export const manifest: ProductManifest = {
             iconType: 'data_modeling',
             iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
             href: urls.models(),
-            searchKeywords: ['materialized views', 'materialization', 'data modeling'],
+            searchKeywords: ['materialized views', 'materialization', 'data modeling', 'sql views', 'saved queries'],
             searchTabs: [
-                { name: 'Lineage', href: urls.models('lineage') },
+                {
+                    name: 'Usage',
+                    href: urls.models('usage'),
+                    flag: FEATURE_FLAGS.DATA_MODELING_USAGE,
+                    searchKeywords: ['bytes read', 'cpu', 'materialization'],
+                },
+                { name: 'Lineage', href: urls.models('lineage'), searchKeywords: ['dag', 'dependencies'] },
                 {
                     name: 'Data quality',
                     href: urls.models('data-quality'),
-                    flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
-                    searchKeywords: ['tests'],
+                    searchKeywords: ['tests', 'checks', 'freshness'],
                 },
             ],
             sceneKey: 'Models',

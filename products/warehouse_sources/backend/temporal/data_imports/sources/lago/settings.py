@@ -25,6 +25,8 @@ class LagoEndpointConfig:
     # and never changes. Never partition on a mutable field.
     partition_key: Optional[str] = "created_at"
     page_size: int = DEFAULT_PAGE_SIZE
+    # Billing entities and the analytics reports return their whole collection in one unpaginated body.
+    paginated: bool = True
     # Lago's REST API exposes no universal server-side `created_at`/`updated_at` cursor, so every
     # stream is full-refresh only. Left empty deliberately — see the module docstring in lago.py.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -33,12 +35,50 @@ class LagoEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
 
 
+def _analytics_endpoint(name: str, path: str, data_key: str, primary_keys: list[str]) -> LagoEndpointConfig:
+    # Without a `months` filter each report covers every month since the organization was created,
+    # one row per month and grouping key, so a full refresh rebuilds the whole history.
+    return LagoEndpointConfig(
+        name=name,
+        path=path,
+        data_key=data_key,
+        primary_keys=primary_keys,
+        partition_key=None,
+        paginated=False,
+    )
+
+
 # Charge filters are not a separate table: every charge row already carries its `filters` array.
 LAGO_ENDPOINTS: dict[str, LagoEndpointConfig] = {
     "add_ons": LagoEndpointConfig(name="add_ons", path="/add_ons", data_key="add_ons"),
+    "analytics_gross_revenue": _analytics_endpoint(
+        "analytics_gross_revenue",
+        "/analytics/gross_revenue",
+        "gross_revenues",
+        ["month", "currency", "billing_entity_id"],
+    ),
+    "analytics_invoice_collection": _analytics_endpoint(
+        "analytics_invoice_collection",
+        "/analytics/invoice_collection",
+        "invoice_collections",
+        ["month", "payment_status", "currency"],
+    ),
+    "analytics_invoiced_usage": _analytics_endpoint(
+        "analytics_invoiced_usage", "/analytics/invoiced_usage", "invoiced_usages", ["month", "code", "currency"]
+    ),
+    "analytics_mrr": _analytics_endpoint("analytics_mrr", "/analytics/mrr", "mrrs", ["month", "currency"]),
+    "analytics_overdue_balance": _analytics_endpoint(
+        "analytics_overdue_balance",
+        "/analytics/overdue_balance",
+        "overdue_balances",
+        ["month", "currency", "billing_entity_id"],
+    ),
     "applied_coupons": LagoEndpointConfig(name="applied_coupons", path="/applied_coupons", data_key="applied_coupons"),
     "billable_metrics": LagoEndpointConfig(
         name="billable_metrics", path="/billable_metrics", data_key="billable_metrics"
+    ),
+    "billing_entities": LagoEndpointConfig(
+        name="billing_entities", path="/billing_entities", data_key="billing_entities", paginated=False
     ),
     "coupons": LagoEndpointConfig(name="coupons", path="/coupons", data_key="coupons"),
     "credit_notes": LagoEndpointConfig(name="credit_notes", path="/credit_notes", data_key="credit_notes"),
@@ -68,9 +108,16 @@ LAGO_ENDPOINTS: dict[str, LagoEndpointConfig] = {
     ),
     "fees": LagoEndpointConfig(name="fees", path="/fees", data_key="fees"),
     "invoices": LagoEndpointConfig(name="invoices", path="/invoices", data_key="invoices"),
+    "payment_receipts": LagoEndpointConfig(
+        name="payment_receipts", path="/payment_receipts", data_key="payment_receipts"
+    ),
+    "payment_requests": LagoEndpointConfig(
+        name="payment_requests", path="/payment_requests", data_key="payment_requests"
+    ),
     "payments": LagoEndpointConfig(name="payments", path="/payments", data_key="payments"),
     "plans": LagoEndpointConfig(name="plans", path="/plans", data_key="plans"),
     "subscriptions": LagoEndpointConfig(name="subscriptions", path="/subscriptions", data_key="subscriptions"),
+    "taxes": LagoEndpointConfig(name="taxes", path="/taxes", data_key="taxes"),
     # `/wallet_transactions` only accepts POST (top-ups); the listing is per wallet.
     "wallet_transactions": LagoEndpointConfig(
         name="wallet_transactions",

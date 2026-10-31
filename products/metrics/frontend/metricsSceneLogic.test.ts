@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -100,6 +101,7 @@ describe('metricsSceneLogic', () => {
                     aggregation: 'p95',
                     dateFrom: '-24h',
                     dateTo: '2026-08-25T00:00:00.000Z',
+                    interval: 'minute_5',
                     groupBy: '["service_name","env"]',
                     filterGroup: JSON.stringify(FILTER_GROUP),
                 })
@@ -111,6 +113,7 @@ describe('metricsSceneLogic', () => {
             expect(logic.values.aggregation).toEqual('p95')
             expect(logic.values.dateFrom).toEqual('-24h')
             expect(logic.values.dateTo).toEqual('2026-08-25T00:00:00.000Z')
+            expect(logic.values.interval).toEqual('minute_5')
             expect(logic.values.groupByKeys).toEqual(['service_name', 'env'])
             expect(logic.values.filterGroup).toEqual(FILTER_GROUP)
             // Applying the params dispatches setters whose own URL sync must not rewrite the
@@ -149,6 +152,7 @@ describe('metricsSceneLogic', () => {
             ['activeTab', 'nonsense', 'activeTab', 'overview'],
             ['aggregation', 'not-an-aggregation', 'aggregation', null],
             ['metricType', 'not-a-type', 'selectedMetricType', null],
+            ['interval', 'not-an-interval', 'interval', null],
         ])('falls back to the default for an invalid %s param', async (param, urlValue, valueKey, expected) => {
             await expectLogic(logic, () => {
                 router.actions.push('/metrics', { [param]: urlValue })
@@ -288,17 +292,48 @@ describe('metricsSceneLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setMetricName('requests_total')
                 logic.actions.setDateFrom('-7d')
+                logic.actions.setInterval('minute_5')
             }).toFinishAllListeners()
 
-            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', dateFrom: '-7d' })
+            expect(router.values.searchParams).toMatchObject({
+                metricName: 'requests_total',
+                dateFrom: '-7d',
+                interval: 'minute_5',
+            })
             expect(router.values.searchParams).not.toHaveProperty('aggregation')
 
             await expectLogic(logic, () => {
                 logic.actions.setDateFrom('-1h')
+                logic.actions.setInterval(null)
             }).toFinishAllListeners()
 
             expect(router.values.searchParams).not.toHaveProperty('dateFrom')
+            expect(router.values.searchParams).not.toHaveProperty('interval')
             expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total' })
+        })
+
+        it('round-trips a PromQL query through the URL, and a builder link leaves it', async () => {
+            await expectLogic(logic, () => {
+                metricsViewerLogic.actions.applyQuery({
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [],
+                    language: 'promql',
+                    promql: 'sum(up)',
+                })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).toMatchObject({ language: 'promql', query: 'sum(up)' })
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { metricName: 'queue_depth' })
+            }).toFinishAllListeners()
+            expect(metricsViewerLogic.values.language).toEqual('builder')
+            expect(metricsViewerLogic.values.metricName).toEqual('queue_depth')
+
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { language: 'sql', query: 'SELECT 1' })
+            }).toFinishAllListeners()
+            expect(metricsViewerLogic.values.language).toEqual('sql')
+            expect(metricsViewerLogic.values.queryText).toEqual('SELECT 1')
         })
 
         // The two URL encodings must never disagree: multi-series/formula state writes

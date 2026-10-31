@@ -11,7 +11,6 @@ from langgraph.prebuilt import create_react_agent
 from openai import APIStatusError
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -43,6 +42,8 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
 )
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
 from posthog.temporal.ai_observability.llm_endpoint import build_flex_first_chat_client, build_langchain_callbacks
+
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 logger = structlog.get_logger(__name__)
 

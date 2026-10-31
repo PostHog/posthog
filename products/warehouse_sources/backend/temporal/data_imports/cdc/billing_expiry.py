@@ -32,12 +32,12 @@ if typing.TYPE_CHECKING:
 BILLING_LIMIT_EXPIRED_REASON = "billing_limit_expired"
 
 _SLOT_DROPPED_MESSAGE = (
-    "Change data capture stopped because this team has been over its data warehouse billing limit for "
+    "Change data capture stopped because this team has been over its Sources billing limit for "
     "14 days, and PostHog keeps captured changes for 14 days. PostHog dropped the replication slot. "
     "Once you're back under the limit, use Repair CDC to recreate it and re-sync your tables."
 )
 _SLOT_KEPT_MESSAGE = (
-    "Change data capture stopped loading because this team has been over its data warehouse billing "
+    "Change data capture stopped loading because this team has been over its Sources billing "
     "limit for 14 days, and PostHog keeps captured changes for 14 days. The replication slot was not "
     "dropped. Once you're back under the limit, your tables re-sync on their own."
 )
@@ -129,11 +129,11 @@ def stop_cdc_past_billing_retention(
     """
     if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
         with adapter.management_connection(source, connect_timeout=10) as conn:
-            adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
-            # drop_resources is best-effort: it logs a refused drop (an active slot, a missing grant)
+            adapter.drop_stream(conn, source)
+            # drop_stream is best-effort: it logs a refused drop (an active slot, a missing grant)
             # instead of raising.
-            if adapter.slot_exists(conn, cdc_config.slot_name):
-                raise RuntimeError(f"Replication slot {cdc_config.slot_name} still exists after the drop")
+            if adapter.stream_exists(conn, source):
+                raise RuntimeError(f"Replication slot {cdc_config.stream_name} still exists after the drop")
         mark_cdc_broken(source, BILLING_LIMIT_EXPIRED_REASON, _SLOT_DROPPED_MESSAGE)
         return True
     mark_cdc_broken(source, BILLING_LIMIT_EXPIRED_REASON, _SLOT_KEPT_MESSAGE, pause=False, slot_kept=True)

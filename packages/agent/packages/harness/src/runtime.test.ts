@@ -54,14 +54,14 @@ describe("createHarnessRuntime", () => {
           .extensions.map((extension) => extension.path);
         expect(extensionPaths).toEqual(
           expect.arrayContaining([
-            "<inline:hog-branding>",
+            "<inline:hogness-branding>",
             "<inline:posthog-provider>",
             "<inline:current-work>",
-            "<inline:orchestration>",
             "<inline:web-access>",
             "<inline:mcp>",
           ]),
         );
+        expect(extensionPaths).not.toContain("<inline:orchestration>");
       } finally {
         await runtime.dispose();
       }

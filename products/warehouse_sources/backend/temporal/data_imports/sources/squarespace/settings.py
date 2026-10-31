@@ -117,6 +117,16 @@ SQUARESPACE_ENDPOINTS: dict[str, SquarespaceEndpointConfig] = {
         incremental_fields=[],
         extra_params={"sortField": "createdOn", "sortDirection": "asc"},
     ),
+    # Fulfillment options (Discounts API) is a single unpaginated lookup of the site's shipping
+    # options and carrier services, with no timestamp fields, so full refresh only.
+    "fulfillment_options": SquarespaceEndpointConfig(
+        name="fulfillment_options",
+        api_version="v1",
+        path="/fulfillments/fulfillment-options",
+        data_key="fulfillmentOptions",
+        primary_keys=["id"],
+        incremental_fields=[],
+    ),
 }
 
 ENDPOINTS = tuple(SQUARESPACE_ENDPOINTS.keys())

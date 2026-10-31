@@ -9,8 +9,7 @@ export function SuggestionForm(): JSX.Element {
     const { suggestionDraft, suggestionPriority, suggestionSubmitResultLoading } = useValues(autoresearchPipelineLogic)
     const { setSuggestionDraft, setSuggestionPriority, submitSuggestion } = useActions(autoresearchPipelineLogic)
     return (
-        <div className="border rounded p-3 space-y-2">
-            <div className="text-sm font-semibold">Steer the agent</div>
+        <div className="space-y-2">
             <LemonTextArea
                 value={suggestionDraft}
                 maxLength={2000}

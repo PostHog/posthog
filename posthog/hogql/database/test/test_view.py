@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -16,9 +16,15 @@ from posthog.hogql.database.test.tables import (
     create_aapl_stock_table_view,
     create_nested_aapl_stock_view,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+Origin = DataWarehouseSavedQuery.Origin
 
 
 class TestView(BaseTest):
@@ -188,3 +194,106 @@ class TestView(BaseTest):
                 clickhouse,
                 "SELECT some_alias.Date AS Date, some_alias.Open AS Open, some_alias.High AS High, some_alias.Low AS Low, some_alias.Close AS Close, some_alias.Volume AS Volume, some_alias.OpenInt AS OpenInt FROM (SELECT aapl_stock.Date AS Date, aapl_stock.Open AS Open, aapl_stock.High AS High, aapl_stock.Low AS Low, aapl_stock.Close AS Close, aapl_stock.Volume AS Volume, aapl_stock.OpenInt AS OpenInt FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock) AS some_alias LIMIT 10",
             )
+
+
+class TestModelsNamespaceDualRegistration(BaseTest):
+    def _create(self, name: str, origin: str | None = None, query: str = "SELECT 1 AS id") -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            origin=origin,
+            query={"kind": "HogQLQuery", "query": query},
+            columns={"id": "String"},
+        )
+
+    @parameterized.expand(
+        [
+            ("null_origin", "revenue", None, "models.revenue", True),
+            ("authored", "revenue", Origin.DATA_WAREHOUSE, "models.revenue", True),
+            ("authored_dotted", "finance.revenue", Origin.DATA_WAREHOUSE, "models.finance.revenue", True),
+            ("managed_viewset", "charge", Origin.MANAGED_VIEWSET, "models.charge", False),
+            ("endpoint", "my_endpoint_v1", Origin.ENDPOINT, "models.my_endpoint_v1", False),
+            ("already_in_namespace", "models.revenue", Origin.DATA_WAREHOUSE, "models.models.revenue", False),
+        ]
+    )
+    def test_authored_model_resolves_under_the_models_root(
+        self, _name: str, stored_name: str, origin: str | None, qualified_name: str, resolves: bool
+    ) -> None:
+        self._create(stored_name, origin)
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table(qualified_name) is resolves
+        if resolves:
+            assert database.get_table(qualified_name) is database.get_table(stored_name)
+        assert database.get_view_names().count(stored_name) == 1
+        assert qualified_name not in database.get_view_names()
+        assert qualified_name not in database.get_all_table_names()
+        assert qualified_name not in database.tables.resolve_visible_table_names()
+
+    def test_the_models_name_reaches_the_model_when_a_warehouse_table_holds_the_bare_name(self) -> None:
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="revenue",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        self._create("revenue")
+
+        database = Database.create_for(team=self.team)
+
+        assert isinstance(database.get_table("models.revenue"), SavedQuery)
+
+    def test_a_stored_models_name_wins_over_a_derived_one(self) -> None:
+        legacy = self._create("arr", query="SELECT 'legacy' AS id")
+        stored = self._create("models.arr", query="SELECT 'stored' AS id")
+
+        database = Database.create_for(team=self.team)
+
+        assert cast(SavedQuery, database.get_table("models.arr")).id == str(stored.id)
+        assert cast(SavedQuery, database.get_table("arr")).id == str(legacy.id)
+        assert "models.arr" in database.get_view_names()
+
+    def test_a_stored_model_nested_under_a_derived_name_does_not_hide_it(self) -> None:
+        revenue = self._create("revenue")
+        monthly = self._create("models.revenue.monthly")
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table("models.revenue")
+        assert cast(SavedQuery, database.get_table("models.revenue")).id == str(revenue.id)
+        assert cast(SavedQuery, database.get_table("models.revenue.monthly")).id == str(monthly.id)
+
+    def test_a_legacy_model_named_models_keeps_its_slot(self) -> None:
+        root = self._create("root_placeholder")
+        DataWarehouseSavedQuery.objects.filter(pk=root.pk).update(name="models")
+        revenue = self._create("revenue")
+
+        database = Database.create_for(team=self.team)
+
+        assert cast(SavedQuery, database.get_table("models")).id == str(root.id)
+        assert cast(SavedQuery, database.get_table("models.revenue")).id == str(revenue.id)
+        assert not database.has_table("models.models")
+
+    def test_a_model_pruned_from_the_schema_is_unknown_under_both_names(self) -> None:
+        self._create("revenue")
+        self._create("costs")
+
+        database = Database.create_for(team=self.team)
+        database.prune_to_table_names({"costs"})
+
+        assert database.has_table("models.costs")
+        assert not database.has_table("models.revenue")
+        with self.assertRaisesMessage(QueryError, "Unknown table `models.revenue`"):
+            database.get_table("models.revenue")
+
+    def test_the_models_name_is_not_a_table_of_its_own(self) -> None:
+        self._create("revenue")
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table("models.revenue")
+        assert not [name for name in database.tables.resolve_all_table_names() if name.startswith("models.")]

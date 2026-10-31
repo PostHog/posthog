@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirbrakeSource(ResumableSource[AirbrakeSourceConfig, AirbrakeResumeConfig]):
+    codebase_detection = detect(
+        env=("^AIRBRAKE_",),
+        npm=("@airbrake/browser", "@airbrake/node"),
+        pypi=("pybrake",),
+        composer=("airbrake/phpbrake", "airbrake/airbrake-php", "airbrake/php-airbrake"),
+        go=("github.com/airbrake/gobrake",),
+        maven=("io.airbrake:javabrake", "io.airbrake:airbrake-java"),
+        rubygems=("airbrake", "airbrake-ruby"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -45,7 +56,7 @@ class AirbrakeSource(ResumableSource[AirbrakeSourceConfig, AirbrakeResumeConfig]
             name=ExternalDataSourceType.AIRBRAKE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Airbrake",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Airbrake user API key to pull your Airbrake error monitoring data into the PostHog Data warehouse.
 
 You can find your user key in your Airbrake profile settings under **User settings**. All projects the key can access are synced.

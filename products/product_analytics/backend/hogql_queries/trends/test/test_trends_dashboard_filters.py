@@ -8,6 +8,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     BreakdownType,
+    ChartDisplayType,
     CompareFilter,
     DashboardFilter,
     DataWarehouseNode,
@@ -476,14 +477,25 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.dateRange.date_from == "-14d"
         assert query_runner.query.breakdownFilter == expected_breakdown
 
-    def test_compare_is_removed_for_all_time_range(self):
+    @parameterized.expand(
+        [
+            ("compare_set_on_construction", CompareFilter(compare=True), None),
+            ("compare_arrives_via_override", None, CompareFilter(compare=True)),
+        ]
+    )
+    def test_compare_is_removed_for_all_time_range(
+        self,
+        _name: str,
+        construction_compare_filter: CompareFilter | None,
+        override_compare_filter: CompareFilter | None,
+    ) -> None:
         query_runner = self._create_query_runner(
             "2024-07-07",
             "2024-07-14",
             IntervalType.DAY,
             None,
             trends_filters=TrendsFilter(),
-            compare_filters=CompareFilter(compare=True),
+            compare_filters=construction_compare_filter,
         )
 
         assert query_runner.query.dateRange is not None
@@ -492,9 +504,9 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.properties is None
         assert query_runner.query.breakdownFilter is None
         assert query_runner.query.trendsFilter == TrendsFilter()
-        assert query_runner.query.compareFilter == CompareFilter(compare=True)
+        assert query_runner.query.compareFilter == construction_compare_filter
 
-        query_runner.apply_dashboard_filters(DashboardFilter(date_from="all"))
+        query_runner.apply_dashboard_filters(DashboardFilter(date_from="all", compareFilter=override_compare_filter))
 
         assert query_runner.query.dateRange.date_from == "all"
         assert query_runner.query.dateRange.date_to is None
@@ -504,6 +516,36 @@ class TestTrendsDashboardFilters(BaseTest):
         assert query_runner.query.compareFilter == CompareFilter(
             compare=False
         )  # There's no previous period for the "all time" date range
+        assert len(query_runner.series) == 1
+        assert len(query_runner.to_queries()) == 1
+
+    def test_compare_override_is_removed_when_insights_own_range_is_already_all_time(self) -> None:
+        query_runner = self._create_query_runner("all", None, IntervalType.DAY, None)
+
+        query_runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True)))
+
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "all"
+        assert query_runner.query.compareFilter == CompareFilter(compare=False)
+
+    @parameterized.expand(
+        [
+            ("line_graph_takes_override", ChartDisplayType.ACTIONS_LINE_GRAPH, CompareFilter(compare=True)),
+            ("world_map_skips_override", ChartDisplayType.WORLD_MAP, None),
+            ("calendar_heatmap_skips_override", ChartDisplayType.CALENDAR_HEATMAP, None),
+            ("proportion_bar_skips_override", ChartDisplayType.ACTIONS_PROPORTION_BAR, None),
+        ]
+    )
+    def test_compare_override_only_applies_to_displays_that_support_compare(
+        self, _name: str, display: ChartDisplayType, expected: CompareFilter | None
+    ) -> None:
+        query_runner = self._create_query_runner(
+            "-7d", None, IntervalType.DAY, None, trends_filters=TrendsFilter(display=display)
+        )
+
+        query_runner.apply_dashboard_filters(DashboardFilter(compareFilter=CompareFilter(compare=True)))
+
+        assert query_runner.query.compareFilter == expected
 
     def test_dashboard_property_filters_are_ignored_for_data_warehouse_series(self):
         query_runner = self._create_query_runner(

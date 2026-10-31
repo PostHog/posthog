@@ -35,6 +35,7 @@ function job(id: number, name: string, conclusion: string, startMinute: number, 
     return {
         id,
         run_id: RUN_ID,
+        steps: [],
         name,
         status: 'completed',
         conclusion,

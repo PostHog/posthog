@@ -325,7 +325,8 @@ def test_any_row_reports_every_breaching_row():
         "The SQL insight value (BR) (0.5) is more than upper threshold (0.25)",
     ]
     # Which rows breached is persisted on the check record — notifications are transient.
-    assert evaluation.triggered_metadata == {
+    assert evaluation.triggered_metadata is not None
+    assert {key: evaluation.triggered_metadata[key] for key in ("breaching_rows", "breaching_row_count")} == {
         "breaching_rows": [
             {"label": "DE", "value": 0.4},
             {"label": "FR", "value": 0.3},

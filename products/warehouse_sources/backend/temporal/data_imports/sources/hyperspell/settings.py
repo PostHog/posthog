@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from posthog.dataclasses import frozen
 
@@ -11,7 +11,8 @@ class HyperspellEndpointConfig:
     name: str
     path: str
     # Key that wraps the list of rows in the JSON response body (e.g. {"items": [...]}).
-    data_key: str
+    # None when the response body is the list itself.
+    data_key: Optional[str]
     primary_keys: list[str]
     # Endpoints whose data is scoped to a Hyperspell user. When the source is configured with
     # user IDs, these endpoints are fetched once per user via the X-As-User header and every
@@ -23,6 +24,8 @@ class HyperspellEndpointConfig:
     # Query param that controls page size ("size" or "limit", varies per endpoint).
     page_size_param: Optional[str] = "size"
     page_size: int = 100
+    # Query params sent on every request, independent of pagination.
+    static_params: dict[str, Any] = field(default_factory=dict)
     # Stable datetime field to partition on. Never use a field that changes after creation.
     partition_key: Optional[str] = None
     # Nullable fields that participate in the primary key, mapped to the value that replaces
@@ -120,6 +123,29 @@ HYPERSPELL_ENDPOINTS: dict[str, HyperspellEndpointConfig] = {
         primary_keys=["user_id", "connection_id", "id"],
         user_scoped=True,
         pagination="none",
+    ),
+    # GET /connections/{connection_id}/folders?parent_id=... — one level of folders per request,
+    # walked down the tree for each of the user's connections whose integration supports
+    # folder selection. Folder ids come from the provider, so the connection is part of the key.
+    "connection_folders": HyperspellEndpointConfig(
+        name="connection_folders",
+        path="/connections/{connection_id}/folders",
+        data_key="folders",
+        primary_keys=["user_id", "connection_id", "provider_folder_id"],
+        user_scoped=True,
+        pagination="none",
+    ),
+    # GET /emotional-state/recent — a bare JSON array of the newest emotional states, newest
+    # first. The API has no pagination and caps `limit` at 20, so the table holds the 20 most
+    # recent states per user, not the full history.
+    "emotional_states": HyperspellEndpointConfig(
+        name="emotional_states",
+        path="/emotional-state/recent",
+        data_key=None,
+        primary_keys=["user_id", "resource_id"],
+        user_scoped=True,
+        pagination="none",
+        static_params={"limit": 20},
     ),
 }
 

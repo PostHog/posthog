@@ -14,6 +14,7 @@ from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
+    COMPLETE_OBSERVATION_REQUESTS_TIMEOUT,
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
     REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 # `activities` pulls in Django, which the workflow sandbox can't safely re-import.
 with workflow.unsafe.imports_passed_through():
     from products.replay_vision.backend.temporal.activities import (
+        complete_observation_requests_activity,
         delete_scanner_schedule_activity,
         list_enabled_scanners_activity,
         list_scanner_schedules_activity,
@@ -105,6 +107,13 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             await self._run_reaper(start_launched_scanners_activity)
         except Exception:
             workflow.logger.exception("replay_vision.start_launched_scanners_failed")
+
+        try:
+            await self._run_reaper(
+                complete_observation_requests_activity, start_to_close_timeout=COMPLETE_OBSERVATION_REQUESTS_TIMEOUT
+            )
+        except Exception:
+            workflow.logger.exception("replay_vision.complete_observation_requests_failed")
 
     async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
         """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to

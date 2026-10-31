@@ -25,6 +25,15 @@ if TYPE_CHECKING:
 
 WAREHOUSE_MULTI_DESTINATION_FLAG = "warehouse-multi-destination"
 
+NO_ACTIVE_DESTINATIONS_MESSAGE = (
+    "Every destination this table syncs to is paused, so this sync did not run. "
+    "Fix the destination, then edit it to turn it back on."
+)
+
+
+class NoActiveDestinationsError(Exception):
+    """Every link of the schema is off, so the run has nowhere to deliver."""
+
 
 def is_multi_destination_enabled(team_id: int, source_type: str) -> bool:
     """Whether this team's syncs of this source type deliver to configured destinations.
@@ -70,8 +79,13 @@ def destination_ids_for_run(schema: ExternalDataSchema) -> list[str]:
     This list is the run's whole destination set. Anything that needs the external subset asks
     `external_destination_ids_for` for it rather than reading "non-empty" as "has external
     destinations": the warehouse is delivered through delta, not through a destination writer.
+    Raises `NoActiveDestinationsError` when the schema has links but every one of them is off.
     """
-    return sorted(str(destination.id) for destination in resolve_destinations(schema))
+    destinations = resolve_destinations(schema)
+    if not destinations:
+        raise NoActiveDestinationsError(NO_ACTIVE_DESTINATIONS_MESSAGE)
+
+    return sorted(str(destination.id) for destination in destinations)
 
 
 def external_destination_ids_for(team_id: int, destination_ids: Sequence[str]) -> list[str]:

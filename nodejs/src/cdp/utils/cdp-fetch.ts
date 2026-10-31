@@ -9,6 +9,23 @@ import { tryCatch } from '~/common/utils/try-catch'
 import { PluginsServerConfig } from '../../types'
 
 export const MAX_FETCH_TIMEOUT_MS = 10000
+// The response lands in the invocation state, which can be queued through Kafka with a 6 MB message limit.
+export const MAX_FETCH_RESPONSE_BYTES = 5 * 1024 * 1024
+
+// An error body is only logged, so an oversized one must not hide the status that decides the retry.
+export async function readFetchResponseText(response: FetchResponse | null | undefined): Promise<string> {
+    if (!response) {
+        return 'unknown'
+    }
+    try {
+        return await response.text()
+    } catch (e) {
+        if (e.name === 'ResponseTooLargeError' && response.status >= 400) {
+            return e.message
+        }
+        throw e
+    }
+}
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
@@ -84,6 +101,16 @@ export function isConnectionLevelError(error: any): boolean {
 // attempt to a host fails, and the per-address reasons (ECONNREFUSED, ETIMEDOUT, ...) live in
 // `errors`. Without unpacking them, the customer-facing log reads "AggregateError: " with no way
 // to tell a DNS failure from a refused connection.
+// AbortSignal.timeout rejects with a TimeoutError. undici reports some aborts as an
+// AbortError, and can wrap either one in `cause`.
+const TIMEOUT_ERROR_NAMES = ['TimeoutError', 'AbortError']
+
+export const isTimeoutError = (error: unknown): boolean => {
+    const name = (error as { name?: string } | null)?.name
+    const causeName = (error as { cause?: { name?: string } } | null)?.cause?.name
+    return TIMEOUT_ERROR_NAMES.includes(name ?? '') || TIMEOUT_ERROR_NAMES.includes(causeName ?? '')
+}
+
 export function fetchErrorDetail(error: Error): string {
     const causes =
         error instanceof AggregateError && error.errors.length > 0
@@ -124,7 +151,7 @@ export async function cdpTrackedFetch({
     // which run inside undici's connect flow where no caller context is otherwise available.
     const doFetch = () =>
         fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
-            tryCatch(async () => await fetch(url, fetchParams))
+            tryCatch(async () => await fetch(url, { maxResponseBytes: MAX_FETCH_RESPONSE_BYTES, ...fetchParams }))
         )
 
     let [fetchError, fetchResponse] = await doFetch()

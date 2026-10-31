@@ -49,10 +49,12 @@ When to deviate:
 
 ## `cooldown_minutes = 30`
 
-After a fire, suppress repeat fires for 30 minutes. This avoids paging the same channel every check interval
-during an ongoing incident — once the alert is firing, the user already knows.
+A logs alert notifies once when it starts firing and once when it resolves.
+It does not notify again on each check while it stays firing, whatever the cooldown.
+Cooldown sets the minimum time between any two notifications, so an alert that flaps around the threshold
+notifies at most once per 30 minutes.
 
-Use 0 for snapshot-style alerts where every breach is independently interesting (rare).
+Use 0 when every fire and resolve must notify, even for an alert that flaps (rare).
 
 ## Avoid these footguns
 

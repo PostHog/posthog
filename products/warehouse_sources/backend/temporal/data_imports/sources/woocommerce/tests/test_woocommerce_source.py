@@ -2,6 +2,10 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.woocommerce import (
     WooCommerceSourceConfig,
@@ -25,17 +29,6 @@ def _make_inputs(schema_name: str, should_use_incremental_field: bool = False, l
         should_use_incremental_field=should_use_incremental_field,
         db_incremental_field_last_value=last_value,
     )
-
-
-@pytest.fixture(autouse=True)
-def webhook_disabled():
-    """Default every test to the polling path.
-
-    `webhook_enabled` reads the schema row out of Postgres to decide whether the table has been
-    switched to webhook sync; tests that care about that branch re-patch it themselves.
-    """
-    with mock.patch.object(WebhookSourceManager, "webhook_enabled", new=mock.AsyncMock(return_value=False)) as patched:
-        yield patched
 
 
 class TestWooCommerceSource:
@@ -117,28 +110,23 @@ class TestWooCommerceSource:
             "https://example.com", "ck_test", "cs_test", self.team_id, "https://ph.test/hook"
         )
 
-    def test_source_for_pipeline_keeps_polling_while_webhooks_are_not_active(self, webhook_disabled):
-        manager = mock.MagicMock(spec=ResumableSourceManager)
+    def test_source_for_pipeline_keeps_polling_while_webhooks_are_not_active(self):
+        result = SourceDriver(self.source, self.config).run("orders", [ScriptedResponse(json=[{"id": 1}])])
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
-        ) as mock_source:
-            resource = mock.MagicMock(name="orders", column_hints=None)
-            mock_source.return_value = resource
-            response = self.source.source_for_pipeline(self.config, manager, _make_inputs("orders"))
+        assert result.raised is None
+        assert result.rows == [{"id": 1}]
+        assert result.paths == ["/wp-json/wc/v3/orders"]
 
-        assert response.items() is resource
-
-    def test_source_for_pipeline_reads_pushed_rows_once_webhooks_are_active(self, webhook_disabled):
+    def test_source_for_pipeline_reads_pushed_rows_once_webhooks_are_active(self):
         # Once the schema is on webhook sync and its backfill has completed, the sync has to drain
         # the buffered deliveries instead of re-walking the REST API.
-        webhook_disabled.return_value = True
         manager = mock.MagicMock(spec=ResumableSourceManager)
 
         with (
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
             ) as mock_source,
+            mock.patch.object(WebhookSourceManager, "webhook_enabled", new=mock.AsyncMock(return_value=True)),
             mock.patch.object(WebhookSourceManager, "get_items") as mock_get_items,
         ):
             mock_source.return_value = mock.MagicMock(name="orders", column_hints=None)
@@ -149,16 +137,15 @@ class TestWooCommerceSource:
         # Delta merge only dedupes across syncs, so the within-batch transformer must be wired up.
         assert mock_get_items.call_args.kwargs["table_transformer"] is not None
 
-    def test_source_for_pipeline_never_consults_webhooks_for_a_polling_only_table(self, webhook_disabled):
-        manager = mock.MagicMock(spec=ResumableSourceManager)
+    def test_source_for_pipeline_never_consults_webhooks_for_a_polling_only_table(self):
+        webhook_manager = mock.MagicMock(spec=WebhookSourceManager)
+        webhook_manager.webhook_enabled = mock.AsyncMock(return_value=True)
 
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.source.woocommerce_source"
-        ) as mock_source:
-            mock_source.return_value = mock.MagicMock(name="tax_rates", column_hints=None)
-            self.source.source_for_pipeline(self.config, manager, _make_inputs("tax_rates"))
+        with mock.patch.object(WooCommerceSource, "get_webhook_source_manager", return_value=webhook_manager):
+            result = SourceDriver(self.source, self.config).run("tax_rates", [ScriptedResponse(json=[{"id": 1}])])
 
-        webhook_disabled.assert_not_awaited()
+        webhook_manager.webhook_enabled.assert_not_awaited()
+        assert result.rows == [{"id": 1}]
 
     def test_webhook_resources_are_distinct(self):
         # Two schemas sharing a resource key would collide in `schema_mapping` and one table

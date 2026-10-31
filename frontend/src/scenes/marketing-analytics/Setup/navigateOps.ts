@@ -33,7 +33,13 @@ export function runNavigateOp(op: ApplyOp, entryPoint: string): boolean {
             return true
         case 'open_source_wizard':
             window.open(
-                urls.dataWarehouseSourceNew(op.kind as string, urls.marketingAnalyticsApp(), 'Marketing analytics'),
+                urls.dataWarehouseSourceNew(
+                    op.kind as string,
+                    urls.marketingAnalyticsApp(),
+                    'Marketing analytics',
+                    undefined,
+                    `marketing_analytics_setup_${entryPoint}`
+                ),
                 '_blank',
                 'noopener'
             )

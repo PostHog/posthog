@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CampaignMonitorSource(ResumableSource[CampaignMonitorSourceConfig, CampaignMonitorResumeConfig]):
+    codebase_detection = detect(
+        env=("^CAMPAIGN_MONITOR_", "^CREATESEND_"),
+        script_hosts=("js.createsend1.com",),
+        npm=("createsend-node",),
+        pypi=("createsend",),
+        composer=("campaignmonitor/createsend-php",),
+        rubygems=("createsend",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v3.3",)
     default_version = "v3.3"
@@ -120,7 +130,7 @@ Create an API key in your [Campaign Monitor account settings](https://www.campai
 
 Your **Client ID** identifies the client whose data you want to sync. You can find it in the client's **Settings** page, or by calling the `clients.json` API endpoint.""",
             iconPath="/static/services/campaign_monitor.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

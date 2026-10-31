@@ -135,4 +135,47 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ended_views": "Number of views that finished playback.",
         },
     },
+    "metric_timeseries": {
+        "description": "Daily values of each Mux Data metric over the synced window — one row per metric per day.",
+        "docs_url": "https://www.mux.com/docs/api-reference/data/metrics/get-metric-timeseries-data",
+        "columns": {
+            "metric": "Identifier of the metric (e.g. viewer_experience_score, rebuffer_percentage).",
+            "interval_start": "Start of the interval the value covers (ISO 8601 timestamp).",
+            "value": "Value of the metric for the interval, using the metric's default measurement.",
+            "views": "Number of views in the interval with a valid value for the metric.",
+            "granularity": "Size of each interval (day).",
+            "aggregation": "Timestamp the views are bucketed by (e.g. view_end).",
+        },
+    },
+    "metric_breakdowns": {
+        "description": "Each Mux Data metric broken down by a viewer dimension (country, CDN, browser, operating system, player, device category) over the synced window.",
+        "docs_url": "https://www.mux.com/docs/api-reference/data/metrics/list-breakdown-values",
+        "columns": {
+            "metric": "Identifier of the metric being broken down.",
+            "dimension": "Dimension the metric is grouped by (e.g. country, cdn).",
+            "field": "Value of the dimension for this row (e.g. US, fastly).",
+            "value": "Value of the metric for views with this dimension value.",
+            "views": "Number of views with this dimension value.",
+            "negative_impact": "Rank of how much this dimension value drags the metric down relative to others.",
+            "total_watch_time": "Total watch time of views with this dimension value, in milliseconds.",
+            "total_playing_time": "Total playing time of views with this dimension value, in milliseconds.",
+        },
+    },
+    "dimensions": {
+        "description": "The Mux Data dimensions available to filter and break down views and metrics.",
+        "docs_url": "https://www.mux.com/docs/api-reference/data/dimensions/list-dimensions",
+        "columns": {
+            "name": "Identifier of the dimension (e.g. country, player_name).",
+            "tier": "Whether the dimension is a basic or an advanced dimension.",
+        },
+    },
+    "dimension_values": {
+        "description": "Values seen for each Mux Data dimension over the synced window, with the number of views for each value.",
+        "docs_url": "https://www.mux.com/docs/api-reference/data/dimensions/list-dimension-values",
+        "columns": {
+            "dimension": "Identifier of the dimension the value belongs to.",
+            "value": "A value of the dimension.",
+            "total_count": "Number of views with this value.",
+        },
+    },
 }

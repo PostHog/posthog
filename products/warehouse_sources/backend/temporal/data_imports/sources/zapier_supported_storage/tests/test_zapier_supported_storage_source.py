@@ -22,7 +22,7 @@ class TestZapierSupportedStorageSource:
     def test_get_source_config_single_secret_field(self) -> None:
         config = self.source.get_source_config
 
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         # docsUrl must match the doc filename so the posthog.com page resolves.
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/zapier-supported-storage"
 
@@ -33,7 +33,3 @@ class TestZapierSupportedStorageSource:
         assert secret.type == SourceFieldInputConfigType.PASSWORD
         assert secret.secret is True
         assert secret.required is True
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["records"])[0].name == "records"
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []

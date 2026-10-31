@@ -1,22 +1,34 @@
 import json
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openweather import (
+    OpenWeatherSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather import (
     MAX_LOCATIONS,
     OPENWEATHER_BASE_URL,
     Location,
     OpenWeatherRetryableError,
+    TimeWindow,
     _dt_to_iso,
     _fetch,
     _normalize_rows,
     _redact_appid,
-    get_rows,
+    history_windows,
     openweather_source,
     parse_locations,
     validate_credentials,
@@ -26,8 +38,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.openweathe
     API_VERSION_3_0,
     API_VERSION_4_0,
     OPENWEATHER_ENDPOINTS,
+    OPENWEATHER_ENDPOINTS_3_0,
+    HistoryWindow,
     endpoints_for_version,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.source import OpenWeatherSource
 
 # (version, endpoint) pairs across every supported version, so the request-path dispatch is
 # exercised for each.
@@ -36,8 +51,6 @@ _ALL_VERSIONED_ENDPOINTS = [
     for version in (API_VERSION_2_5, API_VERSION_3_0, API_VERSION_4_0)
     for endpoint in endpoints_for_version(version)
 ]
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.openweather.openweather"
 
 
 def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
@@ -129,11 +142,74 @@ class TestNormalizeRows:
         assert all(row["city"] == {"id": 1, "name": "London"} for row in rows)
         assert all(row["lat"] == 51.5 and row["lon"] == -0.12 for row in rows)
 
+    def test_geocoding_keeps_place_coords_apart_from_requested_coords(self):
+        response = [{"name": "London", "lat": 51.507, "lon": -0.127, "country": "GB", "state": "England"}]
+        rows = _normalize_rows(OPENWEATHER_ENDPOINTS["geocoding"], response, Location(51.5, -0.12, "London"))
+
+        assert rows == [
+            {
+                "name": "London",
+                "country": "GB",
+                "state": "England",
+                "place_lat": 51.507,
+                "place_lon": -0.127,
+                "lat": 51.5,
+                "lon": -0.12,
+                "location_label": "London",
+            }
+        ]
+
+    def test_alerts_partition_on_start(self):
+        response = {"alerts": [{"sender_name": "NWS", "event": "Flood Watch", "start": 1719158400, "end": 1719169200}]}
+        rows = _normalize_rows(OPENWEATHER_ENDPOINTS_3_0["alerts"], response, Location(51.5, -0.12, None))
+
+        assert len(rows) == 1
+        assert rows[0]["start_iso"] == "2024-06-23T16:00:00+00:00"
+        assert "dt_iso" not in rows[0]
+
     def test_row_without_dt_raises(self):
         # `dt` is part of the primary key; a row missing it must fail loudly, not yield a null key.
         response = {"main": {"temp": 280}}
         with pytest.raises(KeyError):
             _normalize_rows(OPENWEATHER_ENDPOINTS["current_weather"], response, Location(51.5, -0.12, None))
+
+
+_DAY = 86400
+
+
+class TestHistoryWindows:
+    @pytest.mark.parametrize(
+        "window, start_from, end, expected",
+        [
+            # A watermark wins over the backfill start.
+            (
+                HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)),
+                10 * _DAY,
+                12 * _DAY,
+                [TimeWindow(start=10 * _DAY, end=12 * _DAY)],
+            ),
+            (
+                HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)),
+                None,
+                30 * _DAY,
+                [TimeWindow(start=23 * _DAY, end=30 * _DAY)],
+            ),
+            # Consecutive windows never share a boundary second, so no row is read twice.
+            (
+                HistoryWindow(size=timedelta(days=2), earliest_start=datetime.fromtimestamp(0, tz=UTC)),
+                None,
+                5 * _DAY,
+                [
+                    TimeWindow(start=0, end=2 * _DAY),
+                    TimeWindow(start=2 * _DAY + 1, end=4 * _DAY + 1),
+                    TimeWindow(start=4 * _DAY + 2, end=5 * _DAY),
+                ],
+            ),
+            (HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)), 12 * _DAY + 1, 12 * _DAY, []),
+        ],
+    )
+    def test_windows(self, window, start_from, end, expected):
+        assert list(history_windows(window, start_from, end)) == expected
 
 
 # The undecorated `_fetch` (tenacity exposes the original via `__wrapped__`) so the status
@@ -190,30 +266,29 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    def test_status_mapping(self, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status)
-
+    def test_status_mapping(self, status: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status))) as network:
             is_valid, _ = validate_credentials("test-key", "51.5,-0.12", API_VERSION_2_5)
 
         assert is_valid is expected_valid
+        assert {request.path for request in network.requests_log} == {"/data/2.5/weather"}
+        assert all(request.param("appid") == "test-key" for request in network.requests_log)
 
-    def test_malformed_locations_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+    def test_malformed_locations_is_invalid_without_request(self) -> None:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("test-key", "not-a-location", API_VERSION_2_5)
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
-    def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+    def test_network_error_is_invalid(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("test-key", "51.5,-0.12", API_VERSION_2_5)
 
         assert is_valid is False
         assert message is not None
+        assert {request.path for request in network.requests_log} == {"/data/2.5/weather"}
 
 
 class TestGetRows:
@@ -234,31 +309,87 @@ class TestGetRows:
             (API_VERSION_4_0, "daily", {"data": [{"dt": 1, "temp": {"day": 280}}]}, "/data/4.0/onecall/timeline/1day"),
         ],
     )
-    def test_requests_the_pinned_versions_path(self, api_version, endpoint, body, expected_path):
+    def test_requests_the_pinned_versions_path(
+        self, api_version: str, endpoint: str, body: dict[str, Any], expected_path: str
+    ) -> None:
         # Each pin must hit its own product's paths — a wrong path 404s or bills the wrong subscription.
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, body)
+        driver = SourceDriver(OpenWeatherSource(), OpenWeatherSourceConfig(api_key="test-key", locations="51.5,-0.12"))
+        result = driver.run(endpoint, [ScriptedResponse(json=body)], api_version=api_version)
 
-            batches = list(
-                get_rows("test-key", endpoint, [Location(51.5, -0.12, None)], structlog.get_logger(), api_version)
-            )
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.urls[0].startswith(f"{OPENWEATHER_BASE_URL}{expected_path}?")
+        assert result.requests[0].param("appid") == "test-key"
+        assert result.items[0][0]["dt"] == 1
 
-            called_url = mock_session.return_value.get.call_args[0][0]
+    @pytest.mark.parametrize(
+        "endpoint, should_use_incremental_field, expected_base, expected_starts, expected_type",
+        [
+            # Incremental: one window from the watermark to now, on the History API's own host.
+            ("weather_history", True, "https://history.openweathermap.org", [1782000000], "hour"),
+            # A full refresh ignores a stored watermark and reads the last week.
+            ("weather_history", False, "https://history.openweathermap.org", [1782518400 - 7 * _DAY], "hour"),
+            ("air_pollution_history", True, OPENWEATHER_BASE_URL, [1782000000], None),
+        ],
+    )
+    @time_machine.travel(datetime.fromtimestamp(1782518400, tz=UTC), tick=False)
+    def test_history_request_shaping(
+        self,
+        endpoint: str,
+        should_use_incremental_field: bool,
+        expected_base: str,
+        expected_starts: list[int],
+        expected_type: str | None,
+    ) -> None:
+        driver = SourceDriver(OpenWeatherSource(), OpenWeatherSourceConfig(api_key="test-key", locations="51.5,-0.12"))
+        result = driver.run(
+            endpoint,
+            [ScriptedResponse(json={"list": [{"dt": 1782003600, "main": {"temp": 280}}]})],
+            api_version=API_VERSION_2_5,
+            incremental_field="dt",
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=1782000000,
+        )
 
-        assert called_url.startswith(f"{OPENWEATHER_BASE_URL}{expected_path}?")
-        assert batches[0][0]["dt"] == 1
+        assert result.raised is None
+        assert all(url.startswith(f"{expected_base}/data/2.5/") for url in result.urls)
+        assert [request.param("start") for request in result.requests] == [str(start) for start in expected_starts]
+        assert result.requests[-1].param("end") == "1782518400"
+        assert result.requests[0].param("type") == expected_type
+
+    @time_machine.travel(datetime(2021, 1, 1, tzinfo=UTC), tick=False)
+    def test_air_pollution_history_full_refresh_walks_back_to_first_data(self) -> None:
+        driver = SourceDriver(OpenWeatherSource(), OpenWeatherSourceConfig(api_key="test-key", locations="51.5,-0.12"))
+        result = driver.run(
+            "air_pollution_history",
+            always(ScriptedResponse(json={"list": [{"dt": 1609459200}]})),
+            api_version=API_VERSION_2_5,
+        )
+
+        assert result.raised is None
+        # 27 Nov 2020 to 1 Jan 2021 is two 30-day windows.
+        assert [request.param("start") for request in result.requests] == [
+            "1606435200",
+            str(1606435200 + 30 * _DAY + 1),
+        ]
+        assert result.requests[-1].param("end") == "1609459200"
 
 
 class TestOpenWeatherSource:
     @pytest.mark.parametrize("api_version, endpoint", _ALL_VERSIONED_ENDPOINTS)
     def test_source_response_shape(self, api_version, endpoint):
+        config = endpoints_for_version(api_version)[endpoint]
         response = openweather_source("test-key", endpoint, "51.5,-0.12,London", structlog.get_logger(), api_version)
 
         assert response.name == endpoint
-        assert response.primary_keys == ["lat", "lon", "dt"]
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["dt_iso"]
-        assert response.sort_mode == "asc"
+        assert set(config.primary_keys) >= {"lat", "lon"}
+        if config.partition_key is None:
+            assert response.partition_mode is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [f"{config.timestamp_field}_iso"]
+        # Rows arrive per location, so no read is one ordered series.
+        assert response.sort_mode is None
 
     def test_invalid_locations_raise(self):
         with pytest.raises(ValueError):

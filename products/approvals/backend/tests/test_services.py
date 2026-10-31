@@ -187,13 +187,19 @@ class TestApplyApprovedEncryptedPayloads(APIBaseTest):
         # dropping a fallback key while a change request is still open.
         foreign_codec = FlagPayloadCodec.from_keys("k" * 32, [], require_min_length=False)
         change_request = self._change_request(flag, {"true": foreign_codec.encrypt(b'"unreachable"').decode("utf-8")})
+        old_updated_at = timezone.now() - timedelta(days=1)
+        ChangeRequest.objects.filter(pk=change_request.pk).update(updated_at=old_updated_at)
 
-        with self.assertRaises(ApplyFailed):
+        with self.assertRaises(ApplyFailed) as error:
             apply_change_request(change_request)
 
+        assert str(error.exception).startswith("Serializer save failed:")
         flag.refresh_from_db()
         assert flag.active is False
         assert flag.filters["payloads"]["true"] == stored_payload
+        change_request.refresh_from_db()
+        assert change_request.updated_at is not None
+        assert change_request.updated_at > old_updated_at
 
 
 class TestApplyRechecksOwnership(APIBaseTest):
@@ -340,6 +346,28 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
         change_request.refresh_from_db()
         assert change_request.validation_status == ValidationStatus.INVALID
 
+    def test_approve_commits_failed_state_when_requester_loses_access(self) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="approval-access-gated",
+            name="approval-access-gated",
+            active=False,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+            created_by=self.user,
+        )
+        change_request = self._change_request(flag)
+        change_request.state = ChangeRequestState.PENDING
+        change_request.policy_snapshot = {"quorum": 1}
+        change_request.save(update_fields=["state", "policy_snapshot"])
+        self._revoke_flag_access()
+
+        result = ChangeRequestService(change_request, self.user).approve()
+
+        assert result.status == "failed"
+        change_request.refresh_from_db()
+        assert change_request.state == ChangeRequestState.FAILED
+        assert change_request.validation_status == ValidationStatus.INVALID
+
     def test_apply_refuses_when_the_requester_account_is_gone(self) -> None:
         # created_by is SET_NULL, so offboarding the requester empties it. Nobody is left whose
         # access can be checked, and the apply must not treat that as permission.
@@ -374,6 +402,8 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
             created_by=self.user,
         )
         change_request = self._change_request(flag)
+        old_updated_at = timezone.now() - timedelta(days=1)
+        ChangeRequest.objects.filter(pk=change_request.pk).update(updated_at=old_updated_at)
         if revoke:
             self._revoke_flag_access()
 
@@ -388,3 +418,6 @@ class TestApplyRechecksRequesterAccess(APILicensedTest):
             assert flag.active is False
             change_request.refresh_from_db()
             assert change_request.validation_status == ValidationStatus.INVALID
+            assert change_request.state == ChangeRequestState.FAILED
+            assert change_request.updated_at is not None
+            assert change_request.updated_at > old_updated_at

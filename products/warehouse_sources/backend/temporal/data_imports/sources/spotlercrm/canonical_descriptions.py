@@ -58,6 +58,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sales": "Sales value attributed to the campaign.",
         },
     },
+    "CampaignDetails": {
+        "description": "Campaign membership rows that link records to campaigns. Requires the Spotler CRM Marketing tool add-on.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the campaign detail row.",
+        },
+    },
+    "CampaignStages": {
+        "description": "Stages that campaigns and campaign members move through. Requires the Spotler CRM Marketing tool add-on.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "id": "Unique identifier for the campaign stage.",
+        },
+    },
     "Cases": {
         "description": "Customer service cases. Requires the Spotler CRM Service & Support tool add-on.",
         "docs_url": _DOCS_URL,
