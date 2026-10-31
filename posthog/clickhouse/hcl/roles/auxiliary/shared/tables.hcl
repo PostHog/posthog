@@ -1131,4 +1131,78 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
+
+  table "email_status_data" {
+    order_by     = ["team_id", "message_id"]
+    partition_by = "toYYYYMMDD(created_at)"
+    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    extend = "_email_status_columns"
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.email_status_data"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+  table "kafka_email_status" {
+    extend = "_email_status_columns"
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+  materialized_view "email_status_mv" {
+    to_table = "posthog.email_status_data"
+    query    = file("sql/email_status_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
 }

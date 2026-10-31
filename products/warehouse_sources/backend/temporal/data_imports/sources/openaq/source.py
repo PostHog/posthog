@@ -100,8 +100,11 @@ The free tier is limited to 60 requests per minute. The measurement tables fetch
         def _description(endpoint: str) -> str | None:
             if endpoint == "sensors":
                 return "Sensors materialized from each location's embedded sensor list. Full refresh only"
-            if OPENAQ_ENDPOINTS[endpoint].kind == "measurement":
+            kind = OPENAQ_ENDPOINTS[endpoint].kind
+            if kind in ("measurement", "sensor_fanout"):
                 return "Fetched per sensor across all locations — request-heavy, so off by default"
+            if kind == "location_fanout":
+                return "Fetched per location — request-heavy, so off by default"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

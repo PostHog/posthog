@@ -59,3 +59,37 @@ CANONICAL_DESCRIPTIONS["sandboxes"] = {
         "tags": "User-defined tags of the Sandbox.",
     },
 }
+CANONICAL_DESCRIPTIONS["app_deployments"] = {
+    "description": "Deployment history of each deployed Modal App, one row per deployed version.",
+    "docs_url": "https://modal.com/docs/cli/latest/app#modal-app-history",
+    "columns": {
+        "app_id": "Identifier of the App.",
+        "app_name": "Name of the App.",
+        "environment_name": "Name of the Modal environment that contains the App.",
+        "version": "Version number of the deployment.",
+        "is_production": "Whether this version serves the App at sync time.",
+        "deployed_at": "Time when the version was deployed.",
+        "deployed_by": "Workspace member who deployed the version.",
+        "client_version": "Version of the Modal client that deployed the version.",
+        "tag": "Tag given to the deployment.",
+        "deployment_type": "How the version was created, such as standard or rollback.",
+        "rollback_version": "Version that a rollback deployment restored.",
+        "commit_hash": "Git commit of the deployed code.",
+        "commit_dirty": "Whether the working tree had uncommitted changes at deploy time.",
+        "committed_at": "Time of the Git commit of the deployed code.",
+    },
+}
+CANONICAL_DESCRIPTIONS["workspace_members"] = {
+    "description": "Members of the Modal workspace and their roles.",
+    "docs_url": "https://modal.com/docs/sdk/py/latest/Workspace#memberslist",
+    "columns": {
+        "user_id": "Identifier of the Modal user.",
+        "name": "Display name of the member.",
+        "email": "Email address of the member.",
+        "role": "Role of the member in the workspace, such as user, manager, or owner.",
+        "identity_provider": "Identity provider the member signs in with, such as GitHub or SAML.",
+        "joined_at": "Time when the member joined the workspace.",
+        "last_active_at": "Time when the member was last active.",
+        "deleted_at": "Time when the member was removed from the workspace.",
+    },
+}

@@ -1,10 +1,14 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from rest_framework import serializers
 
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
+from products.dashboards.backend.models.dashboard import (
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+)
 from products.dashboards.backend.widget_specs.openapi import DASHBOARD_TILE_GROUP_DEFAULTS, DashboardTileGroupSerializer
 
 
@@ -124,15 +128,20 @@ def stored_groups(customization: Any) -> dict[str, dict[str, Any]]:
     return stored
 
 
+_CHOICE_SETTINGS: dict[str, Collection[str]] = {
+    "tile_spacing": DASHBOARD_GRID_SPACING_GAPS,
+    "layout_compaction": DASHBOARD_GRID_COMPACTION_MODES,
+    "group_display": DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+}
+
+
 def stored_customization(customization: Any) -> dict[str, Any]:
     customization = normalize_dashboard_customization(customization)
-    tile_spacing = customization.get("tile_spacing")
-    layout_compaction = customization.get("layout_compaction")
-    stored: dict[str, Any] = {}
-    if isinstance(tile_spacing, str) and tile_spacing in DASHBOARD_GRID_SPACING_GAPS:
-        stored["tile_spacing"] = tile_spacing
-    if isinstance(layout_compaction, str) and layout_compaction in DASHBOARD_GRID_COMPACTION_MODES:
-        stored["layout_compaction"] = layout_compaction
+    stored: dict[str, Any] = {
+        setting: customization[setting]
+        for setting, choices in _CHOICE_SETTINGS.items()
+        if isinstance(customization.get(setting), str) and customization[setting] in choices
+    }
     groups = stored_groups(customization)
     if groups:
         stored["groups"] = groups

@@ -124,6 +124,24 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.shortcutData).toEqual(updatedShortcuts)
     })
 
+    it('loads shortcuts past the first page', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const firstPage = [
+            { id: 'star-1', path: 'Notes', type: 'notebook', ref: 'notes' },
+            { id: 'star-2', path: 'Revenue', type: 'insight', ref: 'revenue' },
+        ]
+        const secondPage = [{ id: 'star-3', path: 'Stripe (stripe_)', type: 'data_source', ref: 'source-1' }]
+        jest.mocked(api.fileSystemShortcuts.list).mockImplementation(async (params) =>
+            params?.offset === firstPage.length
+                ? { count: 3, next: null, results: secondPage }
+                : { count: 3, next: 'next-page', results: firstPage }
+        )
+
+        await expectLogic(logic, () => logic.actions.loadShortcuts()).toFinishAllListeners()
+
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-1', 'star-2', 'star-3'])
+    })
+
     it.each([
         { listedLocally: true, created: false },
         { listedLocally: false, created: false },

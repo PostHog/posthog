@@ -39,9 +39,25 @@ export async function flushAnalytics(timeoutMs = 2000): Promise<void> {
     }
 }
 
-export async function buildCliContext(config: CliConfig): Promise<Context> {
+/** Which CLI runs the tools. The default is posthog-cli; the hog CLI passes its own. */
+export interface CliIdentity {
+    clientName: string
+    userAgent: string
+    source: string
+}
+
+const POSTHOG_CLI_IDENTITY: CliIdentity = {
+    clientName: 'posthog-cli',
+    userAgent: 'posthog-cli api',
+    source: 'posthog_cli',
+}
+
+export async function buildCliContext(
+    config: CliConfig,
+    identity: CliIdentity = POSTHOG_CLI_IDENTITY
+): Promise<Context> {
     const identityKey = cliIdentityKey(config.apiKey)
-    const fallbackDistinctId = `posthog-cli:${identityKey}`
+    const fallbackDistinctId = `${identity.clientName}:${identityKey}`
     // Set by the Rust wrapper; joins these events to its telemetry for the same run.
     const cliInvocationId = process.env.POSTHOG_CLI_INVOCATION_ID
     const sessionId = randomUUID()
@@ -60,10 +76,10 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
     const api = new ApiClient({
         apiToken: config.apiKey ?? '',
         baseUrl: config.host.replace(/\/+$/, ''),
-        clientUserAgent: `posthog-cli api`,
-        mcpClientName: 'posthog-cli',
+        clientUserAgent: identity.userAgent,
+        mcpClientName: identity.clientName,
         mcpClientVersion: sanitizeHeaderValue(process.env.POSTHOG_CLI_VERSION),
-        mcpConsumer: 'posthog-cli',
+        mcpConsumer: identity.clientName,
         onPrivateResponse: () => {
             privateResponse = true
         },
@@ -94,9 +110,9 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
                         ...(Object.keys(groups).length > 0 ? { groups } : {}),
                         properties: {
                             $ai_product: 'mcp',
-                            $mcp_source: 'posthog_cli',
-                            $mcp_client_name: 'posthog-cli',
-                            $mcp_consumer: 'posthog-cli',
+                            $mcp_source: identity.source,
+                            $mcp_client_name: identity.clientName,
+                            $mcp_consumer: identity.clientName,
                             $mcp_mode: 'cli',
                             $mcp_scope_preset: resolveScopePreset(apiKey?.scopes),
                             $mcp_version: config.version,

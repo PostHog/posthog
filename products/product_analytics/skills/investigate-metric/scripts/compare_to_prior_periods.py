@@ -58,9 +58,7 @@ def extract_series(payload: dict) -> tuple[list[str], list[float], str, str]:
     data = series.get("data") or []
     label = series.get("label") or series.get("custom_name") or "metric"
 
-    interval = (series.get("filter") or {}).get("interval")
-    if not interval:
-        interval = (payload.get("query") or {}).get("interval")
+    interval = (payload.get("query") or {}).get("interval")
     if not interval:
         interval = infer_interval_from_days(days)
 

@@ -166,6 +166,7 @@ ONE_AUTH_STATUS_CLASSIFIED: dict[str, str] = {
     "AmazonAds": "401",
     "AssemblyAI": "401",
     "BlandAI": "401",
+    "Bluesky": "403",
     "Braintree": "401",
     "Bugherd": "401",
     "CdcOpenData": "403",

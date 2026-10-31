@@ -29,6 +29,19 @@ def _insights_fields(level: str, metadata: tuple[str, ...]) -> list[str]:
     ]
 
 
+def _segmented_insights_fields(
+    level: str, level_metadata: tuple[str, ...], segment: str, segment_metadata: tuple[str, ...]
+) -> list[str]:
+    # Segment metrics (`country.clicks`) give the segment's share of each row entity. The
+    # aggregation-level metrics would repeat the entity total on every segment row.
+    return [
+        "metadata.readable_time",
+        *(f"{level}.{name}" for name in level_metadata),
+        *(f"{segment}.{name}" for name in segment_metadata),
+        *(f"{segment}.{metric}" for metric in _INSIGHTS_METRICS),
+    ]
+
+
 def _datetime_incremental_field(name: str) -> IncrementalField:
     return {
         "label": name,
@@ -38,7 +51,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpenAIAdsEndpointConfig:
     name: str
     path: str
@@ -56,19 +69,30 @@ class OpenAIAdsEndpointConfig:
     # projection requested for that level.
     aggregation_level: Optional[str] = None
     insights_fields: list[str] = field(default_factory=list)
+    # Insights-only: the one `segments[]` breakdown dimension (product, country, device).
+    segment: Optional[str] = None
+    # The endpoint returns one JSON object, not a paginated list.
+    single_object: bool = False
     default_incremental_lookback_seconds: Optional[int] = None
 
 
-def _insights_endpoint(name: str, level: str, metadata: tuple[str, ...]) -> OpenAIAdsEndpointConfig:
+def _insights_endpoint(
+    name: str,
+    level: str,
+    metadata: tuple[str, ...],
+    segment: Optional[str] = None,
+    segment_metadata: tuple[str, ...] = (),
+) -> OpenAIAdsEndpointConfig:
     return OpenAIAdsEndpointConfig(
         name=name,
         # Account-scoped insights cover every entity of the account; `aggregation_level`
         # picks the row entity, so no per-entity fan-out is needed.
         path="/v1/ad_account/insights",
         # The API's composite bucket id ("start=<unix>:end=<unix>:entity_id=<id>") is unique and
-        # stable per (bucket, entity) as long as no sort[]/segments[] params are sent (those
-        # append suffixes to the id). The id can also carry a `plan=` segment that changes between
-        # requests, so the source removes that segment before the merge.
+        # stable per (bucket, entity) as long as the request shape stays fixed. A segmented request
+        # encodes the segment value into `entity_id`, so its ids are unique per (bucket, entity,
+        # segment value). The id can also carry a `plan=` segment that changes between requests,
+        # so the source removes that segment before the merge.
         primary_keys=["id"],
         partition_key="start_time",
         incremental_fields=[_datetime_incremental_field("start_time")],
@@ -78,12 +102,24 @@ def _insights_endpoint(name: str, level: str, metadata: tuple[str, ...]) -> Open
         # regardless of arrival order.
         sort_mode="desc",
         aggregation_level=level,
-        insights_fields=_insights_fields(level, metadata),
+        insights_fields=(
+            _segmented_insights_fields(level, metadata, segment, segment_metadata)
+            if segment is not None
+            else _insights_fields(level, metadata)
+        ),
+        segment=segment,
         default_incremental_lookback_seconds=INSIGHTS_LOOKBACK_SECONDS,
     )
 
 
 OPENAI_ADS_ENDPOINTS: dict[str, OpenAIAdsEndpointConfig] = {
+    # The key's ad account as one row. The object has no creation timestamp to partition on.
+    "ad_account": OpenAIAdsEndpointConfig(
+        name="ad_account",
+        path="/v1/ad_account",
+        primary_keys=["id"],
+        single_object=True,
+    ),
     "campaigns": OpenAIAdsEndpointConfig(
         name="campaigns",
         path="/v1/campaigns",
@@ -112,6 +148,20 @@ OPENAI_ADS_ENDPOINTS: dict[str, OpenAIAdsEndpointConfig] = {
     "ad_group_insights": _insights_endpoint("ad_group_insights", "ad_group", ("id", "name", "status")),
     "ad_insights": _insights_endpoint("ad_insights", "ad", ("id", "name", "title", "status", "review_status")),
     "ad_account_insights": _insights_endpoint("ad_account_insights", "ad_account", ("name",)),
+    # Segmented insights need the segment to be enabled for the ad account.
+    "campaign_country_insights": _insights_endpoint(
+        "campaign_country_insights", "campaign", ("id", "name"), segment="country", segment_metadata=("name",)
+    ),
+    "campaign_device_insights": _insights_endpoint(
+        "campaign_device_insights", "campaign", ("id", "name"), segment="device", segment_metadata=("type",)
+    ),
+    "campaign_product_insights": _insights_endpoint(
+        "campaign_product_insights",
+        "campaign",
+        ("id", "name"),
+        segment="product",
+        segment_metadata=("feed_id", "item_id", "title", "brand", "seller_name", "price", "availability"),
+    ),
 }
 
 ENDPOINTS = tuple(OPENAI_ADS_ENDPOINTS.keys())

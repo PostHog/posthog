@@ -85,6 +85,7 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
                     ),
                     SourceFieldInputConfig(
                         name="urls",
+                        sync_setting=True,
                         label="URLs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

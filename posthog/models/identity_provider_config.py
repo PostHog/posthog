@@ -124,9 +124,11 @@ class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
         matching: list[tuple[IdentityProviderConfig, OrganizationDomain]] = []
         if "@" in email:
             domain = email.rsplit("@", 1)[-1]
-            for config in issuer_configs:
-                verified_domains = config.organization_domains.filter(domain__iexact=domain, verified_at__isnull=False)
-                matching.extend((config, organization_domain) for organization_domain in verified_domains)
+            for issuer_config in issuer_configs:
+                verified_domains = issuer_config.organization_domains.filter(
+                    domain__iexact=domain, verified_at__isnull=False
+                )
+                matching.extend((issuer_config, organization_domain) for organization_domain in verified_domains)
 
         if not matching:
             return IDJagIdentityProviderResolution(

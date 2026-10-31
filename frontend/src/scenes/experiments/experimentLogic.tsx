@@ -39,6 +39,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -67,6 +68,7 @@ import {
     ExperimentStatsMethod,
     FeatureFlagType,
     MultivariateFlagVariant,
+    UserType,
 } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
@@ -349,6 +351,7 @@ export interface experimentLogicValues {
     currentProjectId: number | null // projectLogic
     sharedMetrics: SharedMetric[] // sharedMetricsLogic
     currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     browserExperimentWarning: ExperimentWarning | null
     browserNoMetricsWarning: boolean
     currentRefresh: CurrentRefreshSnapshot | null
@@ -394,6 +397,7 @@ export interface experimentLogicValues {
     shippedVariantKey: string | null
     showDebugPanel: boolean
     shownHealth: ExperimentHealthApi | null
+    showsHealthFindings: boolean
     statsMethod: ExperimentStatsMethod
     unfreezeExposureLoading: boolean
     unmodifiedExperiment: Experiment | null
@@ -755,7 +759,7 @@ export interface experimentLogicActions {
         forceRefresh: boolean
     }
     reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
-        openedFrom: ExperimentHealthChecksOpenedFrom
+        openedFrom: 'meta_bar'
     }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
@@ -957,12 +961,13 @@ export interface experimentLogicMeta {
             isSingleVariantShipped: boolean,
             shippedVariantKey: string | null
         ) => ExperimentWarning | null
+        showsHealthFindings: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
         shownHealth: (
             experimentHealth: ExperimentHealthApi | null,
-            featureFlags: FeatureFlagsSet
+            showsHealthFindings: boolean
         ) => ExperimentHealthApi | null
         healthPending: (
-            featureFlags: FeatureFlagsSet,
+            showsHealthFindings: boolean,
             experimentHealth: ExperimentHealthApi | null,
             experimentHealthLoading: boolean
         ) => boolean
@@ -1023,6 +1028,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['holdouts'],
             sharedMetricsLogic,
             ['sharedMetrics'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             experimentsLogic,
@@ -1549,7 +1556,7 @@ export const experimentLogic = kea<experimentLogicType>([
         reportHealthFindingShown: ({ finding }) => {
             // The page remounts its warnings within one load, for example on a tab change or after
             // a save, and each mount reports again.
-            const key = `${values.experimentLoadCount}:${finding.code}:${finding.variant ?? ''}`
+            const key = `${values.experimentLoadCount}:${finding.code}:${finding.subcode ?? ''}`
             cache.shownHealthFindingKeys ??= new Set<string>()
             if (cache.shownHealthFindingKeys.has(key)) {
                 return
@@ -2843,27 +2850,31 @@ export const experimentLogic = kea<experimentLogicType>([
                 return null
             },
         ],
+        showsHealthFindings: [
+            (s) => [s.featureFlags, s.user],
+            (featureFlags: FeatureFlagsSet, user: UserType | null): boolean =>
+                // While impersonating, the flag evaluates on the customer, so the impersonation itself counts.
+                !!featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] || !!user?.is_impersonated,
+        ],
         shownHealth: [
-            (s) => [s.experimentHealth, s.featureFlags],
-            (experimentHealth: ExperimentHealthApi | null, featureFlags: FeatureFlagsSet): ExperimentHealthApi | null =>
+            (s) => [s.experimentHealth, s.showsHealthFindings],
+            (experimentHealth: ExperimentHealthApi | null, showsHealthFindings: boolean): ExperimentHealthApi | null =>
                 // Every reader loads the findings, so every load can compare them with the browser's rules. The
-                // page shows them only with the experiment-health-findings flag, and the browser's rules cover
+                // page shows them only to the readers in `showsHealthFindings`, and the browser's rules cover
                 // everyone else.
-                featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] ? experimentHealth : null,
+                showsHealthFindings ? experimentHealth : null,
         ],
         healthPending: [
-            (s) => [s.featureFlags, s.experimentHealth, s.experimentHealthLoading],
+            (s) => [s.showsHealthFindings, s.experimentHealth, s.experimentHealthLoading],
             (
-                featureFlags: FeatureFlagsSet,
+                showsHealthFindings: boolean,
                 experimentHealth: ExperimentHealthApi | null,
                 experimentHealthLoading: boolean
             ): boolean =>
-                // Until the first answer, a reader with the flag sees neither the browser's warnings nor the panel,
-                // so the page never shows a warning that the server then contradicts. A failed request ends the
-                // wait, and the browser's rules apply.
-                !!featureFlags[FEATURE_FLAGS.EXPERIMENT_HEALTH_FINDINGS] &&
-                experimentHealthLoading &&
-                experimentHealth === null,
+                // Until the first answer, a reader who gets the findings sees neither the browser's warnings nor
+                // the panel, so the page never shows a warning that the server then contradicts. A failed request
+                // ends the wait, and the browser's rules apply.
+                showsHealthFindings && experimentHealthLoading && experimentHealth === null,
         ],
         healthUi: [
             (s) => [s.experiment, s.shownHealth, s.healthPending],

@@ -97,7 +97,7 @@ def _observe() -> ObservationPass:
         result.active_runs[key] = row["runs"]
         result.oldest_active_age_seconds[key] = max(0.0, (now - row["oldest"]).total_seconds())
 
-    for row in (
+    for chunk_row in (
         CohortBackfillChunk.objects.unscoped()
         .filter(
             status=CohortBackfillChunkStatus.FAILED,
@@ -106,15 +106,15 @@ def _observe() -> ObservationPass:
         .values("run__backfill_kind")
         .annotate(chunks=Count("id"))
     ):
-        result.failed_chunks[row["run__backfill_kind"]] = row["chunks"]
+        result.failed_chunks[chunk_row["run__backfill_kind"]] = chunk_row["chunks"]
 
-    for row in (
+    for recent_row in (
         CohortBackfillRun.objects.unscoped()
         .filter(status__in=TERMINAL_COHORT_BACKFILL_RUN_STATUSES, finished_at__gte=now - RECENT_WINDOW)
         .values("status", "backfill_kind")
         .annotate(runs=Count("id"))
     ):
-        result.recent_runs[(row["status"], row["backfill_kind"])] = row["runs"]
+        result.recent_runs[(recent_row["status"], recent_row["backfill_kind"])] = recent_row["runs"]
 
     return result
 

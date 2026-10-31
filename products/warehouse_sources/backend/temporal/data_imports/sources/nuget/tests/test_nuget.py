@@ -23,6 +23,7 @@ SERVICE_INDEX_URL = "https://api.nuget.org/v3/index.json"
 SEARCH_URL = "https://azuresearch-usnc.nuget.org/query"
 REGISTRATION_URL = "https://api.nuget.org/v3/registration5-gz-semver2/"
 CATALOG_INDEX_URL = "https://api.nuget.org/v3/catalog0/index.json"
+VULNERABILITY_INDEX_URL = "https://api.nuget.org/v3/vulnerabilities/index.json"
 
 SERVICE_INDEX = {
     "resources": [
@@ -31,6 +32,7 @@ SERVICE_INDEX = {
         {"@id": "https://api.nuget.org/v3/registration5-semver1/", "@type": "RegistrationsBaseUrl"},
         {"@id": REGISTRATION_URL, "@type": "RegistrationsBaseUrl/3.6.0"},
         {"@id": CATALOG_INDEX_URL, "@type": "Catalog/3.0.0"},
+        {"@id": VULNERABILITY_INDEX_URL, "@type": "VulnerabilityInfo/6.7.0"},
     ]
 }
 
@@ -69,6 +71,9 @@ class _FakeResumableManager:
 
     def save_state(self, data: NugetResumeConfig) -> None:
         self.saved.append(data)
+
+    def safe_point(self) -> None:
+        pass
 
 
 def _patch_fetch(monkeypatch: Any, pages: dict[str, Any]) -> list[str]:
@@ -189,6 +194,105 @@ class TestPackageVersionsEndpoint:
 
         with pytest.raises(NugetPackageNotFoundError):
             _collect(_FakeResumableManager(), "package_versions", package_ids="Nope")
+
+
+class TestPackageDependenciesEndpoint:
+    def _pages(self) -> dict[str, Any]:
+        leaf_a = {
+            "catalogEntry": {
+                "id": "A",
+                "version": "1.0.0",
+                "dependencyGroups": [
+                    {"targetFramework": "net8.0"},  # framework support only, no dependencies
+                    {
+                        "targetFramework": ".NETStandard2.0",
+                        "dependencies": [
+                            {"id": "Dep.One", "range": "[1.0.0, )"},
+                            {"id": "Dep.Two", "range": "[2.0.0, 3.0.0)"},
+                        ],
+                    },
+                ],
+            }
+        }
+        leaf_b = {
+            "catalogEntry": {
+                "id": "B",
+                "version": "2.0.0",
+                "dependencyGroups": [{"dependencies": [{"id": "Dep.One", "range": "[1.5.0, )"}]}],
+            }
+        }
+        return {
+            SERVICE_INDEX_URL: SERVICE_INDEX,
+            f"{REGISTRATION_URL}a/index.json": {"items": [{"items": [leaf_a]}]},
+            f"{REGISTRATION_URL}b/index.json": {"items": [{"@id": f"{REGISTRATION_URL}b/page/1.json"}]},
+            f"{REGISTRATION_URL}b/page/1.json": {"items": [leaf_b]},
+        }
+
+    def test_flattens_dependency_groups_and_stages_bookmark_before_next_package(self, monkeypatch: Any) -> None:
+        _patch_fetch(monkeypatch, self._pages())
+        manager = _FakeResumableManager()
+        rows = _collect(manager, "package_dependencies", package_ids="A, B")
+
+        assert [
+            (row["package_id"], row["package_version"], row["target_framework"], row["dependency_id"]) for row in rows
+        ] == [
+            ("A", "1.0.0", ".NETStandard2.0", "Dep.One"),
+            ("A", "1.0.0", ".NETStandard2.0", "Dep.Two"),
+            ("B", "2.0.0", "", "Dep.One"),
+        ]
+        assert rows[1]["dependency_range"] == "[2.0.0, 3.0.0)"
+        assert manager.saved == [NugetResumeConfig(last_package_id="A"), NugetResumeConfig(last_package_id="B")]
+
+
+class TestVulnerabilitiesEndpoint:
+    BASE_URL = "https://api.nuget.org/v3-vulnerabilities/1/vulnerability.base.json"
+    UPDATE_URL = "https://api.nuget.org/v3-vulnerabilities/1/2/vulnerability.update.json"
+
+    def test_empty_update_page_keeps_base_advisories(self, monkeypatch: Any) -> None:
+        _patch_fetch(
+            monkeypatch,
+            {
+                SERVICE_INDEX_URL: SERVICE_INDEX,
+                VULNERABILITY_INDEX_URL: [
+                    {"@name": "base", "@id": self.BASE_URL},
+                    {"@name": "update", "@id": self.UPDATE_URL},
+                ],
+                self.BASE_URL: {"foo.bar": [{"url": "https://example.com/a", "severity": 0, "versions": "(, 1.0.0)"}]},
+                self.UPDATE_URL: [],
+            },
+        )
+        rows = _collect(_FakeResumableManager(), "vulnerabilities", package_ids="Foo.Bar")
+
+        assert [row["advisory_url"] for row in rows] == ["https://example.com/a"]
+
+    def test_filters_to_tracked_packages_and_update_page_wins(self, monkeypatch: Any) -> None:
+        advisory = "https://github.com/advisories/GHSA-0000-0000-0000"
+        _patch_fetch(
+            monkeypatch,
+            {
+                SERVICE_INDEX_URL: SERVICE_INDEX,
+                # Listed update-first to show the base page is still applied first.
+                VULNERABILITY_INDEX_URL: [
+                    {"@name": "update", "@id": self.UPDATE_URL},
+                    {"@name": "base", "@id": self.BASE_URL},
+                ],
+                self.BASE_URL: {
+                    "foo.bar": [
+                        {"url": advisory, "severity": 1, "versions": "[1.0.0, 1.0.0]"},
+                        {"url": advisory, "severity": 1, "versions": "[2.0.0, 2.1.0)"},
+                    ],
+                    "other.pkg": [{"url": advisory, "severity": 3, "versions": "(, 9.0.0)"}],
+                },
+                self.UPDATE_URL: {"foo.bar": [{"url": advisory, "severity": 3, "versions": "[1.0.0, 1.0.0]"}]},
+            },
+        )
+        rows = _collect(_FakeResumableManager(), "vulnerabilities", package_ids="Foo.Bar")
+
+        assert sorted((row["affected_versions"], row["severity"], row["severity_label"]) for row in rows) == [
+            ("[1.0.0, 1.0.0]", 3, "Critical"),
+            ("[2.0.0, 2.1.0)", 1, "Moderate"),
+        ]
+        assert {row["package_id"] for row in rows} == {"foo.bar"}
 
 
 def _catalog_item(package_id: str, version: str, timestamp: str, event_type: str = "nuget:PackageDetails") -> dict:

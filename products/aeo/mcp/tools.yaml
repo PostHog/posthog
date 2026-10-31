@@ -91,10 +91,16 @@ tools:
         title: Get a tracked AI prompt's citation stats
         description: >
             Get citation stats for one AI citation tracking prompt. `engines` has one row per answer engine over the
-            prompt's whole history: `checks`, `cited`, `failed`, `citation_rate` (cited share of answered checks, 0-1,
-            failed checks left out), and the first and last check times. `daily` has counts per day and engine for the
-            last 30 days (`daily_from` to `daily_to`, in the project's timezone); days without a check are left out. Use
-            it to compare engines or to see whether a prompt's citations are trending up or down.
+            prompt's whole history: `checks`, `cited`, `mentioned` (answers that name the brand), `failed`,
+            `citation_rate` and `mention_rate` (shares of answered checks, 0-1, failed checks left out), and the first
+            and last check times. `daily` has counts per day and engine for the last 30 days (`daily_from` to
+            `daily_to`, in the project's timezone); days without a check are left out. Over the same 30 days,
+            `consensus` says how many of each engine's answers cited each of the ten most cited domains, `sentiment`
+            counts positive, neutral and negative answers toward the brand per engine (`unscored` answers name the brand
+            but are not scored yet), and `top_words` lists the most used words of the web searches the engines ran.
+            `brand_names` are the words an answer must contain to count as a mention; use them to filter `answer_text`
+            in a HogQL query over `system.aeo_citation_checks`. Use it to compare engines, to see whether a prompt's
+            citations are trending up or down, and to find which sources the engines agree on.
         param_overrides:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.

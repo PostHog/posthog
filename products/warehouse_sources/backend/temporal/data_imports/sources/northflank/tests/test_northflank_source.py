@@ -23,9 +23,9 @@ class TestNorthflankSource:
         assert not any(key in other_error for key in non_retryable_errors)
 
     @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
-    def test_no_endpoint_advertises_incremental(self, endpoint):
-        # Northflank exposes no server-side timestamp filter, so every table is full refresh.
+    def test_only_usage_advertises_incremental(self, endpoint):
+        # Only billing usage has a server-side timestamp filter; every other table is full refresh.
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        assert schema.supports_incremental is False
+        assert schema.supports_incremental is (endpoint == "usage")
         assert schema.supports_append is False
-        assert schema.incremental_fields == []
+        assert bool(schema.incremental_fields) is (endpoint == "usage")

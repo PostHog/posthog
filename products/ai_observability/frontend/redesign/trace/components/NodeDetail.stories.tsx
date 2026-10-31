@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { IconDatabase } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import {
     FIXTURE_EVALS,
@@ -8,6 +11,7 @@ import {
     FIXTURE_GENERATION_OUTPUT,
     FIXTURE_GENERATION_PROPERTIES,
     FIXTURE_SPAN_PROPERTIES,
+    FIXTURE_STEP_FEEDBACK,
     FIXTURE_TREE,
     withWidth,
 } from '../storyFixtures'
@@ -95,6 +99,18 @@ export const EvalsLoadError: Story = {
     },
 }
 export const Narrow: Story = { args: base, decorators: [withWidth(520)] }
+export const NarrowWithActions: Story = {
+    args: {
+        ...base,
+        node: { ...generation, name: 'answer-billing-question-with-retrieved-context-and-follow-up' },
+        actions: (
+            <LemonButton type="secondary" size="xsmall" icon={<IconDatabase />}>
+                Add to dataset
+            </LemonButton>
+        ),
+    },
+    decorators: [withWidth(520)],
+}
 export const FailedGenerationWithImage: Story = {
     args: {
         ...langchainCerebrasImageError.details[failedGeneration.id],
@@ -102,4 +118,8 @@ export const FailedGenerationWithImage: Story = {
         onViewInThread: () => {},
         onSelectNode: () => {},
     },
+}
+export const WithFeedback: Story = {
+    args: { ...base, stepFeedback: { feedback: FIXTURE_STEP_FEEDBACK, onOpen: () => {} } },
+    decorators: [withWidth(520)],
 }

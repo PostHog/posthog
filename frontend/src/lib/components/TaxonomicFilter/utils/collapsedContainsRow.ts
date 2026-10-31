@@ -5,9 +5,7 @@ import { QuickFilterItem, TaxonomicFilterGroupType } from '../types'
 /** Groups that collapse to a single "URL contains <query>" suggestion instead of
  *  listing every matching value, and are not offered as a standalone value picker.
  *  People filtering by URL overwhelmingly want a contains match, so one synthetic
- *  row (when any URL matches) beats a wall of exact URLs. Shared by the legacy
- *  picker (`infiniteListLogic`) and the rebuild menu (`menu/Combobox`) so both arms
- *  of the experiment collapse identically.
+ *  row (when any URL matches) beats a wall of exact URLs. Used by `infiniteListLogic`.
  *
  *  - `PageviewUrls` is the property-filter flavour ($current_url IContains <query>).
  *  - `PageviewEvents` is the series flavour: a `$pageview` event filtered by the same
@@ -22,12 +20,12 @@ const URL_SHAPED_QUERY = /[/.:]/
 /** In a property filter's mixed list, page URLs offer the "URL contains" row only for a query like
  *  `/pricing` or `example.com`. A plain word such as `email` usually names a property, and people
  *  often picked the row for it by mistake. Series pickers and the dedicated Pageview URLs tab offer
- *  the row for any query. Shared by both surfaces. */
+ *  the row for any query. */
 export function offersUrlContainsRow(groupType: TaxonomicFilterGroupType, query: string): boolean {
     return groupType !== TaxonomicFilterGroupType.PageviewUrls || URL_SHAPED_QUERY.test(query)
 }
 
-export function urlContainsRowLabel(query: string): string {
+function urlContainsRowLabel(query: string): string {
     return `URL contains "${query}"`
 }
 
@@ -41,9 +39,7 @@ export function urlContainsRowLabel(query: string): string {
  *   - series host (`ActionFilterRow`) expands it into a `$pageview` event + the
  *     `$current_url IContains` property filter (reads `eventName`);
  *   - property/universal hosts intentionally ignore `eventName` (a property filter
- *     can't sprout an event) and commit the bare `$current_url IContains` filter;
- *   - the rebuild menu commits PageviewEvents via the group `type`, not `eventName`
- *     (its synthetic row is a plain item, not this QuickFilterItem). */
+ *     can't sprout an event) and commit the bare `$current_url IContains` filter. */
 export function buildUrlContainsShortcut(query: string, groupType?: TaxonomicFilterGroupType): QuickFilterItem {
     return {
         _type: 'quick_filter',
@@ -57,17 +53,13 @@ export function buildUrlContainsShortcut(query: string, groupType?: TaxonomicFil
     }
 }
 
-/** A row that is the synthetic "URL contains <query>" shortcut. Deliberately checks the
- *  tag directly rather than via `isQuickFilterItem`, because the rebuild menu's shortcut
- *  is a plain item (not a QuickFilterItem) while the legacy list's is a QuickFilterItem —
- *  both carry `isContainsShortcut`. */
-export function isContainsShortcutItem(item: unknown): boolean {
+/** A row that is the synthetic "URL contains <query>" shortcut. */
+function isContainsShortcutItem(item: unknown): boolean {
     return !!item && typeof item === 'object' && (item as { isContainsShortcut?: boolean }).isContainsShortcut === true
 }
 
 /** Split a list so the synthetic "URL contains <query>" shortcut(s) come first.
- *  `getItem` maps a list element to its underlying definition item — the rebuild wraps it
- *  in a `{ item }` entry, the legacy list holds the item directly. Returns `[shortcuts, rest]`
+ *  `getItem` maps a list element to its underlying definition item. Returns `[shortcuts, rest]`
  *  so callers can either lead with the shortcut or splice other rows (recents/pinned) between. */
 export function partitionContainsShortcuts<T>(list: T[], getItem: (entry: T) => unknown): [T[], T[]] {
     const shortcuts: T[] = []

@@ -60,6 +60,7 @@ export const UNSUBSCRIBE_REASONS: UnsubscribeReason[] = [
     { reason: 'Not enough hedgehogs', question: 'How many hedgehogs do you need? (but really why are you leaving)' },
     { reason: 'Shutting down company', question: "We're sorry to hear that ❤️. What was your favorite feature?" },
     { reason: 'Technical issues', question: 'What technical problems did you experience?' },
+    { reason: 'Building it ourselves', question: 'What will you build, and what made building it the better option?' },
     { reason: 'Other (let us know below!)', question: 'Why are you leaving?' },
 ]
 

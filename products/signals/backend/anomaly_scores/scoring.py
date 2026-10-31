@@ -148,11 +148,11 @@ def _short_hash(payload: Any) -> str:
 def detector_version(scoring: IntervalScoring, *, artifacts: bool = False) -> str:
     """Identifies the scoring behavior, so scores from different settings are never mixed in one series.
 
-    Scores from stored artifacts are fit once per train step, so they get their own version.
+    Score steps read stored artifacts, so the split gets its own version. Bump it when train-step scores change.
     """
     behavior: dict[str, Any] = {"min_points": scoring.min_points, "detector": scoring.detector}
     if artifacts:
-        behavior["fit"] = "artifact"
+        behavior["fit"] = "artifact_v2"
     return _short_hash(behavior)
 
 
@@ -511,7 +511,7 @@ def _train_step(
     after: datetime | None,
     limits: ScoringLimits,
 ) -> InsightScores:
-    """Fit each series on the history before its due buckets, and score the due buckets with the new artifact."""
+    """Score each due bucket with a fit on the history before it, and store a fit through the newest completed bucket."""
     interval = scores.interval
     to_score = buckets_to_score(interval, now=now, after=after, timezone=team.timezone_info, limits=limits)
     buckets = fetch_buckets(query, scoring, to_score)
@@ -524,9 +524,15 @@ def _train_step(
         completed, returned = indices.completed, indices.returned
         if completed:
             newest.append(line.buckets[completed[-1]])
-        # With no due bucket, the fit reads the newest completed buckets.
-        end = returned[0] if returned else (completed[-1] + 1 if completed else 0)
-        artifact = _fit(detector, scoring, line.values, end)
+        # A refit per due bucket scores a backfill like `score_series`. One fit for all of them goes stale.
+        points = [
+            point
+            for i in returned
+            for point in score_with_artifact(
+                detector, _fit(detector, scoring, line.values, i), line.values, line.buckets, [i]
+            )
+        ]
+        artifact = _fit(detector, scoring, line.values, completed[-1] + 1) if completed else None
         if artifact is not None:
             artifacts[line.series_key] = artifact
         series.append(
@@ -534,7 +540,7 @@ def _train_step(
                 series_key=line.series_key,
                 label=line.label,
                 breakdown_value=line.breakdown_value,
-                points=score_with_artifact(detector, artifact, line.values, line.buckets, returned),
+                points=points,
             )
         )
     return dataclasses.replace(
@@ -703,7 +709,7 @@ def _series_definition(query: TrendsQuery, result: dict[str, Any]) -> dict[str, 
             "formula": formulas[order] if order < len(formulas) else None,
             "series": [_series_node_definition(node) for node in query.series],
         }
-    order = (result.get("action") or {}).get("order")
+    order = result.get("order")
     if order is None or order >= len(query.series):
         return {"label": result.get("label")}
     return _series_node_definition(query.series[order])

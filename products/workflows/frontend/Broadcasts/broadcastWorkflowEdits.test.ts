@@ -20,7 +20,14 @@ const email = (to = '{{ person.properties.email }}'): Record<string, any> => ({
     on_error: 'continue',
     config: { template_id: 'template-email', inputs: { email: { value: { to: { email: to } } }, extra: { value: 1 } } },
 })
+const push = (): Record<string, any> => ({
+    id: 'email_1',
+    type: 'function_push',
+    name: 'Send push',
+    config: { template_id: 'template-native-push', inputs: { title: { value: 'Hi' } } },
+})
 const exit = { id: 'exit_node', type: 'exit', name: 'Exit', config: {} }
+const stepCondition = { properties: [{ key: 'plan', value: ['pro'], operator: 'exact', type: 'person' }] }
 const edges = [
     { from: 'trigger_node', to: 'email_1', type: 'continue' },
     { from: 'email_1', to: 'exit_node', type: 'continue' },
@@ -32,6 +39,8 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ['an account audience', [trigger({ audience_type: 'accounts', properties: [] }), email(), exit], edges, false],
         ['a custom recipient expression', [trigger(), email('{{ inputs.owner_email }}'), exit], edges, true],
         ['a fixed recipient address', [trigger(), email('team@example.com'), exit], edges, true],
+        ['a push notification', [trigger(), push(), exit], edges, true],
+        ['an email and a push together', [trigger(), email(), push(), exit], edges, false],
         [
             'a trigger that skips the email',
             [trigger(), email(), exit],
@@ -154,6 +163,92 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             tracking_enabled: false,
             utm_tags_enabled: true,
             utm_params: { utm_campaign: '{{ person.properties.plan }}' },
+        })
+    })
+
+    it.each([
+        [
+            'email to push',
+            [trigger(), { ...email(), filters: stepCondition }, exit],
+            'push',
+            null,
+            {
+                type: 'function_push',
+                config: {
+                    inputs: {
+                        channels: { value: [7] },
+                        title: { value: 'Hello {{ person.properties.name }}', templating: 'liquid' },
+                    },
+                },
+            },
+        ],
+        [
+            'push to email',
+            [trigger(), { ...push(), filters: stepCondition }, exit],
+            'email',
+            { count: 10, period: 'minute' },
+            { type: 'function_email', config: { inputs: { email: { value: { subject: 'Hello' } } } } },
+        ],
+    ] as const)(
+        'replaces the message step under the same id when switching %s',
+        (_, actions, channel, rateLimit, messageStep) => {
+            const payload = buildBroadcastPayload({
+                name: 'Launch',
+                audienceProperties: [],
+                goalEnabled: false,
+                conversion: DEFAULT_BROADCAST_CONVERSION,
+                email: { ...DEFAULT_BROADCAST_EMAIL, subject: 'Hello' },
+                emailRateLimit: { count: 10, period: 'minute' } as any,
+                channel,
+                push: { channels: [7], title: 'Hello {{ person.properties.name }}', body: '' },
+                broadcast: { actions, edges } as unknown as HogFlowApi,
+            })
+
+            expect(payload.edges).toEqual(edges)
+            expect(payload.actions.map((action: any) => action.id)).toEqual(['trigger_node', 'email_1', 'exit_node'])
+            expect(payload.actions[1]).toMatchObject({ ...messageStep, filters: stepCondition })
+            expect(payload.email_sending_rate_limit).toEqual(rateLimit)
+        }
+    )
+
+    it('keeps the push inputs the wizard does not edit, such as a custom recipient or saved data keys', () => {
+        const customized = {
+            ...push(),
+            config: {
+                template_id: 'template-native-push',
+                inputs: {
+                    distinctId: { value: '{person.properties.device_owner}' },
+                    title: { value: 'Old {person.properties.name}' },
+                    data: {
+                        value: { url: 'myapp://old', campaign: '{{ person.properties.plan }}' },
+                        templating: 'liquid',
+                    },
+                    ios_sound: { value: 'chime' },
+                },
+            },
+        }
+        const payload = buildBroadcastPayload({
+            name: 'Launch',
+            audienceProperties: [],
+            goalEnabled: false,
+            conversion: DEFAULT_BROADCAST_CONVERSION,
+            email: DEFAULT_BROADCAST_EMAIL,
+            emailRateLimit: null,
+            channel: 'push',
+            push: { channels: [7], title: 'New', body: '' },
+            broadcast: { actions: [trigger(), customized, exit], edges } as unknown as HogFlowApi,
+        })
+
+        expect(payload.actions[1].config.inputs).toEqual({
+            distinctId: { value: '{person.properties.device_owner}' },
+            channels: { value: [7] },
+            title: { value: 'New', templating: 'hog' },
+            body: { value: '', templating: 'liquid' },
+            data: {
+                value: { url: 'myapp://old', campaign: '{{ person.properties.plan }}' },
+                templating: 'liquid',
+            },
+            ios_sound: { value: 'chime' },
         })
     })
 })

@@ -68,6 +68,8 @@ function renderEditor(): void {
             </BindLogic>
         </Provider>
     )
+    // The examples and tips sit in a fold that starts closed.
+    fireEvent.click(screen.getByText('Examples and reference'))
 }
 
 describe('EvaluationCodeEditor', () => {

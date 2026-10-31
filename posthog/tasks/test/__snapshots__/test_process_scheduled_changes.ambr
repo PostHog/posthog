@@ -32,15 +32,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.10
@@ -284,15 +288,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.17
@@ -638,9 +646,9 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_featureflag"."team_id" = 99999))
@@ -1190,15 +1198,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.39
@@ -1245,9 +1257,9 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_featureflag"."deleted")
          AND ("posthog_featureflag"."team_id" =
-                (SELECT U0."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" U0
-                 WHERE U0."id" = 99999
+                (SELECT "U0"."parent_team_id" AS "parent_team_id"
+                 FROM "posthog_team" "U0"
+                 WHERE "U0"."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
                   AND "posthog_featureflag"."team_id" = 99999))

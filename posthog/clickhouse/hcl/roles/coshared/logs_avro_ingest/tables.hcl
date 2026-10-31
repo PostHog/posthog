@@ -144,6 +144,9 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
   }
 
   table "writable_logs34" {
@@ -255,6 +258,10 @@ database "posthog" {
     }
     column "pattern_version" {
       type = "UInt8"
+    }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
     }
     settings = {
       background_insert_batch = "1"

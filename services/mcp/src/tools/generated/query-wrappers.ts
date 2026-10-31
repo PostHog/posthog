@@ -1224,7 +1224,7 @@ const AssistantPathsFilter = z.object({
     includeEventTypes: z
         .array(PathType)
         .describe(
-            'Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.'
+            'Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering. Paths never include `$feature_flag_called` events, whichever types are set.'
         )
         .optional(),
     localPathCleaningFilters: z

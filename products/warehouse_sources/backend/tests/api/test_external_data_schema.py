@@ -17,6 +17,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_organization import create_organization
@@ -61,6 +62,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.source import SharePointSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
+
+_PH_HISTORY_NAMING_FLAG = (
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
+)
 
 pytestmark = [
     pytest.mark.django_db,
@@ -1340,6 +1345,42 @@ class TestExternalDataSchema(APIBaseTest):
                 None,
                 "_ph_cdc_seq",
             ),
+            (
+                "rejects_a_source_column_the_load_renames_to_a_capture_column",
+                {
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "_PH_CDC_SEQ"}]},
+                },
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                "_ph_cdc_seq",
+            ),
+            (
+                "rejects_a_history_table_for_a_source_column_named_like_a_validity_column",
+                {
+                    "primary_key_columns": ["id"],
+                    "cdc_table_mode": "both",
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "_ph_valid_from"}]},
+                },
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                "_ph_valid_from",
+            ),
+            (
+                "accepts_a_validity_column_name_without_a_history_table",
+                {
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "valid_from"}]},
+                },
+                None,
+                status.HTTP_200_OK,
+                ExternalDataSchema.SyncType.CDC,
+                ["id"],
+            ),
         ]
     )
     def test_update_schema_to_cdc(
@@ -2086,7 +2127,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
         table = DataWarehouseTable.objects.create(team=self.team)
         schema = ExternalDataSchema.objects.create(
-            name="BalanceTransaction",
+            name="Charge",
             team=self.team,
             source=source,
             should_sync=True,
@@ -2593,7 +2634,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 200
         mock_get_or_create.assert_not_called()
 
-    def test_update_schema_to_webhook_non_webhook_source_no_webhook_result(self):
+    def test_update_schema_to_webhook_non_webhook_source_rejected(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -2630,15 +2671,86 @@ class TestExternalDataSchema(APIBaseTest):
                 data={"sync_type": "webhook", "incremental_field": "id", "incremental_field_type": "integer"},
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
         mock_get_or_create.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_webhook_non_webhook_schema_no_webhook_result(self):
+    @parameterized.expand(
+        [
+            (
+                "no_webhook_support",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                400,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+            ),
+            (
+                "no_webhook_support_already_webhook",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.WEBHOOK,
+                200,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
+            (
+                "webhook_support",
+                "Charge",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                200,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
+        ]
+    )
+    def test_update_schema_to_webhook_requires_webhook_support(
+        self, _name, schema_name, from_sync_type, expected_status, expected_sync_type
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
-            name="CustomerBalanceTransaction",
+            name=schema_name,
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=from_sync_type,
+        )
+
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function_id=str(uuid.uuid4()),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type == expected_sync_type
+
+    def test_update_schema_to_webhook_reports_failed_lookup(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
             team=self.team,
             source=source,
             should_sync=True,
@@ -2646,32 +2758,16 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_non_webhook_schemas = [
-            SourceSchema(
-                name="CustomerBalanceTransaction",
-                supports_incremental=False,
-                supports_append=False,
-                supports_webhooks=False,
-            ),
-        ]
-
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
-                return_value=False,
-            ),
-            mock.patch.object(StripeSource, "get_schemas", return_value=mock_non_webhook_schemas),
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
-            ) as mock_get_or_create,
-        ):
+        with mock.patch.object(StripeSource, "get_schemas", side_effect=TimeoutError("Read timed out")):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
             )
 
-        assert response.status_code == 200
-        mock_get_or_create.assert_not_called()
+        assert response.status_code == 400
+        assert "Couldn't check whether Charge supports webhook sync" in str(response.json())
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
 
 class TestUpdateExternalDataSchema:
@@ -4503,6 +4599,198 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.cdc_table_mode == "both"
         assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
 
+    @parameterized.expand(
+        [
+            (
+                "turning_history_on_over_a_synced_column_is_refused",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                True,
+            ),
+            (
+                "turning_history_on_over_a_column_left_out_is_allowed",
+                "consolidated",
+                ["id"],
+                {"cdc_table_mode": "both"},
+                False,
+            ),
+            (
+                "adding_the_column_to_enabled_columns_is_refused",
+                "both",
+                ["id"],
+                {"enabled_columns": ["id", "valid_to"]},
+                True,
+            ),
+            ("editing_a_table_that_already_syncs_it_is_allowed", "both", None, {"enabled_columns": None}, False),
+            (
+                "a_new_history_table_leaves_valid_to_to_the_source",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                False,
+                "valid_to",
+                False,
+            ),
+            (
+                "a_new_history_table_refuses_its_own_validity_name",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                True,
+                "_ph_valid_to",
+                False,
+            ),
+            # Capture columns are refused on every CDC table, history or not.
+            (
+                "adding_a_capture_column_to_enabled_columns_is_refused",
+                "consolidated",
+                ["id"],
+                {"enabled_columns": ["id", "_PH_DELETED"]},
+                True,
+                "_PH_DELETED",
+                False,
+            ),
+            (
+                "editing_a_table_that_already_syncs_a_capture_column_is_allowed",
+                "consolidated",
+                None,
+                {"enabled_columns": None},
+                False,
+                "_PH_DELETED",
+                False,
+            ),
+        ]
+    )
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_checks_the_columns_a_cdc_sync_writes(
+        self,
+        _name: str,
+        initial_mode: str,
+        initial_enabled_columns: list[str] | None,
+        request_body: dict,
+        refused: bool,
+        column: str = "valid_to",
+        legacy_table: bool = True,
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
+        if legacy_table:
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=build_table_name(self.source, f"{self.schema.name}_cdc"),
+                format="DeltaS3Wrapper",
+                url_pattern="s3://bucket/orders_cdc",
+                external_data_source=self.source,
+            )
+        self.schema.sync_type_config["cdc_table_mode"] = initial_mode
+        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": column}]}
+        self.schema.enabled_columns = initial_enabled_columns
+        self.schema.save()
+
+        serializer = ExternalDataSchemaSerializer(
+            self.schema,
+            data=request_body,
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            if refused:
+                with pytest.raises(ValidationError, match=column):
+                    serializer.save()
+            else:
+                serializer.save()
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == (
+            initial_mode if refused else request_body.get("cdc_table_mode", initial_mode)
+        )
+        assert self.schema.enabled_columns == (
+            initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
+        )
+        keeps_history = not refused and self.schema.cdc_table_mode in ("cdc_only", "both")
+        expected_pin = ("legacy" if legacy_table else "ph_validity") if keeps_history else None
+        assert self.schema.sync_type_config.get("history_naming") == expected_pin
+
+    def _save_through_serializer(self, schema: ExternalDataSchema, request_body: dict) -> None:
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        serializer = ExternalDataSchemaSerializer(
+            schema, data=request_body, partial=True, context={"team_id": self.team.pk, "post_commit_actions": []}
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_refuses_a_history_table_named_like_a_synced_table(self):
+        ExternalDataSchema.objects.create(
+            name="public.orders_history", team=self.team, source=self.source, should_sync=True
+        )
+
+        with pytest.raises(ValidationError, match="share its name"):
+            self._save_through_serializer(self.schema, {"cdc_table_mode": "both"})
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == "consolidated"
+
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_refuses_syncing_a_table_named_like_another_schemas_history_table(self):
+        # The history table is not registered until the first snapshot loads, and the name is taken already.
+        self.schema.sync_type_config["cdc_table_mode"] = "both"
+        self.schema.save()
+        sibling = ExternalDataSchema.objects.create(
+            name="public.orders_history",
+            team=self.team,
+            source=self.source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with pytest.raises(ValidationError, match="history table of another table"):
+            self._save_through_serializer(sibling, {"should_sync": True})
+
+        sibling.refresh_from_db()
+        assert sibling.should_sync is False
+
+    @parameterized.expand(
+        [
+            ("no_history_table", ExternalDataSchema.SyncType.CDC, "consolidated", False, None),
+            ("legacy_naming", ExternalDataSchema.SyncType.CDC, "both", False, "public.orders_cdc"),
+            ("new_naming", ExternalDataSchema.SyncType.CDC, "both", True, "public.orders_history"),
+            # Leaving CDC keeps the stored table mode, but the table no longer keeps history.
+            ("left_cdc", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, None),
+        ]
+    )
+    def test_history_table_name_names_the_table_the_mode_writes(
+        self, _name: str, sync_type: str, mode: str, ph_naming: bool, storage_name: str | None
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
+        self.schema.sync_type = sync_type
+        self.schema.sync_type_config["cdc_table_mode"] = mode
+        self.schema.save()
+
+        with mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: ph_naming):
+            name = ExternalDataSchemaSerializer().get_history_table_name(self.schema)
+
+        assert name == (None if storage_name is None else build_table_name(self.source, storage_name))
+
     def test_patch_does_not_revert_a_concurrent_delete_data(self):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
@@ -4781,6 +5069,38 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary
+
+    @parameterized.expand(
+        [
+            ("pinned_and_unsynced", True, False, True),
+            ("pinned_but_synced_table_set", True, True, False),
+            ("no_pin", False, False, False),
+        ]
+    )
+    def test_pending_self_managed_table(self, _name: str, pinned: bool, has_table: bool, expected: bool):
+        _source, schema = self._create()
+        if pinned:
+            schema.sync_type_config = {
+                "schema_metadata": {
+                    "self_managed_table": {
+                        "table_id": str(uuid.uuid4()),
+                        "url_pattern": "https://example.com/a/*.parquet",
+                        "format": "Parquet",
+                    }
+                }
+            }
+            schema.save()
+        if has_table:
+            schema.table = DataWarehouseTable.objects.create(
+                name="orders", format="Parquet", team=self.team, url_pattern="https://example.com/a/*.parquet"
+            )
+            schema.save()
+
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/").json()
+        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/").json()["results"]
+
+        assert detail["pending_self_managed_table"] is expected
+        assert [row["pending_self_managed_table"] for row in listed] == [expected]
 
     def test_list_omits_source_summary(self):
         self._create()

@@ -11,10 +11,10 @@ from products.customer_analytics.backend.facade.api import get_key_metrics
 
 from ..facade import contracts
 from ..temporal.inputs import PinnedNumber, ResolvePinsInputs, ResolvePinsResult
-from .highlight_sources.key_metrics import tile
-from .highlight_sources.routine import dashboard_tile_metric, insight_metric
 from .highlight_types import Context
 from .pulse_pins import INSIGHT_PREFIX, required_scopes
+from .today_highlights.key_metrics import tile
+from .today_highlights.routine import dashboard_tile_metric, insight_metric
 
 PINNED_METRICS = TypeAdapter(list[contracts.HighlightMetric])
 

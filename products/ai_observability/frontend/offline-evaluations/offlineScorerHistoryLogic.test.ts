@@ -37,6 +37,29 @@ describe('offlineScorerHistoryLogic', () => {
         })
     })
 
+    it('restores breakdowns from the URL and resets pagination when they change', async () => {
+        const props = { scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 }
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId), { breakdown: 'model_version' })
+        const logic = offlineScorerHistoryLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.query.breakdown).toBe('model_version')
+        await expectLogic(logic, () => logic.actions.changePage('primary', 'older')).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ breakdown: 'suite_key', compare: 'previous' })
+        ).toFinishAllListeners()
+        expect(logic.values.primaryCursors).toEqual([null])
+        expect(router.values.searchParams.breakdown).toBe('suite_key')
+        expect(api.aiObservabilityOfflineScorersHistoryList).toHaveBeenLastCalledWith(
+            '1',
+            props.scorerId,
+            expect.objectContaining({ breakdown: 'suite_key', cursor: undefined })
+        )
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId), { breakdown: 'unknown' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.query.breakdown).toBeUndefined()
+    })
+
     it.each([{ created_by: 42 }, { created_by_is_null: true }])(
         'preserves author and tag filters across periods and clears them through the URL (%j)',
         async (authorFilters) => {

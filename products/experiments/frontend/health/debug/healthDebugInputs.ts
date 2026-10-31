@@ -152,6 +152,11 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
             value: serverValue(state, ({ flag_called_during_run }) => yesNoUnknown(flag_called_during_run)),
             help: "The zero-exposures finding says the flag has no recorded calls when this is No. Unknown before launch, when the latest call came after the end, or when the organization's flag calls skip the events table.",
         },
+        {
+            label: 'Called after the end',
+            value: serverValue(state, ({ flag_called_after_end }) => yesNoUnknown(flag_called_after_end)),
+            help: "When this is No, the flag-state finding for an ended experiment is info. No needs 3 days without a recorded call after the end. Unknown before the end, before those 3 days are over, or when the organization's flag calls skip the events table.",
+        },
     ]
 }
 
@@ -308,7 +313,60 @@ export function buildMetricFacts(
             label: 'Shared metric links',
             value: `${countType('primary')} primary, ${countType('secondary')} secondary, ${countType('none')} without a type`,
         },
+        {
+            label: 'Metric queries',
+            value: serverValue(state, (inputs) => describeMetricCompiles(inputs.metric_compiles)),
+            help: "The 'Invalid metric definitions' check compiles each metric's query as you, without running it. A metric that compiles is cached for a day. A failing metric compiles again on every load.",
+        },
+        ...(state.inputs?.metric_compiles?.failures ?? []).map((failure) => ({
+            label: `Doesn't compile: ${failure.name} (${failure.role})`,
+            value: `${failure.kind}: ${failure.message ?? 'message hidden, it can hold evaluation rules'}`,
+        })),
+        {
+            label: 'Latest calculation',
+            value: serverValue(state, (inputs) => describeLatestCalculation(inputs.latest_calculation)),
+            help: 'The metric results check reads the latest finished calculation, which the results page shows.',
+        },
+        ...(state.inputs?.latest_calculation?.failures ?? []).map((failure) => ({
+            label: `Failed: ${failure.name} (${failure.role})`,
+            value: `${failure.error_type ?? 'no class'}${failure.retriable ? ', retriable' : ''}: ${
+                failure.message ?? 'message hidden, it can hold evaluation rules'
+            }`,
+        })),
     ]
+}
+
+function describeLatestCalculation(calculation: ExperimentHealthInputsApi['latest_calculation']): string {
+    if (!calculation) {
+        return 'Not read: the experiment is not launched or is archived, or the read failed'
+    }
+    if (!calculation.finished_at) {
+        return 'No calculation has finished'
+    }
+    const failed = calculation.failures.length
+    return `Finished ${formatTimestamp(calculation.finished_at)}, ${failed} ${failed === 1 ? 'metric' : 'metrics'} failed`
+}
+
+function describeMetricCompiles(compiles: ExperimentHealthInputsApi['metric_compiles']): string {
+    if (!compiles) {
+        return 'Not compiled: the compile failed'
+    }
+    if (compiles.exposure_query_fails) {
+        return "Not compiled: the exposure query doesn't compile"
+    }
+    const failed = compiles.failures.length
+    const checked = compiles.metric_count - failed - compiles.unknown_count - compiles.no_access_count
+    const parts = [`${checked} of ${compiles.metric_count} compile`]
+    if (failed) {
+        parts.push(`${failed} ${failed === 1 ? "doesn't" : "don't"}`)
+    }
+    if (compiles.no_access_count) {
+        parts.push(`${compiles.no_access_count} not checked, they read data you can't query`)
+    }
+    if (compiles.unknown_count) {
+        parts.push(`${compiles.unknown_count} not checked`)
+    }
+    return parts.join(', ')
 }
 
 const EXPOSURE_STATUS_LABELS: Record<HealthExposureInputsStatusEnumApi, string> = {

@@ -390,6 +390,42 @@ class TestValidateManifestUrls(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("base_url_encoded_lower", "base_url", "https://api.example.com%5c@attacker.example.net/"),
+            ("base_url_encoded_upper", "base_url", "https://api.example.com%5C@attacker.example.net/"),
+            ("base_url_raw", "base_url", "https://attacker.example.net\\@api.example.com/"),
+            ("token_url_encoded", "token_url", "https://auth.example.com%5c@attacker.example.net/token"),
+            ("resource_path_encoded", "path", "https://api.example.com%5C@attacker.example.net/users"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="")
+    def test_rejects_ambiguous_authority(self, _name: str, field: str, url: str):
+        manifest = _minimal_manifest()
+        if field == "base_url":
+            manifest["client"]["base_url"] = url
+        elif field == "token_url":
+            manifest["client"]["auth"] = {"type": "oauth2", "client_id": "cid", "token_url": url}
+        else:
+            manifest["resources"][0]["endpoint"]["path"] = url
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "backslash" in (err or "")
+
+    @parameterized.expand(
+        [
+            ("encoded_backslash_in_path", "https://api.example.com/v1", "/files/a%5Cb"),
+            ("encoded_backslash_in_query", "https://api.example.com/v1", "/users?filter=a%5cb"),
+            ("internationalized_host", "https://bücher.example/v1", "/users"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="")
+    def test_accepts_unambiguous_authority(self, _name: str, base_url: str, path: str):
+        manifest = _minimal_manifest(base_url)
+        manifest["resources"][0]["endpoint"]["path"] = path
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert ok, err
+
+    @parameterized.expand(
+        [
             ("http_public", "http://api.example.com"),
             ("http_private", "http://10.0.0.1/api"),
             ("https_loopback", "https://127.0.0.1/api"),
@@ -1218,6 +1254,27 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert "from https://api.example.com/users " in (err or "")
         assert "inline-secret-123" not in (err or "")
 
+    @parameterized.expand(
+        [
+            ("base_url_encoded_lower", "base_url", "https://api.example.com%5c@attacker.example.net/"),
+            ("base_url_encoded_upper", "base_url", "https://api.example.com%5C@attacker.example.net/"),
+            ("token_url_encoded", "token_url", "https://auth.example.com%5C@attacker.example.net/oauth2/token"),
+        ]
+    )
+    def test_ambiguous_authority_sends_no_request(self, _name, field, url):
+        if field == "base_url":
+            manifest = _minimal_manifest(url)
+            config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        else:
+            manifest = _oauth2_manifest()
+            manifest["client"]["auth"]["token_url"] = url
+            config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_oauth2_client_secret="cs")
+        with scripted_network([]) as network:
+            ok, err = CustomSource().validate_credentials(config, team_id=999)
+        assert not ok
+        assert "backslash" in (err or "")
+        assert network.requests_log == []
+
     @parameterized.expand([401, 403])
     def test_returns_false_on_auth_rejection(self, status_code):
         source = CustomSource()
@@ -1597,16 +1654,17 @@ class TestManifestRequestHosts(SimpleTestCase):
         )
         assert manifest_request_hosts(manifest) == frozenset({"api.example.com"})
 
-    def test_backslash_authority_resolves_to_real_host(self):
-        # `https://evil\@trusted/` connects to `evil` (urllib3/WHATWG) even though urlparse
-        # alone reads `trusted` — the guard must see the real destination, not be fooled.
-        manifest = json.dumps(
-            {
-                "client": {"base_url": "https://attacker.example.net\\@api.example.com/"},
-                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
-            }
-        )
-        assert manifest_request_hosts(manifest) == frozenset({"attacker.example.net"})
+    @parameterized.expand(
+        [
+            ("raw_backslash", "https://attacker.example.net\\@api.example.com/"),
+            ("encoded_lower", "https://api.example.com%5c@attacker.example.net/"),
+            ("encoded_upper", "https://api.example.com%5C@attacker.example.net/"),
+        ]
+    )
+    def test_ambiguous_authority_counts_as_new_host(self, _name, base_url):
+        existing = {"manifest_json": self._manifest("https://api.example.com/", ["/users"])}
+        incoming = {"manifest_json": self._manifest(base_url, ["/users"])}
+        assert CustomSource().job_inputs_add_connection_host(incoming, existing)
 
     def test_host_is_lowercased(self):
         assert manifest_request_hosts(self._manifest("https://API.Example.COM", [])) == frozenset({"api.example.com"})

@@ -45,7 +45,7 @@ from posthog.date_util import start_of_day
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.event.util import events_only_in_active_schema
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.util import get_person_by_distinct_id
@@ -1340,7 +1340,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"email": FLAG_EVALUATIONS_EMAIL},
         )
         create_group_type_mapping(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=FLAG_CALL_TIMESTAMP - timedelta(days=1),
         )
         create_group(
             team_id=self.team.pk,
@@ -1631,10 +1635,13 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._insert_flag_evaluation(
             "first-retained-day-user",
             uuid.uuid4(),
-            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)),
+            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_RETENTION_DAYS)),
         )
         self._insert_flag_evaluation(
-            "expired-user", uuid.uuid4(), timestamp=FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 30)
+            "past-retention-user",
+            uuid.uuid4(),
+            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_RETENTION_DAYS))
+            - timedelta(seconds=1),
         )
 
         with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
@@ -1776,11 +1783,17 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "email" not in person_data["properties"]
         assert "name" in person_data["properties"]
 
+    @parameterized.expand(
+        [
+            ("event_property", PropertyDefinition.Type.EVENT, "secret_field", "properties.secret_field"),
+            ("person_property_in_set", PropertyDefinition.Type.PERSON, "secret_field", "properties.$set.secret_field"),
+        ]
+    )
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
-    def test_restricted_event_property_in_select_raises_error(self):
+    def test_restricted_property_in_select_raises_error(
+        self, _name: str, property_type: int, property_name: str, select: str
+    ) -> None:
         from posthog.hogql.errors import ResolutionError
-
-        from posthog.models import PropertyDefinition
 
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -1792,14 +1805,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p1",
             timestamp="2020-01-11T12:00:01Z",
-            properties={"secret_field": "hidden"},
+            properties={"secret_field": "hidden", "$set": {"secret_field": "hidden"}},
         )
         flush_persons_and_events()
 
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
-            name="secret_field",
-            type=PropertyDefinition.Type.EVENT,
+            name=property_name,
+            type=property_type,
         )
         PropertyAccessControl.objects.create(
             team=self.team,
@@ -1807,7 +1820,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             access_level=PropertyAccessLevel.NONE.value,
         )
 
-        query = EventsQuery(select=["properties.secret_field"], after="2020-01-10")
+        query = EventsQuery(select=[select], after="2020-01-10")
         runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
         with self.assertRaises(ResolutionError):
             runner.run()
