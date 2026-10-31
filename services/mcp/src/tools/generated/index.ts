@@ -48,6 +48,7 @@ import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as platform_features } from './platform_features'
 import { GENERATED_TOOLS as posthog_ai } from './posthog_ai'
+import { GENERATED_TOOLS as posthog_support } from './posthog_support'
 import { GENERATED_TOOLS as product_analytics } from './product_analytics'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
@@ -119,6 +120,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...persons,
     ...platform_features,
     ...posthog_ai,
+    ...posthog_support,
     ...product_analytics,
     ...proxyRecords,
     ...queryWrappers,
