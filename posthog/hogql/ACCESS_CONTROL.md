@@ -221,6 +221,7 @@ Because each class restricts its own key, a table dispatched as the wrong class,
 
 The exemptions are name collisions: `accounts.properties` and `pg_embeddings.properties` do not contain event, person, or group properties.
 `ai_events.properties` uses the same event-property rules as `events.properties`.
+The hidden `events_with_flag_calls` table, which the flag-call union reads in place of `events`, uses them too.
 Covering a table means moving it out of the exemptions and into the expected mapping, so neither list can keep a stale entry.
 
 ### Typed columns that mirror a property
