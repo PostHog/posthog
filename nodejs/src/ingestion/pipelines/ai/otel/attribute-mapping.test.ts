@@ -760,6 +760,76 @@ describe('mapOtelAttributes', () => {
         })
     })
 
+    describe('execute_tool spans that no middleware claims', () => {
+        // A tool call span from Vercel AI SDK 7 (@ai-sdk/otel) as capture sends it. It has no ai.* key.
+        const toolSpan = (extra: Record<string, unknown> = {}): PluginEvent =>
+            createEvent('$ai_span', {
+                'gen_ai.operation.name': 'execute_tool',
+                'gen_ai.tool.name': 'get_weather',
+                'gen_ai.tool.call.id': 'call-1',
+                'gen_ai.tool.call.arguments': '{"city":"Paris"}',
+                'gen_ai.tool.call.result': '{"temperature":21}',
+                $otel_span_name: 'execute_tool get_weather',
+                $ai_parent_id: 'chat-span-1',
+                ...extra,
+            })
+
+        it('sets the input and output state from the tool call arguments and result', () => {
+            const event = toolSpan()
+            convertOtelEvent(event)
+            expect(event.properties!.$ai_input_state).toEqual({ city: 'Paris' })
+            expect(event.properties!.$ai_output_state).toEqual({ temperature: 21 })
+            expect(event.properties!['gen_ai.tool.call.arguments']).toBeUndefined()
+            expect(event.properties!['gen_ai.tool.call.result']).toBeUndefined()
+        })
+
+        it.each([
+            ['a string', '"sunny"', 'sunny'],
+            ['a number', '0', '0'],
+            ['a boolean', 'false', 'false'],
+            ['a null', 'null', 'null'],
+            ['text that is not JSON', 'plain text', 'plain text'],
+        ])('keeps %s result visible', (_label, result, expected) => {
+            const event = toolSpan({ 'gen_ai.tool.call.result': result })
+            convertOtelEvent(event)
+            expect(event.properties!.$ai_output_state).toBe(expected)
+        })
+
+        it.each([
+            [500_000, 'parsed'],
+            [500_001, 'kept as text'],
+        ])('handles %i-character arguments and results: %s', (length, _outcome) => {
+            const args = { value: 'x'.repeat(length - JSON.stringify({ value: '' }).length) }
+            const result = [{ value: 'y'.repeat(length - JSON.stringify([{ value: '' }]).length) }]
+            const event = toolSpan({
+                'gen_ai.tool.call.arguments': JSON.stringify(args),
+                'gen_ai.tool.call.result': JSON.stringify(result),
+            })
+            convertOtelEvent(event)
+            const parsed = length <= 500_000
+            expect(typeof event.properties!.$ai_input_state).toBe(parsed ? 'object' : 'string')
+            expect(typeof event.properties!.$ai_output_state).toBe(parsed ? 'object' : 'string')
+            expect(event.properties!.$ai_input_state).toEqual(parsed ? args : JSON.stringify(args))
+            expect(event.properties!.$ai_output_state).toEqual(parsed ? result : JSON.stringify(result))
+            expect(event.properties!['gen_ai.tool.call.arguments']).toBeUndefined()
+            expect(event.properties!['gen_ai.tool.call.result']).toBeUndefined()
+        })
+
+        it('keeps state the producer already set', () => {
+            const event = toolSpan({ $ai_input_state: 'explicit input', $ai_output_state: 'explicit output' })
+            convertOtelEvent(event)
+            expect(event.properties!.$ai_input_state).toBe('explicit input')
+            expect(event.properties!.$ai_output_state).toBe('explicit output')
+        })
+
+        it('ignores the tool call attributes on other operations', () => {
+            const event = toolSpan({ 'gen_ai.operation.name': 'chat' })
+            convertOtelEvent(event)
+            expect(event.properties!.$ai_input_state).toBeUndefined()
+            expect(event.properties!['gen_ai.tool.call.arguments']).toBe('{"city":"Paris"}')
+        })
+    })
+
     describe('$groups normalization', () => {
         it('parses a JSON-string $groups into an object', () => {
             const event = createEvent('$ai_generation', {
