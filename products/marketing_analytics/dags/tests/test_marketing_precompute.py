@@ -1,7 +1,8 @@
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,7 +11,7 @@ from django.test import SimpleTestCase
 import dagster
 from parameterized import parameterized
 
-from posthog.schema import MarketingAnalyticsDrillDownLevel
+from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_log_archive import (
@@ -19,6 +20,7 @@ from posthog.clickhouse.query_log_archive import (
     SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE_SQL,
 )
 from posthog.dags.common import chunk_ranges
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Organization, Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
@@ -394,15 +396,28 @@ class TestConversionWarming(APIBaseTest):
         assert ensure_mock.call_count > len(teams)
         assert database.create_for.call_count == len(teams)
 
+    @parameterized.expand([("utc", "UTC"), ("behind_utc", "America/Los_Angeles"), ("ahead_of_utc", "Asia/Jerusalem")])
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_touchpoints_window_reaches_back_past_attribution_window(self, ensure_mock):
+    def test_touchpoints_window_covers_a_local_read_and_its_attribution_backfill(self, _name, timezone, ensure_mock):
         team = self._make_team("A", goals=[_INELIGIBLE_GOAL])
-        expected = PRECOMPUTE_WINDOW_DAYS + team.marketing_analytics_config.attribution_window_days
-        with patch(_FF, _flag_fn(conversion=True)), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}):
+        team.timezone = timezone
+        team.save()
+        # The lookback crosses each zone's DST switch (Los Angeles 2024-03-10, Jerusalem 2024-03-29).
+        now = datetime(2024, 4, 2, 20, 0, tzinfo=UTC)
+        with (
+            time_machine.travel(now, tick=False),
+            patch(_FF, _flag_fn(conversion=True)),
+            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
+        ):
             warm_selected_teams(dagster.build_op_context())
+        read = QueryDateRange(
+            date_range=DateRange(date_from=f"-{PRECOMPUTE_WINDOW_DAYS}d"), team=team, interval=None, now=now
+        )
+        attribution = timedelta(days=team.marketing_analytics_config.attribution_window_days)
         kwargs = ensure_mock.call_args_list[0].kwargs  # touchpoints is warmed first
-        assert (kwargs["time_range_end"] - kwargs["time_range_start"]).days == expected
+        assert kwargs["time_range_start"] <= read.date_from() - attribution
+        assert kwargs["time_range_end"] >= read.date_to()
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
