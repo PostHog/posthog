@@ -924,6 +924,7 @@ class ErrorTrackingSettings(models.Model):
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
+    linear_status_sync_enabled = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "posthog_errortrackingsettings"
