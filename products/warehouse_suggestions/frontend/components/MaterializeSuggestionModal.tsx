@@ -12,9 +12,9 @@ import { INTERVAL_SECONDS, intervalForSeconds } from '../refreshIntervals'
 import {
     dataAgeLabel,
     isMaterializePayload,
-    materializeSaving,
+    materializeSavingLines,
+    readTimeLabel,
     refreshModeLabel,
-    savingSentence,
     shorterScheduleWarning,
     suggestedScheduleHint,
     todayAgeLabel,
@@ -116,7 +116,14 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         <span className="text-xs font-semibold text-secondary">
                             Estimated at the suggested settings
                         </span>
-                        <span className="text-sm">{savingSentence(materializeSaving(payload))}</span>
+                        {materializeSavingLines(payload).map((line, index) => (
+                            <span key={line} className={index === 0 ? 'text-sm' : 'text-xs text-secondary'}>
+                                {line}
+                            </span>
+                        ))}
+                        {payload.read_seconds != null && (
+                            <span className="text-xs text-secondary">{`${readTimeLabel(payload.read_seconds)} today`}</span>
+                        )}
                     </div>
                 </div>
                 {shorterWarning && <LemonBanner type="warning">{shorterWarning}</LemonBanner>}
