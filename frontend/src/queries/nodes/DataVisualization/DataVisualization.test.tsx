@@ -47,6 +47,13 @@ jest.mock('./Components/Charts/PartOfWholeChart', () => ({
     ),
 }))
 
+jest.mock('./Components/Charts/SqlChart', () => ({
+    ...jest.requireActual('./Components/Charts/SqlChart'),
+    SqlChart: ({ goalLines }: SqlChartProps): JSX.Element => (
+        <div>{`Chart with goal lines: ${(goalLines ?? []).map((line) => line.label).join(', ')}`}</div>
+    ),
+}))
+
 describe('DataTableVisualization', () => {
     const query: VisualizationNode = {
         kind: NodeKind.DataVisualizationNode,
@@ -178,6 +185,34 @@ describe('DataTableVisualization', () => {
         expect(within(hosted ? host : container).getByText('Add rule')).toBeTruthy()
         await userEvent.click(screen.getByLabelText('Visualization settings'))
         expect(screen.queryByText('Conditional formatting')).toBeNull()
+    })
+
+    it('switches a read-only tile between table and chart and keeps the chart goal lines', async () => {
+        const chartQuery: VisualizationNode = {
+            ...query,
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: { goalLines: [{ label: 'Target', value: 1 }] },
+        }
+        const renderTile = (tileQuery: VisualizationNode): JSX.Element => (
+            <DataTableVisualization
+                uniqueKey="data-visualization-switch"
+                query={tileQuery}
+                cachedResults={cachedResults}
+                readOnly
+                embedded
+            />
+        )
+
+        const { rerender } = render(renderTile(query))
+        await waitFor(() => expect(mockLemonTable).toHaveBeenCalled())
+
+        rerender(renderTile(chartQuery))
+        expect(await screen.findByText('Chart with goal lines: Target')).toBeTruthy()
+
+        mockLemonTable.mockClear()
+        rerender(renderTile(query))
+        await waitFor(() => expect(mockLemonTable).toHaveBeenCalled())
+        expect(screen.queryByText(/Chart with goal lines/)).toBeNull()
     })
 
     test.each([
