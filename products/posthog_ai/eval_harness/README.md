@@ -460,7 +460,10 @@ The final terminal line is the unlabeled absolute path, with no output after it,
 The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
 Suite listing (`--list`) and argument errors do not create transcripts.
 
-Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
+Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, `<case>.trial-<id>.summary.txt`, and `<case>.trial-<id>.toolchain.json`.
+The tool chain file lists every tool call in call order, with its turn, MCP server, input and output digests, timestamps, and duration.
+The case metadata carries a chain summary under `tool_chain`: call counts, distinct tools, servers, errors, and the sequence of the first answer query.
+Scorers and judges read the same chain through `products.posthog_ai.eval_harness.tool_chain`.
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.
