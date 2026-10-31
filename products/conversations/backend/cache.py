@@ -10,6 +10,7 @@ import uuid
 import hashlib
 from collections.abc import Generator
 from contextlib import contextmanager
+from typing import Literal
 
 from django.core.cache import cache
 
@@ -26,6 +27,10 @@ logger = structlog.get_logger(__name__)
 MESSAGES_CACHE_TTL = 15  # Short TTL - messages need to appear quickly
 TICKETS_CACHE_TTL = 30  # Slightly longer - ticket list changes less frequently
 UNREAD_COUNT_CACHE_TTL = 30  # For dashboard polling - invalidated on changes
+# Clients refresh the flag while the person types, so it must outlive one refresh interval plus one poll.
+TYPING_TTL = 8
+
+TypingSide = Literal["customer", "agent"]
 
 # All possible status filter values for tickets cache invalidation
 _TICKETS_STATUS_VARIANTS: list[str | None] = [None, *[s.value for s in Status]]
@@ -165,6 +170,39 @@ def invalidate_unread_count_cache(team_id: int) -> None:
 def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
     """Invalidate the initial-load messages cache entry for a ticket (after=None). Polling entries (after=<ts>) expire via TTL."""
     key = get_messages_cache_key(team_id, ticket_id, None)
+    try:
+        cache.delete(key)
+    except Exception:
+        logger.warning("conversations_cache_delete_error", key=key)
+
+
+# Typing indicator
+# One short-lived flag per ticket and side. Each side polls for the flag of the other side.
+
+
+def get_typing_cache_key(team_id: int, ticket_id: str, side: TypingSide) -> str:
+    return _make_cache_key("typing", str(team_id), ticket_id, side)
+
+
+def mark_typing(team_id: int, ticket_id: str, side: TypingSide) -> None:
+    key = get_typing_cache_key(team_id, ticket_id, side)
+    try:
+        cache.set(key, True, timeout=TYPING_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
+def is_typing(team_id: int, ticket_id: str, side: TypingSide) -> bool:
+    key = get_typing_cache_key(team_id, ticket_id, side)
+    try:
+        return bool(cache.get(key))
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return False
+
+
+def clear_typing(team_id: int, ticket_id: str, side: TypingSide) -> None:
+    key = get_typing_cache_key(team_id, ticket_id, side)
     try:
         cache.delete(key)
     except Exception:

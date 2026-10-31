@@ -143,6 +143,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailMessageId,
         composerPrefillAt,
         aiDraftApplying,
+        customerTyping,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -300,6 +301,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         collapseUntilActive
                         threadId={ticketId}
                         threadExtras={threadExtras}
+                        typingIndicator={
+                            ticket?.channel_source === 'widget'
+                                ? customerTyping
+                                    ? 'Customer is typing…'
+                                    : null
+                                : undefined
+                        }
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
                         messageSending={messageSending}

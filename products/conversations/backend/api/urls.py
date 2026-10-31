@@ -36,12 +36,13 @@ from .slack_oauth import SupportSlackAuthorizeView, SupportSlackDisconnectView, 
 from .teams_channels import TeamsChannelsView, TeamsInstallAppView, TeamsSelectChannelView, TeamsTeamsView
 from .teams_events import teams_event_handler
 from .teams_oauth import TeamsAuthorizeView, TeamsDisconnectView, teams_oauth_callback
-from .widget import WidgetMarkReadView, WidgetMessagesView, WidgetMessageView, WidgetTicketsView
+from .widget import WidgetMarkReadView, WidgetMessagesView, WidgetMessageView, WidgetTicketsView, WidgetTypingView
 
 urlpatterns = [
     path("v1/widget/message", WidgetMessageView.as_view(), name="widget-message-v1"),
     path("v1/widget/messages/<uuid:ticket_id>", WidgetMessagesView.as_view(), name="widget-messages-v1"),
     path("v1/widget/messages/<uuid:ticket_id>/read", WidgetMarkReadView.as_view(), name="widget-mark-read-v1"),
+    path("v1/widget/messages/<uuid:ticket_id>/typing", WidgetTypingView.as_view(), name="widget-typing-v1"),
     path("v1/widget/tickets", WidgetTicketsView.as_view(), name="widget-tickets-v1"),
     path("v1/widget/restore/request", WidgetRestoreRequestView.as_view(), name="widget-restore-request-v1"),
     path("v1/widget/restore", WidgetRestoreRedeemView.as_view(), name="widget-restore-v1"),
