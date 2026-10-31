@@ -7123,6 +7123,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -7149,6 +7150,7 @@ export namespace Schemas {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
@@ -8348,6 +8350,7 @@ export namespace Schemas {
         error?: (string | null) | undefined;
         hasMore?: (boolean | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         limit?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
@@ -8417,6 +8420,7 @@ export namespace Schemas {
         dataComputedAt?: (string | null) | undefined;
         error?: (string | null) | undefined;
         hogql?: (string | null) | undefined;
+        latestDayComputedAt?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         precomputeNotReady?: (boolean | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
@@ -9228,6 +9232,7 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
                         reasoning_level?:
                             | (("minimal" | "low" | "medium" | "high") | null)
                             | undefined;
@@ -9961,6 +9966,7 @@ export namespace Schemas {
      * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -9985,6 +9991,7 @@ export namespace Schemas {
         | "exposure_filter_excludes_events"
         | "srm"
         | "zero_exposures"
+        | "test_account_filter_removes_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
@@ -10039,6 +10046,7 @@ export namespace Schemas {
          * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10052,6 +10060,10 @@ export namespace Schemas {
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
          */
         subcode: string | null;
+        /**
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          *
@@ -10098,6 +10110,7 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
@@ -10119,6 +10132,7 @@ export namespace Schemas {
         | "exposure_filters"
         | "early_significance"
         | "zero_exposures"
+        | "test_account_filter_removes_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share";
@@ -10153,6 +10167,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
@@ -10516,7 +10531,8 @@ export namespace Schemas {
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
+        | "multiple_variants_share"
+        | "test_account_filter_removes_exposures";
     export type ExperimentExposureHealthCheckStatus =
         | "passed"
         | "finding"
@@ -10549,7 +10565,8 @@ export namespace Schemas {
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
+        | "multiple_variants_share"
+        | "test_account_filter_removes_exposures";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -10575,6 +10592,10 @@ export namespace Schemas {
          * The values behind the finding, such as the p-value of the sample ratio test. The keys depend on the code.
          */
         evidence: Record<string, string | number | null>;
+        /**
+         * A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none.
+         */
+        reason: string | null;
         /**
          * How much the problem affects the results: critical, warning, or info.
          */
@@ -10937,6 +10958,10 @@ export namespace Schemas {
         latest_error: string | null;
         incremental: boolean;
         status: string | null;
+        /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -12516,6 +12541,7 @@ export namespace Schemas {
      * * `WooPayments` - WooPayments
      * * `Soniox` - Soniox
      * * `Nango` - Nango
+     * * `Fathom` - Fathom
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13930,7 +13956,8 @@ export namespace Schemas {
         | "Beacons"
         | "WooPayments"
         | "Soniox"
-        | "Nango";
+        | "Nango"
+        | "Fathom";
     /**
      * * `web` - web
      * * `api` - api
@@ -15354,6 +15381,7 @@ export namespace Schemas {
          * * `WooPayments` - WooPayments
          * * `Soniox` - Soniox
          * * `Nango` - Nango
+         * * `Fathom` - Fathom
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15855,7 +15883,7 @@ export namespace Schemas {
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). function_push also accepts sensitive?: <bool> (default false) - when true, the notification is still sent but PostHog keeps no copy of its title, subtitle, body or image, and the run keeps no variables, so it can't be rerun. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -19476,6 +19504,7 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
                   reasoning_level?:
                       | (("minimal" | "low" | "medium" | "high") | null)
                       | undefined;
@@ -20023,6 +20052,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -20050,7 +20080,8 @@ export namespace Schemas {
         | "workflow"
         | "space_setup"
         | "business_knowledge"
-        | "metrics_import";
+        | "metrics_import"
+        | "knowledge_writer";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -23283,7 +23314,8 @@ export namespace Endpoints {
                     | "workflow"
                     | "space_setup"
                     | "business_knowledge"
-                    | "metrics_import";
+                    | "metrics_import"
+                    | "knowledge_writer";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -23303,6 +23335,7 @@ export namespace Endpoints {
                     | "experiments"
                     | "hogdesk"
                     | "image_builder"
+                    | "knowledge_writer"
                     | "loop"
                     | "mcp_analytics"
                     | "onboarding"

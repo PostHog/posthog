@@ -4,13 +4,16 @@
 
 ## Layout
 
-| Path             | Holds                                                                                                                                        |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/commands/`  | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                             |
-| `src/core/`      | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest |
-| `src/posthog/`   | The PostHog API client and credentials                                                                                                       |
-| `src/cli.ts`     | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                      |
-| `src/testing.ts` | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                        |
+| Path                  | Holds                                                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/commands/`       | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                                                                          |
+| `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                              |
+| `src/posthog/`        | The PostHog API client and credentials                                                                                                                                                    |
+| `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
+| `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                       |
+| `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |
+| `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                   |
+| `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                                                                     |
 
 Import from another folder with `@/`, which `tsconfig.json` maps to `src/`, as in `import { defineCommand } from '@/core/command'`. Use `./` only inside the same folder.
 
@@ -58,4 +61,6 @@ export default defineCommand({
 - Commands reach the outside world only through `ctx` (`ctx.posthog()`, `ctx.runtime`), so tests can fake it. Do not read `process` or call `fetch` directly.
 - Import heavy dependencies inside `run` with `await import()`. Every command module loads on every call, so a top-level import of a large library slows down all commands.
 - Declare `scopes`. `hog commands` lists them for agents, and a 403 names them in its hint.
+- `hog error-tracking` must upload the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. A change to anything that reaches an upload keeps `test/parity/` green, and a new artifact type or flag adds parity scenarios recorded from posthog-cli.
+- Code under `src/error-tracking/` reads build output with `node:fs` directly, because it walks real folders. Its tests use temporary folders instead of `ctx.runtime` files.
 - Every string a person reads follows `/writing-user-facing-copy`: sentence case, no em dashes.

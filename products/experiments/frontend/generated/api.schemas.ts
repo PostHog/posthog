@@ -2311,6 +2311,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2338,6 +2339,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2408,6 +2410,7 @@ export interface ExperimentHealthFindingApi {
      * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2421,6 +2424,11 @@ export interface ExperimentHealthFindingApi {
      * @nullable
      */
     subcode: string | null
+    /**
+     * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+     * @nullable
+     */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info.
      *
      * * `critical` - Critical severity
@@ -2459,6 +2467,7 @@ export interface ExperimentHealthFindingApi {
  * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
  * * `zero_exposures` - Zero Exposures
+ * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `srm` - Srm
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
@@ -2483,6 +2492,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
     ZeroExposures: 'zero_exposures',
+    TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     Srm: 'srm',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
@@ -2523,6 +2533,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share */
@@ -3866,7 +3877,7 @@ export interface ExperimentMetricsRecalculationJobApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -3945,7 +3956,7 @@ export interface ExperimentMetricsRecalculationRunApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string
@@ -4027,7 +4038,7 @@ export interface ExperimentMetricsRecalculationLatestApi {
     readonly completed_metrics: number
     /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
-    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+    /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
     /** When the job was created */
     readonly created_at: string

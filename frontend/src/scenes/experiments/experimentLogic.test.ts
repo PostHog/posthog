@@ -132,8 +132,14 @@ describe('experimentLogic', () => {
             sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
             bias_risk: { multiple_variant_percentage: 5 },
             health_findings: [
-                { code: 'srm', subcode: 'split_changed', evidence: { p_value: 0.0001, reason: 'library' } },
-                { code: 'bias_risk_multiple_excluded' },
+                {
+                    code: 'srm',
+                    subcode: 'split_changed',
+                    severity: 'warning',
+                    reason: 'library',
+                    evidence: { p_value: 0.0001 },
+                },
+                { code: 'bias_risk_multiple_excluded', subcode: null, severity: 'warning', reason: null, evidence: {} },
             ],
         }
         const noServerVerdicts = {
@@ -144,6 +150,7 @@ describe('experimentLogic', () => {
             zero_exposures_subcode: null,
             zero_exposures_reason: null,
             bias_risk_server: null,
+            exposure_health_findings: null,
         }
 
         it.each([
@@ -188,6 +195,10 @@ describe('experimentLogic', () => {
                     zero_exposures_subcode: null,
                     zero_exposures_reason: null,
                     bias_risk_server: true,
+                    exposure_health_findings: [
+                        'srm:split_changed:warning:library',
+                        'bias_risk_multiple_excluded::warning:',
+                    ],
                 },
             },
             {
@@ -206,6 +217,7 @@ describe('experimentLogic', () => {
                     srm_server: false,
                     zero_exposures_server: false,
                     bias_risk_server: false,
+                    exposure_health_findings: [],
                 },
             },
             {
@@ -217,7 +229,9 @@ describe('experimentLogic', () => {
                         {
                             code: 'zero_exposures',
                             subcode: 'calls_not_counted',
-                            evidence: { hours_since_launch: 48, reason: 'test_account_filter' },
+                            severity: 'warning',
+                            reason: 'test_account_filter',
+                            evidence: { hours_since_launch: 48 },
                         },
                     ],
                 },
@@ -230,6 +244,7 @@ describe('experimentLogic', () => {
                     zero_exposures_server: true,
                     zero_exposures_subcode: 'calls_not_counted',
                     zero_exposures_reason: 'test_account_filter',
+                    exposure_health_findings: ['zero_exposures:calls_not_counted:warning:test_account_filter'],
                 },
             },
         ])(
@@ -2376,6 +2391,7 @@ describe('experimentLogic', () => {
         ): ExperimentHealthFindingApi => ({
             code,
             subcode,
+            reason: null,
             severity: 'warning',
             title: '',
             detail: '',
@@ -2647,7 +2663,8 @@ describe('experimentLogic', () => {
                 health: {
                     findings: [
                         {
-                            ...healthFinding('split_changed_mid_run', 'not_checked', { reason: 'exposure_filters' }),
+                            ...healthFinding('split_changed_mid_run', 'not_checked'),
+                            reason: 'exposure_filters',
                             severity: 'info',
                         },
                     ],
@@ -2836,7 +2853,7 @@ describe('experimentLogic', () => {
             const draft = { ...experiment, id: 7, status: ExperimentStatus.Draft, start_date: undefined } as Experiment
             const finding: ExperimentHealthFinding = {
                 code: 'flag_live_before_launch',
-                variant: 'not_started_but_multiple_variants_rolled_out',
+                subcode: 'not_started_but_multiple_variants_rolled_out',
             }
 
             logic.actions.loadExperimentSuccess(draft)
@@ -2851,7 +2868,7 @@ describe('experimentLogic', () => {
                         experiment_status: 'draft',
                         experiment_days_since_start: null,
                         finding_code: 'flag_live_before_launch',
-                        finding_variant: 'not_started_but_multiple_variants_rolled_out',
+                        finding_subcode: 'not_started_but_multiple_variants_rolled_out',
                         finding_severity: null,
                         finding_reason: null,
                         health_ui: 'warnings',
@@ -2892,7 +2909,7 @@ describe('experimentLogic', () => {
                         experiment_status: 'running',
                         experiment_days_since_start: 3,
                         finding_code: 'bias_risk_multiple_excluded',
-                        finding_variant: null,
+                        finding_subcode: null,
                         finding_severity: null,
                         finding_reason: null,
                         health_ui: 'panel',
@@ -2919,7 +2936,7 @@ describe('experimentLogic', () => {
                 experiment_status: 'running',
                 experiment_days_since_start: 3,
                 finding_code: 'zero_exposures',
-                finding_variant: null,
+                finding_subcode: null,
                 finding_severity: null,
                 finding_reason: null,
                 health_ui: 'warnings',

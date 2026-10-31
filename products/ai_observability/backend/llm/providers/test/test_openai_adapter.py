@@ -12,6 +12,7 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError, model_validator
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.errors import (
     ContentFilteredError,
     ContextWindowExceededError,
@@ -175,6 +176,59 @@ class TestOpenAIStreamOutputSchema:
             "json_schema": {"name": "verdict", "schema": schema, "strict": True},
         }
         assert "response_format" not in self._stream_kwargs(None)
+
+
+class TestOpenAIAttachmentParts:
+    @pytest.mark.parametrize(
+        ("part", "expected_block"),
+        [
+            pytest.param(
+                AttachmentPart(mime_type="image/png", url="https://example.com/a.png"),
+                {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+                id="link",
+            ),
+            pytest.param(
+                AttachmentPart(mime_type="image/png", data=b"hi"),
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}},
+                id="inline",
+            ),
+            pytest.param(
+                AttachmentPart(mime_type="application/pdf", data=b"hi"),
+                {
+                    "type": "file",
+                    "file": {"filename": "attachment.pdf", "file_data": "data:application/pdf;base64,aGk="},
+                },
+                id="pdf",
+            ),
+            pytest.param(
+                AttachmentPart(mime_type="audio/mpeg", data=b"hi"),
+                {"type": "input_audio", "input_audio": {"data": "aGk=", "format": "mp3"}},
+                id="audio",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("json_fallback", [False, True], ids=["plain", "json_fallback"])
+    def test_attachment_parts_are_sent_as_blocks(self, part: AttachmentPart, expected_block: dict, json_fallback: bool):
+        request = CompletionRequest(
+            model="gpt-4.1",
+            messages=[{"role": "user", "content": [part, {"type": "text", "text": "hi"}]}],
+            provider="openai",
+            response_format=_Verdict if json_fallback else None,
+        )
+        mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = _make_bad_request_error(
+            "response_format is not supported"
+        )
+        mock_client.chat.completions.create.return_value.usage = None
+        mock_client.chat.completions.create.return_value.choices[0].message.content = '{"verdict": true}'
+        with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
+            OpenAIAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        sent = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        assert next(message for message in sent if message["role"] == "user")["content"] == [
+            expected_block,
+            {"type": "text", "text": "hi"},
+        ]
 
 
 class TestOpenAICompleteReasoningEffort:

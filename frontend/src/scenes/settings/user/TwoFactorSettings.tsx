@@ -13,9 +13,9 @@ import {
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { UserType } from '~/types'
 
 export function TwoFactorSettings(): JSX.Element {

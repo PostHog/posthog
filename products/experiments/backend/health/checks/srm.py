@@ -33,12 +33,12 @@ SEGMENT_LABEL_MAX_LENGTH = 60
 # The detail names the located segments furthest from the split, up to this many.
 NAMED_SEGMENTS = 2
 
-# pinned: the subcode is sent as `finding_variant` on the health finding events, so insights group on it.
+# pinned: the subcode is sent as `finding_subcode` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
 
 
 class SrmReason(StrEnum):
-    # pinned: sent as `finding_reason` on the health finding events, so insights group on them.
+    # pinned: the finding's `reason`.
     LIBRARY = ExposureSegmentDimension.LIBRARY.value
     LIBRARY_VERSION = ExposureSegmentDimension.LIBRARY_VERSION.value
     PAGE = ExposureSegmentDimension.PAGE.value
@@ -131,20 +131,23 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         return _mismatch(exposures, p_value)
     # The warning stays a warning: the users exposed after the change are fewer than those the test covers, so a
     # retest that passes can't rule out a mismatch with another cause. The retest only adds evidence.
-    unit = "group" if exposures.counts_groups else "user"
+    unit = exposures.unit
     retest, p_value_after_change = _retest_after_change(ctx, exposures, history, unit)
     evidence: dict[str, str | int | float | None] = {
         "p_value": p_value,
         "p_value_after_split_change": p_value_after_change,
     }
-    cause: tuple[str, ...] = ()
-    if p_value_after_change is not None and p_value_after_change < SAMPLE_RATIO_MISMATCH_P_VALUE:
-        segment_cause = _segment_cause(exposures, unit)
-        cause = segment_cause.sentences
-        evidence.update(segment_cause.evidence)
+    cause = (
+        _segment_cause(exposures, unit)
+        if p_value_after_change is not None and p_value_after_change < SAMPLE_RATIO_MISMATCH_P_VALUE
+        else None
+    )
+    if cause is not None:
+        evidence.update(cause.evidence)
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=SPLIT_CHANGED,
+        reason=cause.reason if cause is not None else None,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title=f"{unit.capitalize()}s are not split as configured after a split change",
         detail=" ".join(
@@ -154,7 +157,7 @@ def srm(ctx: HealthContext) -> CheckOutcome:
                 f"The variant split changed after launch while {unit}s were exposed, and some of them got their "
                 "variants from another split, which can cause this.",
                 *retest,
-                *cause,
+                *(cause.sentences if cause is not None else ()),
                 f'Follow the steps in "{split_change.title}" to fix the results.',
             ]
         ),
@@ -217,11 +220,12 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 
 def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFinding:
-    unit = "group" if exposures.counts_groups else "user"
+    unit = exposures.unit
     cause = _segment_cause(exposures, unit)
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=None,
+        reason=cause.reason,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title=f"{unit.capitalize()}s are not split across variants as configured",
         detail=" ".join(
@@ -255,10 +259,11 @@ class _Verdict:
 
 @frozen
 class _SegmentCause:
-    """What the segments say about the mismatch: the sentences that follow it, and the reason and the segments as
-    evidence. Without a verdict the sentences are empty."""
+    """What the segments say about the mismatch: the sentences that follow it, the finding's reason, and the
+    segments as evidence. Without a verdict the sentences are empty and the reason is None."""
 
     sentences: tuple[str, ...]
+    reason: str | None
     evidence: dict[str, str | int | float | None]
 
 
@@ -270,9 +275,7 @@ def _segment_cause(exposures: ExposureTotals, unit: str) -> _SegmentCause:
     located = _located(verdicts)
     if located:
         evidence["located_dimensions"] = ",".join(segment.dimension.value for segment in located)
-    if reason is not None:
-        evidence["reason"] = reason.value
-    return _SegmentCause(sentences=tuple(sentences), evidence=evidence)
+    return _SegmentCause(sentences=tuple(sentences), reason=None if reason is None else reason.value, evidence=evidence)
 
 
 def _segment_tests(exposures: ExposureTotals) -> list[_SegmentTest]:

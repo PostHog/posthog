@@ -265,6 +265,45 @@ uv run manage.py reactivate_pause_errored_report_checks --apply --team-id 1
 
 Idempotent. A reactivated check no longer matches.
 
+## Building a personal inbox ranking
+
+`run_personal_inbox_ranking` builds one person's ranked inbox list with one LLM call (`../personal_ranking/`) and prints it, with each report's rank, tier and reason.
+It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
+
+```bash
+# Call the model, but store no PersonalInboxRanking row and capture no event
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --dry-run
+
+# Store the row and capture `personal inbox ranking built`, with optional focus text
+uv run manage.py run_personal_inbox_ranking --team-id 1 --user-id 1 --focus "checkout errors"
+```
+
+An optional `pools` list in the payload replaces the default candidate pools, in merge order:
+
+```json
+{
+  "pools": [
+    { "source": "priority", "size": 5, "lowest_priority": "P1" },
+    { "source": "for_you_recommended", "size": 10 },
+    { "source": "assigned", "size": 0 },
+    { "source": "scored", "size": 10, "head": "fixed", "actionable_only": true, "has_pr": false, "window_days": 30 }
+  ]
+}
+```
+
+Each entry takes a `source` (`for_you_recommended`, `for_you_updated`, `assigned`, `scored` or `priority`), a `size` (0 turns it off) and an optional `name`.
+`scored` needs a `head` (`open`, `action` or `fixed`) and only joins for a person who can see the ranking model.
+`scored` and `priority` also take `actionable_only`, `has_pr` and `window_days`.
+The build logs and drops an invalid entry, and uses the default pools when no entry is valid.
+
+A person with no ready activity summary still gets a list, marked `personalized: False`.
+When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
+
+`GET /api/projects/:id/signals/reports/for_me/` (`../personal_ranking/serve.py`) serves the same list to the user it describes, when the flag is on for that user.
+It reuses the latest row for `freshness_minutes` while the input hash matches.
+Otherwise it queues one `build_personal_inbox_ranking` Celery task per person behind a cache lock, and serves the latest row as stale, or the candidates in inbox order with `fallback_reason: building`.
+It limits builds per person with `build_burst`, `builds_per_hour` and `builds_per_day` from the same payload.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

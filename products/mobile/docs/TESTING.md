@@ -76,6 +76,18 @@ Keep ingestion, ClickHouse, and replay storage running, wait for the returned se
 If a session is missing, inspect local capture, ingestion, and replay storage logs before recording a playback pass.
 The dummy's normal development shortcut can choose the latest project; the explicit command above keeps the SDK on the account's selected project.
 
+## Chat navigation and header
+
+On iOS and Android, open an existing chat and start a new chat. Both must fill the screen without a
+sheet grabber or drag-down dismissal. Header Back and platform Back return to the previous page;
+a direct link falls back to the configured default page. Scroll a long thread under the title-free
+blurred header and focus the composer to check the keyboard and safe-area spacing.
+
+New chat and the ellipsis share the Inbox's pill control. Open the menu, copy the link, and confirm
+it targets the current project and chat. Archive a saved chat and confirm it disappears from Chats
+only after success. Fail each action and retry; repeated taps must not start duplicate requests.
+An unsaved chat has no link or task to archive, so its ellipsis is disabled.
+
 ## Chat drafts and rich replies
 
 Use a native development build that includes `react-native-webview`.

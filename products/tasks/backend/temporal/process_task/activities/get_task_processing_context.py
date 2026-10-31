@@ -48,7 +48,6 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
-from products.tasks.backend.facade.profiles import TaskProfile, TaskProfileError, get_task_profile
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -889,16 +888,6 @@ def _resolve_sandbox_backend(
     return "hogland" if enabled else "modal"
 
 
-def _stored_task_profile(task: Task, run_id: str) -> TaskProfile | None:
-    if not task.profile:
-        return None
-    try:
-        return get_task_profile(task.profile)
-    except TaskProfileError:
-        log_with_activity_context("task_profile_not_registered", run_id=run_id, profile=task.profile)
-        return None
-
-
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
     debug_domains = _get_debug_only_domains() if settings.DEBUG else []
     debug_ports = _get_debug_only_ports() if settings.DEBUG else []
@@ -1302,7 +1291,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 
-    profile = _stored_task_profile(task, run_id)
+    profile = task.stored_profile
 
     return TaskProcessingContext(
         task_id=str(task.id),
