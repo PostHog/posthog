@@ -21,7 +21,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
@@ -424,15 +424,14 @@ class TestLocalEvaluationSignals(BaseTest):
         )
         if action == "create":
             mock_task.reset_mock()
-            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
         else:
-            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="My experiment")
             mock_task.reset_mock()
             if action == "soft_delete":
-                experiment.deleted = True
-                experiment.save()
+                update_experiment(team_id=self.team.id, experiment_id=experiment_id, deleted=True)
             else:
-                experiment.delete()
+                delete_experiment(team_id=self.team.id, experiment_id=experiment_id)
 
         mock_task.delay.assert_called_once_with(self.team.id)
 

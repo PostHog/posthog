@@ -56,11 +56,11 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
-from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
@@ -6363,10 +6363,10 @@ def user_has_usable_personal_github(user_id: int) -> bool:
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
-    github_integration = Integration.objects.filter(team_id=task.team_id, kind="github").first()
+    github_integration = IntegrationManager.github.oauth.find(task.team_id)
     if github_integration is None:
         return False
-    task.github_integration = github_integration
+    task.github_integration_id = github_integration.id
     task.save(update_fields=["github_integration", "updated_at"])
     return True
 
@@ -6970,7 +6970,14 @@ def _task_detail_queryset():
     ).prefetch_related("runs")
 
 
-def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bool = False, for_control: bool = False):
+def _visible_task_qs(
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    for_control: bool = False,
+    for_list: bool = False,
+):
     """Team-scoped live tasks, gated by read visibility — or by the narrower
     control predicate when ``for_control`` (mutations, runs, agent commands).
 
@@ -6980,8 +6987,11 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     """
     qs = Task.objects.filter(team_id=team_id, deleted=False).filter(scout_trial_visibility_q(user_id))
     if not bypass_visibility:
+        channel_team_id = team_id if for_list else None
         qs = qs.filter(
-            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+            task_control_q(user_id, channel_team_id)
+            if for_control
+            else task_visibility_q(user_id, channel_team_id) | _shared_slack_thread_q()
         )
         # Another product may hide tasks it owns from this user, for example the copies of chats a
         # user cannot continue as tasks yet.
@@ -7049,7 +7059,7 @@ def get_conversation_task_dtos(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .select_related("created_by")
         .prefetch_related(Prefetch("team", queryset=Team.objects.only("id", "name")))
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
@@ -7138,7 +7148,7 @@ def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
 
 
 def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:
-    visible_tasks = _visible_task_qs(team_id, user_id).exclude(id__in=exclude_task_ids).values("id")
+    visible_tasks = _visible_task_qs(team_id, user_id, for_list=True).exclude(id__in=exclude_task_ids).values("id")
     return list(
         TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
         .order_by("-pinned_at")
@@ -7185,7 +7195,7 @@ def list_workflow_last_runs(
         return {}
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     rows = (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(hog_flow_id__in=ids, internal=False)
         .order_by("hog_flow_id", "-created_at", "-id")
         .distinct("hog_flow_id")
@@ -7271,7 +7281,7 @@ def _task_source(origin_product: str, client_provenance: str | None) -> str:
 def list_task_sources(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[str]:
     """Distinct task list sources of the user's own visible, non-archived, non-internal tasks."""
     pairs = (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(internal=False, archived=False, created_by_id=user_id)
         .exclude(id__in=exclude_task_ids)
         .order_by()
@@ -7286,7 +7296,7 @@ def _list_tasks_queryset(
 ) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     ordering = TASK_LIST_ORDERINGS.get(filters.get("ordering") or "", TASK_LIST_ORDERINGS[DEFAULT_TASK_LIST_ORDERING])
-    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility).order_by(*ordering)
+    qs = _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True).order_by(*ordering)
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -7572,7 +7582,7 @@ def search_tasks(
     if not normalized:
         return []
     visible_task_ids = (
-        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility)
+        _visible_task_qs(team_id, user_id, bypass_visibility=bypass_visibility, for_list=True)
         .filter(internal=False)
         .exclude(id__in=exclude_task_ids)
         .values("id")
@@ -7629,7 +7639,7 @@ def list_task_repositories(team_id: int, user_id: int | None, *, exclude_task_id
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, internal=False)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
     )
     plural = (
@@ -7727,7 +7737,7 @@ def get_task_summaries(
     )
     tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
-        .filter(task_visibility_q(user_id))
+        .filter(task_visibility_q(user_id, team_id))
         .exclude(id__in=exclude_task_ids)
         .annotate(
             _latest_run=Subquery(latest_run.values("_data")[:1]),
@@ -7959,7 +7969,7 @@ def create_task(
         validated_data["created_by"] = User.objects.get(id=user_id)
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
-        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8175,10 +8185,10 @@ def create_task(
         if signal_report is not None:
             integration_id = _report_task_github_integration_id(team, code_access_allowed=True)
             default_integration = (
-                Integration.objects.filter(id=integration_id).first() if integration_id is not None else None
+                _team_github_integration_or_none(team.id, integration_id) if integration_id is not None else None
             )
         else:
-            default_integration = Integration.objects.filter(team=team, kind="github").first()
+            default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
 
@@ -8240,13 +8250,16 @@ def create_task(
                 if validated_data.get("repository")
                 else None
             )
-            if integration_id is None:
+            pilot_integration = (
+                _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
+            )
+            if pilot_integration is None:
                 raise ValidationError(
                     {
                         "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
                     }
                 )
-            validated_data["github_integration"] = Integration.objects.get(team_id=team_id, id=integration_id)
+            validated_data["github_integration"] = pilot_integration
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -8666,8 +8679,11 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
     no serializer team context. Returns ``None`` for any id that doesn't belong to the team —
     the caller treats that as "skip warming" (the submit later falls through to a cold create+run).
     """
-    exists = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").exists()
-    return github_integration_id if exists else None
+    try:
+        IntegrationManager.github.oauth.get(team_id, github_integration_id)
+    except IntegrationNotFound:
+        return None
+    return github_integration_id
 
 
 def can_mint_readonly_github_token(team_id: int) -> bool:
@@ -9062,6 +9078,13 @@ def _activate_warm_run(
         observe_prewarmed_activated(run)
 
 
+def _team_github_integration_or_none(team_id: int, integration_id: int) -> IntegrationRecord | None:
+    try:
+        return IntegrationManager.github.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        return None
+
+
 def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool) -> int | None:
     if not code_access_allowed:
         return None
@@ -9071,7 +9094,7 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
 
     if github_optional_pilot_enabled(team.id):
         return readonly_github_integration_id(team.id)
-    integration = Integration.objects.filter(team=team, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(team.id)
     return integration.id if integration is not None else None
 
 
@@ -9189,9 +9212,10 @@ def warm_task_sandbox(
         github_integration_id = _report_task_github_integration_id(team, code_access_allowed=code_access_allowed)
     github_integration = None
     if github_integration_id is not None:
-        github_integration = Integration.objects.filter(
-            id=github_integration_id, team_id=team_id, kind="github"
-        ).first()
+        try:
+            github_integration = IntegrationManager.github.oauth.get(team_id, github_integration_id)
+        except IntegrationNotFound:
+            github_integration = None
     # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
     # a repository cannot be cloned without one. An integration without a repository is fine: the
     # create path stores that pair too, and reuse matches on the integration id.
@@ -9261,7 +9285,7 @@ def warm_task_sandbox(
     )
     # `_build_task` resolves the team's first GitHub integration; a warm must instead hold the
     # one the caller asked for, because warm reuse matches on the integration id.
-    task.github_integration = github_integration
+    task.github_integration_id = github_integration.id if github_integration is not None else None
     task.save(update_fields=["github_integration", "updated_at"])
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
@@ -10264,11 +10288,7 @@ def resolve_slack_thread_context(
         # per-conversation queue workflow, so derive its handle anyway. Only possible
         # when the team maps to a single Slack workspace — with several, the guess
         # could point at another workspace's workflow.
-        workspace_ids = list(
-            Integration.objects.filter(team_id=team_id, kind="slack")
-            .values_list("integration_id", flat=True)
-            .distinct()[:2]
-        )
+        workspace_ids = list({row.integration_id for row in IntegrationManager.slack.oauth.list(team_id)})
         workspace_id = workspace_ids[0] if len(workspace_ids) == 1 else None
         queue_workflow_id = _slack_queue_workflow_id(workspace_id, channel, thread_ts)
         return contracts.SlackThreadContextResult(
@@ -10606,7 +10626,7 @@ def list_channel_contributors(team_id: int, user_id: int | None) -> list[contrac
         return []
     task_rows = (
         Task.objects.filter(
-            task_visibility_q(user_id),
+            task_visibility_q(user_id, team_id),
             team_id=team_id,
             channel_id__in=channel_ids,
             deleted=False,
@@ -10796,7 +10816,7 @@ def update_channel(
     *,
     can_manage_shared_auto_archive: bool,
     name: str | None = None,
-    github_integration: Integration | None = None,
+    github_integration: IntegrationRecord | None = None,
     repositories: list[str] | None = None,
     auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
     channel_type: str | None = None,
@@ -10830,7 +10850,9 @@ def update_channel(
                 update_fields.append("name")
             if repositories is not None:
                 channel.repositories = repositories
-                channel.github_integration = github_integration if repositories else None
+                channel.github_integration_id = (
+                    github_integration.id if repositories and github_integration is not None else None
+                )
                 update_fields.extend(["repositories", "github_integration"])
             if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
                 channel.auto_archive_after_days = auto_archive_after_days
@@ -11656,7 +11678,7 @@ def list_mentions(
         team_id=team_id,
         mentioned_user_id=user_id,
         # task__in keeps the visibility rules single-sourced in _visible_task_qs.
-        task__in=_visible_task_qs(team_id, user_id),
+        task__in=_visible_task_qs(team_id, user_id, for_list=True),
         # Legacy turn_complete rows are hidden from threads (see list_thread_messages),
         # so their indexed mentions must not surface notifications pointing at them.
     ).exclude(message__event="turn_complete")
@@ -11737,7 +11759,7 @@ ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS = (Task.OriginProduct.SIGNALS_SCOUT,)
 
 def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
     return (
-        _visible_task_qs(team_id, user_id)
+        _visible_task_qs(team_id, user_id, for_list=True)
         .filter(internal=False, archived=False)
         .exclude(origin_product__in=ACTIVITY_FEED_EXCLUDED_ORIGIN_PRODUCTS)
     )

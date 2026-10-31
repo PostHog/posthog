@@ -85,6 +85,9 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
 const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
     schema.should_sync ? '' : 'opacity-60'
 
+const PENDING_SELF_MANAGED_TABLE_NOTE =
+    'This table reads your bucket until you turn on syncing. The first sync imports it into PostHog.'
+
 type SchemaColumn = LemonTableColumn<ExternalDataSourceSchema, keyof ExternalDataSourceSchema | undefined>
 
 // A file upload schema has no schedule or sync method to choose, and never syncs on its own, so it isn't dimmed.
@@ -549,6 +552,9 @@ function ManagedSchemaTable({
                                 }
                                 description={((): JSX.Element | undefined => {
                                     const tableName = schema.table?.hogql_name ?? schema.table?.name
+                                    if (!tableName && schema.pending_self_managed_table && !schema.should_sync) {
+                                        return <span>{PENDING_SELF_MANAGED_TABLE_NOTE}</span>
+                                    }
                                     return tableName ? (
                                         <CopyToClipboardInline
                                             explicitValue={tableName}
@@ -1125,8 +1131,6 @@ function SchemaRowMore({
                                         fullWidth
                                         status="danger"
                                         onClick={() => {
-                                            const hasCdcTable =
-                                                schema.cdc_table_mode === 'cdc_only' || schema.cdc_table_mode === 'both'
                                             LemonDialog.open({
                                                 title: 'Full resync — all existing data will be replaced',
                                                 content: (
@@ -1137,15 +1141,12 @@ function SchemaRowMore({
                                                             <strong>{schema.table?.name ?? schema.name}</strong> table
                                                             will be replaced with the new snapshot.
                                                         </p>
-                                                        {hasCdcTable && (
+                                                        {schema.history_table_name && (
                                                             <p>
-                                                                The{' '}
-                                                                <strong>
-                                                                    {(schema.table?.name ?? schema.name) + '_cdc'}
-                                                                </strong>{' '}
-                                                                history table will also be reset — all change history
-                                                                will be lost and replaced with the new snapshot as the
-                                                                starting point.
+                                                                The <strong>{schema.history_table_name}</strong> history
+                                                                table will also be reset — all change history will be
+                                                                lost and replaced with the new snapshot as the starting
+                                                                point.
                                                             </p>
                                                         )}
                                                     </div>

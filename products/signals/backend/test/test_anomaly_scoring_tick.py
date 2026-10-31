@@ -16,6 +16,7 @@ from django.test import SimpleTestCase
 import numpy as np
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -52,6 +53,7 @@ from products.signals.backend.anomaly_scores.queue import (
     _cooldown_key,
     _fleet_budget_key,
     _project_budget_key,
+    _team_loaded_key,
     active_insights,
     eligible_teams,
     is_due,
@@ -929,11 +931,12 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         # Any member can capture these: one names an insight of another team, one a bucket in the future.
         score(11, "f", datetime(2026, 10, 21, tzinfo=UTC))
         score(8, "c", datetime(2027, 1, 1, tzinfo=UTC))
+        # Inside the window of the other insights, but older than the window of its own interval.
+        score(12, "g", datetime(2026, 9, 15, tzinfo=UTC))
 
         state = scored_buckets(
             self.team,
-            insight_ids={7, 8, 9, 10},
-            since=datetime(2026, 9, 1, tzinfo=UTC),
+            {datetime(2026, 9, 1, tzinfo=UTC): {7, 8, 9, 10}, datetime(2026, 10, 1, tzinfo=UTC): {12}},
             now=datetime(2026, 10, 22, tzinfo=UTC),
         )
 
@@ -1025,8 +1028,11 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             (small_team.id, 1, {"day": 1}),
         ]
 
+    @parameterized.expand([("query_timeout", ClickHouseQueryTimeOut), ("at_capacity", ClickHouseAtCapacity)])
     @time_machine.travel(NOW, tick=False)
-    def test_select_insights_skips_a_project_whose_scored_buckets_query_times_out(self) -> None:
+    def test_select_insights_skips_a_project_whose_scored_buckets_query_fails(
+        self, _name: str, error: type[Exception]
+    ) -> None:
         slow_team = Team.objects.create(organization=self.organization, name="Slow")
         dashboards = {team.id: Dashboard.objects.create(team=team, name="Main") for team in (self.team, slow_team)}
         insights = {}
@@ -1046,7 +1052,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
         def buckets(team: Team, *args: Any) -> dict[int, dict[str, datetime]]:
             if team.id == slow_team.id:
-                raise ClickHouseQueryTimeOut()
+                raise error()
             return scored_buckets(team, *args)
 
         with (
@@ -1056,6 +1062,36 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
 
         assert [pick.insight_id for pick in selection.picks] == [insights[self.team.id].id]
+        assert (selection.teams_planned, selection.teams_skipped) == (1, 1)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_plan_past_its_deadline_loads_one_team_and_the_next_plan_starts_from_another(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        insights = {}
+        for team in (self.team, other_team):
+            insight = Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
+            DashboardTile.objects.create(dashboard=Dashboard.objects.create(team=team, name="Main"), insight=insight)
+            cache.delete_many([_cooldown_key(insight.id), _team_loaded_key(team.id)])
+            insights[team.id] = insight.id
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=(self.team.id, other_team.id),
+        )
+
+        picked: list[list[int]] = []
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            for later in (NOW, NOW + timedelta(minutes=5)):
+                cache.delete_many(
+                    [_fleet_budget_key(later), *(_project_budget_key(team_id, later) for team_id in insights)]
+                )
+                selection = select_insights(
+                    config, SelectionConfig(weighting=Weighting.UNIFORM), later, limit=10, deadline=0.0
+                )
+                assert (selection.teams_planned, selection.teams_skipped) == (1, 1)
+                picked.append([pick.insight_id for pick in selection.picks])
+
+        assert sorted(insight_id for picks in picked for insight_id in picks) == sorted(insights.values())
 
     @parameterized.expand([("cap_one", 1, ["most_overdue"]), ("cap_two", 2, ["most_overdue", "popular"])])
     @time_machine.travel(NOW, tick=False)
@@ -1252,12 +1288,16 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
 
 async def _run_tick(
-    plan: AnomalyScoringTickPlan, statuses: dict[int, str]
+    plan: AnomalyScoringTickPlan | Exception,
+    statuses: dict[int, str],
+    captured: list[AnomalyScoringTickResult] | None = None,
 ) -> tuple[AnomalyScoringTickResult, list[int]]:
     started: list[int] = []
 
     @activity.defn(name="plan_anomaly_scoring_tick_activity")
     async def fake_plan(input: AnomalyScoringTickInput) -> AnomalyScoringTickPlan:
+        if isinstance(plan, Exception):
+            raise plan
         return plan
 
     @activity.defn(name="score_anomaly_insight_activity")
@@ -1267,7 +1307,8 @@ async def _run_tick(
 
     @activity.defn(name="capture_anomaly_scoring_tick_activity")
     async def fake_capture(result: AnomalyScoringTickResult) -> None:
-        pass
+        if captured is not None:
+            captured.append(result)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -1315,3 +1356,15 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         3,
         stopped,
     )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_plan_sends_a_tick_event_and_still_fails_the_workflow() -> None:
+    captured: list[AnomalyScoringTickResult] = []
+
+    with pytest.raises(WorkflowFailureError):
+        await _run_tick(ClickHouseAtCapacity(), {}, captured)
+
+    assert [(result.plan_failed, result.plan_error, result.picked) for result in captured] == [
+        (True, "ClickHouseAtCapacity", 0)
+    ]

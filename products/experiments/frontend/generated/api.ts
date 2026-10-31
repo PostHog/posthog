@@ -712,7 +712,7 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * for exposure criteria that name an event without property filters. When the split changed
  * after launch and the criteria have filters or an action, or an API key lacks `query:read`,
  * it returns an info finding with the subcode `not_checked` and the cause in
- * `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+ * `reason`. A caller who can't view the linked flag's history (viewer access to the
  * flag and, with an API key, `activity_log:read`) gets that finding for every running
  * experiment, because the changes are not read.
  *
@@ -769,7 +769,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * wrote for users), and `calculated_at` is when the calculation finished. It is a
  * warning when a primary metric fails for a kind that a change fixes (`query_limit`,
  * `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
- * reads the events up to the end. It is info otherwise.
+ * reads the events up to the end. It is info otherwise. When the first failure reached the
+ * read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
+ * when another metric of the same calculation completed the same read of the exposures, or
+ * `exposure_criteria` when every metric reached a limit and an exposure or test account filter
+ * makes each query read all the properties of an event, person or group. `evidence.properties`
+ * then names the filters. A query that read precomputed exposures doesn't apply those filters,
+ * so it can't get `exposure_criteria`. It is null otherwise.
  *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
@@ -777,7 +783,7 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * the flag's calls that name the matched condition, not the experiment's exposure criteria:
  * info up to 5%, warning above, and no finding under 1% when at least half of the calls
  * that returned a variant name a condition. The finding is info when the share is unknown,
- * and `evidence.reason` says why: `not_measured` (for example an API key without
+ * and `reason` says why: `not_measured` (for example an API key without
  * `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
  * `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
  * the caller's own assignment). A pin to a variant with 0% in the split adds an info,

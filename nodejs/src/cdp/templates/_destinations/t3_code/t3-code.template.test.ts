@@ -1,5 +1,3 @@
-import { createHmac } from 'node:crypto'
-
 import {
     CyclotronInvocationQueueParametersFetchSchema,
     CyclotronInvocationQueueParametersFetchType,
@@ -13,7 +11,6 @@ describe('t3 code template', () => {
     const tester = new TemplateTester(template)
 
     const webhookUrl = 'https://relay.example.com/v1/hooks/endpoint-key/hook-id/url-token'
-    const signingSecret = 'test-signing-secret'
     const inputs = {
         webhook_url: webhookUrl,
         instructions: 'Find out why {person.properties.email} saw a checkout error',
@@ -44,9 +41,9 @@ describe('t3 code template', () => {
         expect(params).toMatchObject({ type: 'fetch', method: 'POST', url: webhookUrl })
         expect(params.headers).toMatchObject({
             'Content-Type': 'application/json',
-            'x-posthog-delivery-id': expect.stringMatching(/^[0-9a-f-]{36}$/),
+            'webhook-id': expect.stringMatching(/^[0-9a-f-]{36}$/),
         })
-        expect(params.headers).not.toHaveProperty('x-hub-signature-256')
+        expect(params.hmac_sha256).toBeUndefined()
         expect(parseJSON(params.body!)).toMatchObject({
             instructions: 'Find out why example@posthog.com saw a checkout error',
             event: { event: 'event-name', distinct_id: 'distinct-id' },
@@ -75,12 +72,11 @@ describe('t3 code template', () => {
         })
     })
 
-    it('signs the exact body it sends the way the T3 Code signature check expects', async () => {
-        const { params } = await stagedRequest({ ...inputs, signing_secret: signingSecret })
+    it('has the fetch sign the body with a reference to the signing secret, not the secret', async () => {
+        const { params } = await stagedRequest({ ...inputs, signing_secret: 'test-signing-secret' })
 
-        const expectedSignature = createHmac('sha256', signingSecret).update(params.body!).digest('hex')
-        expect(params.headers).toMatchObject({ 'x-hub-signature-256': `sha256=${expectedSignature}` })
-        expect(JSON.stringify(params)).not.toContain(signingSecret)
+        expect(params.hmac_sha256).toEqual({ secret_input: 'signing_secret', webhook_id: expect.any(String) })
+        expect(JSON.stringify(params)).not.toContain('test-signing-secret')
     })
 
     it('returns the delivery id when T3 Code accepts the request', async () => {
@@ -93,20 +89,13 @@ describe('t3 code template', () => {
         expect(response.execResult).toEqual({ deliveryId: 'd-1' })
     })
 
-    it.each([
-        [401, 'invalid_signature', 'T3 Code rejected the signature'],
-        [404, 'hook_not_found', 'T3 Code has no task at this webhook URL'],
-        [409, 'hook_disabled', 'The T3 Code task is turned off'],
-        [410, 'delivery_too_old', 'Raise the maximum delivery age on the T3 Code task'],
-        [413, 'body_too_large', 'The request is larger than the 1 MB T3 Code accepts'],
-        [429, 'rate_limited', 'Add a delay or a condition before this step'],
-        [500, 'internal_error', 'T3 Code could not start the task'],
-    ])('fails a %s reply with a message that says what to fix', async (status, error, message) => {
+    it('fails with the status and error T3 Code replied with', async () => {
         const { invocation } = await stagedRequest(inputs)
 
-        const response = await tester.invokeFetchResponse(invocation, { status, body: { error } })
+        const response = await tester.invokeFetchResponse(invocation, { status: 409, body: { error: 'hook_disabled' } })
 
         expect(response.finished).toBe(true)
-        expect(response.error).toContain(message)
+        expect(response.error).toContain('status 409')
+        expect(response.error).toContain('hook_disabled')
     })
 })

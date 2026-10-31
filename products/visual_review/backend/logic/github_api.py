@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from ..models import Repo
@@ -205,9 +206,9 @@ def _verified_merge_queue_source_pr(
 
 def get_github_integration_for_repo(repo: Repo):
     """Get GitHub integration for the repo's team."""
-    from posthog.models.integration import GitHubIntegration, Integration
+    from posthog.models.integration import GitHubIntegration
 
-    integration = Integration.objects.filter(team_id=repo.team_id, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(repo.team_id)
 
     if not integration:
         raise errors.GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")

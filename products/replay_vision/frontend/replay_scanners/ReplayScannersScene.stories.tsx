@@ -173,6 +173,7 @@ const quota: VisionQuotaApi = {
     exhausted: false,
     projected_monthly_credits: 5200,
     scanners_monthly_credits: 5200,
+    scanners_period_credits: 3467,
     backfills_committed_credits: 0,
     free_monthly_credits: 2500,
     credits_settled: 2400,
@@ -1299,15 +1300,6 @@ export const MonitorOverview: StoryObj = {
     decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
 }
 
-// A scanner with legacy experiment targeting points its owner to an experiment scanner.
-export const MonitorOverviewLegacyTargeting: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(monitorOverviewScanner.id),
-        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
-    },
-    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
-}
-
 // Expensive filters stretch the sweep to its hourly ceiling, so the status strip reports it as throttled.
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
@@ -2020,6 +2012,7 @@ const goalDraft: DraftScannerResponseApi = {
             },
         ],
     },
+    query_additions: null,
     sampling_mode: 'comprehensive',
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
@@ -2062,6 +2055,41 @@ export const ScannerEditorGoalOverviewRecordingsFirst: StoryObj = {
         featureFlags: { [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test' },
     },
     decorators: [seedGoalOverviewDraft],
+}
+
+const addedBillingEvent = { id: 'billing_limit_set', name: 'billing_limit_set', type: 'events', order: 0 }
+
+const goalDraftFromReplayFilters: DraftScannerResponseApi = {
+    ...goalDraft,
+    query: {
+        kind: 'RecordingsQuery',
+        properties: [{ type: 'recording', key: 'visited_page', value: ['/checkout'], operator: 'icontains' }],
+        events: [addedBillingEvent],
+    },
+    query_additions: { kind: 'RecordingsQuery', events: [addedBillingEvent] },
+}
+
+export const ScannerEditorGoalOverviewFromReplayFilters: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.draftScannerFromGoalSuccess(goalDraftFromReplayFilters)
+            logic.actions.setScannerValues({
+                name: goalDraftFromReplayFilters.name,
+                description: goalDraftFromReplayFilters.description,
+                scanner_type: goalDraftFromReplayFilters.scanner_type as ScannerType,
+                scanner_config: goalDraftFromReplayFilters.scanner_config as ScannerConfig,
+                query: goalDraftFromReplayFilters.query as RecordingsQuery,
+                sampling_mode: goalDraftFromReplayFilters.sampling_mode as SamplingMode,
+                sampling_rate: goalDraftFromReplayFilters.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
+    ],
 }
 
 // The same landing step for a goal that named an experiment: the eligible-recordings section

@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import datetime
 from uuid import UUID
 
@@ -8,7 +7,6 @@ from django.utils import timezone
 from products.workflows.backend.facade.contracts import (
     WorkflowDraftChanged,
     WorkflowDraftExists,
-    WorkflowEditState,
     WorkflowRevision,
     WorkflowRevisionNotFound,
     WorkflowRevisionSummary,
@@ -16,7 +14,6 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.services.hog_flow_reads import to_edit_state
 from products.workflows.backend.services.hog_flow_writes import field_values
 from products.workflows.backend.services.workflow_proposals import unstage_proposals_for_flow
 
@@ -51,19 +48,11 @@ def get_revision(*, hog_flow_id: UUID, version: int) -> WorkflowRevision | None:
 
 
 def restore_revision(
-    *,
-    hog_flow_id: UUID,
-    version: int,
-    overwrite: bool,
-    expected_draft_updated_at: datetime | None,
-    authorize: Callable[[WorkflowEditState], None] | None = None,
+    *, hog_flow_id: UUID, version: int, overwrite: bool, expected_draft_updated_at: datetime | None
 ) -> WorkflowWriteResult:
-    """`authorize` receives the locked workflow and raises to refuse the restore."""
     with transaction.atomic():
         # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id)
-        if authorize is not None:
-            authorize(to_edit_state(locked))
         previous = field_values(locked)
         try:
             revision = HogFlowRevision.objects.get(hog_flow_id=locked.pk, version=version)

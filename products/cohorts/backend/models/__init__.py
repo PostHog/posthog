@@ -20,6 +20,7 @@ from .cohort import (
     CohortType,
     get_or_create_internal_test_users_cohort,
 )
+from .team_access import RealtimeCohortAccessPurpose, RealtimeCohortLevel, RealtimeCohortTeamAccess
 
 __all__ = [
     "DEFAULT_COHORT_INSERT_BATCH_SIZE",
@@ -38,5 +39,8 @@ __all__ = [
     "CohortOrEmpty",
     "CohortPeople",
     "CohortType",
+    "RealtimeCohortAccessPurpose",
+    "RealtimeCohortLevel",
+    "RealtimeCohortTeamAccess",
     "get_or_create_internal_test_users_cohort",
 ]

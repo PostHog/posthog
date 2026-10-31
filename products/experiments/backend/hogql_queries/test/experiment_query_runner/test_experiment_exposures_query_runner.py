@@ -1641,8 +1641,8 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 True,
                 'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
                 "library.",
+                "library_version",
                 {
-                    "reason": "library_version",
                     "located_dimensions": "library,library_version",
                     "library_1": "web",
                     "library_1_exposed_control": 100,
@@ -1692,13 +1692,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "reader_who_does_not_see_them",
                 False,
                 "This may indicate issues with randomization or data collection.",
+                None,
                 {},
             ),
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_splits_the_exposures_by_the_library_and_page_of_the_first_exposure(
-        self, _name: str, findings_shown: bool, detail: str, evidence: dict[str, str | int]
+        self, _name: str, findings_shown: bool, detail: str, reason: str | None, evidence: dict[str, str | int]
     ) -> None:
         def exposure(variant: str, timestamp: str, library: str, version: str, **place: str | None) -> dict[str, Any]:
             return {
@@ -1761,7 +1762,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ).calculate()
 
         [finding] = response.health_findings or []
-        self.assertEqual((finding.code, finding.subcode), (ExperimentExposureHealthFindingCode.SRM, None))
+        self.assertEqual(
+            (finding.code, finding.subcode, finding.reason), (ExperimentExposureHealthFindingCode.SRM, None, reason)
+        )
         self.assertIn(detail, finding.detail)
         self.assertEqual(
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")}, evidence
