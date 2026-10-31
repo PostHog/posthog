@@ -279,7 +279,13 @@ columnExprValue
                  | operator=DASH                                                          // -
                  | operator=CONCAT                                                        // ||
                  ) right=columnExprValue                                                  # ColumnExprPrecedence2
-    | left=columnExprValue ( operator=EQ_DOUBLE                                           // =
+    // The optional `AS` lets a comparison take an aliased left operand (`x AS er > 0`), which
+    // ClickHouse accepts in nested contexts such as `if(1 AS x > 0, …)`. It rides on this
+    // alternative instead of getting its own, so both forms share one precedence level and no
+    // comparison position becomes ambiguous. An alias with no comparison after it stays with the
+    // outer tier's `ColumnExprAlias`, so `1 AS x + 2` still needs `(1 AS x) + 2`.
+    | left=columnExprValue (AS (identifier | STRING_LITERAL))?
+                 ( operator=EQ_DOUBLE                                                     // =
                  | operator=EQ_SINGLE                                                     // ==
                  | operator=NOT_EQ                                                        // !=
                  | operator=LT_EQ                                                         // <=
