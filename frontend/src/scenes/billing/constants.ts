@@ -82,3 +82,6 @@ export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-10'
 
 /** The label billing gives the series that folds the projects beyond the cap; a count follows it. */
 export const FOLDED_SERIES_LABEL = 'All other projects'
+
+// in sync with GRANDFATHERED_EVENTS_RETENTION_PLAN in billing
+export const GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY = 'paid-20240404'

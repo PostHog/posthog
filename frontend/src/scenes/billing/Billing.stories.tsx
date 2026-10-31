@@ -12,6 +12,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 import { Billing } from './Billing'
+import { GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY } from './constants'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -24,6 +25,20 @@ const billingJsonWithoutIconKeys: BillingType = {
         icon_key: null,
         addons: product.addons.map((addon) => ({ ...addon, icon_key: undefined })),
     })),
+}
+
+const billingJsonWithGrandfatheredEventsRetention: BillingType = {
+    ...billingJson,
+    products: billingJson.products.map((product) =>
+        product.type === 'product_analytics'
+            ? {
+                  ...product,
+                  plans: product.plans.map((plan) =>
+                      plan.current_plan ? { ...plan, plan_key: GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY } : plan
+                  ),
+              }
+            : product
+    ),
 }
 
 const VERCEL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
@@ -298,5 +313,17 @@ export const BillingUnsubscribeModal: Story = {
         })
 
         return <UnsubscribeSurveyModal product={billingJson.products[0]} />
+    },
+}
+
+export const BillingUnsubscribeModalWithGrandfatheredEventsRetention: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': billingJsonWithGrandfatheredEventsRetention,
+            },
+        })
+
+        return <UnsubscribeSurveyModal product={billingJsonWithGrandfatheredEventsRetention.products[0]} />
     },
 }
