@@ -31,7 +31,7 @@ class PylonRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PylonResumeConfig:
     # Next-page cursor within the current page scroll.
     cursor: str | None = None
@@ -65,6 +65,14 @@ def _get_headers(api_token: str) -> dict[str, str]:
 def _format_rfc3339(dt: datetime) -> str:
     """Pylon's time-window params expect RFC3339. Use the Z suffix rather than +00:00."""
     utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _format_rfc3339_precise(dt: datetime) -> str:
+    """Like `_format_rfc3339`, but keeps sub-second precision so a watermark doesn't re-match its own row."""
+    utc_dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+    if utc_dt.microsecond:
+        return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -343,7 +351,7 @@ def _get_child_rows(
     if config.limit:
         params["limit"] = config.limit
     if config.incremental_param and should_use_incremental_field and db_incremental_field_last_value:
-        params[config.incremental_param] = _format_rfc3339(_to_datetime(db_incremental_field_last_value))
+        params[config.incremental_param] = _format_rfc3339_precise(_to_datetime(db_incremental_field_last_value))
     upper_bound: str | None = None
     if config.incremental_upper_param and should_use_incremental_field:
         # Every parent is read up to the same instant. Otherwise a row added to an already-read parent

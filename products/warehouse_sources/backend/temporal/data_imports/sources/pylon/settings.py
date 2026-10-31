@@ -15,7 +15,7 @@ class PylonParentConfig:
     limit: Optional[int] = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class PylonEndpointConfig:
     name: str
     path: str

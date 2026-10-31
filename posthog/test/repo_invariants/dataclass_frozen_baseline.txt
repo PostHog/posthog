@@ -878,8 +878,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/productboard/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pulumi_cloud/pulumi_cloud.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pulumi_cloud/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pylon/pylon.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/pylon/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pypi/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/qualaroo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/qualaroo/settings.py

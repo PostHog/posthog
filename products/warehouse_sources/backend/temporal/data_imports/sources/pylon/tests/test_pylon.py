@@ -277,6 +277,14 @@ class TestChildEndpoints:
                 "2026-01-02T03:04:05Z",
                 "2026-06-01T00:00:00Z",
             ),
+            (
+                "incremental_keeps_subsecond_watermark",
+                True,
+                "2026-01-02T03:04:05.123456Z",
+                None,
+                "2026-01-02T03:04:05.123456Z",
+                "2026-06-23T00:00:00Z",
+            ),
             ("full_refresh", False, None, None, None, None),
         ]
     )
