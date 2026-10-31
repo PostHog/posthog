@@ -311,7 +311,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         shouldStream: [(s) => [s.hasActiveSession], (hasActiveSession: boolean): boolean => hasActiveSession],
     }),
     listeners(({ actions, values, cache }) => ({
-        check: async () => {
+        check: async (_, breakpoint) => {
             if (values.permanentlyDisabled) {
                 return
             }
@@ -319,10 +319,6 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             if (projectId === null) {
                 return
             }
-            // Concurrent-poll guard. The next-poll wins; older resolutions are
-            // ignored — without this, an older "empty" can overwrite a newer
-            // "active" if responses race.
-            const seq = (cache.pollSeq = (cache.pollSeq ?? 0) + 1)
             // Settled rather than all-or-nothing: one program's failure must not discard another's
             // successful answer, or a flaky response for the SDK install would hide a self-driving
             // run the server reported correctly.
@@ -337,9 +333,10 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                         )) || null
                 )
             )
-            if (seq !== cache.pollSeq) {
-                return
-            }
+            // Concurrent-poll guard: the next poll wins, so an older "empty" can't overwrite a newer
+            // "active" if responses race. It also stops here when the logic unmounted or the kea
+            // context reset during the request, because reading `values` then throws.
+            breakpoint()
 
             const sessions: (WizardSessionDTOApi | null)[] = []
             const errors: unknown[] = []
