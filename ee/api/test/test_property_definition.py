@@ -43,11 +43,26 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
                 property_type="not an allowed option",
             )
 
-    def test_retrieve_existing_property_definition(self):
+    @parameterized.expand(
+        [
+            ("event", PropertyDefinition.Type.EVENT, None, "event", None),
+            ("group", PropertyDefinition.Type.GROUP, 1, "group", 1),
+        ]
+    )
+    def test_retrieve_existing_property_definition(
+        self,
+        _name: str,
+        definition_type: int,
+        group_type_index: Optional[int],
+        expected_type: str,
+        expected_group_type_index: Optional[int],
+    ):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        property = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="enterprise property", type=definition_type, group_type_index=group_type_index
+        )
         tag = Tag.objects.create(name="deprecated", team_id=self.team.id)
         property.tagged_items.create(tag_id=tag.id)
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
@@ -56,6 +71,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["name"], "enterprise property")
         self.assertEqual(response_data["description"], "")
         self.assertEqual(response_data["tags"], ["deprecated"])
+        self.assertEqual(response_data["type"], expected_type)
+        self.assertEqual(response_data["group_type_index"], expected_group_type_index)
 
     def test_retrieve_create_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
