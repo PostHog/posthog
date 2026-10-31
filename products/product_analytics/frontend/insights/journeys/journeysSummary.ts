@@ -1,10 +1,10 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { presetForStepSources } from '~/queries/nodes/InsightQuery/stepSourcePresets'
 import { PathsV2AnchorType, PathsV2Filter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { journeyItemLabel } from './journeyGridModel'
-import { presetForStepSources } from './stepSourcePresets'
 
 function eventLabel(event: string): string {
     return getCoreFilterDefinition(event, TaxonomicFilterGroupType.Events)?.label ?? event
