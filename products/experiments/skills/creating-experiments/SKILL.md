@@ -152,7 +152,12 @@ Key details:
 
 4. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
 
-5. **Launch only when the user asks for it** — creation ends at a draft. A launch turns the feature flag on for real users, so never call `experiment-launch` unprompted.
+5. **Add a "For your next experiment" part**: one or two ideas for a later test, drawn from what you learned about this project while setting this one up.
+   Name the fact behind each idea: the traffic, the metric's baseline, past experiments, or what you saw in the code.
+   Low traffic, for example, means only large effects will show up, so the next test should change more than copy, such as the page layout or a new feature.
+   Leave out advice that fits any project, such as "change one thing at a time". If nothing you learned points to a next test, skip this part.
+
+6. **Launch only when the user asks for it** — creation ends at a draft. A launch turns the feature flag on for real users, so never call `experiment-launch` unprompted.
 
 ## Related skills
 
