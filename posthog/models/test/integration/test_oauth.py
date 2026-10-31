@@ -68,6 +68,8 @@ class TestOauthIntegrationModel(BaseTest):
         "GOOGLE_ADS_APP_CLIENT_SECRET": "google-client-secret",
         "GOOGLE_CALENDAR_APP_CLIENT_ID": "google-calendar-client-id",
         "GOOGLE_CALENDAR_APP_CLIENT_SECRET": "google-calendar-client-secret",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID": "google-search-console-client-id",
+        "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET": "google-search-console-client-secret",
         "LINKEDIN_APP_CLIENT_ID": "linkedin-client-id",
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
@@ -111,6 +113,13 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge": params["code_challenge"],
                 "code_challenge_method": "S256",
             }
+
+    def test_google_search_console_authorize_url_offers_the_account_chooser(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("google-search-console", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert params["access_type"] == "offline"
+            assert set(params["prompt"].split(" ")) == {"consent", "select_account"}
 
     def test_authorize_url_carries_initiating_team_id_in_state(self):
         with self.settings(**self.mock_settings):
