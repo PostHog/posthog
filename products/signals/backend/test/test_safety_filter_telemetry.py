@@ -58,11 +58,13 @@ async def test_capture_fires_only_when_blocked(ateam, safe, expect_capture):
     )
     assert span_kwargs["properties"]["$ai_input_state"]["source_id"] == "run:abc:finding:def"
     assert span_kwargs["properties"]["$ai_output_state"]["threat_type"] == "direct_instruction_injection"
+    assert span_kwargs["properties"]["$ai_output_state"]["held_for_review"] is False
     assert kwargs["properties"]["$ai_trace_id"] == span_kwargs["properties"]["$ai_trace_id"]
     assert "description" not in kwargs["properties"]
     assert kwargs["event"] == "signal_blocked_by_safety_filter"
     assert kwargs["distinct_id"] == str(ateam.uuid)
     assert kwargs["properties"]["threat_type"] == "direct_instruction_injection"
+    assert kwargs["properties"]["held_for_review"] is False
     assert kwargs["properties"]["source_product"] == "signals_scout"
     assert kwargs["properties"]["source_type"] == "cross_source_issue"
     assert kwargs["properties"]["source_id"] == "run:abc:finding:def"
@@ -95,3 +97,39 @@ async def test_blocked_signal_without_team_id_skips_capture():
     assert result.safe is False
     capture.assert_not_called()
     capture_ai.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_held_for_review_telemetry_carries_flag(ateam):
+    held_response = SafetyFilterJudgeResponse(
+        safe=False,
+        threat_type="safety_filter_empty_response",
+        explanation="Safety model and fallback model both returned empty responses; held for review.",
+        held_for_review=True,
+    )
+
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.safety_filter", return_value=held_response),
+        patch(f"{PIPELINE_MODULE_PATH}.preserve_signal_for_review") as mock_preserve,
+        patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,
+        patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture_ai") as capture_ai,
+    ):
+        result = await safety_filter_activity(
+            SafetyFilterInput(
+                team_id=ateam.id,
+                description="OAuth2 PKCE authorization code verifier validation test suite",
+                source_product="github",
+                source_type="issue",
+                source_id="gh-security-test-1",
+            )
+        )
+
+    assert result.safe is False
+    assert result.held_for_review is True
+    mock_preserve.assert_called_once()
+    capture.assert_called_once()
+    capture_ai.assert_called_once()
+    assert capture.call_args.kwargs["properties"]["held_for_review"] is True
+    assert capture.call_args.kwargs["properties"]["threat_type"] == "safety_filter_empty_response"
+    assert capture_ai.call_args.kwargs["properties"]["$ai_output_state"]["held_for_review"] is True
