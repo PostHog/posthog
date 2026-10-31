@@ -14,3 +14,11 @@ class Workload(StrEnum):
     LOGS = "LOGS"
     # Endpoints (the product) queries
     ENDPOINTS = "ENDPOINTS"
+
+
+# The signal that a logs-cluster table holds. Each signal has its own ClickHouse user on the logs cluster,
+# so the queries of one signal do not take from the concurrency budget of another.
+class LogsClusterSignal(StrEnum):
+    LOGS = "logs"
+    METRICS = "metrics"
+    TRACES = "traces"

@@ -14,7 +14,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.errors import NotImplementedError, ResolutionError
 
 # Import Workload at module level for Pydantic (needed at runtime)
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import LogsClusterSignal, Workload
 
 if TYPE_CHECKING:
     from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery
@@ -248,6 +248,8 @@ class Table(FieldOrTable):
     # `max_bytes_before_external_group_by=0`, so the ClickHouse user profile's spill thresholds apply.
     inherit_profile_spill: bool = False
     workload: Optional[Workload] = None
+    # The signal of a logs-cluster table. It selects the ClickHouse user that reads the table.
+    logs_cluster_signal: Optional[LogsClusterSignal] = None
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
