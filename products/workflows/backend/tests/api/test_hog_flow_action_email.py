@@ -332,11 +332,16 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         assert draft_action["name"] == "Renamed step"
         assert draft_action["config"]["inputs"]["email"]["value"]["subject"] == "Draft subject"
 
+    @parameterized.expand([("active", False), ("disabled", True)])
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
-    def test_design_ops_compose_on_a_drafted_design(self, _mock_render):
+    def test_design_ops_compose_on_a_drafted_design(self, _name, disabled, _mock_render):
         # Two consecutive draft design edits: the second must render against the draft's design,
         # not the live one, or the apply reads it as a concurrent edit and conflicts.
         flow_id = self._create_flow(status="active")
+        if disabled:
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "draft"})
+            assert response.status_code == 200, response.json()
+
         ops = [{"op": "update_content", "id": "text_1", "patch": {"values": {"text": "<p>First</p>"}}}]
         first = self._patch_email(flow_id, {"operations": ops})
         assert first.status_code == 200, first.json()

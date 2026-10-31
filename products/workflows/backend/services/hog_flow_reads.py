@@ -119,6 +119,7 @@ def to_edit_state(flow: HogFlow) -> WorkflowEditState:
         team_id=flow.team_id,
         name=flow.name,
         status=flow.status,
+        disabled_from_active=flow.disabled_from_active,
         version=flow.version,
         origin_product=flow.origin_product,
         created_by=flow.created_by,
