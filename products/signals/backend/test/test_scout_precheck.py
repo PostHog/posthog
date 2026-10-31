@@ -324,11 +324,28 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         assert result is not None
         assert (result.outcome, result.query_source) == (outcome, "skill_default")
 
-    def test_project_outside_the_rollout_runs_as_before(self) -> None:
-        result, capture = self._evaluate(rollout_percent=0)
+    @parameterized.expand(
+        [
+            ("team_managed", SignalScoutConfig.ManagedBy.TEAM, True, False),
+            ("background_lane_without_require_precheck", SignalScoutConfig.ManagedBy.BACKGROUND, False, False),
+            ("background_lane_with_require_precheck", SignalScoutConfig.ManagedBy.BACKGROUND, True, True),
+        ]
+    )
+    def test_project_outside_the_rollout(self, _name, managed_by, require_precheck, expect_gated) -> None:
+        SignalScoutConfig.all_teams.filter(team=self.team).update(managed_by=managed_by)
+        lanes = [{"skill_name": SURVEYS_SKILL, "require_precheck": require_precheck}]
+        with patch(
+            "products.signals.backend.scout_harness.team_limits._read_flag_payload",
+            return_value={"background_lanes": lanes},
+        ):
+            result, capture = self._evaluate(rollout_percent=0)
 
-        assert result is None
-        capture.assert_not_called()
+        if expect_gated:
+            assert result is not None
+            assert (result.outcome, result.query_source) == ("skip", "skill_default")
+        else:
+            assert result is None
+            capture.assert_not_called()
 
 
 # Non-atomic: ClickHouse reads `system.*` tables over its own Postgres connection, so rows must be committed.
