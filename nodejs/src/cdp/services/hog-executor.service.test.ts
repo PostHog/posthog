@@ -42,7 +42,6 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
-// Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
     const original = jest.requireActual('~/common/utils/request')
     return {
@@ -56,7 +55,6 @@ jest.mock('~/common/utils/request', () => {
 import { fetch, SecureRequestError } from '~/common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
-    // Replaces the function time with a fixed value to simplify testing
     return logs.map((log) => {
         return log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms')
     })
@@ -73,8 +71,8 @@ describe('Hog Executor', () => {
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
             encryptedFields
         )
-        const emailService = new EmailService(
-            {
+        const emailService = new EmailService({
+            sesConfig: {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
                 sesRegion: hub.SES_REGION,
@@ -82,15 +80,15 @@ describe('Hog Executor', () => {
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
             },
-            hub.integrationManager,
-            new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL,
-            new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
-            new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres),
-            null
-        )
+            integrationManager: hub.integrationManager,
+            teamWorkflowsConfigService: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+            encryptionSaltKeys: hub.ENCRYPTION_SALT_KEYS,
+            siteUrl: hub.SITE_URL,
+            trackingCodeSigner: new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+            emailSuppressionService: new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+            recipientsManager: new RecipientsManagerService(hub.postgres),
+            emailStatusService: null,
+        })
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
@@ -130,7 +128,6 @@ describe('Hog Executor', () => {
     })
 
     afterEach(async () => {
-        // Ensure any spies (e.g., execHog, Math.random, Date.now) are restored between tests
         jest.restoreAllMocks()
         await closeHub(hub)
     })
@@ -403,7 +400,6 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(invocation, undefined, previousResult)
 
-            // No new logs are produced before async fetch, so previous logs/metrics/events should persist
             expect(result.logs.map((l) => l.message)).toEqual(['Prev log'])
             expect(result.metrics).toEqual(previousResult.metrics)
             expect(result.capturedPostHogEvents).toEqual(previousResult.capturedPostHogEvents)
@@ -447,7 +443,6 @@ describe('Hog Executor', () => {
                     properties: { email: 'test@posthog.com', $initial_gclid: 'INITIAL_TOKEN_ABC' },
                 },
             })
-            // Simulate the rerun blob: inputs are stripped before persistence.
             expect(invocation.state.globals.inputs).toBeUndefined()
 
             const res = await executor.execute(invocation)
@@ -514,7 +509,7 @@ describe('Hog Executor', () => {
             jest.spyOn(hogExecModule, 'execHog').mockResolvedValue({
                 execResult: {
                     finished: true,
-                    result: null, // falsy value
+                    result: null,
                     state: { syncDuration: 0, maxMemUsed: 1024 * 0.17, ops: 28, stack: [] },
                 },
                 error: undefined,
@@ -530,7 +525,6 @@ describe('Hog Executor', () => {
         })
 
         it('sets execResult when VM returns an object synchronously', async () => {
-            // This tests a simple return statement without any async functions
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_return_object,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
@@ -666,7 +660,6 @@ describe('Hog Executor', () => {
             })
         }
 
-        // Provide pre-built inputs so buildInputsWithGlobals is skipped
         const createTicketInvocation = () =>
             createExampleInvocation(
                 createHogFunction({
@@ -1010,8 +1003,6 @@ describe('Hog Executor', () => {
                 hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
             ).verify(headers['Authorization'].replace('Bearer ', ''))
 
-        // In the test env the secret defaults on (mirroring Django), so the JWT path is the
-        // default; legacy tests opt out the same way an unprovisioned environment does.
         const disableAccountJwt = () => {
             ;(executor as any).deps.customerAnalyticsAccountsJwt = new ScopedServiceJwt(
                 PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
@@ -1049,8 +1040,6 @@ describe('Hog Executor', () => {
                 expect(result.invocation.state.vmState!.stack).toEqual([
                     { status: 200, body: { external_id: 'acme corp/1', name: 'Acme' } },
                 ])
-                // No credential is needed or persisted: the team secret is never read and
-                // nothing lands in queueParameters (job rows stay free of auth material).
                 expect(getTeamSpy).not.toHaveBeenCalled()
                 expect(result.invocation.queueParameters).toBeUndefined()
             })
@@ -1151,13 +1140,8 @@ describe('Hog Executor', () => {
             return createExampleInvocation(createHogFunction({ bytecode }), { inputs: {} })
         }
 
-        // Regression test for a stack-empty crash when an async function with no
-        // meaningful return value is called as an expression statement.
-        // The bytecode compiler emits a trailing POP after every expression
-        // statement, but the generic async function path in execute() never pushed
-        // a return value onto the resumed VM stack — so when the cyclotron worker
-        // resumed the invocation, the POP fired against an empty stack and raised
-        // "Invalid HogQL bytecode, stack is empty, can not pop".
+        // The bytecode compiler emits POP after every expression statement. Async functions
+        // with no return value must still push a value before the VM resumes.
         it('finishes cleanly when called as an expression statement', async () => {
             const invocation = await buildInvocation(`produceToWarehouseWebhooks({'foo': 'bar'}, 'test-schema-id')`)
 
@@ -1198,7 +1182,6 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(invocation)
 
-            // The fetch case handler only picks url/method/body/headers — internal is never passed
             expect(result.invocation.queueParameters).toBeDefined()
             expect((result.invocation.queueParameters as any).type).toBe('fetch')
             expect((result.invocation.queueParameters as any).internal).toBeUndefined()
@@ -1256,11 +1239,9 @@ describe('Hog Executor', () => {
         ): Promise<CyclotronJobInvocationHogFunction> => {
             const invocation = createExampleInvocation(hogFunction)
 
-            // Execute just to have an expecting stack
             const res = await executor.execute(invocation)
             expect(res.invocation.queueParameters?.type).toBe('fetch')
 
-            // Simulate what the callback does
             invocation.queue = 'hog'
             invocation.queueParameters = {
                 type: 'fetch',
@@ -1286,7 +1267,6 @@ describe('Hog Executor', () => {
                 expect.any(Object)
             )
 
-            // General check for clearance of the invocation
             expect(result.finished).toBe(false)
             expect(result.error).toBeUndefined()
             expect(result.invocation.queue).toBe('hog')
@@ -1295,7 +1275,6 @@ describe('Hog Executor', () => {
             expect(result.invocation.queuePriority).toEqual(0)
             expect(result.invocation.queueScheduledAt).toBeUndefined()
 
-            // State checks
             expect(result.invocation.state.attempts).toBe(0)
             expect(result.invocation.state.timings.slice(-1)).toEqual([
                 expect.objectContaining({
@@ -1311,7 +1290,6 @@ describe('Hog Executor', () => {
                 },
             ])
 
-            // Now also exposed on the execResult for callers of execute()
             expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!' })
         })
 
@@ -1331,34 +1309,29 @@ describe('Hog Executor', () => {
 
             let result = await executor.executeFetch(invocation)
 
-            // Should be scheduled for retry
             expect(result.invocation.state.attempts).toBe(1)
             expect(result.logs.map((log) => log.message)).toEqual([
                 'HTTP fetch failed on attempt 1 with status code 500. Retrying.',
             ])
-            expect(result.invocation.queuePriority).toBe(1) // Priority decreased
+            expect(result.invocation.queuePriority).toBe(1)
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength)
 
-            // Execute the retry
             result = await executor.executeFetch(result.invocation)
             expect(result.invocation.state.attempts).toBe(2)
             expect(result.logs.map((log) => log.message)).toEqual([
                 'HTTP fetch failed on attempt 2 with status code 500. Retrying.',
             ])
-            expect(result.invocation.queuePriority).toBe(2) // Priority decreased
+            expect(result.invocation.queuePriority).toBe(2)
             expect(result.invocation.queueScheduledAt?.toISO()).toMatchInlineSnapshot(`"2025-01-01T00:00:02.500Z"`)
             expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength)
-            // Execute the final retry
             result = await executor.executeFetch(result.invocation)
             expect(result.logs.map((log) => log.message)).toEqual([
                 'HTTP fetch failed on attempt 3 with status code 500.',
             ])
-            // All values reset due to no longer retrying
             expect(result.invocation.state.attempts).toBe(0)
-            expect(result.invocation.queuePriority).toBe(0) // Priority reset as we are no longer retrying
+            expect(result.invocation.queuePriority).toBe(0)
             expect(result.invocation.queueScheduledAt).toBeUndefined()
-            // Should now be complete with failure response
             expect(result.invocation.state.vmState!.stack.length).toBe(vmStateStackLength + 1)
             const response = result.invocation.state.vmState!.stack.slice(-1)[0]
             expect(response).toMatchInlineSnapshot(`
@@ -1446,10 +1419,6 @@ describe('Hog Executor', () => {
                 )
             })
 
-            // Customer impact this prevents: the original bug ticket had a request
-            // signed at T, queued behind a timed-out attempt, then retried >5 min
-            // later — AWS rejected the retry with InvalidSignatureException because
-            // the X-Amz-Date inside the Authorization no longer matched server time.
             it('produces a fresh signature on retry instead of reusing the original', async () => {
                 const receivedAuthHeaders: string[] = []
                 const receivedAmzDates: string[] = []
@@ -1479,10 +1448,7 @@ describe('Hog Executor', () => {
                 let result = await executor.executeFetch(invocation)
                 expect(result.invocation.state.attempts).toBe(1)
 
-                // Simulate the cyclotron queue + backoff: by the time the retry
-                // actually runs, >6 minutes have passed. With the old "sign once
-                // in Hog" path this would push the signature past AWS's 5-minute
-                // window and the retry would 400 with InvalidSignatureException.
+                // Refresh signatures when a queued retry outlives AWS's five-minute signature window.
                 const retryTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' }).plus({
                     minutes: 6,
                 })
@@ -1572,7 +1538,6 @@ describe('Hog Executor', () => {
                     headers: { 'Content-Type': 'application/x-amz-json-1.1' },
                     aws_sigv4: sigv4Refs,
                 })
-                // Intentionally do NOT seed inputs.
 
                 const result = await executor.executeFetch(invocation)
 
@@ -1590,7 +1555,6 @@ describe('Hog Executor', () => {
             // as a receiver's verification library would.
             const KEY = Buffer.from('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'base64')
             const BODY = '{"test": 2432232314}'
-            // Shaped like what the fetch async function puts on the queue payload.
             const SIGNING_REFS = {
                 secret_input: 'signing_secret',
                 webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
@@ -1631,7 +1595,6 @@ describe('Hog Executor', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(receivedId).toBe(SIGNING_REFS.webhook_id)
-                // Date.now is mocked to 2025-01-01T00:00:00Z in beforeEach
                 expect(receivedTimestamp).toBe('1735689600')
                 expect(receivedSignature).toBe(expectedSignature(receivedId!, receivedTimestamp!))
             })
@@ -1697,7 +1660,6 @@ describe('Hog Executor', () => {
                     headers: { 'Content-Type': 'application/json' },
                     standard_webhooks: SIGNING_REFS,
                 })
-                // Intentionally do NOT seed inputs.
 
                 const result = await executor.executeFetch(invocation)
 
@@ -1834,7 +1796,6 @@ describe('Hog Executor', () => {
 
             const result = await executor.executeFetch(invocation)
 
-            // Should be scheduled for retry
             expect(result.invocation.queue).toBe('hog')
             expect(result.invocation.queueScheduledAt).toMatchInlineSnapshot(`"2025-01-01T00:00:01.500Z"`)
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
@@ -1854,7 +1815,6 @@ describe('Hog Executor', () => {
 
             const result = await executor.executeFetch(invocation)
 
-            // Should not be scheduled for retry
             expect(result.invocation.queue).toBe('hog')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
@@ -1898,7 +1858,7 @@ describe('Hog Executor', () => {
             const result = await executor.executeFetch(invocation)
 
             expect(result.invocation.queue).toBe('hog')
-            expect(result.invocation.queueScheduledAt).toBeUndefined() // Should not retry
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
                   "HTTP fetch failed on attempt 1 with status code (none). Error: Response body length does not match content-length header.",
@@ -2021,7 +1981,6 @@ describe('Hog Executor', () => {
                 }
             `)
 
-            // Check it doesn't do it for redirect
             invocation = await createFetchInvocation({
                 url: 'https://nasty.com?redirect=https://googleads.googleapis.com/1234',
                 method: 'POST',
@@ -2244,9 +2203,6 @@ describe('Hog Executor', () => {
 
                 const maxRetries = executor['config'].fetchRetries
                 let result = await executor.executeFetch(invocation)
-                // Verify every intermediate attempt also logged at 'info' — regression guard
-                // against any future change that re-raises retry logs to 'error' when the
-                // status is in the non-failure list.
                 expect(result.logs.every((l) => l.level === 'info')).toBe(true)
 
                 for (let attempt = 1; attempt < maxRetries; attempt++) {
@@ -2285,7 +2241,6 @@ describe('Hog Executor', () => {
                 invocation = await createFetchInvocation({ url: `${baseUrl}/test`, method: 'GET' })
                 setNonFailureConfig(invocation, ['4xx', 500])
 
-                // 500 is retriable — drain retries until terminal
                 const maxRetries = executor['config'].fetchRetries
                 result = await executor.executeFetch(invocation)
                 for (let attempt = 1; attempt < maxRetries; attempt++) {
@@ -2354,7 +2309,6 @@ describe('Hog Executor', () => {
             const ownTokenCaptureBody = (): string =>
                 JSON.stringify({ api_key: OWN_TOKEN, event: 'replicated', distinct_id: 'u1', properties: {} })
 
-            // Seed this destination's own self-loop depth (keyed by its function id).
             const setSelfLoopDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
                 invocation.state.globals.event.properties = {
                     ...invocation.state.globals.event.properties,
@@ -2362,8 +2316,6 @@ describe('Hog Executor', () => {
                 }
             }
 
-            // Seed a high depth for a DIFFERENT function - simulates an event that passed
-            // through an unrelated deep chain. Must not count toward this destination.
             const setOtherFunctionDepth = (invocation: CyclotronJobInvocationHogFunction, depth: number): void => {
                 invocation.state.globals.event.properties = {
                     ...invocation.state.globals.event.properties,
@@ -2371,7 +2323,6 @@ describe('Hog Executor', () => {
                 }
             }
 
-            // Capture the body sent to the (mocked) ingest endpoint without a real network call.
             const captureIngestFetch = (): { getBody: () => string | undefined } => {
                 let sentBody: string | undefined
                 ;(fetch as jest.Mock).mockImplementationOnce((_url: string, options: any) => {
@@ -2399,13 +2350,9 @@ describe('Hog Executor', () => {
 
                 const result = await executor.executeFetch(invocation)
 
-                // Detection failing must not surface as a destination error.
                 expect(result.error).toBeUndefined()
             })
 
-            // Every hop under the cap is allowed and its outgoing body stamped with this
-            // destination's next depth - including hop 0 (a fresh external event), which a
-            // legitimate run always is.
             it.each([
                 { case: 'fresh hop 0 (a legitimate external run)', depth: 0, stampedTo: 1 },
                 { case: 'mid-chain under the cap', depth: 2, stampedTo: 3 },
@@ -2423,7 +2370,6 @@ describe('Hog Executor', () => {
 
                 const result = await executor.executeFetch(invocation)
 
-                // Fetch proceeds, body carries this destination's incremented depth, nothing blocked.
                 expect(result.error).toBeUndefined()
                 expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
                     stampedTo
@@ -2431,9 +2377,6 @@ describe('Hog Executor', () => {
                 expect(await readActionCount('enforce', 'blocked')).toBe(blockedBefore)
             })
 
-            // The whole point of per-function depth: an event that arrived carrying a huge
-            // depth for a DIFFERENT function is treated as depth 0 here, so a legitimately
-            // running destination is never blocked by an unrelated deep chain.
             it('enforce: does NOT block when the high depth belongs to another function', async () => {
                 mockOwnTeam()
                 const invocation = await createFetchInvocation({
@@ -2447,7 +2390,6 @@ describe('Hog Executor', () => {
 
                 const result = await executor.executeFetch(invocation)
 
-                // Allowed, stamped as this destination's first hop, not blocked.
                 expect(result.error).toBeUndefined()
                 expect(parseJSON(sent.getBody()!).properties[SELF_LOOP_DEPTH_PROPERTY][invocation.hogFunction.id]).toBe(
                     1
@@ -2468,7 +2410,6 @@ describe('Hog Executor', () => {
 
                 const result = await executor.executeFetch(invocation)
 
-                // Blocked: error set, finished, no fetch attempted, metric moved.
                 expect(result.error).toBeInstanceOf(Error)
                 expect(result.finished).toBe(true)
                 expect(mockRequest).not.toHaveBeenCalled()
