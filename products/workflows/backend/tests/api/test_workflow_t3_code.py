@@ -151,7 +151,7 @@ class TestWorkflowT3Code(APIBaseTest):
         assert arguments["bindToCurrentThread"] is False
         assert arguments["schedule"] == {
             "type": "webhook",
-            "dedupe": {"replayKey": "{{headers.x-posthog-delivery-id}}"},
+            "dedupe": {"replayKey": "{{headers.webhook-id}}"},
         }
         assert "{{body.instructions}}" in arguments["prompt"]
 

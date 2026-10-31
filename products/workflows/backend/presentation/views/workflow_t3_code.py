@@ -38,7 +38,7 @@ The workflow sent this data with it:
 WEBHOOK_SCHEDULE = {
     "type": "webhook",
     # The step sends a new delivery id per run and repeats it on retries, so a retry starts no second run.
-    "dedupe": {"replayKey": "{{headers.x-posthog-delivery-id}}"},
+    "dedupe": {"replayKey": "{{headers.webhook-id}}"},
 }
 
 
