@@ -5,15 +5,19 @@ none gains nothing from its runs. The first live opted-in workflow switches the 
 project, and losing the last one, by opting out, archiving or deleting it, removes it again.
 """
 
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from django.db import connection, transaction
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import Team, User
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
+from posthog.models import ActivityLog, Team, User
+from posthog.schema_enums import ProductKey
 
 from products.signals.backend.facade.api import (
     ScoutEnableRefusal,
@@ -23,14 +27,14 @@ from products.signals.backend.facade.api import (
     scout_enable_refusal_for_product,
     scout_status_for_product,
 )
-from products.workflows.backend.facade.contracts import SuggestionsSample
+from products.workflows.backend.facade.contracts import SuggestionsSample, SuggestionsScoutRunReason
 from products.workflows.backend.metrics import (
     HOG_FLOW_VERSION_APP_SOURCE,
     MIN_EVIDENCE_SAMPLE,
     TARGET_SEND_METRIC,
     TARGET_UNTRACKED_METRIC,
 )
-from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision
+from products.workflows.backend.models import HogFlow, HogFlowOptimization, HogFlowRevision, WorkflowProposal
 
 SUGGESTIONS_SCOUT = "signals-scout-workflows"
 SOURCE_PRODUCT = "workflows"
@@ -40,6 +44,11 @@ SAMPLE_WINDOW = timedelta(days=7)
 SAMPLE_MIN_VERSION_AGE = timedelta(hours=48)
 # Arbitrary, fixed namespace for the per-project advisory lock that serializes reconciliation.
 _LOCK_NAMESPACE = 72_031
+# The scout skill reads a send only once it is this old, because opens and bounces arrive after the send.
+SEND_MATURITY = timedelta(hours=48)
+EMAIL_METRICS_MAX_EXECUTION_S = 5
+# The longest the scout goes without a run, so workflows a short run left unread still get read.
+BACKSTOP_INTERVAL = timedelta(days=7)
 _SAMPLE_QUERY_TIMEOUT_SECONDS = 5
 # Bounds compare on the hour because the table collapses rows per clock hour and keeps one arbitrary timestamp.
 _STEP_SENDS_QUERY = """
@@ -72,13 +81,7 @@ def sync_suggestions_scout(team: Team, *, acting_user: User | None, may_grant: b
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_LOCK_NAMESPACE, project.id])
-        environments = Team.objects.filter(Q(id=project.id) | Q(parent_team_id=project.id)).values("id")
-        wanted = (
-            HogFlowOptimization.objects.unscoped()
-            .filter(team_id__in=environments, enabled=True, hog_flow__status=HogFlow.State.ACTIVE)
-            .exists()
-        )
-        if not wanted:
+        if not _live_opt_ins(project.id).exists():
             disable_scout_for_product(team_id=project.id, skill_name=SUGGESTIONS_SCOUT, source_product=SOURCE_PRODUCT)
         elif acting_user is not None and may_grant:
             enable_scout_for_product(
@@ -117,6 +120,136 @@ def suggestions_scout_status(team: Team) -> str:
     if scout_emits_for_product(team_id=project.id, skill_name=SUGGESTIONS_SCOUT) is False:
         return "dry_run"
     return "running"
+
+
+def _live_opt_ins(project_id: int) -> QuerySet[HogFlowOptimization]:
+    environments = Team.objects.filter(Q(id=project_id) | Q(parent_team_id=project_id)).values("id")
+    return HogFlowOptimization.objects.unscoped().filter(
+        team_id__in=environments, enabled=True, hog_flow__status=HogFlow.State.ACTIVE
+    )
+
+
+def suggestions_scout_no_input_reason(project_id: int) -> str | None:
+    """`no_opted_in_workflow` when the project has no live workflow that asks for suggestions, else None.
+
+    A scout switched on without one, for example from the Inbox, has nothing to read on any run.
+    """
+    return None if _live_opt_ins(project_id).exists() else "no_opted_in_workflow"
+
+
+@frozen
+class _OptedInWorkflow:
+    id: UUID
+    # The workflow's environment, which its metrics are recorded under. The opt-in row is scoped to the project.
+    team_id: int
+    version: int
+    opted_in_at: datetime
+
+    @property
+    def version_source_id(self) -> str:
+        return f"{self.id}/{self.version}"
+
+
+def suggestions_scout_run_reason(
+    project_id: int, *, last_run_at: datetime | None, now: datetime
+) -> SuggestionsScoutRunReason | None:
+    """Why the suggestions scout has something new to read since its last run, or None when it has nothing.
+
+    The scout decides only from opted-in live workflows: their opt-in, their published versions, how
+    people resolved its suggestions, and email sends of the live version. When none
+    of these changed since `last_run_at`, a new run reads the same input as the last one.
+    """
+    if last_run_at is None:
+        return "first_run"
+    # A run can cover only part of the opted-in workflows, and nothing records which part.
+    if now - last_run_at >= BACKSTOP_INTERVAL:
+        return "backstop"
+    environments = Team.objects.filter(Q(id=project_id) | Q(parent_team_id=project_id)).values("id")
+    opted_in = [
+        _OptedInWorkflow(id=flow_id, team_id=team_id, version=version, opted_in_at=created_at)
+        for flow_id, team_id, version, created_at in _live_opt_ins(project_id).values_list(
+            "hog_flow_id", "hog_flow__team_id", "hog_flow__version", "created_at"
+        )
+    ]
+    if not opted_in:
+        return None
+    flow_ids = [workflow.id for workflow in opted_in]
+
+    # The row keeps its first `created_at` when someone turns suggestions off and on again, so a
+    # re-enable is only visible in the activity log.
+    if any(workflow.opted_in_at >= last_run_at for workflow in opted_in):
+        return "opted_in"
+    if ActivityLog.objects.filter(
+        team_id__in=environments,
+        scope="HogFlow",
+        item_id__in=[str(flow_id) for flow_id in flow_ids],
+        activity="optimization_enabled",
+        created_at__gte=last_run_at,
+    ).exists():
+        return "opted_in"
+    if (
+        HogFlowRevision.objects.unscoped()
+        .filter(team_id__in=environments, hog_flow_id__in=flow_ids, created_at__gte=last_run_at)
+        .exists()
+    ):
+        return "published"
+    if (
+        WorkflowProposal.objects.unscoped()
+        .filter(team_id__in=environments, hog_flow_id__in=flow_ids, resolved_at__gte=last_run_at)
+        .exists()
+    ):
+        return "suggestion_resolved"
+    # One read per environment, because an environment can have its own ClickHouse host.
+    by_team: dict[int, list[_OptedInWorkflow]] = {}
+    for workflow in opted_in:
+        by_team.setdefault(workflow.team_id, []).append(workflow)
+    if any(
+        _has_matured_sends(team_id, workflows, last_run_at=last_run_at, now=now)
+        for team_id, workflows in by_team.items()
+    ):
+        return "sends_matured"
+    return None
+
+
+def _has_matured_sends(team_id: int, opted_in: list[_OptedInWorkflow], *, last_run_at: datetime, now: datetime) -> bool:
+    """Whether a send of a live version reached `SEND_MATURITY` after `last_run_at`.
+
+    Reads the per-version source because a batch send records its email metrics under the batch job
+    id on the per-flow source, and under `<flow id>/<version>` here for every trigger type. Sends of
+    an older version need no run, because the skill reads the live version only.
+    """
+    tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY, query_type="SuggestionsScoutEmailMetrics")
+    rows = sync_execute(
+        """
+        SELECT 1
+        FROM app_metrics2
+        WHERE team_id = %(team_id)s
+          AND app_source = %(app_source)s
+          AND app_source_id IN %(version_source_ids)s
+          AND metric_name = %(sent)s
+          AND timestamp >= toDateTime64(%(matured_after)s, 6)
+          AND timestamp < toDateTime64(%(matured_before)s, 6)
+          AND count > 0
+        LIMIT 1
+        """,
+        {
+            "team_id": team_id,
+            "app_source": HOG_FLOW_VERSION_APP_SOURCE,
+            "version_source_ids": [workflow.version_source_id for workflow in opted_in],
+            "sent": TARGET_SEND_METRIC,
+            "matured_after": _clickhouse_time(last_run_at - SEND_MATURITY),
+            "matured_before": _clickhouse_time(now - SEND_MATURITY),
+        },
+        workload=Workload.OFFLINE,
+        team_id=team_id,
+        # A slow read raises, and the pre-check runs the scout on any error.
+        settings={"max_execution_time": EMAIL_METRICS_MAX_EXECUTION_S, "timeout_overflow_mode": "throw"},
+    )
+    return bool(rows)
+
+
+def _clickhouse_time(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def suggestions_sample(*, team_id: int, hog_flow_id: UUID) -> SuggestionsSample | None:
