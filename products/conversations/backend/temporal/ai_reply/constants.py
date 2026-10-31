@@ -88,13 +88,17 @@ LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 TICKET_TYPES = ("how_to", "diagnostic", "account_billing", "bug", "unactionable")
 
 # Scopes for a reply that may be auto-sent to the (untrusted) ticket author. Deliberately the
-# narrowest set: only what docs-search (project:read) and business-knowledge search
-# (business_knowledge:read) need. No project config or customer data, so nothing beyond public
-# docs + the team's own knowledge base can reach an untrusted author even if the agent (or an
-# injected ticket instruction) tries to call a tool the prompt didn't advertise.
+# narrowest set: what docs-search (project:read) and business-knowledge search
+# (business_knowledge:read) need, plus user:read for the MCP connection itself. The MCP server
+# reads /api/users/@me/ on each request, so every tier needs user:read or the connection fails
+# with insufficient_scope. SUPPORT_HIDDEN_USER_TOOLS hides the tools user:read unlocks. No project
+# config or customer data, so nothing beyond public docs + the team's own knowledge base can reach
+# an untrusted author even if the agent (or an injected ticket instruction) tries to call a tool
+# the prompt didn't advertise.
 PUBLISHABLE_DRAFT_SCOPES: list[str] = [
     "business_knowledge:read",
     "project:read",
+    "user:read",
 ]
 
 # Base read scopes for a human-reviewed draft that is NOT opted into ai_diagnostics_enabled:
@@ -105,6 +109,7 @@ PUBLISHABLE_DRAFT_SCOPES: list[str] = [
 BASE_DRAFT_SCOPES: list[str] = [
     "business_knowledge:read",
     "project:read",
+    "user:read",
     "event_definition:read",
     "property_definition:read",
     "feature_flag:read",
@@ -122,6 +127,16 @@ BASE_DRAFT_SCOPES: list[str] = [
 # Typed as a bare Literal (not oauth.McpScopePreset) to keep this module import-free of
 # Django/ORM -- it's loaded inside the Temporal workflow sandbox via pipeline.py.
 DIAGNOSTIC_SCOPES_PRESET: Literal["read_only"] = "read_only"
+
+# MCP tools that user:read unlocks. The draft token acts as an org member, not the ticket
+# author, so these tools would expose that member's email, reminders, and spend to a reply.
+SUPPORT_HIDDEN_USER_TOOLS: tuple[str, ...] = (
+    "user-get",
+    "user-home-settings-get",
+    "reminders-list",
+    "reminder-get",
+    "llma-personal-spend",
+)
 
 # Sandbox agent model for the draft step. Must be in the LLM gateway `conversations`
 # product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) — support-reply
