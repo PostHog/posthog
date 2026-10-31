@@ -1,17 +1,20 @@
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
     AlertContent,
-    HealthCheck,
     Remediation,
     SignalContent,
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
+from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
+from posthog.temporal.health_checks.rollups.freshness import RollupWindow
+
+from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
+from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
 NO_PAGELEAVE_LOOKBACK_DAYS = 30
 NO_PAGELEAVE_SQL = """
@@ -26,14 +29,16 @@ HAVING countIf(event = '$pageview') > 0
 """
 
 
-class NoPageleaveEventsCheck(HealthCheck):
+class NoPageleaveEventsCheck(RollupHealthCheck):
     name = "no_pageleave_events"
     kind = "no_pageleave_events"
     owner = JobOwners.TEAM_WEB_ANALYTICS
     product = Product.WEB_ANALYTICS
-    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "30 3 * * *"
     active_since_days = 30
+    reads_rollup = False
+    rollup_model = EventsHealthDaily
+    window_days = NO_PAGELEAVE_LOOKBACK_DAYS
     remediation = Remediation(
         human="""
             Open the Web analytics health page. The fix is almost always on the SDK side — make sure you're
@@ -74,23 +79,27 @@ class NoPageleaveEventsCheck(HealthCheck):
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
-    def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+    def detect_from_rollup(self, team_ids: list[int], window: RollupWindow) -> dict[int, list[HealthCheckResult]]:
+        return {
+            team_id: [_no_pageleave_result()]
+            for team_id, totals in events_health_totals(team_ids, window).items()
+            if totals.pageviews > 0 and totals.pageleaves == 0
+        }
+
+    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(
             NO_PAGELEAVE_SQL,
             team_ids=team_ids,
             lookback_days=NO_PAGELEAVE_LOOKBACK_DAYS,
         )
+        return {team_id: [_no_pageleave_result()] for (team_id,) in rows}
 
-        issues: dict[int, list[HealthCheckResult]] = {}
-        for (team_id,) in rows:
-            issues[team_id] = [
-                HealthCheckResult(
-                    severity=HealthIssue.Severity.WARNING,
-                    payload={
-                        "reason": f"Team has $pageview events but no $pageleave events in last {NO_PAGELEAVE_LOOKBACK_DAYS} days"
-                    },
-                    hash_keys=[],
-                )
-            ]
 
-        return issues
+def _no_pageleave_result() -> HealthCheckResult:
+    return HealthCheckResult(
+        severity=HealthIssue.Severity.WARNING,
+        payload={
+            "reason": f"Team has $pageview events but no $pageleave events in last {NO_PAGELEAVE_LOOKBACK_DAYS} days"
+        },
+        hash_keys=[],
+    )

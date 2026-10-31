@@ -23,13 +23,16 @@ const toolbarPublicPathOverride = process.env.TOOLBAR_PUBLIC_PATH
 // will silently return undefined — keep shims in sync when connect contracts change.
 const shimmedModules = {
     'scenes/userLogic': 'src/toolbar/shared/shims/userLogic.ts',
-    'scenes/organization/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
+    'models/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
     'scenes/sceneLogic': 'src/toolbar/shared/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shared/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shared/shims/featureFlagLogic.ts',
     // Survey question labels load from an authenticated endpoint the toolbar can't reach, so
     // the shim keeps its shared consumers (PropertyKeyInfo, taxonomy helpers) out of the app zone.
     'scenes/surveys/surveyQuestionLabelsLogic': 'src/toolbar/shared/shims/surveyQuestionLabelsLogic.ts',
+    // The flag overview reads the feature flags API, which the toolbar can't reach, so the shim
+    // keeps PropertyKeyInfo out of the app zone.
+    'products/feature_flags/frontend/featureFlagSummaryLogic': 'src/toolbar/shared/shims/featureFlagSummaryLogic.ts',
     // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/shared/urls.ts).
     // Toolbar code imports it directly; this entry covers lib/ components shared with the
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull

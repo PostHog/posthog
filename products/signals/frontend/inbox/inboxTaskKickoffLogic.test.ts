@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -24,7 +25,6 @@ import {
     FREE_TRIAL_PR_DISABLED_REASON,
     FIX_CI_REQUEST,
     MERGE_PR_REQUEST,
-    REPORT_AI_PANEL,
     REPORT_AI_PANEL_ID,
     buildCreatePrReportPrompt,
     buildDiscussReportPrompt,
@@ -430,6 +430,27 @@ describe('inboxTaskKickoffLogic', () => {
                 taskId: 'other-task',
                 runId: 'other-run',
             })
+        })
+
+        it('releases a warm still in flight when another report opens its task', async () => {
+            const otherReport = makeReport({ id: 'report-other', status: SignalReportStatus.READY })
+            let settleWarm!: () => void
+            warmGate = new Promise<void>((resolve) => {
+                settleWarm = resolve
+            })
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            logic.actions.alignReportDiscussion(otherReport, 'https://example.com/other')
+            logic.actions.openReportTask(otherReport, 'other-task', 'other-run')
+            warmGate = null
+            settleWarm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(cancelledRuns).toEqual([
+                { taskId: 'warm-task', runId: 'warm-run', body: { only_if_awaiting_first_message: true } },
+            ])
+            expect(logic.values.reportWarmLease).toBeNull()
         })
 
         it('keeps the warm when the same report reopens before its warm settles', async () => {

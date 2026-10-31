@@ -29,6 +29,7 @@ export const APP_SERVER_METHODS = {
   THREAD_GOAL_GET: "thread/goal/get",
   THREAD_GOAL_CLEAR: "thread/goal/clear",
   THREAD_LIST: "thread/list",
+  THREAD_COMPACT_START: "thread/compact/start",
 } as const;
 
 export const APP_SERVER_NOTIFICATIONS = {

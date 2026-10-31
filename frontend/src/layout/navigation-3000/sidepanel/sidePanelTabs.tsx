@@ -10,8 +10,8 @@ import { SidePanelActivityIcon } from './panels/activity/SidePanelActivityIcon'
 import { SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussionIcon'
 import { SidePanelExportsIcon } from './panels/exports/SidePanelExportsIcon'
 import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
-import { SidePanelMax } from './panels/max/SidePanelMax'
 
+const SidePanelMax = lazyWithRetry(() => import('./panels/max/SidePanelMax').then((m) => ({ default: m.SidePanelMax })))
 const NotebookPanel = lazyWithRetry(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
 )

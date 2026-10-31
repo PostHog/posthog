@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
@@ -17,19 +17,54 @@ const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120
 /** A single column stays card-sized rather than stretching one poster across the whole scene. */
 const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
 
+function CardSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3 rounded-lg border bg-surface-primary p-4">
+            <LemonSkeleton className="h-5 w-1/2" />
+            <div className="flex flex-col gap-1.5">
+                <LemonSkeleton className="h-4 w-full" />
+                <LemonSkeleton className="h-4 w-3/4" />
+            </div>
+            <LemonSkeleton className="h-3 w-2/3" />
+            <LemonSkeleton className="aspect-video w-full rounded-md" />
+            <LemonSkeleton className="h-4 w-1/3" />
+        </div>
+    )
+}
+
 function FeedSkeleton(): JSX.Element {
     return (
         <div className={clsx(FEED_WIDTH, FEED_GRID)} aria-busy>
             {[0, 1, 2, 3].map((i) => (
-                <LemonSkeleton key={i} className="h-80 rounded-lg" />
+                <CardSkeleton key={i} />
             ))}
         </div>
     )
 }
 
+/** Reads the column count the grid's container queries chose; call it from inside the grid so it remounts with it. */
+function useGridColumns(grid: RefObject<HTMLElement>): number {
+    const [columns, setColumns] = useState(1)
+    // Measured before paint, so the first frame already shows the right number of placeholders.
+    useLayoutEffect(() => {
+        const element = grid.current
+        if (!element) {
+            return
+        }
+        const measure = (): void =>
+            setColumns(Math.max(1, getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length))
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [grid])
+    return columns
+}
+
 /** Loads the next page as the reader nears the end, and closes the feed once the ranking runs out. */
-function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
+function FeedEnd({ itemCount, grid }: { itemCount: number; grid: RefObject<HTMLElement> }): JSX.Element | null {
     const { feedHasMore, feedItemsLoading, feedMoreFailed } = useValues(highlightFeedLogic)
+    const columns = useGridColumns(grid)
     const { loadMoreFeed } = useActions(highlightFeedLogic)
     // Starts the request a little before the end is on screen, so a steady scroll rarely waits.
     const { ref, inView } = useInView({ rootMargin: '600px 0px' })
@@ -51,10 +86,16 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
         )
     }
     if (feedHasMore) {
+        // Fills the rest of the last row, or a whole new row when it is full, where the next cards will land.
+        const placeholders = columns - (itemCount % columns)
         return (
-            <div ref={ref} aria-busy>
-                <LemonSkeleton className="h-80 rounded-lg" />
-            </div>
+            <>
+                {Array.from({ length: placeholders }, (_, index) => (
+                    <div key={index} ref={index === 0 ? ref : undefined} aria-busy>
+                        <CardSkeleton />
+                    </div>
+                ))}
+            </>
         )
     }
     return itemCount > 3 ? (
@@ -65,9 +106,10 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
 }
 
 export function HighlightFeedTab(): JSX.Element {
-    const { feedItems, feedItemsLoading, feedReloading, feedLoad, feedFailed, dateFrom, emptyReason } =
+    const { feedItems, feedItemsLoading, feedReloading, feedFailed, dateFrom, emptyReason } =
         useValues(highlightFeedLogic)
     const { loadFeed } = useActions(highlightFeedLogic)
+    const gridRef = useRef<HTMLDivElement>(null)
 
     const items = feedItems ?? []
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
@@ -114,6 +156,7 @@ export function HighlightFeedTab(): JSX.Element {
                     )}
                     {items.length > 0 ? (
                         <div
+                            ref={gridRef}
                             className={clsx(FEED_GRID, 'transition-opacity', feedReloading && 'opacity-40')}
                             aria-busy={feedReloading}
                             // `inert` keeps the stale cards out of keyboard reach; React 18 types lack the attribute.
@@ -127,13 +170,10 @@ export function HighlightFeedTab(): JSX.Element {
                                 </p>
                             )}
                             {items.map((item, index) => (
-                                <HighlightFeedRow
-                                    key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
-                                    item={item}
-                                    position={index}
-                                />
+                                // Keyed by the observation alone, so a card that stays across a reload keeps its loaded poster.
+                                <HighlightFeedRow key={item.observation.id} item={item} position={index} />
                             ))}
-                            <FeedEnd itemCount={items.length} />
+                            <FeedEnd itemCount={items.length} grid={gridRef} />
                         </div>
                     ) : feedFailed ? null : emptyReason ? (
                         <div className="mx-auto w-full max-w-xl">

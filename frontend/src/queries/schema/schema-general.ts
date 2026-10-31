@@ -167,6 +167,7 @@ export enum NodeKind {
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
     MarketingAnalyticsSearchQuery = 'MarketingAnalyticsSearchQuery',
+    MarketingAnalyticsRecommendationsQuery = 'MarketingAnalyticsRecommendationsQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -256,6 +257,7 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
     | MarketingAnalyticsSearchQuery
+    | MarketingAnalyticsRecommendationsQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -375,6 +377,7 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
     | MarketingAnalyticsSearchQuery
+    | MarketingAnalyticsRecommendationsQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -1477,6 +1480,10 @@ export interface ChartSettingsDisplay {
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
+    excludeFromTotal?: boolean
+    /** Overrides the chart's "Show values on series" for this series. Unset or 'auto' follows the chart setting. */
+    valueLabels?: 'auto' | 'show' | 'hide'
 }
 
 export interface HeatmapGradientStop {
@@ -3378,9 +3385,62 @@ export interface AccountsTableRow {
 
 export type CachedAccountsTableQueryResponse = CachedQueryResponse<AccountsTableQueryResponse>
 
+export type AccountsTableCustomPropertyDisplayType =
+    | 'text'
+    | 'link'
+    | 'number'
+    | 'currency'
+    | 'percent'
+    | 'date'
+    | 'datetime'
+    | 'boolean'
+    | 'select'
+
+export interface AccountsTableCustomPropertySource {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyOption {
+    id?: string | null
+    label: string
+    color: string
+}
+
+export interface AccountsTableCustomPropertyDefinition {
+    id: string
+    name: string
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayType
+    is_big_number?: boolean
+    is_canonical: boolean
+    has_workflow_reference: boolean
+    source?: AccountsTableCustomPropertySource | null
+    options?: AccountsTableCustomPropertyOption[] | null
+}
+
+export interface AccountsTableRelationshipDefinition {
+    id: string
+    name: string
+    description?: string | null
+    is_single_holder?: boolean
+    is_controlled: boolean
+}
+
+/** @discriminator kind */
+export type AccountsTableResolvedColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
+
 export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
     kind: NodeKind.AccountsTableQuery
     results: AccountsTableRow[]
+    columns?: AccountsTableResolvedColumn[]
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[]
+    relationshipDefinitions?: AccountsTableRelationshipDefinition[]
     hasMore: boolean
     limit: integer
     offset: integer
@@ -3396,6 +3456,9 @@ export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse>
     includeIgnored?: boolean
     /** Columns to load for each account. Account identity fields are always returned. */
     columns: AccountsTableColumn[]
+    useDefaultColumns?: boolean
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?: AccountsTableFilter[]
     /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
@@ -5323,6 +5386,8 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
+export type SpanHealthStatus = 'silent' | 'regressed' | 'degraded' | 'new' | 'recovered' | 'improved' | 'ok'
+
 /** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
 export interface AggregatedSpanRow {
     service_name: string
@@ -5340,6 +5405,10 @@ export interface AggregatedSpanRow {
     users?: integer
     spans_with_session_id?: integer
     spans_with_distinct_id?: integer
+    /** Set only when the query asked for `includeHealth`. Same statuses as the service health check. */
+    health_status?: SpanHealthStatus
+    /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
+    health_reason?: string
 }
 
 export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
@@ -5351,6 +5420,16 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
     serviceNames?: string[]
     /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
     includeImpact?: boolean
+    /**
+     * Group HTTP server spans by `METHOD route` in place of the span name. Spans without a route keep their name.
+     * Spans that are not HTTP server spans are left out.
+     */
+    groupByEndpoint?: boolean
+    /**
+     * Classify each row against the comparison window, or the previous period when `compareFilter` is off.
+     * Fills `health_status` and `health_reason`. Runs a second window query.
+     */
+    includeHealth?: boolean
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
@@ -6484,6 +6563,8 @@ export interface ExperimentExposureHealthFinding {
     code: ExperimentExposureHealthFindingCode
     /** The case within the code, when a code covers several. Null when the code has one case. */
     subcode: string | null
+    /** A stable qualifier below the subcode, for example where a sample ratio mismatch is located. Null when the finding names none. */
+    reason: string | null
     /** How much the problem affects the results: critical, warning, or info. */
     severity: ExperimentExposureHealthFindingSeverity
     /** One-line summary of the problem. */
@@ -6938,6 +7019,12 @@ export interface ResolvedDateRangeResponse {
     date_from: string
     /**  @format date-time */
     date_to: string
+    /**
+     * The earliest timestamp the query reads, when only its first interval depends on rows from before date_from.
+     * Lifecycle sets it to the start of the interval before the range.
+     * @format date-time
+     */
+    read_from?: string
 }
 
 export type MultipleBreakdownType =
@@ -8039,8 +8126,12 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
      * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
     precomputeNotReady?: boolean
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or
+     * later. It is the oldest stamp among the precompute windows that hold that day, across costs and
+     * conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -8052,8 +8143,12 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
      * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
     precomputeNotReady?: boolean
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or
+     * later. It is the oldest stamp among the precompute windows that hold that day, across costs and
+     * conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
@@ -8439,6 +8534,80 @@ export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryRes
 }
 
 export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>
+
+export type MarketingAnalyticsRecommendationsSourceType = 'GoogleAds' | 'GoogleSearchConsole'
+
+export interface MarketingAnalyticsRecommendationsSource {
+    sourceType: MarketingAnalyticsRecommendationsSourceType
+    /** Google Ads campaign table. */
+    campaignTable?: string
+    /** Google Ads daily campaign stats table. */
+    campaignStatsTable?: string
+    /** Google Ads daily campaign impression share table. */
+    campaignImpressionShareTable?: string
+    /** Google Ads customer table, used for the account currency. */
+    customerTable?: string
+    /** Google Ads search term table for Search campaigns. */
+    searchTermTable?: string
+    /** Google Ads search term table split by the keyword that matched each term. */
+    searchTermKeywordTable?: string
+    /** Google Ads search term table for Performance Max campaigns. */
+    performanceMaxSearchTermTable?: string
+    /** Google Search Console table with one row per query, or per query and page. */
+    queryTable?: string
+    /** Google Search Console sites table, used to infer the brand name. */
+    sitesTable?: string
+}
+
+export interface MarketingAnalyticsRecommendationsQuery extends DataNode<MarketingAnalyticsRecommendationsQueryResponse> {
+    kind: NodeKind.MarketingAnalyticsRecommendationsQuery
+    dateRange?: DateRange
+    /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
+    sources?: MarketingAnalyticsRecommendationsSource[]
+}
+
+export type MarketingAnalyticsRecommendationRule =
+    | 'budget_constrained'
+    | 'brand_leak'
+    | 'scale_campaign'
+    | 'review_campaign'
+    | 'policy_limited'
+    | 'brand_overlap'
+    | 'content_gap'
+    | 'keyword_gap'
+    | 'spend_without_conversions'
+    | 'striking_distance'
+
+export type MarketingAnalyticsRecommendationLevel = 'campaign' | 'search_term'
+
+export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 'invest' | 'keep'
+
+export type MarketingAnalyticsRecommendationImpactType = 'measured' | 'estimated'
+
+export interface MarketingAnalyticsRecommendation {
+    rule: MarketingAnalyticsRecommendationRule
+    level: MarketingAnalyticsRecommendationLevel
+    /** The campaign name or the search term the recommendation is about. */
+    subject: string
+    /** The campaign a search term recommendation applies to, when it applies to one. */
+    campaign?: string | null
+    action: string
+    reason: string
+    /** Monthly money impact in the account currency. Null when the rule has no money impact. */
+    impact?: number | null
+    impactDirection: MarketingAnalyticsRecommendationImpactDirection
+    impactType: MarketingAnalyticsRecommendationImpactType
+    currency?: string | null
+}
+
+export interface MarketingAnalyticsRecommendationsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsRecommendation[]
+    /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
+    disclaimer: string
+}
+
+export type CachedMarketingAnalyticsRecommendationsQueryResponse =
+    CachedQueryResponse<MarketingAnalyticsRecommendationsQueryResponse>
 
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string

@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
@@ -173,6 +173,7 @@ const quota: VisionQuotaApi = {
     exhausted: false,
     projected_monthly_credits: 5200,
     scanners_monthly_credits: 5200,
+    scanners_period_credits: 3467,
     backfills_committed_credits: 0,
     free_monthly_credits: 2500,
     credits_settled: 2400,
@@ -1299,15 +1300,6 @@ export const MonitorOverview: StoryObj = {
     decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
 }
 
-// A scanner with legacy experiment targeting points its owner to an experiment scanner.
-export const MonitorOverviewLegacyTargeting: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(monitorOverviewScanner.id),
-        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
-    },
-    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
-}
-
 // Expensive filters stretch the sweep to its hourly ceiling, so the status strip reports it as throttled.
 export const ScannerStatusThrottled: StoryObj = {
     parameters: { pageUrl: urls.replayVision(summarizerScanner.id) },
@@ -1885,6 +1877,14 @@ export const ScannerEditorBudget: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
 
+// The recordings-first experiment arm only applies while creating, so this story starts a new scanner.
+export const ScannerEditorTriggersRecordingsFirst: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTriggers('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test' },
+    },
+}
+
 export const ObservationDetail: StoryObj = {
     parameters: { pageUrl: urls.replayVisionObservation(observationDetail.id) },
 }
@@ -2012,6 +2012,7 @@ const goalDraft: DraftScannerResponseApi = {
             },
         ],
     },
+    query_additions: null,
     sampling_mode: 'comprehensive',
     sampling_rate: 0.25,
     model: 'gemini-3-flash-preview',
@@ -2022,7 +2023,53 @@ const goalDraft: DraftScannerResponseApi = {
 
 // The landing step after a goal draft: the whole config ordered by comprehension, each section
 // deep-linking into the wizard step that edits it. Seeded through the same action the loader fires.
+const seedGoalOverviewDraft: Decorator = (StoryFn) => {
+    const logic = replayScannerLogic({ id: 'new' })
+    logic.mount()
+    // The success listener's stale-navigation guard sees the overview URL and skips its own
+    // reset + redirect, so only the goalDraft reducer applies; the form is seeded by hand.
+    logic.actions.draftScannerFromGoalSuccess(goalDraft)
+    logic.actions.setScannerValues({
+        name: goalDraft.name,
+        description: goalDraft.description,
+        scanner_type: goalDraft.scanner_type as ScannerType,
+        scanner_config: goalDraft.scanner_config as ScannerConfig,
+        query: goalDraft.query as RecordingsQuery,
+        sampling_mode: goalDraft.sampling_mode as SamplingMode,
+        sampling_rate: goalDraft.sampling_rate ?? 1,
+    })
+    return <StoryFn />
+}
+
 export const ScannerEditorGoalOverview: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [seedGoalOverviewDraft],
+}
+
+// The recordings-first experiment arm reviews the eligible recordings before the prompt.
+export const ScannerEditorGoalOverviewRecordingsFirst: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test' },
+    },
+    decorators: [seedGoalOverviewDraft],
+}
+
+const addedBillingEvent = { id: 'billing_limit_set', name: 'billing_limit_set', type: 'events', order: 0 }
+
+const goalDraftFromReplayFilters: DraftScannerResponseApi = {
+    ...goalDraft,
+    query: {
+        kind: 'RecordingsQuery',
+        properties: [{ type: 'recording', key: 'visited_page', value: ['/checkout'], operator: 'icontains' }],
+        events: [addedBillingEvent],
+    },
+    query_additions: { kind: 'RecordingsQuery', events: [addedBillingEvent] },
+}
+
+export const ScannerEditorGoalOverviewFromReplayFilters: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
     },
@@ -2030,17 +2077,15 @@ export const ScannerEditorGoalOverview: StoryObj = {
         (StoryFn) => {
             const logic = replayScannerLogic({ id: 'new' })
             logic.mount()
-            // The success listener's stale-navigation guard sees the overview URL and skips its own
-            // reset + redirect, so only the goalDraft reducer applies; the form is seeded by hand.
-            logic.actions.draftScannerFromGoalSuccess(goalDraft)
+            logic.actions.draftScannerFromGoalSuccess(goalDraftFromReplayFilters)
             logic.actions.setScannerValues({
-                name: goalDraft.name,
-                description: goalDraft.description,
-                scanner_type: goalDraft.scanner_type as ScannerType,
-                scanner_config: goalDraft.scanner_config as ScannerConfig,
-                query: goalDraft.query as RecordingsQuery,
-                sampling_mode: goalDraft.sampling_mode as SamplingMode,
-                sampling_rate: goalDraft.sampling_rate ?? 1,
+                name: goalDraftFromReplayFilters.name,
+                description: goalDraftFromReplayFilters.description,
+                scanner_type: goalDraftFromReplayFilters.scanner_type as ScannerType,
+                scanner_config: goalDraftFromReplayFilters.scanner_config as ScannerConfig,
+                query: goalDraftFromReplayFilters.query as RecordingsQuery,
+                sampling_mode: goalDraftFromReplayFilters.sampling_mode as SamplingMode,
+                sampling_rate: goalDraftFromReplayFilters.sampling_rate ?? 1,
             })
             return <StoryFn />
         },

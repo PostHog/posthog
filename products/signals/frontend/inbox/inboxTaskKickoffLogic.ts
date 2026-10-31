@@ -13,6 +13,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -46,7 +47,6 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
-import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -61,7 +61,6 @@ import {
     reportPullRequests,
 } from './utils/reportPullRequests'
 
-export const REPORT_AI_PANEL = 'inbox-report'
 export const REPORT_AI_PANEL_ID = 'max-side-panel'
 
 const OPTIMISTIC_REPORT_STREAM = 'optimistic-report-stream'
@@ -487,6 +486,13 @@ export interface inboxTaskKickoffLogicActions {
     setSidePanelOptions: (options: string | null) => {
         options: string | null
     } // sidePanelStateLogic
+    alignReportDiscussion: (
+        report: SignalReport,
+        reportUrl: string
+    ) => {
+        report: SignalReport
+        reportUrl: string
+    }
     createPrFailure: () => {
         value: true
     }
@@ -612,6 +618,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     })),
 
     actions({
+        alignReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportDiscussion: (report: SignalReport, reportUrl: string) => ({ report, reportUrl }),
         openReportTask: (report: SignalReport, taskId: string, runId: string, streamKey?: string) => ({
             report,
@@ -654,7 +661,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         reportChatContext: [
             null as ReportChatContext | null,
             {
-                openReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
+                alignReportDiscussion: (_, { report, reportUrl }) => ({ report, reportUrl }),
                 openReportTask: (_, { report }) => ({
                     report,
                     reportUrl: `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`,
@@ -730,10 +737,17 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
     }),
 
     listeners(({ actions, cache, values }) => ({
-        openReportDiscussion: ({ report }) => {
+        alignReportDiscussion: ({ report }) => {
             cache.disposables.dispose(OPTIMISTIC_REPORT_STREAM)
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
+            const warmReportIds = [values.reportWarmLease?.reportId, cache.warmingReportId, cache.pendingWarmReport?.id]
+            if (warmReportIds.some((id) => id && id !== report.id)) {
+                actions.releaseReportDiscussionWarm()
+            }
+        },
+        openReportDiscussion: ({ report, reportUrl }) => {
+            actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
                 actions.warmReportDiscussion(report)
@@ -969,6 +983,16 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback }) => {
+            // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
+            const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
+                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                return null
+            })
+            if (!githubAccess) {
+                actions.createPrFailure()
+                return
+            }
+            const { reportGithubAccessLogic } = githubAccess
             const disabledReason =
                 values.createPrDisabledReason ??
                 (
