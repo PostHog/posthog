@@ -186,6 +186,32 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("property", "msclkid", {"msclkid": "m1"}, ("m1", True)),
+            ("url_only", "irclickid", {"$current_url": "https://example.com/?irclickid=ic1"}, ("ic1", True)),
+            ("missing", "msclkid", {"gclid": "g1"}, (None, False)),
+        ]
+    )
+    def test_entry_ad_id_value(self, _name, ad_id, properties, expected):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={**properties, "$session_id": session_id},
+        )
+
+        response = self.__execute(
+            parse_select(
+                f"select $entry_{ad_id}, $entry_{ad_id} IS NOT NULL from sessions where session_id = {{session_id}}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual((response.results or [])[0], expected)
+
+    @parameterized.expand(
+        [
             (
                 "utm_only_in_url",
                 [("$pageview", 0, {"$current_url": "https://example.com/?utm_source=newsletter&utm_campaign=fall"})],

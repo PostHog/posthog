@@ -446,6 +446,84 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestSessionsV3.test_entry_ad_id_value_0_property
+  '''
+  SELECT sessions.`$entry_msclkid` AS `$entry_msclkid`,
+         isNotNull(sessions.`$entry_msclkid`)
+  FROM
+    (SELECT nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'msclkid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'msclkid=', ''), '') AS `$entry_msclkid`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE equals(sessions.session_id, '00000000-0000-0000-0000-000000000000')
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestSessionsV3.test_entry_ad_id_value_1_url_only
+  '''
+  SELECT sessions.`$entry_irclickid` AS `$entry_irclickid`,
+         isNotNull(sessions.`$entry_irclickid`)
+  FROM
+    (SELECT nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'irclickid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'irclickid=', ''), '') AS `$entry_irclickid`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE equals(sessions.session_id, '00000000-0000-0000-0000-000000000000')
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestSessionsV3.test_entry_ad_id_value_2_missing
+  '''
+  SELECT sessions.`$entry_msclkid` AS `$entry_msclkid`,
+         isNotNull(sessions.`$entry_msclkid`)
+  FROM
+    (SELECT nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'msclkid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'msclkid=', ''), '') AS `$entry_msclkid`,
+            toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions_v3.session_id_v7, 64), bitShiftRight(raw_sessions_v3.session_id_v7, 64)))) AS session_id,
+            raw_sessions_v3.session_id_v7 AS session_id_v7
+     FROM raw_sessions_v3
+     WHERE and(equals(raw_sessions_v3.team_id, 99999), equals(raw_sessions_v3.session_timestamp, fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), 80)))))
+     GROUP BY raw_sessions_v3.session_id_v7) AS sessions
+  WHERE equals(sessions.session_id, '00000000-0000-0000-0000-000000000000')
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestSessionsV3.test_entry_utm_and_channel_type_across_events_0_utm_only_in_url
   '''
   SELECT sessions.`$entry_utm_source` AS `$entry_utm_source`,
@@ -1010,73 +1088,73 @@
             arrayDistinct(arrayFlatten(groupArray(raw_sessions_v3.hosts))) AS `$hosts`,
             arrayDistinct(arrayFlatten(groupArray(raw_sessions_v3.emails))) AS `$emails`,
             max(raw_sessions_v3.has_replay_events) AS `$has_replay_events`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'gclsrc='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'gclsrc=', '') AS `$entry_gclsrc`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'gclsrc='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'gclsrc=', ''), '') AS `$entry_gclsrc`,
             arrayExists(x -> startsWith(x, 'gclsrc='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_gclsrc`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'dclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'dclid=', '') AS `$entry_dclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'dclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'dclid=', ''), '') AS `$entry_dclid`,
             arrayExists(x -> startsWith(x, 'dclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_dclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'gbraid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'gbraid=', '') AS `$entry_gbraid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'gbraid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'gbraid=', ''), '') AS `$entry_gbraid`,
             arrayExists(x -> startsWith(x, 'gbraid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_gbraid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'wbraid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'wbraid=', '') AS `$entry_wbraid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'wbraid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'wbraid=', ''), '') AS `$entry_wbraid`,
             arrayExists(x -> startsWith(x, 'wbraid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_wbraid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'gad_campaignid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'gad_campaignid=', '') AS `$entry_gad_campaignid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'gad_campaignid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'gad_campaignid=', ''), '') AS `$entry_gad_campaignid`,
             arrayExists(x -> startsWith(x, 'gad_campaignid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_gad_campaignid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'srsltid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'srsltid=', '') AS `$entry_srsltid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'srsltid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'srsltid=', ''), '') AS `$entry_srsltid`,
             arrayExists(x -> startsWith(x, 'srsltid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_srsltid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'msclkid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'msclkid=', '') AS `$entry_msclkid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'msclkid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'msclkid=', ''), '') AS `$entry_msclkid`,
             arrayExists(x -> startsWith(x, 'msclkid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_msclkid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'twclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'twclid=', '') AS `$entry_twclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'twclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'twclid=', ''), '') AS `$entry_twclid`,
             arrayExists(x -> startsWith(x, 'twclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_twclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'li_fat_id='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'li_fat_id=', '') AS `$entry_li_fat_id`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'li_fat_id='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'li_fat_id=', ''), '') AS `$entry_li_fat_id`,
             arrayExists(x -> startsWith(x, 'li_fat_id='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_li_fat_id`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'mc_cid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'mc_cid=', '') AS `$entry_mc_cid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'mc_cid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'mc_cid=', ''), '') AS `$entry_mc_cid`,
             arrayExists(x -> startsWith(x, 'mc_cid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_mc_cid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'igshid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'igshid=', '') AS `$entry_igshid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'igshid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'igshid=', ''), '') AS `$entry_igshid`,
             arrayExists(x -> startsWith(x, 'igshid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_igshid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'ttclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'ttclid=', '') AS `$entry_ttclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'ttclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'ttclid=', ''), '') AS `$entry_ttclid`,
             arrayExists(x -> startsWith(x, 'ttclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_ttclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'rdt_cid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'rdt_cid=', '') AS `$entry_rdt_cid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'rdt_cid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'rdt_cid=', ''), '') AS `$entry_rdt_cid`,
             arrayExists(x -> startsWith(x, 'rdt_cid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_rdt_cid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'epik='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'epik=', '') AS `$entry_epik`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'epik='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'epik=', ''), '') AS `$entry_epik`,
             arrayExists(x -> startsWith(x, 'epik='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_epik`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'qclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'qclid=', '') AS `$entry_qclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'qclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'qclid=', ''), '') AS `$entry_qclid`,
             arrayExists(x -> startsWith(x, 'qclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_qclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'sccid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'sccid=', '') AS `$entry_sccid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'sccid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'sccid=', ''), '') AS `$entry_sccid`,
             arrayExists(x -> startsWith(x, 'sccid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_sccid`,
-            replaceOne(arrayFirst(x -> startsWith(x, '_kx='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), '_kx=', '') AS `$entry__kx`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, '_kx='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), '_kx=', ''), '') AS `$entry__kx`,
             arrayExists(x -> startsWith(x, '_kx='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has__kx`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'irclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'irclid=', '') AS `$entry_irclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'irclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'irclid=', ''), '') AS `$entry_irclid`,
             arrayExists(x -> startsWith(x, 'irclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_irclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'irclickid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'irclickid=', '') AS `$entry_irclickid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'irclickid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'irclickid=', ''), '') AS `$entry_irclickid`,
             arrayExists(x -> startsWith(x, 'irclickid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_irclickid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'utm_id='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_id=', '') AS `$entry_utm_id`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'utm_id='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_id=', ''), '') AS `$entry_utm_id`,
             arrayExists(x -> startsWith(x, 'utm_id='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_utm_id`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'utm_source_platform='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_source_platform=', '') AS `$entry_utm_source_platform`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'utm_source_platform='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_source_platform=', ''), '') AS `$entry_utm_source_platform`,
             arrayExists(x -> startsWith(x, 'utm_source_platform='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_utm_source_platform`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'utm_creative_format='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_creative_format=', '') AS `$entry_utm_creative_format`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'utm_creative_format='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_creative_format=', ''), '') AS `$entry_utm_creative_format`,
             arrayExists(x -> startsWith(x, 'utm_creative_format='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_utm_creative_format`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'utm_marketing_tactic='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_marketing_tactic=', '') AS `$entry_utm_marketing_tactic`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'utm_marketing_tactic='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'utm_marketing_tactic=', ''), '') AS `$entry_utm_marketing_tactic`,
             arrayExists(x -> startsWith(x, 'utm_marketing_tactic='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_utm_marketing_tactic`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'yclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'yclid=', '') AS `$entry_yclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'yclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'yclid=', ''), '') AS `$entry_yclid`,
             arrayExists(x -> startsWith(x, 'yclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_yclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'tblci='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'tblci=', '') AS `$entry_tblci`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'tblci='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'tblci=', ''), '') AS `$entry_tblci`,
             arrayExists(x -> startsWith(x, 'tblci='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_tblci`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'dicbo='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'dicbo=', '') AS `$entry_dicbo`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'dicbo='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'dicbo=', ''), '') AS `$entry_dicbo`,
             arrayExists(x -> startsWith(x, 'dicbo='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_dicbo`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'ndclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'ndclid=', '') AS `$entry_ndclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'ndclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'ndclid=', ''), '') AS `$entry_ndclid`,
             arrayExists(x -> startsWith(x, 'ndclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_ndclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'cjevent='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'cjevent=', '') AS `$entry_cjevent`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'cjevent='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'cjevent=', ''), '') AS `$entry_cjevent`,
             arrayExists(x -> startsWith(x, 'cjevent='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_cjevent`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'awc='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'awc=', '') AS `$entry_awc`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'awc='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'awc=', ''), '') AS `$entry_awc`,
             arrayExists(x -> startsWith(x, 'awc='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_awc`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'syclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'syclid=', '') AS `$entry_syclid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'syclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'syclid=', ''), '') AS `$entry_syclid`,
             arrayExists(x -> startsWith(x, 'syclid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_syclid`,
-            replaceOne(arrayFirst(x -> startsWith(x, '_bhlid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), '_bhlid=', '') AS `$entry__bhlid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, '_bhlid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), '_bhlid=', ''), '') AS `$entry__bhlid`,
             arrayExists(x -> startsWith(x, '_bhlid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has__bhlid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'rtid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'rtid=', '') AS `$entry_rtid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'rtid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'rtid=', ''), '') AS `$entry_rtid`,
             arrayExists(x -> startsWith(x, 'rtid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_rtid`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'oppref='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'oppref=', '') AS `$entry_oppref`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'oppref='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'oppref=', ''), '') AS `$entry_oppref`,
             arrayExists(x -> startsWith(x, 'oppref='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_oppref`,
-            replaceOne(arrayFirst(x -> startsWith(x, 'bfcid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'bfcid=', '') AS `$entry_bfcid`,
+            nullIf(replaceOne(arrayFirst(x -> startsWith(x, 'bfcid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)), 'bfcid=', ''), '') AS `$entry_bfcid`,
             arrayExists(x -> startsWith(x, 'bfcid='), argMinMerge(raw_sessions_v3.entry_ad_ids_set)) AS `$entry_has_bfcid`,
             raw_sessions_v3.session_id_v7 AS session_id_v7
      FROM raw_sessions_v3
