@@ -354,6 +354,63 @@ const featureFlagGetDefinition = (): ToolBase<
     ),
 })
 
+const FeatureFlagRestoreSchema = () => {
+    const FeatureFlagsPartialUpdateBody = orvalSchemas.FeatureFlagsPartialUpdateBody()
+    const FeatureFlagsPartialUpdateParams = orvalSchemas.FeatureFlagsPartialUpdateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+        FeatureFlagsPartialUpdateParams.omit({ project_id: true })
+            .extend(
+                FeatureFlagsPartialUpdateBody.omit({
+                    ask_rollback_reason: true,
+                    rollback_reason: true,
+                    rollback_reason_note: true,
+                    key: true,
+                    name: true,
+                    filters: true,
+                    active: true,
+                    archived: true,
+                    tags: true,
+                    evaluation_contexts: true,
+                    is_remote_configuration: true,
+                    ensure_experience_continuity: true,
+                    evaluation_runtime: true,
+                    bucketing_identifier: true,
+                    version: true,
+                }).shape
+            )
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']) })
+    )
+}
+
+const featureFlagRestore = (): ToolBase<
+    ReturnType<typeof FeatureFlagRestoreSchema>,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-restore',
+    schema: FeatureFlagRestoreSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRestoreSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        body['deleted'] = false
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'key',
+            'active',
+            'archived',
+            'deleted',
+            'status',
+            'version',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
+    },
+})
+
 const FeatureFlagRollOutToEveryoneSchema = () => {
     const FeatureFlagsRollOutToEveryoneCreateBody = orvalSchemas.FeatureFlagsRollOutToEveryoneCreateBody()
     const FeatureFlagsRollOutToEveryoneCreateParams = orvalSchemas.FeatureFlagsRollOutToEveryoneCreateParams()
@@ -1151,6 +1208,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-enable': featureFlagEnable,
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
+    'feature-flag-restore': featureFlagRestore,
     'feature-flag-roll-out-to-everyone': featureFlagRollOutToEveryone,
     'feature-flag-rules-update': featureFlagRulesUpdate,
     'feature-flag-set-release-condition-rollout': featureFlagSetReleaseConditionRollout,
