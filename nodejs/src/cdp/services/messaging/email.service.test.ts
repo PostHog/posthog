@@ -286,11 +286,24 @@ describe('EmailService', () => {
                     `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
                 )
             })
-            it('should validate if the email domain is not verified', async () => {
+            it('skips a send from an unverified domain without SES or email_failed', async () => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 2 },
                 })
                 const result = await service.executeSendEmail(invocation)
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+                expect(result.skipped).toBe(true)
+                expect(result.emailSendResult?.status).toBe('skipped')
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_domain_unverified'])
+                expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
+            })
+            it('fails a test send from an unverified domain so the tester sees why', async () => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 2 },
+                })
+                const result = await service.executeSendEmail(invocation, true)
+                expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.error).toMatchInlineSnapshot(`"The selected email integration domain is not verified"`)
             })
             it('should send identical from and feedback forwarding args', async () => {

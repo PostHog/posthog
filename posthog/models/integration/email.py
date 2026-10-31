@@ -277,6 +277,29 @@ class EmailIntegration:
             on_domain_verified()
         self._reload_senders_on_workers(senders)
 
+    def mark_domain_unverified(self) -> list[model.Integration]:
+        """Stop every sender of this domain in the team. verify() sets them back to verified."""
+        with transaction.atomic():
+            senders = list(
+                model.Integration.objects.select_for_update()
+                .filter(
+                    team_id=self.integration.team_id,
+                    kind="email",
+                    config__domain=self.integration.config.get("domain"),
+                    config__provider=self.integration.config.get("provider", "ses"),
+                )
+                .order_by("id")
+            )
+            verified_senders = [sender for sender in senders if sender.config.get("verified")]
+            for sender in verified_senders:
+                sender.config["verified"] = False
+                sender.save(update_fields=["config"])
+
+        self.integration.config["verified"] = False
+        if verified_senders:
+            self._reload_senders_on_workers(verified_senders)
+        return verified_senders
+
     # Workers also refresh integrations on their own schedule, so a failed reload only delays sending.
     # Failing the request instead would hide a verification that is already saved.
     def _reload_senders_on_workers(self, senders: list[model.Integration]) -> None:

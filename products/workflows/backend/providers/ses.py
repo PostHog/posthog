@@ -877,6 +877,33 @@ class SESProvider:
             mail_from_domain=mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None,
         )
 
+    def find_domains_with_revoked_verification(self, domains: Iterable[str]) -> set[str]:
+        """Return the domains that SES no longer treats as verified.
+
+        SES sets the verification status to "Failed" when the verification record stays missing from
+        DNS. Only SES statuses decide here, never our own DNS lookups, because one failed lookup must
+        not stop the sends of a whole domain. A domain whose DKIM still succeeds is not returned, so
+        that one stale attribute alone does not stop a domain that SES still accepts.
+        """
+        revoked: set[str] = set()
+        try:
+            # Both reads accept at most 100 identities per call.
+            for batch in batched(sorted(set(domains)), 100, strict=False):
+                verification = self.ses_status_client.get_identity_verification_attributes(Identities=list(batch))[
+                    "VerificationAttributes"
+                ]
+                dkim = self.ses_status_client.get_identity_dkim_attributes(Identities=list(batch))["DkimAttributes"]
+                for domain in batch:
+                    verification_status = (verification.get(domain) or {}).get("VerificationStatus")
+                    dkim_status = (dkim.get(domain) or {}).get("DkimVerificationStatus")
+                    if verification_status == "Failed" and dkim_status != "Success":
+                        revoked.add(domain)
+        except (ClientError, BotoCoreError) as error:
+            raise EmailProviderUnavailableError(
+                "Could not read the SES verification state of the email domains"
+            ) from error
+        return revoked
+
     def update_mail_from_subdomain(self, domain: str, mail_from_subdomain: str):
         """
         Update the MAIL FROM subdomain for a given identity
