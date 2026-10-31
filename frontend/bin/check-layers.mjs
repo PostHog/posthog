@@ -120,12 +120,15 @@ if (fromReportIndex !== -1) {
     // Same naming as check-eager-graph: the CI bundle-size job measures the PR and then the base in one
     // workspace, so the sha-suffixed file keeps the PR's numbers and the plain file ends up with the base's.
     if (args.includes('--report-only')) {
+        const { added, fixed } = compareWithBaseline(current, readBaseline())
         const report = {
             sha: execSync('git rev-parse HEAD', { cwd: repoRoot, encoding: 'utf-8' }).trim(),
             layers: LAYERS,
             eagerBytes: eager,
             upward: current,
             eagerChains,
+            // The CI report shows the same verdict that fails the blocking layer check.
+            baseline: { added, fixed },
         }
         const serialized = JSON.stringify(report)
         fs.writeFileSync(path.join(repoRoot, 'frontend', 'layer-report.json'), serialized)
