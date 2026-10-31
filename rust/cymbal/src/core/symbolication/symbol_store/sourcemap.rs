@@ -55,16 +55,17 @@ const MAX_REDIRECTS: usize = 10;
 /// Hostnames are passed through, to be vetted at connect time by whichever layer owns that:
 /// `PublicIPv4Resolver` normally, or the egress proxy when one is configured.
 ///
-/// An out-of-band interaction domain is logged on the way past. That check is detection only,
-/// and it sits above the escape hatch below so a probe is recorded whatever
-/// `allow_internal_ips` says.
+/// An out-of-band interaction domain is refused on the way past. That check sits above the
+/// escape hatch below, so a probe is stopped whatever `allow_internal_ips` says.
 fn ensure_fetchable_host(
     url: &Url,
     allow_internal_ips: bool,
     team_id: Option<i32>,
 ) -> Result<(), JsResolveErr> {
     if let Some(host) = url.host_str() {
-        common_dns::oob_domains::note_oob_domain(host, "cymbal_sourcemap", team_id);
+        if common_dns::oob_domains::check_oob_domain(host, "cymbal_sourcemap", team_id).is_some() {
+            return Err(JsResolveErr::BlockedUrl(url.to_string()));
+        }
     }
 
     if allow_internal_ips {
@@ -1401,7 +1402,7 @@ mod test {
     }
 
     #[test]
-    fn ensure_fetchable_host_logs_an_out_of_band_domain_and_still_fetches_it() {
+    fn ensure_fetchable_host_refuses_an_out_of_band_domain() {
         for (raw, host, listed) in [
             ("https://x.oast.live/app.js", "x.oast.live", true),
             // IDNA maps the fullwidth form onto the ascii name the resolver queries.
@@ -1422,9 +1423,10 @@ mod test {
                 // A redirect hop passes None, so both shapes have to render correctly.
                 for team_id in [Some(4242), None] {
                     let logs = capture_oob_logs(|| {
-                        assert!(
-                            ensure_fetchable_host(&url, allow_internal_ips, team_id).is_ok(),
-                            "detection must not refuse {raw}"
+                        assert_eq!(
+                            ensure_fetchable_host(&url, allow_internal_ips, team_id).is_err(),
+                            listed,
+                            "unexpected verdict for {raw}"
                         );
                     });
                     let seen = logs.contains("security.oob_domain_seen")
