@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { formatCreditCount } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { type ReplayFiltersCreditCap, replayFiltersScannerLogic } from '../replayFiltersScannerLogic'
 import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
 import type { ReplayScanner } from '../types'
@@ -145,17 +145,22 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                         It pauses when they run out, so it never adds to your bill.
                     </div>
                 ) : (
-                    <LemonInput
-                        aria-label="Monthly credit cap"
-                        type="number"
-                        min={1}
-                        value={budget ?? undefined}
-                        onChange={(value) => setBudget(value ?? null)}
-                        suffix={<span className="text-secondary">credits a month</span>}
-                        size="small"
-                        className="w-56"
-                        data-attr="replay-filters-scanner-budget"
-                    />
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonInput
+                            aria-label="Monthly credit cap"
+                            type="number"
+                            min={1}
+                            value={budget ?? undefined}
+                            onChange={(value) => setBudget(value ?? null)}
+                            suffix={<span className="text-secondary">credits a month</span>}
+                            size="small"
+                            className="w-56"
+                            data-attr="replay-filters-scanner-budget"
+                        />
+                        {budget != null && budget > 0 ? (
+                            <span className="text-xs text-secondary">≈ {creditsToUsd(budget)} a month</span>
+                        ) : null}
+                    </div>
                 )}
             </div>
 
