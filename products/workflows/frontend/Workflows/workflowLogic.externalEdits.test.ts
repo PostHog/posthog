@@ -75,6 +75,25 @@ const withEmailSteps = (subjects: { welcome: string; followUp: string }, overrid
         ...overrides,
     })
 
+const chain = (...ids: string[]): HogFlow['edges'] =>
+    ids.slice(1).map((to, index) => ({ from: ids[index], to, type: 'continue' as const }))
+
+const withChainedSteps = (
+    stepIds: string[],
+    subject: (id: string) => string,
+    overrides: Partial<HogFlow> = {}
+): HogFlow =>
+    makeWorkflow({
+        actions: [...makeWorkflow().actions, ...stepIds.map((id) => emailStep(id, subject(id)))],
+        edges: chain('trigger_node', ...stepIds, 'exit_node'),
+        ...overrides,
+    })
+
+const danglingEdges = (workflow: HogFlow): HogFlow['edges'] => {
+    const stepIds = new Set(workflow.actions.map((action) => action.id))
+    return workflow.edges.filter((edge) => !stepIds.has(edge.from) || !stepIds.has(edge.to))
+}
+
 const subjectOf = (workflow: HogFlow, actionId: string): string | undefined =>
     (workflow.actions.find((action) => action.id === actionId)?.config as Record<string, any> | undefined)?.inputs
         ?.email?.value?.subject
@@ -92,6 +111,7 @@ const makeEvent = (overrides: Partial<ResourceEditedEvent> = {}): ResourceEdited
 describe('workflowLogic external edits', () => {
     let logic: ReturnType<typeof workflowLogic.build>
     let getCalls: number
+    let savedBodies: Record<string, any>[]
 
     const useWorkflowMock = (workflow: HogFlow): void => {
         useMocks({
@@ -102,11 +122,19 @@ describe('workflowLogic external edits', () => {
                 },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    savedBodies.push(body)
+                    return [200, { ...workflow, ...body }]
+                },
+            },
         })
     }
 
     beforeEach(async () => {
         getCalls = 0
+        savedBodies = []
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': () => {
@@ -128,7 +156,23 @@ describe('workflowLogic external edits', () => {
         expect(getCalls).toBe(1)
     })
 
-    afterEach(resumeKeaLoadersErrors)
+    afterEach(() => {
+        jest.useRealTimers()
+        resumeKeaLoadersErrors()
+    })
+
+    const reconcileExternalEdit = async (): Promise<void> => {
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+    }
+
+    const flushAutoSave = async (): Promise<Record<string, any>> => {
+        await jest.advanceTimersByTimeAsync(3500)
+        await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+        expect(savedBodies).toHaveLength(1)
+        return savedBodies[0]
+    }
 
     it('silently reconciles (sync + reload) when the local state is clean', async () => {
         await expectLogic(logic, () => {
@@ -160,17 +204,58 @@ describe('workflowLogic external edits', () => {
         const welcome = logic.values.workflow.actions.find((action) => action.id === 'welcome')!
         logic.actions.setWorkflowActionConfig('welcome', withSubject(welcome, 'Welcome, typed here').config)
         useWorkflowMock(withEmailSteps(server, { updated_at: NEWER }))
+        jest.useFakeTimers()
 
-        await expectLogic(logic, () => {
-            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
-        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+        await reconcileExternalEdit()
 
         expect(logic.values.externallyEdited).toBe(false)
         expect({
             welcome: subjectOf(logic.values.workflow, 'welcome'),
             followUp: subjectOf(logic.values.workflow, 'follow_up'),
         }).toEqual(expected)
-        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        const saved = await flushAutoSave()
+        expect(saved.base_updated_at).toBe(NEWER)
+        expect({
+            welcome: subjectOf(saved as HogFlow, 'welcome'),
+            followUp: subjectOf(saved as HogFlow, 'follow_up'),
+        }).toEqual(expected)
+    })
+
+    it.each([
+        {
+            label: 'the user typed into the step the server deleted',
+            editLocally: (l: ReturnType<typeof workflowLogic.build>): void => {
+                const welcome = l.values.workflow.actions.find((action) => action.id === 'welcome')!
+                l.actions.setWorkflowActionConfig('welcome', withSubject(welcome, 'Welcome, typed here').config)
+            },
+            server: withChainedSteps(['follow_up'], () => 'Follow-up rewritten elsewhere', { updated_at: NEWER }),
+            expectedEdges: chain('trigger_node', 'welcome', 'follow_up', 'exit_node'),
+        },
+        {
+            label: 'the user reordered steps while the server deleted one',
+            editLocally: (l: ReturnType<typeof workflowLogic.build>): void => {
+                l.actions.setWorkflowValue('edges', chain('trigger_node', 'follow_up', 'welcome', 'exit_node'))
+            },
+            server: withChainedSteps(['welcome'], () => 'Welcome', { updated_at: NEWER }),
+            expectedEdges: chain('trigger_node', 'follow_up', 'welcome', 'exit_node'),
+        },
+    ])('saves a connected graph when $label', async ({ editLocally, server, expectedEdges }) => {
+        useWorkflowMock(
+            withChainedSteps(['welcome', 'follow_up'], (id) => (id === 'welcome' ? 'Welcome' : 'Follow-up'))
+        )
+        logic.actions.loadWorkflow()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        editLocally(logic)
+        useWorkflowMock(server)
+        jest.useFakeTimers()
+
+        await reconcileExternalEdit()
+
+        const saved = (await flushAutoSave()) as HogFlow
+        expect(saved.edges).toEqual(expectedEdges)
+        expect(danglingEdges(saved)).toEqual([])
     })
 
     it('warns instead of clobbering when auto-save is off and there are unsaved local edits', async () => {
@@ -416,15 +501,23 @@ describe('workflowLogic external edits', () => {
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': () => {
                     getCalls += 1
-                    return [200, makeWorkflow()]
+                    return [200, makeWorkflow({ updated_at: NEWER })]
                 },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             patch: {
-                '/api/environments/:team_id/hog_flows/:id/': () => [409, { detail: 'stale_update' }],
+                '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    if (body.base_updated_at !== NEWER) {
+                        return [409, { detail: 'stale_update' }]
+                    }
+                    savedBodies.push(body)
+                    return [200, { ...makeWorkflow({ updated_at: NEWER }), ...body }]
+                },
             },
         })
         logic.actions.setWorkflowValue('name', 'Conflicting edit')
+        jest.useFakeTimers()
 
         await expectLogic(logic, () => {
             // The public shape of an auto-save: the autoSaveWorkflow listener marks the flight
@@ -436,7 +529,8 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.externallyEdited).toBe(false)
         expect(logic.values.isSyncingExternalEdit).toBe(false)
         expect(getCalls).toBe(2)
-        expect(logic.values.workflow.name).toBe('Conflicting edit')
-        expect(logic.values.hasUnsavedChanges).toBe(true)
+
+        const saved = await flushAutoSave()
+        expect(saved.name).toBe('Conflicting edit')
     })
 })

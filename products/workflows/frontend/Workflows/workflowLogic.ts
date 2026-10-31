@@ -245,27 +245,46 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
 
 /** What the user changed wins over the server copy; everything they left alone follows the server. */
 function rebaseWorkflowEdits(base: HogFlow, local: HogFlow, remote: HogFlow): Partial<HogFlow> {
-    const result: Record<string, unknown> = {}
+    const result: Record<string, unknown> = rebaseGraph(base, local, remote)
     for (const field of WORKFLOW_EDITABLE_FIELDS) {
-        if (objectsEqual(local[field], base[field])) {
+        if (field === 'actions' || field === 'edges' || objectsEqual(local[field], base[field])) {
             continue
         }
-        result[field] = field === 'actions' ? rebaseActions(base.actions, local.actions, remote.actions) : local[field]
+        result[field] = local[field]
     }
     return result as Partial<HogFlow>
 }
 
-function rebaseActions(base: HogFlowAction[], local: HogFlowAction[], remote: HogFlowAction[]): HogFlowAction[] {
-    // Steps added or removed locally reshape the graph with its edges, so the local list is kept whole.
-    if (!objectsEqual(base.map(stepId), local.map(stepId))) {
-        return local
+// Steps and edges reference each other, so they rebase together to keep the saved graph valid.
+function rebaseGraph(base: HogFlow, local: HogFlow, remote: HogFlow): Pick<Partial<HogFlow>, 'actions' | 'edges'> {
+    const editedById = editedStepsById(base, local)
+    const remoteById = new Map(remote.actions.map((action) => [action.id, action]))
+    const reshapedLocally = !hasSameShape(base, local)
+    if (!reshapedLocally && editedById.size === 0) {
+        return {}
     }
-    const baseById = new Map(base.map((action) => [action.id, action]))
-    const localById = new Map(local.map((action) => [action.id, action]))
-    return remote.map((action) => {
-        const edited = localById.get(action.id)
-        return edited && !objectsEqual(edited, baseById.get(action.id)) ? edited : action
-    })
+    if (!reshapedLocally && [...editedById.keys()].every((id) => remoteById.has(id))) {
+        return { actions: remote.actions.map((action) => editedById.get(action.id) ?? action) }
+    }
+    return {
+        actions: local.actions.map((action) =>
+            editedById.has(action.id) ? action : (remoteById.get(action.id) ?? action)
+        ),
+        edges: local.edges,
+    }
+}
+
+function editedStepsById(base: HogFlow, local: HogFlow): Map<string, HogFlowAction> {
+    const baseById = new Map(base.actions.map((action) => [action.id, action]))
+    return new Map(
+        local.actions
+            .filter((action) => !objectsEqual(action, baseById.get(action.id)))
+            .map((action) => [action.id, action])
+    )
+}
+
+function hasSameShape(base: HogFlow, local: HogFlow): boolean {
+    return objectsEqual(base.actions.map(stepId), local.actions.map(stepId)) && objectsEqual(base.edges, local.edges)
 }
 
 function stepId(action: HogFlowAction): string {
