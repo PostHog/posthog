@@ -22,9 +22,12 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_OF_KEY,
+    COMPANION_RUN_SUFFIX,
     record_companion_job,
     retire_companion_job,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
     DurableProgress,
@@ -142,6 +145,24 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         # one would have it discard a tail that lands on its own.
         self._final_sent_job_ids: set[str] = set()
 
+    def _build_producer(
+        self, s3_batch_writer: S3BatchWriter, *, resource_name: str, cdc_write_mode: str | None
+    ) -> PostgresProducer:
+        # The first lane writes through this producer, so its batches carry that lane's write mode. An
+        # incremental run whose only lane is history keeps no write mode on the response, so it loads
+        # as incremental.
+        return super()._build_producer(
+            s3_batch_writer, resource_name=resource_name, cdc_write_mode=self._output_lanes[0].cdc_write_mode
+        )
+
+    def _maintains_companion_table(self) -> bool:
+        return super()._maintains_companion_table() or self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE
+
+    def _keeps_table_on_reset(self) -> bool:
+        # An incremental history-only run's table is the history table, the only copy of past versions. CDC
+        # sets the write mode on the response and reseeds its history from the snapshot instead.
+        return self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE and self._resource.cdc_write_mode is None
+
     async def run(self) -> PipelineResult:
         completed = False
         try:
@@ -196,7 +217,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         return writer
 
     def _companion_run_uuid(self) -> str | None:
-        return f"{self._run_uuid}-cdc" if self._run_uuid else None
+        return f"{self._run_uuid}{COMPANION_RUN_SUFFIX}" if self._run_uuid else None
 
     async def _create_companion_job(self, lane: OutputLane, *, first_of_attempt: bool) -> ExternalDataJob:
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -220,7 +241,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                     # Distinguishes the two rows a `both` run produces, and names the run they
                     # belong to so a reader can tell whether the whole run finished.
                     "cdc_write_mode": lane.cdc_write_mode,
-                    "companion_of": str(self._job.id),
+                    COMPANION_OF_KEY: str(self._job.id),
                 },
                 destination_ids=[],
             )

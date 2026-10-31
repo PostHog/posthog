@@ -874,6 +874,19 @@ class TestHandleResetOrFullRefresh:
         # streaming flip fires on the False->True transition).
         assert schema.initial_sync_complete is False
 
+    def test_a_reset_of_a_table_that_holds_history_keeps_the_table(self, team):
+        schema = self._webhook_schema(team)
+        helper = MagicMock(reset_table=AsyncMock())
+
+        async_to_sync(handle_reset_or_full_refresh)(
+            True, False, schema, helper, MagicMock(adebug=AsyncMock()), keeps_table=True
+        )
+
+        helper.reset_table.assert_not_awaited()
+        schema.refresh_from_db()
+        assert "reset_pipeline" not in schema.sync_type_config
+        assert schema.sync_type_config.get("incremental_field_last_value") is None
+
     def test_full_refresh_sync_keeps_initial_sync_complete(self, team):
         # The prod regression: routine full-refresh runs cleared the latch at extraction start,
         # and a zero-row run never reaches post-load to re-set it, so the flag read false
