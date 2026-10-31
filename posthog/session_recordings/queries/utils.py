@@ -95,8 +95,10 @@ def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
     # Element filters read `elements_chain_*` columns, which exist only on the events table.
+    # Feature filters read the `$feature/<key>` event property.
     return (
         p_type == "event"
+        or p_type == "feature"
         or p_type == "element"
         or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
     )

@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import (
     BehavioralPropertyFilter,
     EmptyPropertyFilter,
+    FeaturePropertyFilter,
     FlagPropertyFilter,
     HogQLPropertyFilter,
     HogQLQueryModifiers,
@@ -606,10 +607,24 @@ class TestProperty(BaseTest):
             self._parse_expr("toString(properties.a) not ilike '%single'"),
         )
 
-    def test_property_to_expr_feature(self):
+    @parameterized.expand(
+        [
+            ("dict_bare_key", {"type": "feature", "key": "my-flag", "operator": "exact", "value": ["true"]}),
+            (
+                "dict_prefixed_key",
+                {"type": "feature", "key": "$feature/my-flag", "operator": "exact", "value": ["true"]},
+            ),
+            ("model_bare_key", FeaturePropertyFilter(key="my-flag", operator=PropertyOperator.EXACT, value=["true"])),
+            (
+                "model_prefixed_key",
+                FeaturePropertyFilter(key="$feature/my-flag", operator=PropertyOperator.EXACT, value=["true"]),
+            ),
+        ]
+    )
+    def test_property_to_expr_feature(self, _name, property):
         self.assertEqual(
-            self._property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
-            self._parse_expr("properties.a = 'b'"),
+            self._property_to_expr(property, strict=False),
+            self._parse_expr("properties.`$feature/my-flag` = 'true'"),
         )
 
     def test_property_to_expr_person(self):
