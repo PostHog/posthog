@@ -76,16 +76,14 @@ interface MountedSceneLogic {
     unmount: () => void
 }
 
-// A failed load must not block the scene: labels then fall back to the raw keys.
-async function loadCoreFilterDefinitionsFor(sceneId: string): Promise<void> {
-    if (sceneConfigurations[sceneId]?.onlyUnauthenticated) {
-        return
+// A logged-out page shows no filters, so it does not wait for the taxonomy. A failed load fails the scene like a
+// failed scene chunk does, because code that builds queries from an empty taxonomy returns wrong results.
+function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
+    const sceneConfig = sceneConfigurations[sceneId]
+    if (sceneConfig?.onlyUnauthenticated || (sceneConfig?.allowUnauthenticated && !loggedIn)) {
+        return Promise.resolve()
     }
-    try {
-        await retryImport(loadCoreFilterDefinitions)
-    } catch (error) {
-        console.error('Failed to load the property taxonomy', error)
-    }
+    return retryImport(loadCoreFilterDefinitions)
 }
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
@@ -1103,7 +1101,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     const importScene = props.scenes[sceneId]
                     ;[importedScene] = await Promise.all([
                         retryImport(() => importScene()),
-                        loadCoreFilterDefinitionsFor(sceneId),
+                        loadCoreFilterDefinitionsFor(sceneId, !!userLogic.values.user),
                     ])
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {

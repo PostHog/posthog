@@ -198,9 +198,13 @@ describe('sceneLogic', () => {
     })
 
     it.each([
-        ['loads', (release: Deferred) => release.resolve()],
-        ['fails to load', (release: Deferred) => release.reject(new Error('taxonomy chunk failed'))],
-    ])('shows a logged-in scene only once the taxonomy %s', async (_outcome, settle) => {
+        ['loads', (release: Deferred) => release.resolve(), Scene.Settings],
+        [
+            'fails to load',
+            (release: Deferred) => release.reject(new Error('taxonomy chunk failed')),
+            Scene.ErrorSceneLoad,
+        ],
+    ])('holds a logged-in scene until the taxonomy %s', async (_outcome, settle, expectedScene) => {
         let release: Deferred | undefined
         const loadSpy = jest.spyOn(taxonomyLoader, 'loadCoreFilterDefinitions').mockImplementation(
             () =>
@@ -216,10 +220,25 @@ describe('sceneLogic', () => {
 
             settle(release!)
             await expectLogic(logic).delay(1)
-            expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+            expect(logic.values.activeSceneId).toEqual(expectedScene)
         } finally {
             loadSpy.mockRestore()
             consoleErrorSpy.mockRestore()
+        }
+    })
+
+    it('does not hold a logged-out public page for the taxonomy', async () => {
+        const loadSpy = jest
+            .spyOn(taxonomyLoader, 'loadCoreFilterDefinitions')
+            .mockImplementation(() => new Promise<void>(() => {}))
+        try {
+            userLogic.actions.loadUserSuccess(null)
+            router.actions.push(urls.passwordResetComplete(MOCK_USER_UUID, 'a-token'))
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.PasswordResetComplete)
+        } finally {
+            loadSpy.mockRestore()
         }
     })
 
