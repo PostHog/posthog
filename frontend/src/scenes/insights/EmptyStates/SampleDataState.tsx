@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import { useEffect, useState, type ReactNode } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { BarChart, LineChart, PieChart, ProportionBar } from '@posthog/quill-charts'
 import type {
     BarChartConfig,
@@ -17,12 +17,12 @@ import type {
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
-import { isSampleDataStatic } from './isSampleDataStatic'
-import { SampleDataTagGroup } from './SampleDataTagGroup'
+import { SampleDataTag } from './SampleDataTag'
 
 export type SampleDataVariant = 'line' | 'bar' | 'pie' | 'proportionBar' | 'funnel' | 'number' | 'table'
 
@@ -79,41 +79,64 @@ function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     )
 }
 
-function SampleTable(): JSX.Element {
+/** Sample values for a table the card shows in place of its own made-up rows. */
+export interface SampleTableContent {
+    header: ReactNode[]
+    /** One cell per header column. A `null` cell shows a skeleton bar. */
+    rows: ReactNode[][]
+    dataAttr?: string
+}
+
+function SampleTable({ table }: { table?: SampleTableContent }): JSX.Element {
     return (
-        <div className="w-full max-w-120 self-center m-4 rounded border overflow-hidden text-secondary">
+        <div
+            className="w-full max-w-120 self-center m-4 rounded border overflow-hidden text-secondary"
+            data-attr={table?.dataAttr}
+            // The cells can hold links and popovers for invented records, so `inert` keeps them away
+            // from the pointer, the keyboard and assistive tech. React 18 types lack the attribute.
+            {...(table ? { inert: '' } : {})}
+        >
             <div className="flex items-center gap-3 px-3 py-2 bg-surface-secondary text-xs font-semibold">
-                {TABLE_HEADER.map((label, cellIndex) => (
-                    <div key={cellIndex} className={clsx('flex-1', cellIndex > 0 && 'text-right')}>
+                {(table?.header ?? TABLE_HEADER).map((label, cellIndex) => (
+                    <div
+                        key={cellIndex}
+                        className={clsx('flex-1', table ? 'min-w-0 truncate' : cellIndex > 0 && 'text-right')}
+                    >
                         {label}
                     </div>
                 ))}
             </div>
-            {TABLE_ROWS.map((cells, index) => (
+            {(table?.rows ?? TABLE_ROWS).map((cells, index) => (
                 <div
                     key={index}
                     className="SampleDataState__row flex items-center gap-3 px-3 py-2 border-t text-sm"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ animationDelay: `${index * 110}ms` }}
                 >
-                    {cells.map((value, cellIndex) => (
-                        <div
-                            key={cellIndex}
-                            className={clsx(
-                                'flex-1',
-                                cellIndex === 0 ? 'flex items-center gap-2' : 'text-right tabular-nums'
-                            )}
-                        >
-                            {cellIndex === 0 ? (
-                                <>
-                                    <div className="SampleDataState__row-cell h-3 w-3 shrink-0 rounded-full" />
-                                    <span className="truncate">{value}</span>
-                                </>
-                            ) : (
-                                value
-                            )}
-                        </div>
-                    ))}
+                    {table
+                        ? cells.map((value, cellIndex) => (
+                              <div key={cellIndex} className="flex-1 min-w-0 truncate">
+                                  {value ?? <div className="SampleDataState__row-cell w-16 max-w-full" />}
+                              </div>
+                          ))
+                        : cells.map((value, cellIndex) => (
+                              <div
+                                  key={cellIndex}
+                                  className={clsx(
+                                      'flex-1',
+                                      cellIndex === 0 ? 'flex items-center gap-2' : 'text-right tabular-nums'
+                                  )}
+                              >
+                                  {cellIndex === 0 ? (
+                                      <>
+                                          <div className="SampleDataState__row-cell h-3 w-3 shrink-0 rounded-full" />
+                                          <span className="truncate">{value}</span>
+                                      </>
+                                  ) : (
+                                      value
+                                  )}
+                              </div>
+                          ))}
                 </div>
             ))}
         </div>
@@ -143,21 +166,59 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
 /** Obviously-fake placeholder chart shown instead of an empty state before a project has ingested any events. */
 export function SampleDataState({
     variant = 'line',
+    table,
     children,
 }: {
     variant?: SampleDataVariant
+    table?: SampleTableContent
     children?: ReactNode
 }): JSX.Element {
     const { setupStatus, setupStatusLoading } = useValues(setupWizardStatusLogic)
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
-    const isStatic = isSampleDataStatic()
+    const isStatic =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
 
     return (
         <div
             data-attr="insight-sample-data-state"
             className={clsx('SampleDataState', isStatic && 'SampleDataState--static')}
         >
-            <SampleDataTagGroup className="SampleDataState__tag">
+            <div className="SampleDataState__tag flex items-center gap-1">
+                {setupStatus?.kind === 'pull_request' && !setupStatus.pullRequest.merged && (
+                    <LemonButton size="xsmall" type="primary" to={setupStatus.pullRequest.url} targetBlank>
+                        Merge setup PR
+                    </LemonButton>
+                )}
+                {setupStatus?.kind === 'installing' && (
+                    <Tooltip
+                        title={
+                            <div className="max-w-72 space-y-1.5 p-0.5">
+                                <div className="font-semibold">Setup wizard is running</div>
+                                {setupStatus.mode === 'cloud' ? (
+                                    <p className="m-0">
+                                        The AI setup wizard is installing PostHog in the cloud, on a copy of your
+                                        codebase. Once it's done, it will open a pull request for you to review and
+                                        merge.
+                                    </p>
+                                ) : (
+                                    <p className="m-0">
+                                        The AI setup wizard is installing PostHog in your codebase from your terminal.
+                                        You'll see real data here soon after it's done.
+                                    </p>
+                                )}
+                            </div>
+                        }
+                        placement="bottom"
+                        delayMs={0}
+                    >
+                        <LemonTag type="muted" className="gap-1 cursor-help">
+                            <Spinner className="text-xs" frozen={isStatic} />
+                            Installing PostHog...
+                        </LemonTag>
+                    </Tooltip>
+                )}
                 {!children && variant === 'line' && !setupStatus && !setupStatusLoading && isCloudOrDev && (
                     <Tooltip
                         title={
@@ -186,13 +247,14 @@ export function SampleDataState({
                         </span>
                     </Tooltip>
                 )}
-            </SampleDataTagGroup>
+                <SampleDataTag />
+            </div>
             <div className={clsx('SampleDataState__viz', children && 'SampleDataState__viz--custom')}>
                 {children ??
                     (variant === 'number' ? (
                         <SampleNumber animate={!isStatic} />
                     ) : variant === 'table' ? (
-                        <SampleTable />
+                        <SampleTable table={table} />
                     ) : (
                         <SampleChart variant={variant} />
                     ))}

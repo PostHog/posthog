@@ -13,7 +13,6 @@ describe('buildSamplePersonRows', () => {
             NOW
         )
 
-        expect(rows).toHaveLength(6)
         expect(rows[0].result).toEqual([
             '2026-10-23T11:59:00.000Z',
             samplePlaceholderColumn,

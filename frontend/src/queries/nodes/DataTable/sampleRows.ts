@@ -3,15 +3,17 @@ import type { Dayjs } from 'lib/dayjs'
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 
-/** Fills a cell whose column has no invented value, so the cell renders as a skeleton bar. */
+/** Fills a cell whose column has no invented value, so the sample card shows a skeleton bar. */
 export const samplePlaceholderColumn = Symbol('sample placeholder')
+
+export type SampleRow = DataTableRow & { result: unknown[] }
 
 export interface SampleRowsSource {
     /** One row per invented record, one value per column in `columns`. */
-    buildRows: (columns: string[], now: Dayjs) => DataTableRow[]
+    buildRows: (columns: string[], now: Dayjs) => SampleRow[]
     dataAttr: string
-    /** Columns to hide while the sample shows, for example ones whose actions would act on invented records. */
-    hiddenColumns: string[]
+    /** Columns the sample card never shows, for example ones whose actions would act on invented records. */
+    excludedColumns: string[]
 }
 
 export interface SampleIds {
@@ -53,7 +55,7 @@ export function buildSampleRows<T>(
     samples: T[],
     columns: string[],
     valueFor: (key: string, sample: T, ids: SampleIds) => unknown
-): (DataTableRow & { result: unknown[] })[] {
+): SampleRow[] {
     const keys = columns.map(removeExpressionComment)
     return samples.map((sample, index) => {
         const ids = sampleIds(index)

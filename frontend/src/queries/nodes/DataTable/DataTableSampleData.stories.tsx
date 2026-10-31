@@ -79,9 +79,16 @@ export const DefaultColumns: Story = {
     args: { query: eventsTable(defaultDataTableColumns(NodeKind.EventsQuery)) },
 }
 
+const DEFAULT_EVENT_COLUMNS = defaultDataTableColumns(NodeKind.EventsQuery)
+
+// The custom column goes before the card's column cap, so the card shows its skeleton bar
 export const WithCustomColumn: Story = {
     args: {
-        query: eventsTable([...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.$browser_version']),
+        query: eventsTable([
+            ...DEFAULT_EVENT_COLUMNS.slice(0, 2),
+            'properties.$browser_version',
+            ...DEFAULT_EVENT_COLUMNS.slice(2),
+        ]),
     },
 }
 

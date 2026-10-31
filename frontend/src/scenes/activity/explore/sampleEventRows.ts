@@ -1,8 +1,8 @@
 import type { Dayjs } from 'lib/dayjs'
 
-import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import {
     type SampleIds,
+    type SampleRow,
     type SampleRowsSource,
     buildSampleRows,
     samplePersonDisplayName,
@@ -45,17 +45,6 @@ const SAMPLE_EVENTS: SampleEvent[] = [
         minutesAgo: 6,
     },
     {
-        event: 'clicked button',
-        email: 'alice@example.com',
-        properties: {
-            ...WEB,
-            $current_url: 'https://example.com/dashboard',
-            $pathname: '/dashboard',
-            $screen_name: null,
-        },
-        minutesAgo: 9,
-    },
-    {
         event: 'purchase completed',
         email: 'dave@example.com',
         properties: {
@@ -67,12 +56,6 @@ const SAMPLE_EVENTS: SampleEvent[] = [
             $screen_name: null,
         },
         minutesAgo: 12,
-    },
-    {
-        event: '$pageview',
-        email: 'erin@example.com',
-        properties: { ...WEB, $current_url: 'https://example.com/docs', $pathname: '/docs', $screen_name: null },
-        minutesAgo: 15,
     },
 ]
 
@@ -111,7 +94,7 @@ function sampleValue(key: string, sample: SampleEvent, ids: SampleIds, now: Dayj
     return samplePropertyValue(key, sample.properties)
 }
 
-export function buildSampleEventRows(columns: string[], now: Dayjs): (DataTableRow & { result: unknown[] })[] {
+export function buildSampleEventRows(columns: string[], now: Dayjs): SampleRow[] {
     return buildSampleRows(SAMPLE_EVENTS, columns, (key, sample, ids) => sampleValue(key, sample, ids, now))
 }
 
@@ -119,5 +102,5 @@ export const SAMPLE_EVENTS_SOURCE: SampleRowsSource = {
     buildRows: buildSampleEventRows,
     // pinned: the data-attr value is an autocapture selector, so renaming it breaks dashboards
     dataAttr: 'events-table-sample-data',
-    hiddenColumns: [],
+    excludedColumns: [],
 }

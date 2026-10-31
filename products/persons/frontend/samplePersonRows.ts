@@ -1,8 +1,8 @@
 import type { Dayjs } from 'lib/dayjs'
 
-import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import {
     type SampleIds,
+    type SampleRow,
     type SampleRowsSource,
     buildSampleRows,
     samplePersonDisplayName,
@@ -41,18 +41,6 @@ const SAMPLE_PERSONS: SamplePerson[] = [
         daysSinceCreated: 14,
         minutesSinceSeen: 12,
     },
-    {
-        email: 'erin@example.com',
-        properties: { name: 'Erin', $geoip_country_code: 'BR', $browser: 'Safari', $os: 'Mac OS X' },
-        daysSinceCreated: 21,
-        minutesSinceSeen: 95,
-    },
-    {
-        email: 'frank@example.com',
-        properties: { name: 'Frank', $geoip_country_code: 'JP', $browser: 'Chrome', $os: 'Android' },
-        daysSinceCreated: 30,
-        minutesSinceSeen: 240,
-    },
 ]
 
 function sampleValue(key: string, sample: SamplePerson, ids: SampleIds, now: Dayjs): unknown {
@@ -76,7 +64,7 @@ function sampleValue(key: string, sample: SamplePerson, ids: SampleIds, now: Day
     return samplePropertyValue(key, properties)
 }
 
-export function buildSamplePersonRows(columns: string[], now: Dayjs): (DataTableRow & { result: unknown[] })[] {
+export function buildSamplePersonRows(columns: string[], now: Dayjs): SampleRow[] {
     return buildSampleRows(SAMPLE_PERSONS, columns, (key, sample, ids) => sampleValue(key, sample, ids, now))
 }
 
@@ -84,5 +72,5 @@ export const SAMPLE_PERSONS_SOURCE: SampleRowsSource = {
     buildRows: buildSamplePersonRows,
     // pinned: the data-attr value is an autocapture selector, so renaming it breaks dashboards
     dataAttr: 'persons-table-sample-data',
-    hiddenColumns: ['person.$delete'],
+    excludedColumns: ['person.$delete'],
 }

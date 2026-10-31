@@ -37,7 +37,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     emptyStateIcon?: JSX.Element
     renderEmptyStateAsSkeleton?: boolean
     /**
-     * Fills an empty data table with invented rows before the project ingests its first event. Off by default.
+     * Fills the sample-data card of an empty data table with invented values for the table's columns, before
+     * the project ingests its first event. Without it, the card shows its own made-up rows.
      */
     dataTableSampleRows?: SampleRowsSource
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
