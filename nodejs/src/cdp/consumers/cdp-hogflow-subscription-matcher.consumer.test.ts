@@ -38,6 +38,7 @@ type MockRow = {
     action_id: string | null
     distinct_id: string | null
     person_id: string | null
+    due?: boolean
     state?: Buffer | null
 }
 
@@ -2175,6 +2176,184 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             } else {
                 expect(update).toBeUndefined()
             }
+        })
+    })
+
+    describe('person wakes the matcher cannot decide', () => {
+        // event.properties.plan == 'growth' - reads the event, which a person wake does not carry.
+        const READS_EVENT_FILTERS = {
+            bytecode: ['_H', 1, 32, 'growth', 32, 'plan', 32, 'properties', 1, 2, 11],
+            properties: [{ key: 'plan', type: 'event', value: 'growth', operator: 'exact' }],
+        }
+        const READS_PERSON_FILTERS = {
+            bytecode: personPropertyBytecode('plan', 'growth'),
+            properties: [{ key: 'plan', type: 'person', value: 'growth', operator: 'exact' }],
+        }
+        const READS_EVENT_AND_PERSON_FILTERS = {
+            bytecode: READS_EVENT_FILTERS.bytecode,
+            properties: [...READS_EVENT_FILTERS.properties, ...READS_PERSON_FILTERS.properties],
+        }
+        // variables.tier == 'gold'
+        const READS_VARIABLE_FILTERS = {
+            bytecode: ['_H', 1, 32, 'gold', 32, 'tier', 32, 'variables', 1, 2, 11],
+            properties: [{ key: 'tier', type: 'workflow_variable', value: 'gold', operator: 'exact' }],
+        }
+
+        const parkOn = (filters: Record<string, any>): void => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: null,
+                    person_id: 'person-uuid-1',
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: { max_wait_duration: '5m', condition: { filters } },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+        }
+
+        const personWake = (): HogFunctionInvocationGlobals =>
+            makeGlobals({
+                event: { ...makeGlobals({}).event, event: '$person_updated', distinct_id: '', properties: {} },
+                person: { id: 'person-uuid-1', properties: { plan: 'growth' }, name: '', url: '' },
+            })
+
+        it('wakes a wait whose condition reads the person and the event, and leaves the decision to the worker', async () => {
+            // The synthetic person event carries no properties, so evaluating here would read the
+            // condition as false and strand the wait until its ceiling.
+            parkOn(READS_EVENT_AND_PERSON_FILTERS)
+
+            await matcher.runWake([personWake()], 'person')
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.recheckWake).toBe(true)
+            // Not a forced match: eventMatched would advance the run without evaluating the condition.
+            expect(written.state.currentAction.eventMatched).toBeUndefined()
+        })
+
+        it('wakes a wait whose condition selects an event and reads the person', async () => {
+            // The synthetic person event never matches the selector, so only the worker can decide.
+            parkOn({
+                ...READS_PERSON_FILTERS,
+                events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
+            })
+
+            await matcher.runWake([personWake()], 'person')
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.recheckWake).toBe(true)
+        })
+
+        it('still decides a person-only condition itself', async () => {
+            // The matcher holds the person, so it evaluates and tags a real match.
+            parkOn(READS_PERSON_FILTERS)
+
+            await matcher.runWake([personWake()], 'person')
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.eventMatched).toBe(true)
+            expect(written.state.currentAction.recheckWake).toBeUndefined()
+        })
+
+        it.each([
+            ['the event', READS_EVENT_FILTERS],
+            ['a workflow variable', READS_VARIABLE_FILTERS],
+            ['an action', { bytecode: READS_EVENT_FILTERS.bytecode, actions: [{ id: 7, type: 'actions', order: 0 }] }],
+        ])('does not wake a wait whose condition reads only %s on a person change', async (_, filters) => {
+            // Nothing in the condition can change with the person, so a wake would only re-park.
+            parkOn(filters)
+
+            await matcher.runWake([personWake()], 'person')
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
+        })
+
+        const parkDueOn = (currentAction: Record<string, any>): void => {
+            parkOn(READS_EVENT_AND_PERSON_FILTERS)
+            matcher.findRows = [{ ...matcher.findRows[0], due: true }]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction }) }]
+        }
+        const matchingEvent = (): HogFunctionInvocationGlobals =>
+            makeGlobals({ event: { ...makeGlobals({}).event, properties: { plan: 'growth' } } })
+
+        it('keeps an event match that lands while a person recheck is pending', async () => {
+            // The person wake made the job due, so the event it waits for arrives before the worker
+            // decides it. The worker checks only the condition, so this event is the only chance.
+            parkDueOn({ id: 'wait_node', recheckWake: true, startedAtTimestamp: Date.now() })
+
+            await matcher.runWake([matchingEvent()])
+
+            const lookup = matcher.calls.find((c) => c.sql.includes('action_id, distinct_id, person_id'))
+            // Step ids repeat across flows, so the lookup pairs each step with its flow.
+            expect([lookup!.params[5], lookup!.params[6]]).toEqual([['flow-1'], ['wait_node']])
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeDefined()
+            const written = parseJSON(update!.params[1][0].toString('utf-8'))
+            expect(written.state.currentAction.eventMatched).toBe(true)
+        })
+
+        it('leaves a job that is due for another reason alone on the events stream', async () => {
+            // Due without a pending recheck means its deadline passed, which an event must not change.
+            parkDueOn({ id: 'wait_node', startedAtTimestamp: Date.now() })
+
+            await matcher.runWake([matchingEvent()])
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
+        })
+
+        it('leaves a pending recheck alone once its deadline passed', async () => {
+            parkDueOn({ id: 'wait_node', recheckWake: true, startedAtTimestamp: Date.now() - 10 * 60 * 1000 })
+
+            await matcher.runWake([matchingEvent()])
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
+        })
+
+        it('looks up no due jobs for a wait that never gets a recheck', async () => {
+            parkOn(READS_EVENT_FILTERS)
+
+            await matcher.runWake([matchingEvent()])
+
+            const lookup = matcher.calls.find((c) => c.sql.includes('action_id, distinct_id, person_id'))
+            expect([lookup!.params[5], lookup!.params[6]]).toEqual([[], []])
+        })
+
+        it('does not wake on the events stream, where the real event is present', async () => {
+            parkOn(READS_EVENT_FILTERS)
+
+            await matcher.runWake([
+                makeGlobals({ event: { ...makeGlobals({}).event, properties: { plan: 'starter' } } }),
+            ])
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
         })
     })
 
