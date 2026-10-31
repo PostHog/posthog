@@ -383,6 +383,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
         exposureFiltersCheck(input),
         serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
+        serverOnlyCheck(input, 'metrics_not_matured', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

@@ -812,6 +812,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * sample is below the one the running time estimate plans for the minimum detectable
  * effect. It reads the metric's current stored result, the one the results page shows
  * after its last calculation, and the running time calculator's formula.
+ *
+ * A running experiment with `only_count_matured_users` on gets the warning
+ * `metrics_not_matured` while it is younger than the conversion or retention window of
+ * every primary metric, because no user can count for those metrics until a window passes.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,

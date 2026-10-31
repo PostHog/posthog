@@ -2318,6 +2318,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2345,6 +2346,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
 } as const
 
 /**
@@ -2414,7 +2416,8 @@ export interface ExperimentHealthFindingApi {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `early_significance` - Early Significance */
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2463,6 +2466,7 @@ export interface ExperimentHealthFindingApi {
  * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
+ * * `metrics_not_matured` - Metrics Not Matured
  * * `zero_exposures` - Zero Exposures
  * * `srm` - Srm
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -2487,6 +2491,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
+    MetricsNotMatured: 'metrics_not_matured',
     ZeroExposures: 'zero_exposures',
     Srm: 'srm',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -2527,6 +2532,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded

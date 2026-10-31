@@ -11,6 +11,7 @@ from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
 from products.experiments.backend.health.metric_compiles import load_metric_compiles
+from products.experiments.backend.health.metric_windows import load_primary_metric_windows
 from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.models.experiment import Experiment
@@ -78,6 +79,7 @@ def _health_context(
         condition_set_traffic=traffic,
         pause_history=load_pause_history(experiment, reader_access=reader_access),
         primary_metric=load_primary_metric(experiment),
+        primary_metric_windows=load_primary_metric_windows(experiment),
         metric_compiles=load_metric_compiles(experiment, user=user),
         latest_calculation=load_latest_calculation(experiment),
     )

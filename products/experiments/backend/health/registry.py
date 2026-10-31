@@ -24,6 +24,7 @@ from products.experiments.backend.health.checks.forced_variant import forced_var
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
+from products.experiments.backend.health.checks.metrics_not_matured import metrics_not_matured
 from products.experiments.backend.health.checks.multiple_variants import multiple_variants_share
 from products.experiments.backend.health.checks.new_flag_no_traffic import new_flag_no_traffic
 from products.experiments.backend.health.checks.no_metric import no_metric
@@ -116,6 +117,11 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         key=ExperimentHealthCheckKey.EARLY_SIGNIFICANCE,
         name="Significance on a small sample",
         run=early_significance,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.METRICS_NOT_MATURED,
+        name="Metric windows not complete yet",
+        run=metrics_not_matured,
     ),
 )
 
