@@ -107,7 +107,6 @@ def build_record(
 
 def load_settings() -> BufferSettings:
     """The enrolled teams and the buffer limits, from the `activity-summary` flag payload and Postgres."""
-    # Both modules import models and the flag harness, which the middleware import path does not need.
     from products.signals.backend.activity_summary.config import (  # noqa: PLC0415 — keeps heavy deps off the middleware import path
         ACTIVITY_SUMMARY_FLAG,
         ACTIVITY_SUMMARY_FLAG_DISTINCT_ID,
@@ -219,7 +218,6 @@ class McpIntentBuffer:
         try:
             self.buffer_settings = load_settings()
         except Exception:
-            # Keep the last settings until the next refresh.
             logger.warning("activity_summary.mcp_buffer_settings_failed", exc_info=True)
 
     def _drain(self) -> list[McpIntentRecord]:

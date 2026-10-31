@@ -100,7 +100,6 @@ class ActivitySummaryConfig:
     rebuild_before: datetime.datetime | None = None
     # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
     rebuild_budget_share: float = 0.3
-    # Keep the intents that MCP agents state on API calls in a Redis buffer. See `mcp_buffer`.
     mcp_buffer_enabled: bool = False
     # Limits the buffer to the enrolled teams of these organizations. Empty means every enrolled team.
     mcp_buffer_organization_ids: tuple[str, ...] = ()
