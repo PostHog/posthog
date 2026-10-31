@@ -192,6 +192,29 @@ describe('MessageList', () => {
         expect(mockMessage).not.toHaveBeenCalled()
     })
 
+    // A thread that failed to load used to claim the ticket had no messages, which reads as lost
+    // history rather than as an outage.
+    it('reports a failed load instead of the empty state, and retries on request', () => {
+        const onRetryLoadMessages = jest.fn()
+
+        render(
+            <MessageList
+                messages={[]}
+                messagesLoading={false}
+                messagesLoadFailed
+                onRetryLoadMessages={onRetryLoadMessages}
+                emptyMessage="No messages yet. Start the conversation!"
+            />
+        )
+
+        expect(screen.queryByText('No messages yet. Start the conversation!')).not.toBeInTheDocument()
+        expect(screen.getByText("Couldn't load messages. Retrying in the background.")).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Try again'))
+
+        expect(onRetryLoadMessages).toHaveBeenCalledTimes(1)
+    })
+
     it('dismisses the pill once the reader scrolls back to the bottom themselves', () => {
         const { rerender } = render(<MessageList messages={[FIRST]} messagesLoading={false} />)
         scrollTo(SCROLLED_UP)
