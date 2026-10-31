@@ -97,6 +97,8 @@ const ROOTS = [
             'src/lib/logic/billing/billingLogic.tsx',
             // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
             'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
+            // See the authenticated shell's note: a test library never ships on a boot path.
+            'node_modules/kea-test-utils/',
         ],
     },
     {
@@ -107,6 +109,9 @@ const ROOTS = [
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
+            // A test library. Its expectLogic and jest matchers ship with any import, so use
+            // objectsEqual from lib/utils/objects and delay from lib/utils/async instead.
+            'node_modules/kea-test-utils/',
             // Widget previews render product UI (recordings player, error tracking list, logs) and
             // are only needed by the add-widget modal; the recordings player logic pulls in rrweb.
             {
