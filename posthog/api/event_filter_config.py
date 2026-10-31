@@ -1,5 +1,7 @@
 from typing import cast
 
+from django.db import transaction
+
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
@@ -103,13 +105,15 @@ class EventFilterConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Create or update the event filter config.",
     )
     def create(self, request, **kwargs):
-        config, _ = EventFilterConfig.objects.get_or_create(
-            team_id=self.team_id,
-            defaults={"filter_tree": None, "mode": "disabled", "test_cases": []},
-        )
-        serializer = self.get_serializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        # Lock the row like add_event_name_drop does, so neither write saves over the other.
+        with transaction.atomic():
+            config, _ = EventFilterConfig.objects.select_for_update().get_or_create(
+                team_id=self.team_id,
+                defaults={"filter_tree": None, "mode": "disabled", "test_cases": []},
+            )
+            serializer = self.get_serializer(config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
         return Response(serializer.data)
 
     def _get_config_id(self) -> str | None:

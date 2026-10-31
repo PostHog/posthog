@@ -3,9 +3,11 @@ from __future__ import annotations
 import uuid
 import functools
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connections, transaction
 from django.db.models import Field, Manager, Prefetch
 from django.http import Http404
@@ -16,9 +18,10 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
 from prometheus_client import Counter
-from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.settings import api_settings
 
+from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
@@ -45,9 +48,11 @@ from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.permissions import is_service_auth
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
@@ -64,6 +69,7 @@ from posthog.taxonomy.definition_search import (
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -987,6 +993,90 @@ class EventDefinitionViewSet(
                 updated.append({"id": enterprise.id, "verified": verified})
 
         return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(request=None, responses={200: EventDefinitionSerializer})
+    @action(
+        methods=["POST"],
+        detail=True,
+        request=None,
+        required_scopes=["event_definition:write", "event_filter:write"],
+    )
+    def stop_ingesting(self, request, *args, **kwargs) -> response.Response:
+        """Drop new events with this name at ingestion, and hide the event definition.
+
+        Adds an exact event name condition to the live event filter of each environment in the
+        project, because the definition is shared by all of them. This never makes a team's own
+        filter conditions live: if a filter is in dry run or turned off, or can't take one more
+        condition, the request fails and nothing changes. Dropped events can't be recovered.
+        """
+        # `hidden` and `verified` live on the enterprise extension, as in bulk_update_verified.
+        if not EE_AVAILABLE:
+            raise serializers.ValidationError("Stopping ingestion of an event requires an enterprise license.")
+
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        # EE_AVAILABLE is checked above, so get_object returns an EnterpriseEventDefinition.
+        instance = cast(EnterpriseEventDefinition, self.get_object())
+        if instance.name.startswith("$"):
+            raise serializers.ValidationError("PostHog events can't be dropped from here.")
+
+        user = cast(User, request.user)
+        teams = list(Team.objects.filter(project_id=self.project_id))
+        self._check_event_filter_write_access(request, teams)
+        try:
+            # This commits before the hide, so ingestion loads the condition as early as possible.
+            add_event_name_drop(teams, instance.name, user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(" ".join(error.messages))
+
+        before = {"hidden": bool(instance.hidden), "verified": bool(instance.verified)}
+        # An event can't be both hidden and verified.
+        instance.hidden = True
+        instance.verified = False
+        instance.verified_by = None
+        instance.verified_at = None
+        instance.updated_by = user
+        instance.save()
+
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(instance.id),
+            scope="EventDefinition",
+            activity="changed",
+            was_impersonated=is_impersonated(request),
+            detail=Detail(
+                name=str(instance.name),
+                changes=dict_changes_between(
+                    "EventDefinition", before, {"hidden": True, "verified": False}, use_field_exclusions=True
+                ),
+            ),
+        )
+        report_user_action(
+            user, "event definition ingestion stopped", {"name": instance.name}, team=self.team, request=request
+        )
+        return response.Response(self.get_serializer(instance).data)
+
+    def _check_event_filter_write_access(self, request: request.Request, teams: Sequence[Team]) -> None:
+        """Check the caller may write the event filter of each environment, as the event filter endpoint would.
+
+        The permission classes only check the environment in the URL, but stop_ingesting writes them all.
+        """
+        denied = exceptions.PermissionDenied("You can't change the event filter of every environment in this project.")
+        try:
+            AccessibleTeams.for_request(request, [team.id for team in teams])
+        except CredentialScopeDenied:
+            raise denied
+        # Service credentials skip resource access control, as in AccessControlPermission.
+        if is_service_auth(request):
+            return
+        user = cast(User, request.user)
+        for team in teams:
+            if not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                "event_filter", required_level="editor"
+            ):
+                raise denied
 
     def perform_create(self, serializer):
         """Handle context and side effects for event definition creation."""
