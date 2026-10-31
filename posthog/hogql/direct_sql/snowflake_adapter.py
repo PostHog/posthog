@@ -9,7 +9,12 @@ from sqlparse import tokens as sqlparse_tokens
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
-from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
+from posthog.hogql.direct_sql.adapter import (
+    DirectQueryRequest,
+    DirectQueryResult,
+    json_safe_direct_value,
+    parse_direct_source_config,
+)
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
@@ -146,13 +151,14 @@ def _fetch_capped_snowflake_rows(cursor: snowflake.connector.cursor.SnowflakeCur
     """Fetch up to the row cap, raising if the result would exceed it.
 
     Reads one row past the cap so the limit can be enforced without materializing the entire
-    result set first.
+    result set first. BINARY values arrive as `bytearray`, so they are base64-encoded for the
+    JSON response.
     """
     rows = cursor.fetchmany(DIRECT_SNOWFLAKE_MAX_ROWS + 1)
     if len(rows) > DIRECT_SNOWFLAKE_MAX_ROWS:
         DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL.labels(dialect="snowflake").inc()
         raise ExposedHogQLError(DIRECT_SNOWFLAKE_ROW_CAP_ERROR)
-    return list(rows)
+    return [tuple(json_safe_direct_value(value) for value in row) for row in rows]
 
 
 class SnowflakeAdapter:
