@@ -26,6 +26,7 @@ export type IntegrationConfigureProps = {
     integration?: string
     beforeRedirect?: () => void
     allowClear?: boolean
+    autoSelect?: boolean
 }
 
 export function IntegrationChoice({
@@ -36,6 +37,7 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
     allowClear = true,
+    autoSelect = true,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, newIntegrationModalId, slackAvailable } =
         useValues(integrationsLogic)
@@ -68,11 +70,11 @@ export function IntegrationChoice({
     // infinite update loop (React #185).
     const autoSelected = useRef(false)
     useEffect(() => {
-        if (!integrationsLoading && !value && integrationsOfKind?.length && !autoSelected.current) {
+        if (autoSelect && !integrationsLoading && !value && integrationsOfKind?.length && !autoSelected.current) {
             autoSelected.current = true
             onChange?.(integrationsOfKind[0].id)
         }
-    }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
+    }, [autoSelect, integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
 
     if (!kind) {
         return null

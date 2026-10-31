@@ -11,6 +11,10 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Analytics"],
     code_language="hog",
     code="""
+if (empty(inputs.aws_connection) and (empty(inputs.aws_access_key_id) or empty(inputs.aws_secret_access_key))) {
+  throw Error('Select an AWS connection, or enter an AWS access key ID and secret access key.')
+}
+
 let payload := jsonStringify({
   'StreamName': inputs.aws_kinesis_stream_name,
   'PartitionKey': inputs.aws_kinesis_partition_key ?? generateUUIDv4(),
@@ -29,6 +33,7 @@ let res := fetch(f'https://kinesis.{inputs.aws_region}.amazonaws.com', {
     'region': inputs.aws_region,
     'access_key_id_input': 'aws_access_key_id',
     'secret_access_key_input': 'aws_secret_access_key',
+    'integration_input': 'aws_connection',
   },
 })
 
@@ -40,18 +45,29 @@ if (res.status >= 200 and res.status < 300) {
 """.strip(),
     inputs_schema=[
         {
+            "key": "aws_connection",
+            "type": "integration",
+            "integration": "aws-kinesis",
+            "label": "AWS connection",
+            "description": "Connect with an IAM role or with access keys. When you select a connection, the access key fields are not used.",
+            "secret": False,
+            "required": False,
+        },
+        {
             "key": "aws_access_key_id",
             "type": "string",
             "label": "AWS Access Key ID",
+            "description": "Not needed when you select an AWS connection.",
             "secret": True,
-            "required": True,
+            "required": False,
         },
         {
             "key": "aws_secret_access_key",
             "type": "string",
             "label": "AWS Secret Access Key",
+            "description": "Not needed when you select an AWS connection.",
             "secret": True,
-            "required": True,
+            "required": False,
         },
         {
             "key": "aws_region",
