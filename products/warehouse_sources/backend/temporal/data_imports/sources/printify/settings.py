@@ -13,7 +13,7 @@ class PrintifyFanOut(StrEnum):
     PRODUCT = "product"
 
 
-@dataclass
+@dataclass(frozen=True)
 class PrintifyEndpointConfig:
     name: str
     # Path relative to the API base URL; `{shop_id}` is filled per shop for shop-scoped endpoints.

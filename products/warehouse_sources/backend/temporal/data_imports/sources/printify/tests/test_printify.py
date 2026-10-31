@@ -358,15 +358,18 @@ class TestFanOut:
             (111, 2, "p3"),
         ]
 
-    def test_product_gpsr_resumes_after_saved_product_on_saved_page(self) -> None:
-        # p1's GPSR page is absent, so fetching it again would fail the run.
+    @parameterized.expand(
+        [("checkpoint_product_present", ["p3", "p1", "p2"]), ("checkpoint_product_deleted", ["p3", "p1"])]
+    )
+    def test_product_gpsr_resumes_after_saved_product_on_saved_page(self, _name: str, page_ids: list[str]) -> None:
+        # p1's and p2's GPSR pages are absent, so fetching either again would fail the run.
         pages: _Pages = {
             ("/shops.json", None): ([{"id": 111}], False),
-            ("/shops/111/products.json", 1): ([{"id": "p1"}, {"id": "p2"}], False),
-            ("/shops/111/products/p2/gpsr.json", None): ([{"title": "Warnings", "text": "None"}], False),
+            ("/shops/111/products.json", 1): ([{"id": product_id} for product_id in page_ids], False),
+            ("/shops/111/products/p3/gpsr.json", None): ([{"title": "Warnings", "text": "None"}], False),
         }
-        result = self._run(pages, "product_gpsr", PrintifyResumeConfig(shop_id=111, page=1, product_id="p1"))
-        assert [r["product_id"] for r in result.rows] == ["p2"]
+        result = self._run(pages, "product_gpsr", PrintifyResumeConfig(shop_id=111, page=1, product_id="p2"))
+        assert [r["product_id"] for r in result.rows] == ["p3"]
 
 
 class TestPrintifySourceResponse:

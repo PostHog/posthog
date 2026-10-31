@@ -28,15 +28,16 @@ REQUEST_TIMEOUT_SECONDS = 60
 # anyway, so `shops.read` access is effectively required for the source to work at all.
 DEFAULT_PROBE_PATH = "/shops.json"
 # Catalog endpoints share a separate 100 requests/minute limit per account. Catalog fan-out makes
-# hundreds of requests, so it paces itself rather than relying on 429 backoff.
-CATALOG_REQUEST_INTERVAL_SECONDS = 0.6
+# hundreds of requests, so it paces itself rather than relying on 429 backoff. Each of the three
+# catalog fan-out tables takes a third of the limit, so they stay under it when they sync at once.
+CATALOG_REQUEST_INTERVAL_SECONDS = 1.8
 
 
 class PrintifyRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PrintifyResumeConfig:
     # Shop currently being iterated for shop-scoped endpoints; None for account-level endpoints.
     # A resumed sync re-fetches this shop from `page`; merge dedupes re-pulled rows on the
@@ -47,8 +48,14 @@ class PrintifyResumeConfig:
     # Last catalog parent whose child rows were yielded, for catalog fan-out endpoints.
     blueprint_id: int | None = None
     print_provider_id: int | None = None
-    # Last product on `page` whose child rows were yielded, for product fan-out endpoints.
+    # Product fan-out walks each page in product id order; this is the last id on `page` it finished.
     product_id: str | None = None
+
+
+@dataclasses.dataclass(frozen=True, order=True)
+class CatalogPair:
+    blueprint_id: int
+    print_provider_id: int
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -311,15 +318,15 @@ def _list_product_catalog_pairs(
     session: requests.Session,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
-) -> list[tuple[int, int]]:
-    pairs: set[tuple[int, int]] = set()
+) -> list[CatalogPair]:
+    pairs: set[CatalogPair] = set()
     for shop in _list_shops(session, logger):
         for _, products in _iter_shop_product_pages(session, shop["id"], 1, logger, resumable_source_manager):
             for product in products:
                 blueprint_id = product.get("blueprint_id")
                 print_provider_id = product.get("print_provider_id")
                 if isinstance(blueprint_id, int) and isinstance(print_provider_id, int):
-                    pairs.add((blueprint_id, print_provider_id))
+                    pairs.add(CatalogPair(blueprint_id, print_provider_id))
     return sorted(pairs)
 
 
@@ -330,21 +337,21 @@ def _iter_product_catalog_pair_fan_out(
     resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
     resume: PrintifyResumeConfig | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    resume_after: tuple[int, int] | None = None
+    resume_after: CatalogPair | None = None
     if resume and resume.blueprint_id is not None and resume.print_provider_id is not None:
-        resume_after = (resume.blueprint_id, resume.print_provider_id)
+        resume_after = CatalogPair(resume.blueprint_id, resume.print_provider_id)
 
-    for blueprint_id, print_provider_id in _list_product_catalog_pairs(session, logger, resumable_source_manager):
-        if resume_after is not None and (blueprint_id, print_provider_id) <= resume_after:
+    for pair in _list_product_catalog_pairs(session, logger, resumable_source_manager):
+        if resume_after is not None and pair <= resume_after:
             continue
         _pace_catalog_request(resumable_source_manager)
         yield from _iter_child_rows(
             session,
             config,
-            {"blueprint_id": blueprint_id, "print_provider_id": print_provider_id},
+            dataclasses.asdict(pair),
             logger,
             resumable_source_manager,
-            PrintifyResumeConfig(blueprint_id=blueprint_id, print_provider_id=print_provider_id),
+            PrintifyResumeConfig(blueprint_id=pair.blueprint_id, print_provider_id=pair.print_provider_id),
         )
 
 
@@ -377,10 +384,11 @@ def _iter_product_fan_out(
             start_page = 1
 
         for page, products in _iter_shop_product_pages(session, shop_id, start_page, logger, resumable_source_manager):
+            # Id order, not position, so a resume skips finished products even when the checkpoint
+            # product was deleted in the meantime.
+            products = sorted(products, key=lambda product: str(product["id"]))
             if skip_through_product_id is not None:
-                product_ids = [product["id"] for product in products]
-                if skip_through_product_id in product_ids:
-                    products = products[product_ids.index(skip_through_product_id) + 1 :]
+                products = [product for product in products if str(product["id"]) > skip_through_product_id]
                 skip_through_product_id = None
             for product in products:
                 yield from _iter_child_rows(
@@ -389,7 +397,7 @@ def _iter_product_fan_out(
                     {"shop_id": shop_id, "product_id": product["id"]},
                     logger,
                     resumable_source_manager,
-                    PrintifyResumeConfig(shop_id=shop_id, page=page, product_id=product["id"]),
+                    PrintifyResumeConfig(shop_id=shop_id, page=page, product_id=str(product["id"])),
                 )
 
 
