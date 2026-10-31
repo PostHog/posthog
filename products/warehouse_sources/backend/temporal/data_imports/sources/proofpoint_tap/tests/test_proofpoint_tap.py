@@ -245,9 +245,37 @@ def test_unexpected_probe_error_is_not_bad_credentials() -> None:
             ProofpointTapSource().validate_credentials(CONFIG, 1)
 
 
+@pytest.mark.parametrize(
+    ("resume", "lookups", "saved"),
+    [
+        (
+            None,
+            ["threat-a", "gone", "threat-b"],
+            [
+                ("2026-01-08T09:59:00+00:00", ()),
+                ("2026-01-08T09:59:00+00:00", ("threat-a",)),
+                ("2026-01-08T09:59:00+00:00", ("threat-a", "gone")),
+                ("2026-01-08T09:59:00+00:00", ("threat-a", "gone", "threat-b")),
+                ("2026-01-08T10:59:00+00:00", ()),
+            ],
+        ),
+        (
+            TapResumeState(next_start="2026-01-08T09:59:00+00:00", end="2026-01-08T11:59:00+00:00", done=("threat-a",)),
+            ["gone", "threat-b"],
+            [
+                ("2026-01-08T09:59:00+00:00", ("threat-a",)),
+                ("2026-01-08T09:59:00+00:00", ("threat-a", "gone")),
+                ("2026-01-08T09:59:00+00:00", ("threat-a", "gone", "threat-b")),
+                ("2026-01-08T10:59:00+00:00", ()),
+            ],
+        ),
+    ],
+)
 @time_machine.travel(NOW, tick=False)
 @responses.activate
-def test_threats_resolve_each_siem_threat_once_and_skip_missing() -> None:
+def test_threats_resolve_each_siem_threat_once_and_skip_missing(
+    resume: TapResumeState | None, lookups: list[str], saved: list[tuple[str, tuple[str, ...]]]
+) -> None:
     def siem_all(request: PreparedRequest) -> tuple[int, dict[str, str], str]:
         end = query(request)["interval"][0].split("/")[1]
         payload = {
@@ -268,24 +296,19 @@ def test_threats_resolve_each_siem_threat_once_and_skip_missing() -> None:
         )
     responses.get(f"{ROOT}/threat/summary/gone", status=404, json={})
 
-    harness = Harness(endpoint="threats")
+    harness = Harness(endpoint="threats", resume=resume)
     rows = harness.rows()
 
+    expected_rows = [threat_id for threat_id in lookups if threat_id != "gone"]
     assert [(row["id"], row["query_end_time"]) for row in rows] == [
-        ("threat-a", datetime(2026, 1, 8, 10, 59, tzinfo=UTC)),
-        ("threat-b", datetime(2026, 1, 8, 10, 59, tzinfo=UTC)),
+        (threat_id, datetime(2026, 1, 8, 10, 59, tzinfo=UTC)) for threat_id in expected_rows
     ]
     assert [urlparse(call.request.url or "").path for call in responses.calls] == [
         "/v2/siem/all",
-        "/v2/threat/summary/threat-a",
-        "/v2/threat/summary/gone",
-        "/v2/threat/summary/threat-b",
+        *[f"/v2/threat/summary/{threat_id}" for threat_id in lookups],
         "/v2/siem/all",
     ]
-    assert [call.args[0].next_start for call in harness.manager.save_state.call_args_list] == [
-        "2026-01-08T09:59:00+00:00",
-        "2026-01-08T10:59:00+00:00",
-    ]
+    assert [(call.args[0].next_start, call.args[0].done) for call in harness.manager.save_state.call_args_list] == saved
     assert harness.response.primary_keys == ["id"]
     assert harness.response.sort_mode is None
     assert harness.cursor.staged == TapCursor(query_end_time="2026-01-08T11:59:00+00:00")
@@ -332,11 +355,15 @@ def test_campaigns_page_through_one_day_windows_and_merge_details() -> None:
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "path", "size"),
-    [("very_attacked_people", "people/vap", 1000), ("top_clickers", "people/top-clickers", 200)],
+    ("endpoint", "path", "size", "first_page"),
+    [
+        ("very_attacked_people", "people/vap", 1000, 1),
+        ("top_clickers", "people/top-clickers", 200, 1),
+        ("top_clickers", "people/top-clickers", 200, 3),
+    ],
 )
 @responses.activate
-def test_people_walk_pages_and_key_rows_by_identity(endpoint: str, path: str, size: int) -> None:
+def test_people_walk_pages_and_key_rows_by_identity(endpoint: str, path: str, size: int, first_page: int) -> None:
     def user(guid: str) -> dict[str, Any]:
         return {"identity": {"guid": guid, "emails": [f"{guid}@example.com"]}, "threatStatistics": {"attackIndex": 1}}
 
@@ -344,13 +371,15 @@ def test_people_walk_pages_and_key_rows_by_identity(endpoint: str, path: str, si
     responses.get(f"{ROOT}/{path}", json={"users": [user(f"user-{i}") for i in range(size)], "interval": interval})
     responses.get(f"{ROOT}/{path}", json={"users": [user("user-0"), user("user-last")], "interval": interval})
 
-    harness = Harness(endpoint=endpoint, incremental=False, watermark=None)
+    resume = TapResumeState(page=first_page) if first_page > 1 else None
+    harness = Harness(endpoint=endpoint, incremental=False, watermark=None, resume=resume)
     rows = harness.rows()
 
     assert [query(call.request) for call in responses.calls] == [
-        {"window": ["90"], "size": [str(size)], "page": ["1"]},
-        {"window": ["90"], "size": [str(size)], "page": ["2"]},
+        {"window": ["90"], "size": [str(size)], "page": [str(first_page)]},
+        {"window": ["90"], "size": [str(size)], "page": [str(first_page + 1)]},
     ]
+    assert [call.args[0].page for call in harness.manager.save_state.call_args_list] == [first_page + 1, first_page + 2]
     assert len(rows) == size + 1
     assert rows[-1]["guid"] == "user-last"
     assert rows[-1]["interval"] == interval

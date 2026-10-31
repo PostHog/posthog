@@ -45,8 +45,19 @@ class TapCursor:
 
 @frozen
 class TapResumeState:
-    next_start: str
-    end: str
+    next_start: str = ""
+    end: str = ""
+    # Lookup tables: the IDs already read in the window that starts at next_start.
+    done: tuple[str, ...] = ()
+    # People tables: the next page to read.
+    page: int = 1
+
+
+@frozen
+class TapWindowBounds:
+    start: datetime
+    end: datetime
+    resume: TapResumeState | None
 
 
 def parse_timestamp(value: str | datetime) -> datetime:
@@ -175,7 +186,7 @@ def window_bounds(
     inputs: SourceInputs,
     manager: ResumableSourceManager[TapResumeState],
     cursor_manager: SourceCursorManager[TapCursor],
-) -> tuple[datetime, datetime, TapResumeState | None]:
+) -> TapWindowBounds:
     now = datetime.now(UTC).replace(second=0, microsecond=0)
     # Leave time for the first request before the oldest interval expires.
     earliest = now - RETENTION + 2 * OVERLAP
@@ -191,7 +202,7 @@ def window_bounds(
     if resume is not None:
         start = max(earliest, parse_timestamp(resume.next_start))
         end = min(end, parse_timestamp(resume.end))
-    return start, end, resume
+    return TapWindowBounds(start=start, end=end, resume=resume)
 
 
 def siem_items(
@@ -202,7 +213,8 @@ def siem_items(
     cursor_manager: SourceCursorManager[TapCursor],
     api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    start, end, resume = window_bounds(inputs, manager, cursor_manager)
+    bounds = window_bounds(inputs, manager, cursor_manager)
+    start, end, resume = bounds.start, bounds.end, bounds.resume
     last_end: datetime | None = None
     while end - start >= MIN_WINDOW:
         window_end = min(start + WINDOW, end)
@@ -279,13 +291,15 @@ def lookup_items(
     list_window: Callable[[datetime, datetime], Iterator[dict[str, Any]]],
 ) -> Iterator[list[dict[str, Any]]]:
     """Look up the details of every ID that a time window lists, one window at a time."""
-    start, end, resume = window_bounds(inputs, manager, cursor_manager)
-    seen: set[str] = set()
+    bounds = window_bounds(inputs, manager, cursor_manager)
+    start, end, resume = bounds.start, bounds.end, bounds.resume
+    # A resumed run lists its window again and skips the IDs it already read there.
+    done = list(resume.done) if resume is not None else []
+    seen = set(done)
     last_end: datetime | None = None
     while end - start >= MIN_WINDOW:
         window_end = min(start + window, end)
-        # A resumed run reads the current window again, because its rows arrive one lookup at a time.
-        manager.save_state(TapResumeState(next_start=start.isoformat(), end=end.isoformat()))
+        manager.save_state(TapResumeState(next_start=start.isoformat(), end=end.isoformat(), done=tuple(done)))
         for entry in list_window(start, window_end):
             item_id = entry.get("id")
             if not isinstance(item_id, str) or not item_id:
@@ -297,13 +311,16 @@ def lookup_items(
             detail = fetch_payload(
                 config, inputs, settings.path.format(id=quote(item_id, safe="")), {}, api_version, ignore_not_found=True
             )
+            if detail is not None and detail.get("id") != item_id:
+                raise ValueError("Proofpoint TAP returned details for a different item. Retry the sync.")
+            done.append(item_id)
+            manager.save_state(TapResumeState(next_start=start.isoformat(), end=end.isoformat(), done=tuple(done)))
             if detail is None:
                 manager.safe_point()
                 continue
-            if detail.get("id") != item_id:
-                raise ValueError("Proofpoint TAP returned details for a different item. Retry the sync.")
             yield [{**entry, **detail, "query_end_time": window_end}]
         manager.safe_point()
+        done = []
         last_end = window_end
         start = window_end
 
@@ -314,11 +331,17 @@ def lookup_items(
 
 
 def people_items(
-    config: ProofpointTapSourceConfig, inputs: SourceInputs, settings: TapEndpoint, api_version: str
+    config: ProofpointTapSourceConfig,
+    inputs: SourceInputs,
+    settings: TapEndpoint,
+    manager: ResumableSourceManager[TapResumeState],
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     page_size = settings.page_size or 100
     seen: set[str] = set()
-    page = 1
+    # The endpoint allows 50 requests a day, so a retry after the quota resets continues at the next page.
+    resume = manager.load_state() if manager.can_resume() else None
+    page = resume.page if resume is not None else 1
     while True:
         payload = fetch_payload(
             config, inputs, settings.path, {"window": PEOPLE_WINDOW_DAYS, "size": page_size, "page": page}, api_version
@@ -335,8 +358,10 @@ def people_items(
             if guid not in seen:
                 seen.add(guid)
                 rows.append({**user, "guid": guid, "interval": payload.get("interval")})
+        manager.save_state(TapResumeState(page=page + 1))
         if rows:
             yield rows
+        manager.safe_point()
         if len(users) < page_size:
             return
         page += 1
@@ -363,7 +388,7 @@ def proofpoint_tap_source(
                 config, inputs, settings, manager, cursor_manager, api_version, CAMPAIGN_WINDOW, list_window
             )
         else:
-            yield from people_items(config, inputs, settings, api_version)
+            yield from people_items(config, inputs, settings, manager, api_version)
 
     partitioned = settings.partition_key is not None
     return SourceResponse(
