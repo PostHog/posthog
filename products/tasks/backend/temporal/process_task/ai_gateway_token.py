@@ -96,6 +96,7 @@ MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
         "account_audit",
+        "onboarding",
         "posthog_code",
         "review_hog",
         "slack_app",
