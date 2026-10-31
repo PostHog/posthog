@@ -243,9 +243,8 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
-/** What the user changed wins over the server copy; everything they left alone follows the server. */
 function rebaseWorkflowEdits(base: HogFlow, local: HogFlow, remote: HogFlow): Partial<HogFlow> {
-    const result: Record<string, unknown> = rebaseGraph(base, local, remote)
+    const result: Record<string, unknown> = rebaseStepsWithEdges(base, local, remote)
     for (const field of WORKFLOW_EDITABLE_FIELDS) {
         if (field === 'actions' || field === 'edges' || objectsEqual(local[field], base[field])) {
             continue
@@ -255,37 +254,39 @@ function rebaseWorkflowEdits(base: HogFlow, local: HogFlow, remote: HogFlow): Pa
     return result as Partial<HogFlow>
 }
 
-// Steps and edges reference each other, so they rebase together to keep the saved graph valid.
-function rebaseGraph(base: HogFlow, local: HogFlow, remote: HogFlow): Pick<Partial<HogFlow>, 'actions' | 'edges'> {
+function rebaseStepsWithEdges(
+    base: HogFlow,
+    local: HogFlow,
+    remote: HogFlow
+): Pick<Partial<HogFlow>, 'actions' | 'edges'> {
     const editedById = editedStepsById(base, local)
-    const remoteById = new Map(remote.actions.map((action) => [action.id, action]))
     const reshapedLocally = !hasSameShape(base, local)
     if (!reshapedLocally && editedById.size === 0) {
         return {}
     }
-    if (!reshapedLocally && [...editedById.keys()].every((id) => remoteById.has(id))) {
+    const editsFitServerGraph = [...editedById.keys()].every((id) => stepFitsBothGraphs(id, local, remote))
+    if (!reshapedLocally && editsFitServerGraph) {
         return { actions: remote.actions.map((action) => editedById.get(action.id) ?? action) }
     }
+    const remoteById = new Map(remote.actions.map((action) => [action.id, action]))
     return {
         actions: local.actions.map((action) =>
-            editedById.has(action.id) ? action : serverCopyFittingLocalEdges(action, local, remote, remoteById)
+            !editedById.has(action.id) && stepFitsBothGraphs(action.id, local, remote)
+                ? (remoteById.get(action.id) ?? action)
+                : action
         ),
         edges: local.edges,
     }
 }
 
-// A branch config indexes its outgoing edges, so a server copy of a branching step only fits matching local edges.
-function serverCopyFittingLocalEdges(
-    action: HogFlowAction,
-    local: HogFlow,
-    remote: HogFlow,
-    remoteById: Map<string, HogFlowAction>
-): HogFlowAction {
-    const remoteAction = remoteById.get(action.id)
-    const localEdges = outgoingEdges(local, action.id)
-    const remoteEdges = outgoingEdges(remote, action.id)
-    const branches = [...localEdges, ...remoteEdges].some((edge) => edge.type === 'branch')
-    return remoteAction && (!branches || objectsEqual(localEdges, remoteEdges)) ? remoteAction : action
+function stepFitsBothGraphs(actionId: string, local: HogFlow, remote: HogFlow): boolean {
+    if (!remote.actions.some((action) => action.id === actionId)) {
+        return false
+    }
+    const localEdges = outgoingEdges(local, actionId)
+    const remoteEdges = outgoingEdges(remote, actionId)
+    const branchConfigIndexesEdges = [...localEdges, ...remoteEdges].some((edge) => edge.type === 'branch')
+    return !branchConfigIndexesEdges || objectsEqual(localEdges, remoteEdges)
 }
 
 function outgoingEdges(workflow: HogFlow, actionId: string): HogFlow['edges'] {
@@ -4373,7 +4374,7 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props, cache }) => ({
+    listeners(({ actions, values, props, cache, selectors }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
             if (!pickerDate) {
                 actions.setScheduleStartsAt(null)
@@ -4565,7 +4566,7 @@ export const workflowLogic = kea<workflowLogicType>([
             cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
-        loadWorkflowSuccess: async ({ originalWorkflow }) => {
+        loadWorkflowSuccess: async ({ originalWorkflow }, _, __, previousState) => {
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
@@ -4581,10 +4582,13 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             const loaded = withStagedDraft(originalWorkflow)
-            const unsavedEdits = cache.unsavedEditsBase
-                ? rebaseWorkflowEdits(cache.unsavedEditsBase as HogFlow, values.workflow, loaded)
-                : {}
-            cache.unsavedEditsBase = null
+            const baseBeforeExternalEdit = selectors.isSyncingExternalEdit(previousState)
+                ? selectors.originalWorkflow(previousState)
+                : null
+            const unsavedEdits =
+                baseBeforeExternalEdit && values.featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]
+                    ? rebaseWorkflowEdits(withStagedDraft(baseBeforeExternalEdit), values.workflow, loaded)
+                    : {}
             actions.resetWorkflow(loaded)
             if (Object.keys(unsavedEdits).length > 0) {
                 actions.setWorkflowValues(unsavedEdits)
@@ -4602,18 +4606,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowFailure: () => {
-            cache.unsavedEditsBase = null
             actions.replayDeferredResourceEdited()
-        },
-        setSyncingExternalEdit: ({ syncing }) => {
-            if (
-                syncing &&
-                values.featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS] &&
-                values.workflowChanged &&
-                values.originalWorkflow
-            ) {
-                cache.unsavedEditsBase = withStagedDraft(values.originalWorkflow)
-            }
         },
         saveWorkflow: () => {
             cache.saveEditVersion = values.workflowEditVersion

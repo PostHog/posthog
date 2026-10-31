@@ -279,7 +279,7 @@ describe('workflowLogic external edits', () => {
         )
     })
 
-    it('keeps branch conditions matched to their edges when the user adds a step while the server removes a condition', async () => {
+    describe('branch conditions', () => {
         const branch = (conditions: string[]): HogFlowAction =>
             ({
                 id: 'branch',
@@ -298,53 +298,100 @@ describe('workflowLogic external edits', () => {
             { from: 'welcome', to: 'exit_node', type: 'continue' },
             { from: 'follow_up', to: 'exit_node', type: 'continue' },
         ]
-        useWorkflowMock(
-            makeWorkflow({
-                actions: [
-                    ...makeWorkflow().actions,
-                    branch(['vip', 'trial']),
-                    emailStep('welcome', 'Welcome'),
-                    emailStep('follow_up', 'Follow-up'),
-                ],
-                edges: branchEdges,
-            })
-        )
-        logic.actions.loadWorkflow()
-        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-
-        const localEdges = [
+        const withReminderEdges: HogFlow['edges'] = [
             ...branchEdges.filter((edge) => edge.from !== 'follow_up'),
-            { from: 'follow_up', to: 'reminder', type: 'continue' as const },
-            { from: 'reminder', to: 'exit_node', type: 'continue' as const },
+            { from: 'follow_up', to: 'reminder', type: 'continue' },
+            { from: 'reminder', to: 'exit_node', type: 'continue' },
         ]
-        logic.actions.setWorkflowValues({
-            actions: [...logic.values.workflow.actions, emailStep('reminder', 'Reminder')],
-            edges: localEdges,
-        })
-        useWorkflowMock(
-            makeWorkflow({
-                actions: [...makeWorkflow().actions, branch(['trial']), emailStep('follow_up', 'Follow-up')],
-                edges: [
-                    { from: 'trigger_node', to: 'branch', type: 'continue' },
-                    { from: 'branch', to: 'follow_up', type: 'branch', index: 0 },
-                    { from: 'branch', to: 'exit_node', type: 'continue' },
-                    { from: 'follow_up', to: 'exit_node', type: 'continue' },
-                ],
-                updated_at: NEWER,
-            })
+
+        it.each([
+            {
+                label: 'adds a step',
+                editLocally: (l: ReturnType<typeof workflowLogic.build>): void => {
+                    l.actions.setWorkflowValues({
+                        actions: [...l.values.workflow.actions, emailStep('reminder', 'Reminder')],
+                        edges: withReminderEdges,
+                    })
+                },
+                expectedConditions: ['vip', 'trial'],
+                expectedEdges: withReminderEdges,
+            },
+            {
+                label: 'edits a condition',
+                editLocally: (l: ReturnType<typeof workflowLogic.build>): void => {
+                    l.actions.setWorkflowActionConfig('branch', branch(['vip customers', 'trial']).config)
+                },
+                expectedConditions: ['vip customers', 'trial'],
+                expectedEdges: branchEdges,
+            },
+        ])(
+            'keeps them matched to their edges when the user $label while the server removes one',
+            async ({ editLocally, expectedConditions, expectedEdges }) => {
+                useWorkflowMock(
+                    makeWorkflow({
+                        actions: [
+                            ...makeWorkflow().actions,
+                            branch(['vip', 'trial']),
+                            emailStep('welcome', 'Welcome'),
+                            emailStep('follow_up', 'Follow-up'),
+                        ],
+                        edges: branchEdges,
+                    })
+                )
+                logic.actions.loadWorkflow()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+                editLocally(logic)
+                useWorkflowMock(
+                    makeWorkflow({
+                        actions: [...makeWorkflow().actions, branch(['trial']), emailStep('follow_up', 'Follow-up')],
+                        edges: [
+                            { from: 'trigger_node', to: 'branch', type: 'continue' },
+                            { from: 'branch', to: 'follow_up', type: 'branch', index: 0 },
+                            { from: 'branch', to: 'exit_node', type: 'continue' },
+                            { from: 'follow_up', to: 'exit_node', type: 'continue' },
+                        ],
+                        updated_at: NEWER,
+                    })
+                )
+                jest.useFakeTimers()
+
+                await reconcileExternalEdit()
+
+                const saved = (await flushAutoSave()) as HogFlow
+                const savedBranch = saved.actions.find((action) => action.id === 'branch')!
+                expect((savedBranch.config as Record<string, any>).conditions).toEqual(
+                    expectedConditions.map((filters) => ({ filters }))
+                )
+                expect(saved.edges).toEqual(expectedEdges)
+                expect(danglingEdges(saved)).toEqual([])
+            }
         )
+    })
+
+    it('keeps an edit typed while the reload is in flight', async () => {
+        useWorkflowMock(makeWorkflow({ updated_at: NEWER }))
         jest.useFakeTimers()
+
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+            logic.actions.setWorkflowValue('name', 'Typed during the reload')
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowSuccess'])
+
+        expect(logic.values.workflow.name).toBe('Typed during the reload')
+        const saved = await flushAutoSave()
+        expect(saved.name).toBe('Typed during the reload')
+    })
+
+    it('lets the server copy win when the flag is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false })
+        logic.actions.setWorkflowValue('name', 'My local edit')
+        useWorkflowMock(makeWorkflow({ name: 'Renamed elsewhere', updated_at: NEWER }))
 
         await reconcileExternalEdit()
 
-        const saved = (await flushAutoSave()) as HogFlow
-        const savedBranch = saved.actions.find((action) => action.id === 'branch')!
-        expect((savedBranch.config as Record<string, any>).conditions).toEqual([
-            { filters: 'vip' },
-            { filters: 'trial' },
-        ])
-        expect(saved.edges).toEqual(localEdges)
-        expect(danglingEdges(saved)).toEqual([])
+        expect(logic.values.workflow.name).toBe('Renamed elsewhere')
+        expect(logic.values.hasUnsavedChanges).toBe(false)
     })
 
     it('warns instead of clobbering when auto-save is off and there are unsaved local edits', async () => {
