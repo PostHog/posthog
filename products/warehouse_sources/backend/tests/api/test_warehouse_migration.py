@@ -1,17 +1,26 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 import requests
 import requests_mock
 from parameterized import parameterized
 
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL
 from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema, TablePair
+from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource, PendingSourceCredential
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISCOUNT_RESOURCE_NAME as STRIPE_DISCOUNT_RESOURCE_NAME,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _FACADE = "products.warehouse_sources.backend.facade.warehouse_migration"
@@ -229,3 +238,251 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         # Hex-only, so they pass a loose route pattern and would reach `UUID()`.
         assert self.client.get(f"{self.url}abc/").status_code == 404
         assert self.client.post(f"{self.url}{own.id}/items/abc/skip/").status_code == 404
+
+
+_STRIPE_VALID = patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+    return_value=(True, None),
+)
+_NO_PERSON_JOIN = patch(
+    "products.warehouse_sources.backend.presentation.views.external_data_source.base.ensure_person_join"
+)
+_NO_VIEW_SYNC = patch(
+    "products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views"
+)
+_APPLY_FLAG = f"{_FACADE}.is_migration_import_enabled"
+_SOURCE_SETUP = "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup"
+
+
+class TestApplyMigrationItem(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        for patcher in (patch(_APPLY_FLAG, return_value=True), _STRIPE_VALID, _NO_PERSON_JOIN, _NO_VIEW_SYNC):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.url = f"/api/projects/{self.team.pk}/external_data_sources/apply_migration_item/"
+        migration = WarehouseMigration.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, provider=WarehouseMigration.Provider.FIVETRAN, status=WarehouseMigration.Status.READY
+        )
+        self.item = WarehouseMigrationItem.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            migration=migration,
+            vendor_connection_id="conn_stripe",
+            vendor_service="stripe",
+            name="stripe_main",
+            verdict=WarehouseMigrationItem.Verdict.CAVEATS,
+            caveats=["planned caveat"],
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.STRIPE,
+                prefix="stripe_main",
+                prefill={},
+                schemas=(
+                    ProposedSchema(name="Customer", should_sync=True, sync_type=None),
+                    ProposedSchema(name="NotAStripeTable", should_sync=True, sync_type=None),
+                ),
+                sync_frequency="1hour",
+                sync_time_of_day=None,
+                destination=None,
+            ).to_json(),
+        )
+
+    def _credential(self, user: Any = None) -> PendingSourceCredential:
+        return PendingSourceCredential.objects.for_team(self.team.pk).create(
+            team=self.team,
+            source_type="Stripe",
+            created_by=user or self.user,
+            payload={"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_stored"}},
+        )
+
+    def _apply(self, credential: PendingSourceCredential, **extra: str) -> Any:
+        return self.client.post(self.url, {"item_id": str(self.item.id), "credential_id": str(credential.id), **extra})
+
+    def test_creates_the_planned_source_once(self) -> None:
+        credential = self._credential()
+        response = self._apply(credential)
+        assert response.status_code == 201, response.json()
+
+        source = ExternalDataSource.objects.get(pk=response.json()["source_id"])
+        assert source.prefix == "stripe_main"
+        synced = ExternalDataSchema.objects.filter(source=source, should_sync=True)
+        assert [schema.name for schema in synced] == ["Customer"]
+        assert synced.get().sync_frequency_interval == timedelta(hours=1)
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.APPLIED
+        assert self.item.external_data_source_id == source.id
+        assert self.item.caveats[0] == "planned caveat"
+        assert any("`NotAStripeTable`" in caveat for caveat in self.item.caveats)
+
+        assert self._apply(self._credential()).status_code == 400
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+
+    def test_another_users_credential_fails_the_item(self) -> None:
+        other_user = self._create_user("other@example.com")
+        response = self._apply(self._credential(user=other_user))
+
+        assert response.status_code == 400
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.FAILED
+        assert "not found or expired" in self.item.error
+
+    def test_flag_off_hides_the_action(self) -> None:
+        with patch(_APPLY_FLAG, return_value=False):
+            assert self._apply(self._credential()).status_code == 404
+
+    def test_connect_link_carries_the_item_for_prefill(self) -> None:
+        url = f"/api/projects/{self.team.pk}/external_data_sources/connect_link/"
+        response = self.client.get(url, {"source_type": "Stripe", "migration_item_id": str(self.item.id)})
+        assert response.status_code == 200, response.json()
+        assert (
+            f"migration_id={self.item.migration_id}&migration_item_id={self.item.id}" in response.json()["connect_url"]
+        )
+
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_item = WarehouseMigrationItem.objects.for_team(other_team.pk).create(
+            team_id=other_team.pk,
+            migration=WarehouseMigration.objects.for_team(other_team.pk).create(
+                team_id=other_team.pk, provider="fivetran"
+            ),
+            vendor_connection_id="conn_other",
+            vendor_service="stripe",
+            name="other",
+            verdict=WarehouseMigrationItem.Verdict.AS_IS,
+        )
+        response = self.client.get(url, {"source_type": "Stripe", "migration_item_id": str(other_item.id)})
+        assert response.status_code == 400
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook",
+        return_value=WebhookCreationResult(success=True, extra_inputs={"signing_secret": "whsec_fake"}),
+    )
+    def test_webhook_turns_on_only_planned_tables(self, _create_webhook: MagicMock) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-warehouse-source-stripe",
+            name="Stripe warehouse source webhook",
+            code="// test code",
+            code_language="hog",
+            inputs_schema=[
+                {"type": "string", "key": "signing_secret", "label": "Signing secret", "secret": True},
+                {"type": "json", "key": "schema_mapping", "label": "Schema mapping", "required": True},
+                {"type": "string", "key": "source_id", "label": "Source ID", "required": True},
+            ],
+            type="warehouse_source_webhook",
+            status="alpha",
+            category=[],
+        )
+
+        response = self._apply(self._credential())
+
+        assert response.status_code == 201, response.json()
+        schemas = ExternalDataSchema.objects.filter(source_id=response.json()["source_id"])
+        assert schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME).sync_type == ExternalDataSchema.SyncType.WEBHOOK
+        # Webhook-only and not in the plan, so the webhook must not turn it on.
+        assert schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME).should_sync is False
+
+    @parameterized.expand([("stale_claim", 20, 201), ("live_claim", 1, 400)])
+    def test_only_a_stale_claim_can_be_taken_over(self, _name: str, minutes_ago: int, expected_status: int) -> None:
+        WarehouseMigrationItem.objects.for_team(self.team.pk).filter(id=self.item.id).update(
+            status=WarehouseMigrationItem.Status.APPLYING, updated_at=timezone.now() - timedelta(minutes=minutes_ago)
+        )
+
+        assert self._apply(self._credential()).status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("pending_item_fails", WarehouseMigrationItem.Status.PENDING, WarehouseMigrationItem.Status.FAILED),
+            (
+                "applied_item_stays_applied",
+                WarehouseMigrationItem.Status.APPLIED,
+                WarehouseMigrationItem.Status.APPLIED,
+            ),
+        ]
+    )
+    def test_an_invalid_stored_plan_fails_only_a_claimable_item(
+        self, _name: str, status: str, expected_status: str
+    ) -> None:
+        WarehouseMigrationItem.objects.for_team(self.team.pk).filter(id=self.item.id).update(
+            status=status, proposal={"source_type": "NotASource"}
+        )
+
+        assert self._apply(self._credential()).status_code == 400
+        self.item.refresh_from_db()
+        assert self.item.status == expected_status
+
+    def test_table_overrides_change_the_created_tables(self) -> None:
+        bad = {"table_overrides": [{"vendor_table": "not_a_table", "posthog_table": "Invoice"}]}
+        response = self.client.post(
+            self.url,
+            {"item_id": str(self.item.id), "credential_id": str(self._credential().id), **bad},
+            format="json",
+        )
+        assert response.status_code == 400
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.PENDING
+
+        overrides = {"table_overrides": [{"vendor_table": "NotAStripeTable", "posthog_table": "Invoice"}]}
+        response = self.client.post(
+            self.url,
+            {"item_id": str(self.item.id), "credential_id": str(self._credential().id), **overrides},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        synced = ExternalDataSchema.objects.filter(source_id=response.json()["source_id"], should_sync=True)
+        assert sorted(schema.name for schema in synced) == ["Customer", "Invoice"]
+
+    def test_a_source_created_before_a_failure_is_linked_not_created_again(self) -> None:
+        # Raises after the source row exists, as revenue view setup or a database error can.
+        with patch(f"{_SOURCE_SETUP}.report_user_action", side_effect=RuntimeError("after create")):
+            assert self._apply(self._credential()).status_code == 500
+
+        source = ExternalDataSource.objects.get(team_id=self.team.pk)
+        self.item.refresh_from_db()
+        assert (self.item.status, self.item.external_data_source_id) == (
+            WarehouseMigrationItem.Status.APPLIED,
+            source.id,
+        )
+        assert any("failed partway" in caveat for caveat in self.item.caveats), self.item.caveats
+
+        # A retry with another prefix must not create a second source.
+        assert self._apply(self._credential(), prefix="stripe_retry").status_code == 400
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+
+    @parameterized.expand([("source_with_tables", True), ("source_without_tables", False)])
+    def test_a_retry_after_a_dead_apply_links_the_source_it_created(self, _name: str, has_tables: bool) -> None:
+        claimed_at = timezone.now() - timedelta(minutes=20)
+        WarehouseMigrationItem.objects.for_team(self.team.pk).filter(id=self.item.id).update(
+            status=WarehouseMigrationItem.Status.APPLYING,
+            updated_at=claimed_at,
+            claimed_at=claimed_at,
+            claimed_prefix="stripe_main",
+        )
+        orphan = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="fake-source",
+            connection_id="fake-connection",
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="stripe_main",
+            description="Imported from the migrated connection stripe_main.",
+        )
+        if has_tables:
+            ExternalDataSchema.objects.create(team=self.team, source=orphan, name="Customer", should_sync=True)
+
+        response = self._apply(self._credential())
+
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
+        self.item.refresh_from_db()
+        if has_tables:
+            assert response.status_code == 201, response.json()
+            assert response.json()["source_id"] == str(orphan.id)
+            assert (self.item.status, self.item.external_data_source_id) == (
+                WarehouseMigrationItem.Status.APPLIED,
+                orphan.id,
+            )
+        else:
+            # A source with no tables never syncs, so the user deletes it rather than having it linked.
+            assert response.status_code == 400
+            assert "Delete that source" in response.json()["message"]
+            assert self.item.status == WarehouseMigrationItem.Status.FAILED

@@ -25,6 +25,7 @@ const dataWarehouseSourceConnectLink = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/connect_link/`,
             query: {
+                migration_item_id: params.migration_item_id,
                 source_type: params.source_type,
             },
         })
