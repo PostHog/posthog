@@ -778,6 +778,20 @@ class TestTask(TestCase):
 
         self.assertNotIn("ai_stage", run.state)
 
+    def test_create_run_turns_live_context_off_on_every_knowledge_writer_run(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Docs for a merged PR",
+            description="Writer",
+            origin_product=Task.OriginProduct.KNOWLEDGE_WRITER,
+        )
+
+        first_run = task.create_run(extra_state={"include_live_context": True})
+        later_run = task.create_run(mode="background")
+
+        self.assertIs(first_run.state["include_live_context"], False)
+        self.assertIs(later_run.state["include_live_context"], False)
+
     def test_create_run_keeps_the_pipeline_stage_over_the_interactive_stamp(self):
         from products.signals.backend.models import SignalReport
 
