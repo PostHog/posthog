@@ -60,7 +60,13 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.finding_budget import budget_arm
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
+from products.review_hog.backend.reviewer.outcomes.comment_signal import (
+    NO_REACTIONS,
+    ReactionSummary,
+    engagement_method,
+    find_finding_comment,
+    reaction_summary,
+)
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
 from products.review_hog.backend.reviewer.outcomes.github_fetch import (
     fetch_comment_reactions,
@@ -109,6 +115,8 @@ class _ClassifiedOutcome:
     reviewed_head: str
     final_head: str
     judge_reasoning: str | None = None
+    # None when the finding has no comment, or its reactions were past the per-report read limit.
+    reactions: ReactionSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -318,6 +326,10 @@ def _persist_outcomes(*, team_id: int, report_id: str, outcomes: list[_Classifie
                     final_head=oc.final_head,
                     judge_reasoning=oc.judge_reasoning,
                     judge_model=OUTCOME_JUDGE_MODEL if oc.method in ("judge_confirmed", "judge_rejected") else None,
+                    reactions_thumbs_up=oc.reactions.thumbs_up if oc.reactions else None,
+                    reactions_thumbs_down=oc.reactions.thumbs_down if oc.reactions else None,
+                    reactions_other=oc.reactions.other if oc.reactions else None,
+                    first_reaction_at=oc.reactions.first_reaction_at if oc.reactions else None,
                 ),
                 attribution=ArtefactAttribution.system(),
             )
@@ -338,6 +350,18 @@ def _report_ids_with_persisted_outcomes(team_id: int, reports: list[ReviewReport
         )
         .values_list("report_id", flat=True)
     }
+
+
+def _stored_reactions(ruling: FindingOutcomeArtefact) -> ReactionSummary | None:
+    # Outcomes decided before reactions were recorded carry none, and must re-emit without them.
+    if ruling.reactions_thumbs_up is None:
+        return None
+    return ReactionSummary(
+        thumbs_up=ruling.reactions_thumbs_up,
+        thumbs_down=ruling.reactions_thumbs_down or 0,
+        other=ruling.reactions_other or 0,
+        first_reaction_at=ruling.first_reaction_at,
+    )
 
 
 def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[list[_ClassifiedOutcome], str]:
@@ -392,6 +416,7 @@ def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[lis
                 reviewed_head=ruling.reviewed_head,
                 final_head=ruling.final_head,
                 judge_reasoning=ruling.judge_reasoning,
+                reactions=_stored_reactions(ruling),
             )
         )
     return outcomes, _finding_distinct_id(report, report.repository)
@@ -439,6 +464,10 @@ async def _emit_and_mark(
                 "finding_budget_arm": budget_arm(repository, report.pr_number),
                 "reviewed_head": oc.reviewed_head,
                 "final_head": oc.final_head,
+                "reactions_thumbs_up": oc.reactions.thumbs_up if oc.reactions else None,
+                "reactions_thumbs_down": oc.reactions.thumbs_down if oc.reactions else None,
+                "reactions_other": oc.reactions.other if oc.reactions else None,
+                "first_reaction_at": oc.reactions.first_reaction_at if oc.reactions else None,
                 **finding_routing_properties(report, oc.finding),
             },
         )
@@ -465,6 +494,14 @@ async def classify_report(
     compared_by_head = {head: parse_compare_files(files) for head, files in inputs.compares.items()}
     outcomes: list[_ClassifiedOutcome] = []
 
+    def _reactions(pf: _PublishedFinding) -> ReactionSummary | None:
+        if pf.comment is None:
+            return None
+        if (pf.comment.get("reactions") or {}).get("total_count", 0) == 0:
+            return NO_REACTIONS
+        read = inputs.reactions_by_comment.get(pf.comment["id"])
+        return reaction_summary(reactions=read, app_login=app_login) if read is not None else None
+
     def _decided(
         pf: _PublishedFinding, outcome: str, method: str, judge_reasoning: str | None = None
     ) -> _ClassifiedOutcome:
@@ -478,6 +515,7 @@ async def classify_report(
             # The judge is free text, so cap what goes into the durable record; the ruling is meant
             # to be a sentence or two and only a malfunctioning one would need trimming.
             judge_reasoning=judge_reasoning[:OUTCOME_JUDGE_REASONING_MAX_CHARS] if judge_reasoning else None,
+            reactions=_reactions(pf),
         )
 
     # Settle everything the cheap signals answer first, so only the findings that genuinely need the
