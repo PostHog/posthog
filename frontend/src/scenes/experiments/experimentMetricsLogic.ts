@@ -6,10 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment, ExperimentStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Experiment, ExperimentStatus } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
 import { getExperimentStatus, isLaunched } from 'products/experiments/frontend/experimentStatus'
@@ -85,6 +86,11 @@ const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
 const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
 /** Each stale refresh is a full ClickHouse recalculation, so this threshold sets the load that page visits add. */
 const STALE_RESULTS_THRESHOLD_HOURS = 12
+// A result whose window ends this close to start_date counts almost no exposures, so it goes stale sooner. Keep the
+// threshold at least as long as the window, or a refreshed run can land in the window again. Mirrored by
+// STALE_REFRESH_LAUNCH_WINDOW and STALE_REFRESH_MIN_LAUNCH_RESULT_AGE in recalculation.py.
+const LAUNCH_RESULTS_WINDOW_HOURS = 1
+const LAUNCH_RESULTS_STALE_THRESHOLD_HOURS = 1
 /** A paused experiment collects no new data. An exposure-frozen one still collects metric events. */
 const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
     ExperimentStatus.Running,
@@ -190,6 +196,17 @@ const HEAL_TRIGGER_BY_RESULT_SOURCE = {
     timeseries_fallback: 'cold_run',
 } as const satisfies Record<ResultSourceEnumApi, ExperimentMetricsRecalculationRequestTriggerEnumApi>
 
+// The page starts these runs without a click, so a user who cannot start them has nothing to act on.
+const AUTOMATIC_TRIGGERS: ReadonlySet<ExperimentMetricsRecalculationRequestTriggerEnumApi> = new Set([
+    'cold_run',
+    'heal_latest_run',
+    'stale_refresh',
+])
+
+const userCanEdit = (experiment: Experiment): boolean =>
+    !experiment.user_access_level ||
+    accessLevelSatisfied(AccessControlResourceType.Experiment, experiment.user_access_level, AccessControlLevel.Editor)
+
 const recalculationHasGap = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (
         recalculation.status === RECALCULATION_STATUSES.pending ||
@@ -203,11 +220,24 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
     return currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
 }
 
-const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean =>
-    STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) &&
-    currentMetricUuids(experiment).length > 0 &&
-    !!recalculation.query_to &&
-    dayjs.utc().diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
+const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
+    if (
+        !STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) ||
+        currentMetricUuids(experiment).length === 0 ||
+        !recalculation.query_to
+    ) {
+        return false
+    }
+    const queryTo = dayjs.utc(recalculation.query_to)
+    const ageHours = dayjs.utc().diff(queryTo, 'hour', true)
+    if (ageHours > STALE_RESULTS_THRESHOLD_HOURS) {
+        return true
+    }
+    const windowEndsAtLaunch =
+        !!experiment.start_date &&
+        Math.abs(queryTo.diff(dayjs.utc(experiment.start_date), 'hour', true)) <= LAUNCH_RESULTS_WINDOW_HOURS
+    return windowEndsAtLaunch && ageHours >= LAUNCH_RESULTS_STALE_THRESHOLD_HOURS
+}
 
 type MetricErrorState = { detail: string; retriable: boolean } | null
 type ResolveByUuid<T> = (uuid: string) => T
@@ -897,6 +927,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 if (!experimentIsLaunched()) {
                     return
                 }
+                if (AUTOMATIC_TRIGGERS.has(trigger) && !userCanEdit(props.experiment)) {
+                    return
+                }
                 /**
                  * A config change while a run is active queues a rerun; the terminal branch (poll, or a
                  * terminal-on-create) drains it. Guard on the run status, not isRecalculating: a transient
@@ -1042,6 +1075,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         lemonToast.info(error?.detail || 'Metrics were recalculated less than 5 minutes ago.')
                         actions.markRefreshWindowEnforced()
                         actions.loadLatestRecalculation()
+                        return
+                    }
+                    if (error?.status === 403 && AUTOMATIC_TRIGGERS.has(trigger)) {
+                        // The GET can report more access than the POST grants, such as manager for a creator.
                         return
                     }
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
