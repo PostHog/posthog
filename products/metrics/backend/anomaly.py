@@ -15,11 +15,15 @@ import statistics
 from collections.abc import Callable
 from typing import Any
 
+import structlog
+from clickhouse_driver.errors import ServerException
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import (
@@ -34,6 +38,8 @@ from products.metrics.backend.metric_names_query_runner import MetricNamesQueryR
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _pick_interval, time_range_expr
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics4_samples import reads_metrics4_only, series_in_range_query
+
+logger = structlog.get_logger(__name__)
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
@@ -317,7 +323,14 @@ def _find_top_movers(
 
     movers: list[MetricAnomalyDimension] = []
     for key in keys[:MAX_CANDIDATE_KEYS]:
-        rows = run(group_by=(MetricGroupBy(key=key),))
+        try:
+            rows = run(group_by=(MetricGroupBy(key=key),))
+        except ServerException as e:
+            # A ClickHouse read can fail for one label key only (e.g. a broken
+            # map subcolumn). Drop that key so the rest of the report survives.
+            logger.warning("metrics_anomaly_top_movers_key_failed", team_id=team.id, metric_name=metric_name, key=key)
+            capture_exception(e, {"team_id": team.id, "metric_name": metric_name, "label_key": key})
+            continue
         per_label: dict[str, dict[str, list[float]]] = {}
         for row in rows:
             time = _parse_point_time(row["time"])

@@ -2,12 +2,17 @@ import datetime as dt
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from rest_framework import status
 
+from products.metrics.backend.anomaly import _find_top_movers
 from products.metrics.backend.facade.api import characterize_metric_anomaly
+from products.metrics.backend.facade.contracts import MetricGroupBy
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
@@ -189,3 +194,34 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestFindTopMoversKeyFailure(SimpleTestCase):
+    @patch("products.metrics.backend.anomaly.capture_exception")
+    def test_failed_key_is_skipped_and_other_keys_still_report(self, mock_capture: MagicMock) -> None:
+        baseline_from = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+        anomaly_from = baseline_from + dt.timedelta(minutes=10)
+
+        def run(group_by: tuple[MetricGroupBy, ...] = ()) -> list[dict[str, Any]]:
+            key = group_by[0].key
+            if key == "environment":
+                raise ServerException("simulated read failure", code=33)
+            return [
+                {"time": baseline_from.isoformat(), "labels": {key: "a"}, "value": 10.0},
+                {"time": anomaly_from.isoformat(), "labels": {key: "a"}, "value": 100.0},
+            ]
+
+        movers = _find_top_movers(
+            run=run,
+            team=MagicMock(id=1),
+            metric_name="queue_depth",
+            baseline_from=baseline_from,
+            baseline_to=anomaly_from,
+            anomaly_from=anomaly_from,
+            anomaly_to=anomaly_from + dt.timedelta(minutes=10),
+            filters=(),
+            candidate_keys=("environment", "shard"),
+        )
+
+        self.assertEqual([(m.key, m.label) for m in movers], [("shard", "a")])
+        mock_capture.assert_called_once()
