@@ -256,6 +256,9 @@ class ExperimentQueryBuilder:
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 
+    def reads_precomputed_exposures(self, job_ids: list[str]) -> bool:
+        return self._exposure_query_builder(job_ids=job_ids).reads_precomputed()
+
     def _exposure_query_builder(
         self, maturity: MaturityGate | None = None, job_ids: list[str] | None = None
     ) -> ExposureQueryBuilder:
