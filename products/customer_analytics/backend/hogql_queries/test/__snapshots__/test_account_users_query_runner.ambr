@@ -1,0 +1,123 @@
+# serializer version: 1
+# name: TestAccountUsersQuery.test_widget_query_supports_display_names_filters_search_sort_and_pages_0
+  '''
+  SELECT tuple(coalesce(nullIf(toString(persons.properties___email), %(hogql_val_14)s), nullIf(toString(persons.properties___name), %(hogql_val_15)s), nullIf(toString(persons.properties___username), %(hogql_val_16)s), toString(persons.id)), toString(persons.id)),
+         persons.properties___plan AS plan,
+         source.account_last_seen AS account_last_seen
+  FROM
+    (SELECT pdi.person_id AS person_id,
+            groupUniqArray(101)(membership.distinct_id) AS distinct_ids,
+            min(toTimeZone(membership.first_seen, %(hogql_val_1)s)) AS account_first_seen,
+            max(toTimeZone(membership.last_seen, %(hogql_val_2)s)) AS account_last_seen
+     FROM person_group_membership AS membership GLOBAL
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+               person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                   (SELECT person_group_membership.distinct_id AS distinct_id
+                                                                    FROM person_group_membership
+                                                                    WHERE and(equals(person_group_membership.team_id, 99999), equals(person_group_membership.group_type_index, 0), equals(person_group_membership.group_key, %(hogql_val_0)s)))))
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS pdi ON equals(membership.distinct_id, pdi.distinct_id)
+     WHERE and(equals(membership.team_id, 99999), equals(membership.group_type_index, 0), equals(membership.group_key, %(hogql_val_3)s))
+     GROUP BY pdi.person_id) AS source GLOBAL
+  INNER JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_5)s), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_6)s), ''), 'null'), '^"|"$', '') AS properties___username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_7)s), ''), 'null'), '^"|"$', '') AS properties___plan
+     FROM person PREWHERE in(tuple(person.id, person.version),
+                               (SELECT person.id AS id,
+                                       max(person.version) AS version
+                                FROM person
+                                WHERE and(equals(person.team_id, 99999), in(person.id,
+                                                                              (SELECT source.person_id AS person_id
+                                                                               FROM
+                                                                                 (SELECT pdi.person_id AS person_id, groupUniqArray(101)(membership.distinct_id) AS distinct_ids, min(toTimeZone(membership.first_seen, %(hogql_val_9)s)) AS account_first_seen, max(toTimeZone(membership.last_seen, %(hogql_val_10)s)) AS account_last_seen
+                                                                                  FROM person_group_membership AS membership GLOBAL
+                                                                                  INNER JOIN
+                                                                                    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+                                                                                     FROM person_distinct_id2
+                                                                                     WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                                                                                                (SELECT person_group_membership.distinct_id AS distinct_id
+                                                                                                                                                 FROM person_group_membership
+                                                                                                                                                 WHERE and(equals(person_group_membership.team_id, 99999), equals(person_group_membership.group_type_index, 0), equals(person_group_membership.group_key, %(hogql_val_8)s)))))
+                                                                                     GROUP BY person_distinct_id2.distinct_id
+                                                                                     HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS pdi ON equals(membership.distinct_id, pdi.distinct_id)
+                                                                                  WHERE and(equals(membership.team_id, 99999), equals(membership.group_type_index, 0), equals(membership.group_key, %(hogql_val_11)s))
+                                                                                  GROUP BY pdi.person_id) AS source)))
+                                GROUP BY person.id
+                                HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_12)s), person.version), plus(now64(6, %(hogql_val_13)s), toIntervalDay(1))))))
+     WHERE equals(person.team_id, 99999) SETTINGS optimize_aggregation_in_order=0) AS persons ON equals(persons.id, source.person_id)
+  ORDER BY source.account_last_seen DESC
+  LIMIT 2
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=0,
+                    join_algorithm='auto'
+  '''
+# ---
+# name: TestAccountUsersQuery.test_widget_query_supports_display_names_filters_search_sort_and_pages_1
+  '''
+  WITH __account_members AS MATERIALIZED
+    (SELECT pdi.person_id AS person_id, groupUniqArray(101)(membership.distinct_id) AS distinct_ids, min(toTimeZone(membership.first_seen, %(hogql_val_11)s)) AS account_first_seen, max(toTimeZone(membership.last_seen, %(hogql_val_12)s)) AS account_last_seen
+     FROM person_group_membership AS membership GLOBAL
+     INNER JOIN
+       (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
+        FROM person_distinct_id2
+        WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                   (SELECT person_group_membership.distinct_id AS distinct_id
+                                                                    FROM person_group_membership
+                                                                    WHERE and(equals(person_group_membership.team_id, 99999), equals(person_group_membership.group_type_index, 0), equals(person_group_membership.group_key, %(hogql_val_10)s)))))
+        GROUP BY person_distinct_id2.distinct_id
+        HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS pdi ON equals(membership.distinct_id, pdi.distinct_id)
+     WHERE and(equals(membership.team_id, 99999), equals(membership.group_type_index, 0), equals(membership.group_key, %(hogql_val_13)s))
+     GROUP BY pdi.person_id)
+  SELECT tuple(coalesce(nullIf(toString(persons.properties___email), %(hogql_val_6)s), nullIf(toString(persons.properties___name), %(hogql_val_7)s), nullIf(toString(persons.properties___username), %(hogql_val_8)s), toString(persons.id)), toString(persons.id)),
+         persons.properties___plan AS plan,
+         toTimeZone(source.account_last_seen, %(hogql_val_9)s) AS account_last_seen
+  FROM __account_members AS source GLOBAL
+  INNER JOIN
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', '') AS properties___username,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_3)s), ''), 'null'), '^"|"$', '') AS properties___plan
+     FROM person PREWHERE in(tuple(person.id, person.version),
+                               (SELECT person.id AS id,
+                                       max(person.version) AS version
+                                FROM person
+                                WHERE and(equals(person.team_id, 99999), in(person.id,
+                                                                              (SELECT source.person_id AS person_id
+                                                                               FROM __account_members AS source)))
+                                GROUP BY person.id
+                                HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_4)s), person.version), plus(now64(6, %(hogql_val_5)s), toIntervalDay(1))))))
+     WHERE equals(person.team_id, 99999) SETTINGS optimize_aggregation_in_order=0) AS persons ON equals(persons.id, source.person_id)
+  ORDER BY toTimeZone(source.account_last_seen, %(hogql_val_14)s) DESC
+  LIMIT 2
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=0,
+                    join_algorithm='auto'
+  '''
+# ---
+# name: TestMembershipSchema.test_source_resolves_current_mappings_and_binds_account_key
+  '''
+  SELECT pdi.person_id AS person_id,
+         groupUniqArray(101)(membership.distinct_id) AS distinct_ids,
+         min(toTimeZone(membership.first_seen, %(hogql_val_1)s)) AS account_first_seen,
+         max(toTimeZone(membership.last_seen, %(hogql_val_2)s)) AS account_last_seen
+  FROM person_group_membership AS membership GLOBAL
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+            person_distinct_id2.distinct_id AS distinct_id
+     FROM person_distinct_id2
+     WHERE and(equals(person_distinct_id2.team_id, 99999), in(person_distinct_id2.distinct_id,
+                                                                (SELECT person_group_membership.distinct_id AS distinct_id
+                                                                 FROM person_group_membership
+                                                                 WHERE and(equals(person_group_membership.team_id, 99999), equals(person_group_membership.group_type_index, 0), equals(person_group_membership.group_key, %(hogql_val_0)s)))))
+     GROUP BY person_distinct_id2.distinct_id
+     HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0)) AS pdi ON equals(membership.distinct_id, pdi.distinct_id)
+  WHERE and(equals(membership.team_id, 99999), equals(membership.group_type_index, 0), equals(membership.group_key, %(hogql_val_3)s))
+  GROUP BY pdi.person_id
+  LIMIT 50000
+  '''
+# ---
