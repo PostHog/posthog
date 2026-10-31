@@ -24,9 +24,9 @@ MINIMUM_EXPOSED_WITHOUT_FILTER = 100
 
 
 def reads_share_kept_by_test_account_filter(ctx: HealthContext) -> bool:
-    """Whether the test account filter is on and the experiment counts some exposures, but few. The exposure query
-    counts the exposures without the filter for `exposures_removed_by_test_account_filter` only then, because the
-    count scans the exposure events."""
+    """Whether the test account filter is on, a project filter keeps what it matches, and the experiment counts some
+    exposures, but few. The exposure query counts the exposures without the filter for
+    `exposures_removed_by_test_account_filter` only then, because the count scans the exposure events."""
     return ctx.exposures is not None and _skip(ctx, ctx.exposures) is None
 
 
@@ -78,6 +78,8 @@ def _skip(ctx: HealthContext, exposures: ExposureTotals) -> CheckSkip | None:
         return not_applicable(RUNS_AFTER_LAUNCH)
     if not exposures.filters_test_accounts:
         return not_applicable("Runs when the exposure criteria filter out internal and test users")
+    if not exposures.has_positive_test_account_filter:
+        return not_applicable("Runs when a test account filter keeps only the users that it matches")
     if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS:
         return not_applicable(f"Runs {ZERO_EXPOSURES_GRACE_HOURS} hours after launch")
     if exposures.total == 0:

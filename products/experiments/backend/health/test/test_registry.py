@@ -43,6 +43,7 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
     hours_since_launch=72,
     counts_groups=False,
     filters_test_accounts=False,
+    has_positive_test_account_filter=False,
 )
 
 UNEVEN_FLAG = FlagState(
@@ -101,6 +102,7 @@ def _filtered_totals(counted: int, exposed_without_filter: int | None) -> Exposu
         UNEVEN_SPLIT_TOTALS,
         total_exposures={"control": counted - counted // 2, "test": counted // 2},
         filters_test_accounts=True,
+        has_positive_test_account_filter=True,
         exposed_without_test_account_filter=exposed_without_filter,
     )
 
@@ -304,6 +306,7 @@ class TestEvaluate(TestCase):
             ("in_the_first_day", {"hours_since_launch": 23.9}, False),
             ("none_counted", {"total_exposures": {"control": 0, "test": 0}}, False),
             ("filter_off", {"filters_test_accounts": False}, False),
+            ("no_positive_filter", {"has_positive_test_account_filter": False}, False),
         ]
     )
     def test_the_count_without_the_test_account_filter_runs_only_on_few_exposures(

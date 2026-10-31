@@ -13,11 +13,12 @@ from posthog.schema import (
     ExperimentExposureCriteria,
     ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
+    PropertyOperator,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
 
 from posthog.models.team.team import Team
 
@@ -250,6 +251,18 @@ def applies_test_account_filters(
         resolve_filter_test_accounts(exposure_criteria)
         and isinstance(team.test_account_filters, list)
         and len(team.test_account_filters) > 0
+    )
+
+
+def has_positive_test_account_filter(team: Team) -> bool:
+    """Whether a project test account filter keeps what it matches, by a positive operator. A negative operator leaves
+    out what it matches. A `hogql` filter has no operator to read, so it doesn't count."""
+    if not isinstance(team.test_account_filters, list):
+        return False
+    return any(
+        test_filter.get("type") != "hogql"
+        and not operator_is_negative(test_filter.get("operator") or PropertyOperator.EXACT)
+        for test_filter in team.test_account_filters
     )
 
 

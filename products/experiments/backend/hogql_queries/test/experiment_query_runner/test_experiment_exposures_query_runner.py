@@ -50,6 +50,11 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.uti
 from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+LEAVES_OUT_TEST_ACCOUNTS = {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
+KEEPS_MATCHING_USERS = {"key": "email", "value": "@example.org", "operator": "icontains", "type": "person"}
+HOGQL_FILTER = {"key": "not(person.properties.email ilike '%@example.com')", "type": "hogql"}
+LATER = "2024-01-07T12:00:00Z"
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
@@ -2001,6 +2006,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "test_accounts_exposed",
                 0,
                 2,
+                LEAVES_OUT_TEST_ACCOUNTS,
                 True,
                 "2024-01-07T12:00:00Z",
                 [
@@ -2016,6 +2022,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "nobody_exposed",
                 0,
                 0,
+                LEAVES_OUT_TEST_ACCOUNTS,
                 True,
                 "2024-01-07T12:00:00Z",
                 [
@@ -2031,6 +2038,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "test_accounts_exposed_for_a_reader_who_does_not_see_the_findings",
                 0,
                 2,
+                LEAVES_OUT_TEST_ACCOUNTS,
                 False,
                 "2024-01-07T12:00:00Z",
                 [
@@ -2046,6 +2054,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "few_users_counted_for_a_reader_who_does_not_see_the_findings",
                 3,
                 100,
+                KEEPS_MATCHING_USERS,
                 False,
                 "2024-01-07T12:00:00Z",
                 [
@@ -2061,6 +2070,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "few_users_counted",
                 3,
                 100,
+                KEEPS_MATCHING_USERS,
                 True,
                 "2024-01-07T12:00:00Z",
                 [
@@ -2072,7 +2082,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     )
                 ],
             ),
-            ("few_users_counted_in_the_first_day", 3, 100, True, "2024-01-01T23:00:00Z", []),
+            ("few_users_counted_in_the_first_day", 3, 100, KEEPS_MATCHING_USERS, True, "2024-01-01T23:00:00Z", []),
+            ("few_users_counted_with_only_negative_filters", 3, 100, LEAVES_OUT_TEST_ACCOUNTS, True, LATER, []),
+            ("few_users_counted_with_only_a_hogql_filter", 3, 100, HOGQL_FILTER, True, LATER, []),
         ]
     )
     def test_counts_the_users_that_the_test_account_filter_removes(
@@ -2080,15 +2092,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         _name: str,
         users: int,
         test_accounts: int,
+        test_account_filter: dict[str, Any],
         findings_shown: bool,
         now: str,
         expected: list[tuple[ExperimentExposureHealthFindingCode, str | None, str, int | None]],
     ) -> None:
         self.feature_flag.last_called_at = datetime(2024, 1, 1, 12, tzinfo=UTC)
         self.feature_flag.save()
-        self.team.test_account_filters = [
-            {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
-        ]
+        self.team.test_account_filters = [test_account_filter]
         self.team.save()
         self.experiment.exposure_criteria = {"filterTestAccounts": True}
         for i in range(users + test_accounts):

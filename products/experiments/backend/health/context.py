@@ -263,6 +263,9 @@ class ExposureTotals:
     # Whether the totals leave out test accounts: the exposure criteria filter them out, and the project has test
     # account filters.
     filters_test_accounts: bool
+    # Whether a project test account filter keeps what it matches. The kept share check scans the exposure events only
+    # for such a project.
+    has_positive_test_account_filter: bool
     # The next two need a scan of the exposure events. Only the exposure query loads them, and only when a check that
     # reads them can report a finding with them. None when not loaded or when the query failed.
     segments: tuple[ExposureSegment, ...] | None = None

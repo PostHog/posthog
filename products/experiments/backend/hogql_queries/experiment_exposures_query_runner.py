@@ -81,6 +81,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     aggregates_by_group,
     applies_test_account_filters,
     get_entity_key,
+    has_positive_test_account_filter,
 )
 from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
@@ -539,6 +540,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 hours_since_launch=self.experiment.hours_since_launch,
                 counts_groups=aggregates_by_group(self.group_type_index),
                 filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
+                has_positive_test_account_filter=has_positive_test_account_filter(self.team),
             ),
             exposure_params,
         )
