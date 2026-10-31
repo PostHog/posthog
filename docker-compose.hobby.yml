@@ -29,6 +29,16 @@ x-hypercache-s3: &hypercache-s3
 x-single-temporal-queue: &single-temporal-queue
     TEMPORAL_USE_SINGLE_TASK_QUEUE: 'true'
 
+# The PersonHog services default to shadow-mode validation tables. Hobby has no shadow
+# mode, so identity and the publisher name the real tables.
+x-personhog-tables: &personhog-tables
+    PERSON_TABLE: 'posthog_person'
+    PERSON_DISTINCT_ID_TABLE: 'posthog_persondistinctid'
+    FF_HASH_KEY_OVERRIDE_TABLE: 'posthog_featureflaghashkeyoverride'
+    LIFECYCLE_OP_TABLE: 'lifecycle_op'
+    LIFECYCLE_OP_PERSON_TABLE: 'lifecycle_op_person'
+    PERSON_PUBLISH_OUTBOX_TABLE: 'person_publish_outbox'
+
 services:
     db:
         extends:
@@ -665,6 +675,176 @@ services:
         depends_on:
             - personhog-replica
 
+    personhog-router-leader:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-router-leader
+        logging: *default-logging
+        environment:
+            IDENTITY_ENABLED: 'true'
+            IDENTITY_URL: 'http://personhog-identity:50055'
+        depends_on:
+            etcd:
+                condition: service_healthy
+            personhog-replica:
+                condition: service_started
+
+    personhog-leader:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-leader
+        logging: *default-logging
+        environment:
+            FALLBACK_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            FALLBACK_TABLE: 'posthog_person'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+            personhog-etcd-init:
+                condition: service_completed_successfully
+            personhog-tables-ready:
+                condition: service_completed_successfully
+
+    personhog-writer:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-writer
+        logging: *default-logging
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PG_TARGET_TABLE: 'posthog_person'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+            personhog-etcd-init:
+                condition: service_completed_successfully
+
+    personhog-identity:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-identity
+        logging: *default-logging
+        environment:
+            <<: *personhog-tables
+            PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            LIFECYCLE_OUTBOX_ENABLED: 'true'
+        depends_on:
+            db:
+                condition: service_healthy
+            personhog-router-leader:
+                condition: service_started
+            personhog-tables-ready:
+                condition: service_completed_successfully
+
+    personhog-publisher:
+        image: ghcr.io/posthog/posthog/personhog-publisher:master
+        build:
+            context: ./posthog/rust
+            args:
+                BIN: personhog-publisher
+        restart: on-failure
+        logging: *default-logging
+        environment:
+            <<: *personhog-tables
+            PRIMARY_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            PERSON_DISTINCT_ID_TOPIC: 'clickhouse_person_distinct_id'
+            RUST_LOG: 'info'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka-init:
+                condition: service_completed_successfully
+
+    personhog-changelog-relay:
+        image: ghcr.io/posthog/posthog/personhog-changelog-relay:master
+        build:
+            context: ./posthog/rust
+            args:
+                BIN: personhog-changelog-relay
+        restart: on-failure
+        logging: *default-logging
+        environment:
+            KAFKA_HOSTS: 'kafka:9092'
+            OUTPUT_KAFKA_HOSTS: 'kafka:9092'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
+            RUST_LOG: 'info'
+        depends_on:
+            kafka-init:
+                condition: service_completed_successfully
+            personhog-etcd-init:
+                condition: service_completed_successfully
+
+    etcd:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: on-failure
+        logging: *default-logging
+        environment:
+            ETCD_NAME: etcd0
+            ETCD_DATA_DIR: /etcd-data
+            ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+            ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+        volumes:
+            - etcd-data:/etcd-data
+        healthcheck:
+            test: ['CMD', 'etcdctl', 'endpoint', 'health']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    # Seeds the changelog config the PersonHog services read at boot. One partition matches
+    # the personhog_updates topic kafka-init creates, and the relay's group must be listed
+    # in retire_groups or the relay refuses to start.
+    personhog-etcd-init:
+        image: quay.io/coreos/etcd:v3.6.8
+        restart: 'no'
+        logging: *default-logging
+        entrypoint:
+            [
+                'etcdctl',
+                '--endpoints=http://etcd:2379',
+                'put',
+                '/personhog/config/changelog',
+                '{"topic":"personhog_updates","partitions":1,"epoch":1,"writer_group":"personhog-writer","retire_groups":["personhog-changelog-relay"],"draining":[]}',
+            ]
+        depends_on:
+            etcd:
+                condition: service_healthy
+
+    # Waits until web's persons migrations create the tables that personhog-leader and
+    # personhog-identity read at boot. Both exit when the tables are missing, and web runs
+    # migrations in its own entrypoint, so they cannot depend on a migration step directly.
+    personhog-tables-ready:
+        image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
+        restart: 'no'
+        logging: *default-logging
+        environment:
+            PGPASSWORD: posthog
+        entrypoint:
+            - sh
+            - -c
+            - |
+                until psql -h db -U posthog -d posthog -tAc "SELECT to_regclass('lifecycle_op_person') IS NOT NULL AND to_regclass('person_publish_outbox') IS NOT NULL" | grep -q t; do
+                    echo "Waiting for the persons migrations"
+                    sleep 5
+                done
+        depends_on:
+            db:
+                condition: service_healthy
+
     feature-flags:
         build:
             context: ./posthog/rust
@@ -730,7 +910,9 @@ services:
                 # docker-compose.dev.yml so the two stacks cannot drift apart. That header
                 # explains what needs pre-creating.
                 # Note: $$ escapes $ for docker-compose variable substitution
-                TOPICS=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /topics.txt)
+                # The PersonHog changelog's partition count must equal the one in
+                # personhog-etcd-init's seed, or the leader refuses to start.
+                TOPICS="$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /topics.txt) personhog_updates personhog_changelog_relay_dlq"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created successfully"
@@ -837,3 +1019,4 @@ volumes:
     redis7-data:
     kafka-data:
     redpanda-data:
+    etcd-data:
