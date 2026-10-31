@@ -2,6 +2,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 import requests_mock
@@ -27,6 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qdrant.sou
 ACCOUNT_ID = "00000000-0000-4000-8000-000000000001"
 ACCOUNTS_URL = "https://api.cloud.qdrant.io/api/account/v1/accounts"
 CLUSTERS_URL = f"https://api.cloud.qdrant.io/api/cluster/v1/accounts/{ACCOUNT_ID}/clusters"
+PROVIDERS_PATH = f"/api/platform/v1/accounts/{ACCOUNT_ID}/cloud-providers"
+METERINGS_PATH = f"/api/metering/v1/accounts/{ACCOUNT_ID}/meterings"
+CLUSTER_A = "00000000-0000-4000-8000-00000000000a"
+CLUSTER_B = "00000000-0000-4000-8000-00000000000b"
 
 
 @pytest.fixture
@@ -82,23 +87,121 @@ def test_repeated_cursor_fails(config: QdrantSourceConfig) -> None:
     assert len(result.requests) == 1
 
 
-@pytest.mark.parametrize("schema_name", [None, "clusters", "backups", "backup_schedules", "backup_restores"])
-def test_credentials_make_one_probe(config: QdrantSourceConfig, schema_name: str | None) -> None:
+@pytest.mark.parametrize(
+    "schema_name,url,paginated",
+    [
+        (None, ACCOUNTS_URL, False),
+        ("clusters", CLUSTERS_URL, True),
+        ("backups", f"https://api.cloud.qdrant.io/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backups", True),
+        (
+            "backup_schedules",
+            f"https://api.cloud.qdrant.io/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backup_schedules",
+            True,
+        ),
+        (
+            "backup_restores",
+            f"https://api.cloud.qdrant.io/api/cluster/backup/v1/accounts/{ACCOUNT_ID}/backup_restores",
+            True,
+        ),
+        ("cloud_providers", f"https://api.cloud.qdrant.io{PROVIDERS_PATH}", False),
+        ("cloud_provider_regions", f"https://api.cloud.qdrant.io{PROVIDERS_PATH}", False),
+        ("metering_entries", f"https://api.cloud.qdrant.io{METERINGS_PATH}", False),
+        ("cluster_usage_metrics", CLUSTERS_URL, True),
+    ],
+)
+def test_credentials_make_one_probe(
+    config: QdrantSourceConfig, schema_name: str | None, url: str, paginated: bool
+) -> None:
     with requests_mock.Mocker() as http:
-        body: dict[str, Any]
-        if schema_name is None:
-            url = ACCOUNTS_URL
-            body = {"items": [{"id": ACCOUNT_ID}]}
-        else:
-            service = "cluster" if schema_name == "clusters" else "cluster/backup"
-            url = f"https://api.cloud.qdrant.io/api/{service}/v1/accounts/{ACCOUNT_ID}/{schema_name}"
-            body = {"items": [], "nextPageToken": "unused"}
+        body: dict[str, Any] = {"items": [{"id": ACCOUNT_ID}]} if schema_name is None else {"items": []}
         http.get(url, json=body)
         assert validate_credentials(config, schema_name) == (True, None)
         assert http.call_count == 1
         request = http.request_history[0]
         assert request.headers["Authorization"] == "apikey fake-management-key"
-        assert parse_qs(urlsplit(request.url).query) == ({"pageSize": ["1"]} if schema_name else {})
+        assert parse_qs(urlsplit(request.url).query) == ({"pageSize": ["1"]} if paginated else {})
+
+
+@pytest.mark.parametrize(
+    "schema_name,script,expected_paths,expected_rows",
+    [
+        (
+            "cloud_provider_regions",
+            [
+                ScriptedResponse(json={"items": [{"id": "aws"}, {"id": "hybrid"}]}),
+                ScriptedResponse(json={"items": [{"id": "us-west-1", "provider": "aws"}]}),
+                ScriptedResponse(status=403, json={"code": 7, "message": "permission denied"}),
+            ],
+            [PROVIDERS_PATH, f"{PROVIDERS_PATH}/aws/regions", f"{PROVIDERS_PATH}/hybrid/regions"],
+            [{"id": "us-west-1", "provider": "aws", "cloud_provider_id": "aws"}],
+        ),
+        (
+            "metering_entries",
+            [
+                ScriptedResponse(json={"items": [{"year": 2026, "month": 9}, {"year": 2026, "month": 10}]}),
+                ScriptedResponse(json={"items": [{"billableEntityId": "booking-1", "amountMillicents": "10"}]}),
+                ScriptedResponse(json={"items": []}),
+            ],
+            [METERINGS_PATH, f"{METERINGS_PATH}/2026/9", f"{METERINGS_PATH}/2026/10"],
+            [{"billableEntityId": "booking-1", "amountMillicents": "10"}],
+        ),
+    ],
+)
+def test_fanout_binds_parent_rows_into_child_paths(
+    config: QdrantSourceConfig,
+    schema_name: str,
+    script: Script,
+    expected_paths: list[str],
+    expected_rows: list[dict[str, Any]],
+) -> None:
+    result = drive(config, schema_name, script)
+
+    assert result.raised is None
+    assert result.paths == expected_paths
+    assert result.rows == expected_rows
+
+
+@time_machine.travel("2026-10-31T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    "inputs,expected_since",
+    [
+        ({}, "2026-10-24T12:00:00Z"),
+        (
+            {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-10-31T10:00:00Z"},
+            "2026-10-31T10:00:00Z",
+        ),
+        (
+            {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-01-01T00:00:00Z"},
+            "2026-10-24T12:00:00Z",
+        ),
+    ],
+)
+def test_cluster_usage_metrics_explode_per_cluster(
+    config: QdrantSourceConfig, inputs: dict[str, Any], expected_since: str
+) -> None:
+    point = {"timestamp": "2026-10-31T11:00:00Z", "value": 0.5}
+    result = drive(
+        config,
+        "cluster_usage_metrics",
+        [
+            ScriptedResponse(json={"items": [{"id": CLUSTER_A}, {"id": CLUSTER_B}]}),
+            ScriptedResponse(json={"cpu": [point], "rps": [], "nodes": [{"nodeId": "node-0", "ram": [point]}]}),
+            ScriptedResponse(status=404, json={"code": 5, "message": "cluster not found"}),
+        ],
+        **inputs,
+    )
+
+    assert result.raised is None
+    assert result.paths == [
+        urlsplit(CLUSTERS_URL).path,
+        f"/api/monitoring/v1/accounts/{ACCOUNT_ID}/cluster/{CLUSTER_A}/usage-metrics",
+        f"/api/monitoring/v1/accounts/{ACCOUNT_ID}/cluster/{CLUSTER_B}/usage-metrics",
+    ]
+    assert result.params("since") == [None, expected_since, expected_since]
+    assert result.rows == [
+        {"cluster_id": CLUSTER_A, "node_id": "", "metric": "cpu", **point},
+        {"cluster_id": CLUSTER_A, "node_id": "node-0", "metric": "ram", **point},
+    ]
 
 
 @pytest.mark.parametrize("body", [{"items": []}, {"items": [{"id": "another-account"}]}])
