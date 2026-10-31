@@ -1056,10 +1056,22 @@ class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
         cache.clear()
 
     def test_exhausted_poll_bucket_does_not_block_write(self) -> None:
-        request = Mock(headers={"X-Conversations-Token": "widget-token"})
+        request = Mock(headers={"X-Conversations-Token": "widget-token"}, auth=None, path="/")
         view = Mock()
         with patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"):
             poll = rate_limit.WidgetTeamPollThrottle()
             self.assertTrue(poll.allow_request(request, view))
             self.assertFalse(poll.allow_request(request, view))
         self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))
+
+    def test_allow_listed_team_keeps_polling_past_an_exhausted_bucket(self) -> None:
+        request = Mock(headers={"X-Conversations-Token": "widget-token"}, auth=Team(pk=42), path="/")
+        view = Mock()
+        with (
+            patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", side_effect=lambda team_id: team_id == 42),
+        ):
+            self.assertTrue(rate_limit.WidgetTeamPollThrottle().allow_request(request, view))
+            self.assertTrue(rate_limit.WidgetTeamPollThrottle().allow_request(request, view))
+            request.auth = Team(pk=43)
+            self.assertFalse(rate_limit.WidgetTeamPollThrottle().allow_request(request, view))
