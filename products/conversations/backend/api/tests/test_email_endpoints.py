@@ -1779,6 +1779,17 @@ class TestEmailInboundContent(MailgunWebhookTestMixin, BaseTest):
                 {"body-plain": "Full body text"},
                 "Full body text",
             ),
+            (
+                "html_document_in_text_part",
+                {
+                    "body-plain": (
+                        "<!DOCTYPE html><html><body><p>Your account is ready.</p>"
+                        '<p>Open <a href="https://app.example.com/start">the dashboard</a>.</p>'
+                        "</body></html>"
+                    )
+                },
+                "Your account is ready.\n\nOpen [the dashboard](https://app.example.com/start).",
+            ),
             # A forwarded email's original content is inside the "quoted" block that
             # Mailgun strips — on a new ticket the full body must be kept.
             (
