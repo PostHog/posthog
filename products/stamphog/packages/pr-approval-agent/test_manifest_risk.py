@@ -165,7 +165,7 @@ def test_manifest_change_is_risky_structural(path: str, base: str, head: str, ri
     # name, so only a structural compare of the risky subtrees catches it.
     # Over-matching matters too - version bumps hard-denying would undo the
     # manifest calibration entirely.
-    assert manifest_change_is_risky(path, base, head, diff_text="") is risky
+    assert manifest_change_is_risky(path, base, head) is risky
 
 
 @pytest.mark.parametrize(
@@ -183,32 +183,105 @@ def test_manifest_change_is_risky_unparseable_fails_closed(path: str, base: str,
     # Each _STRUCTURAL_RISK_CHECKS entry has its own parse-failure exception
     # tuple; narrowing any one of them would fail open for that manifest
     # alone, so every format needs its own fail-closed case, not just json.
-    assert manifest_change_is_risky(path, base, head, diff_text="") is True
+    assert manifest_change_is_risky(path, base, head) is True
+
+
+_GO_MOD = "module example.com/app\n\ngo 1.22\n\nrequire example.com/lib v1.0.0\n"
+_GO_MOD_BLOCK = _GO_MOD + "\nreplace (\n\texample.com/a => example.com/a v1.0.0\n)\n"
+_REPLACE_BEHIND_LONE_CRS = "// note\rrequire (\nreplace example.com/lib => ../evil\n// note\r)\n"
 
 
 @pytest.mark.parametrize(
-    "path, diff_line, risky",
+    "base, head, risky",
     [
-        pytest.param("go.mod", "+replace example.com/x => ../local", True, id="go-mod-replace"),
-        pytest.param("go.mod", "+require example.com/x v1.2.3", False, id="go-mod-require-clean"),
+        pytest.param(_GO_MOD, _GO_MOD + "replace example.com/x => ../local\n", True, id="replace-added"),
+        pytest.param(_GO_MOD, _GO_MOD + "replace\texample.com/x => ../local\n", True, id="tab-separated-replace"),
+        pytest.param(_GO_MOD, _GO_MOD.replace("v1.0.0", "v1.2.3"), False, id="require-bump-clean"),
+        pytest.param(
+            _GO_MOD_BLOCK,
+            _GO_MOD_BLOCK.replace(")\n", "\texample.com/b => evil.example/b v1.0.0\n)\n"),
+            True,
+            id="entry-added-inside-existing-replace-block",
+        ),
+        pytest.param(_GO_MOD_BLOCK, _GO_MOD_BLOCK + "// a note\n", False, id="comment-only-clean"),
+        pytest.param(
+            _GO_MOD + "// note\vreplace example.com/x => ../local\n",
+            _GO_MOD + "// note\nreplace example.com/x => ../local\n",
+            True,
+            id="replace-uncommented-by-a-vertical-tab-swap",
+        ),
+        pytest.param(
+            _GO_MOD.replace("require example.com/lib v1.0.0", 'require (\n\texample.com/lib v1.0.0\n) // "deps"'),
+            _GO_MOD.replace("require example.com/lib v1.0.0", 'require (\n\texample.com/lib v1.0.0\n) // "deps"')
+            + "replace example.com/lib => ../evil\n",
+            True,
+            id="replace-after-a-block-closed-with-a-quoted-comment",
+        ),
+        pytest.param(
+            _GO_MOD,
+            _GO_MOD + '// "note" (\nreplace example.com/lib => ../evil\n',
+            True,
+            id="replace-after-a-quoted-comment-ending-in-a-paren",
+        ),
+        pytest.param(
+            _GO_MOD + 'replace example.com/lib => "./local  lib"\n',
+            _GO_MOD + 'replace example.com/lib => "./local lib"\n',
+            True,
+            id="whitespace-inside-a-quoted-path-kept",
+        ),
+        pytest.param(_GO_MOD, _GO_MOD + "bogus (\n)\n", True, id="unknown-directive-fails-closed"),
+        pytest.param(
+            _GO_MOD.replace("\n", "\r\n"),
+            _GO_MOD.replace("\n", "\r\n").replace("v1.0.0", "v1.2.3"),
+            False,
+            id="crlf-require-bump-clean",
+        ),
+        pytest.param(
+            _GO_MOD, _GO_MOD + _REPLACE_BEHIND_LONE_CRS, True, id="replace-between-comments-ended-by-a-lone-cr"
+        ),
     ],
 )
-def test_line_scan_families(path: str, diff_line: str, risky: bool) -> None:
-    # go.mod keeps the line scan: key and value share a line, and a require
-    # bump without go.sum fails CI deterministically (-mod=readonly), so only
-    # replace directives are silent-fetch risks.
-    diff = f"--- a/{path}\n+++ b/{path}\n@@ -1,3 +1,3 @@\n context\n{diff_line}\n"
-    assert manifest_change_is_risky(path, "irrelevant", "irrelevant2", diff) is risky
+def test_go_mod_compares_replace_directives(base: str, head: str, risky: bool) -> None:
+    assert manifest_change_is_risky("go.mod", base, head) is risky
 
 
-def test_tsconfig_jsonc_falls_back_to_line_scan() -> None:
-    # tsconfig is often JSONC; failing closed on comments would hard-deny
-    # every commented tsconfig edit and undo the calibration.
-    jsonc = '{\n  // comment\n  "compilerOptions": {"strict": true},\n}'
-    clean_diff = '--- a/tsconfig.json\n+++ b/tsconfig.json\n@@\n+  "strict": true,\n'
-    risky_diff = '--- a/tsconfig.json\n+++ b/tsconfig.json\n@@\n+  "extends": "evil",\n'
-    assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", clean_diff) is False
-    assert manifest_change_is_risky("tsconfig.json", jsonc, jsonc + " ", risky_diff) is True
+_TSCONFIG = '{\n  // comment\n  "compilerOptions": {\n    "strict": true,\n  },\n}\n'
+
+
+@pytest.mark.parametrize(
+    "base, head, risky",
+    [
+        pytest.param(_TSCONFIG, _TSCONFIG.replace("// comment", "// edited"), False, id="comment-edit-clean"),
+        pytest.param(_TSCONFIG, _TSCONFIG.replace('"strict": true', '"strict": false'), False, id="option-clean"),
+        pytest.param(
+            _TSCONFIG, _TSCONFIG.replace("{\n  //", '{\n  "extends": "evil",\n  //'), True, id="extends-added"
+        ),
+        pytest.param(
+            '{\n  "compilerOptions": {\n    /* off\n    "plugins": [{"name": "evil"}],\n    */\n  },\n}\n',
+            '{\n  "compilerOptions": {\n    /* off */\n    "plugins": [{"name": "evil"}],\n  },\n}\n',
+            True,
+            id="plugins-activated-by-moving-a-comment-terminator",
+        ),
+        pytest.param(
+            '{"extends": "./base,}.json"}', '{"extends": "./base}.json"}', True, id="comma-inside-a-string-kept"
+        ),
+        pytest.param(_TSCONFIG, '{\n  "compilerOptions": {\n\v"plugins": []\n}}', True, id="unparseable-fails-closed"),
+        pytest.param(
+            '{\n  // note\r  "extends": "./base.json",\n  "compilerOptions": {}\n}\n',
+            '{\n  // note\r  "extends": "./evil.json",\n  "compilerOptions": {}\n}\n',
+            True,
+            id="extends-after-a-comment-ended-by-a-lone-cr",
+        ),
+        pytest.param(
+            '{\n  // note   "extends": "./base.json",\n  "compilerOptions": {}\n}\n',
+            '{\n  // note   "extends": "./evil.json",\n  "compilerOptions": {}\n}\n',
+            True,
+            id="extends-after-a-comment-ended-by-a-line-separator",
+        ),
+    ],
+)
+def test_tsconfig_compares_jsonc_structurally(base: str, head: str, risky: bool) -> None:
+    assert manifest_change_is_risky("tsconfig.json", base, head) is risky
 
 
 @pytest.mark.parametrize("given_merge_base", [False, True])
@@ -244,3 +317,22 @@ def test_wrapper_anchors_at_merge_base_not_base_tip(tmp_path, given_merge_base: 
         assert manifest_script_changes(["package.json"], "not-a-commit", head, tmp_path, merge_base) == []
     else:
         assert manifest_script_changes(["package.json"], base_tip, head, tmp_path) == []
+
+
+def test_checkout_scan_keeps_lone_crs(tmp_path) -> None:
+    def run(*args: str) -> str:
+        result = subprocess.run(["git", *args], capture_output=True, text=True, cwd=tmp_path, check=True)
+        return result.stdout.strip()
+
+    run("init", "-q", "-b", "main")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (tmp_path / "go.mod").write_bytes(_GO_MOD.encode())
+    run("add", ".")
+    run("commit", "-qm", "root")
+    base = run("rev-parse", "HEAD")
+    (tmp_path / "go.mod").write_bytes((_GO_MOD + _REPLACE_BEHIND_LONE_CRS).encode())
+    run("commit", "-qam", "replace behind lone CRs")
+    head = run("rev-parse", "HEAD")
+
+    assert manifest_script_changes(["go.mod"], base, head, tmp_path, base) == ["go.mod"]

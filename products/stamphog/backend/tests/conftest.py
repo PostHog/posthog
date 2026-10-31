@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.errors import describe_failure
 
+from products.stamphog.backend.logic.engine_pregate import GateAttestation
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     ReviewSandboxInput,
@@ -209,6 +210,9 @@ class StamphogChain:
     # The fake sandbox class itself, so a test can script failure modes (destroy_error) and read
     # captured create() configs (created_configs). Typed Any: the class attrs are fake-only.
     sandbox_class: Any
+    # The worker's own gate check before an approval. The fake PRs carry no complete file list or
+    # folder files, so it attests by default, and a test sets ``return_value`` to refuse.
+    attest_gates: MagicMock
 
     def post_webhook(self, payload: dict[str, Any], *, delivery_id: str) -> int:
         body = fakes.encode(payload)
@@ -312,6 +316,16 @@ def stamphog_chain() -> Iterator[StamphogChain]:
                 side_effect=RuntimeError("no gateway in tests"),
             )
         )
+        attest_gates = stack.enter_context(
+            patch(
+                "products.stamphog.backend.temporal.activities._attest_gates",
+                return_value=GateAttestation(attested=True, reason="", gates=[]),
+            )
+        )
         yield StamphogChain(
-            recorder=recorder, client=Client(), sandbox_writes=sandbox_writes, sandbox_class=fake_sandbox
+            recorder=recorder,
+            client=Client(),
+            sandbox_writes=sandbox_writes,
+            sandbox_class=fake_sandbox,
+            attest_gates=attest_gates,
         )
