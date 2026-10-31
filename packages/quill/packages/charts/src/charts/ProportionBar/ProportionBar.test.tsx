@@ -94,6 +94,18 @@ describe('ProportionBar', () => {
         }
     )
 
+    it('fills legend value columns for its own legend rows and keeps their share text', () => {
+        const { chart } = renderChart(
+            <ProportionBar series={PARTS} theme={THEME} config={{ legend: { values: ['sum'] } }} />
+        )
+        expect(chart.legendItems()).toEqual([
+            { label: 'a', secondaryLabel: '75% · 600' },
+            { label: 'b', secondaryLabel: '12.5% · 100' },
+            { label: 'c', secondaryLabel: '12.5% · 100' },
+        ])
+        expect(chart.legendValues()).toEqual([['600'], ['100'], ['100']])
+    })
+
     it('recomputes the legend shares over the parts left visible', () => {
         const { chart } = renderChart(<ProportionBar series={PARTS} theme={THEME} />)
         expect(chart.legendItems().map((item) => item.secondaryLabel)).toEqual([

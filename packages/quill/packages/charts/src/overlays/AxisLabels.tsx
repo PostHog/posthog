@@ -7,6 +7,8 @@ import { AXIS_LABEL_FONT, getTextMeasureCtx, truncateToWidth } from '../utils/te
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
+    /** Place the x ticks at these labels instead of the chart's data labels. */
+    xTickLabels?: string[]
     xTickLabelRotation?: number
     yTickFormatter?: (value: number) => string
     hideXAxis?: boolean
@@ -297,6 +299,7 @@ export const AxisLabels = React.memo(function AxisLabels({
     orientation = 'vertical',
     labelToCoord,
     maxCategoryLabelWidth = 0,
+    xTickLabels,
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels, yGutters } = useChartLayout()
     const yTicks = scales.yTicks()
@@ -305,8 +308,23 @@ export const AxisLabels = React.memo(function AxisLabels({
         () =>
             hideXAxis || orientation === 'horizontal'
                 ? []
-                : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation),
-        [hideXAxis, labels, scales.x, xTickFormatter, xTickLabelRotation, orientation, maxCategoryLabelWidth]
+                : computeVisibleXLabels(
+                      xTickLabels ?? labels,
+                      scales.x,
+                      xTickFormatter,
+                      maxCategoryLabelWidth,
+                      xTickLabelRotation
+                  ),
+        [
+            hideXAxis,
+            labels,
+            xTickLabels,
+            scales.x,
+            xTickFormatter,
+            xTickLabelRotation,
+            orientation,
+            maxCategoryLabelWidth,
+        ]
     )
 
     // Mirror the vertical branch's memoization so an unrelated prop change (e.g. axisColor)

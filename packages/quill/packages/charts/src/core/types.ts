@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import type { LegendItem } from '../components/Legend/Legend'
+import type { LegendItem, LegendValue } from '../components/Legend/Legend'
 import type { LegendItemControls } from '../components/Legend/useChartLegend'
 import type { DefaultTooltipProps } from '../overlays/DefaultTooltip'
 
@@ -88,6 +88,10 @@ export interface Series<Meta = unknown> {
     }
     /** Line stroke configuration. */
     stroke?: {
+        /** Line width in CSS pixels. Defaults to 2. `0` draws no line, for an area fill or points
+         *  without a stroke. Lines have round caps, which close a dash gap narrower than the width,
+         *  so a wide line with a custom `pattern` needs wider gaps. */
+        width?: number
         /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
         pattern?: number[]
         /** A range of indices that should be drawn with a different (typically dashed) pattern. */
@@ -100,7 +104,8 @@ export interface Series<Meta = unknown> {
              *  beyond it — everything before stays solid. Lets a two-point line dash just its second
              *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
             fromFraction?: number
-            /** Dash pattern for the partial range. Defaults to [10, 10]. */
+            /** Dash pattern for the partial range. Defaults to 10px dashes with an 8px visible gap,
+             *  `[10, 10]` at the default width. */
             pattern?: number[]
         }
     }
@@ -118,6 +123,10 @@ export interface Series<Meta = unknown> {
          *  the stroke dashes; non-gradient area fills instead hatch the dashed range. */
         gradient?: boolean
     }
+    /** Line charts only; bar and combo charts ignore it. `false` keeps this series out of the stack,
+     *  so it draws at its own value (with its own fill to the baseline) while the other series
+     *  stack. `percentStackView` ignores it. Defaults to true. */
+    stacked?: boolean
     /** Auxiliary overlay derived from primary data — trend lines and moving averages.
      *  Excluded from stack computation and from the y-axis baseline calculation, so a
      *  trendline projection won't drag the axis below 0 when the underlying data is
@@ -284,6 +293,10 @@ export interface ChartConfig {
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Turn it on only for charts whose
+     *  labels are x values, such as dates. Defaults to false; the time-series charts default it to
+     *  true. */
+    syncHover?: boolean
     /** `vertical` (default): categories on x, values on y. `horizontal`: swapped. */
     axisOrientation?: 'vertical' | 'horizontal'
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Surfaced
@@ -300,6 +313,10 @@ export interface ChartConfig {
      *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
      *  render labels untruncated. */
     maxCategoryLabelWidth?: number
+    /** Labels to place the x-axis ticks at, instead of the data labels. Each is positioned through
+     *  `scales.x`, and `xTickFormatter` receives `(label, index)` into this array. Use it for ticks
+     *  that are not data points, such as a regular time grid on a time-scaled line chart. */
+    xTickLabels?: string[]
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
      *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.
@@ -375,6 +392,22 @@ export interface ChartLegendConfig {
      *  while keeping the default swatch/label/toggle rendering. Return `defaultNode` to leave a row
      *  untouched. */
     renderItem?: (defaultNode: ReactNode, item: LegendItem, controls: LegendItemControls) => ReactNode
+    /** Show these per-series summaries as columns (`['mean', 'max', 'last']`), which renders the
+     *  legend as a table. Each is computed over the series' finite values; rows still isolate and
+     *  toggle on click, and a header click sorts by that column. `BoxPlot` and `ScatterChart` ignore
+     *  it. */
+    values?: LegendValue[]
+    /** Formats a value cell. The time-series charts default to the series' axis tick format; the
+     *  others to a locale number with significant decimals. */
+    valueFormatter?: (value: number, item: LegendItem) => string
+    /** Initial table sort column. Omit to keep the series order. */
+    sortBy?: 'label' | LegendValue
+    /** Sort the initial `sortBy` column highest (or Z) first. Defaults to true for a value column
+     *  and false for `'label'`, the order a header click starts with. */
+    sortDescending?: boolean
+    /** Header text per column, keyed by `'label'` or a {@link LegendValue}. Defaults to English
+     *  names: Name, Mean, Min, Max, First, Last, Total. */
+    columnLabels?: Partial<Record<'label' | LegendValue, string>>
 }
 
 export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer' | 'showHeader' | 'hideZeroRows'> {
@@ -402,8 +435,10 @@ export interface TooltipConfig extends Pick<DefaultTooltipProps, 'labelRenderer'
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string
-    /** Sort series rows by value descending so the highest value appears at the top. */
-    sortedByValue?: boolean
+    /** Sort series rows by value: `true` or `'desc'` highest first, `'asc'` lowest first. */
+    sortedByValue?: boolean | 'asc' | 'desc'
+    /** `single` lists only the series closest to the cursor. Defaults to `all`. */
+    mode?: 'all' | 'single'
     /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
      *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
     hitArea?: 'bar' | 'band'
@@ -515,6 +550,21 @@ export interface BarChartConfig extends ChartConfig {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Stack the series on each axis, each drawn on top of the one before. Omit for the automatic
+     *  behavior: stack when two or more series set `fill`. `false` draws every series at its own
+     *  value, so filled series overlap. A series with `stacked: false`, `overlay`, or
+     *  `fill.lowerData` never stacks. `percentStackView` stacks every series. */
+    stacked?: boolean
+    /** Place each label at its time instead of evenly by index, so uneven spacing and gaps in time
+     *  show. `parse` returns a label's epoch milliseconds. `domain` sets the axis span in epoch
+     *  milliseconds and defaults to the earliest and latest label; points outside it are not drawn.
+     *  The labels must be in ascending time order. Memoize the object: a new one rebuilds the scales. */
+    timeScale?: { parse: (label: string) => number; domain?: readonly [number, number] }
+    /** Draw lines and areas across missing (non-finite) values instead of breaking them. With
+     *  `timeScale`, a number bridges only gaps up to that many milliseconds between drawn points and
+     *  breaks the line across any longer gap, including a stretch of time with no labels. Without
+     *  `timeScale` a number bridges every gap. */
+    connectNulls?: boolean | number
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
@@ -543,6 +593,13 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used
      *  to keep off-scale goal lines on-plot (`{ include }`). See {@link ValueDomain}. */
     valueDomain?: ValueDomain
+    /** Primary-axis `min` / `max`, honored only while that axis carries no bar series: a bar encodes
+     *  magnitude as length from zero, so a raised floor would misread it. Use `valueDomain` to rescale
+     *  an axis with bars. `valueDomain` wins a bound both set. */
+    valueBounds?: Pick<ValueDomain, 'min' | 'max'>
+    /** Float the primary axis to its data range instead of clamping the baseline to 0. Ignored while
+     *  the axis carries bar series, and on a log scale. Defaults to false. */
+    floatBaseline?: boolean
 }
 
 /** Arguments passed to a chart type's canvas draw function. */

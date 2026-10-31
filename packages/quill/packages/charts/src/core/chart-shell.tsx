@@ -43,11 +43,21 @@ export interface ChartShellProps {
     ariaLabel: string
     /** Number of x labels. Tests read it to hover a label by index. */
     labelCount?: number
+    /** Index another chart in a `ChartHoverSync` is hovering, while it draws here. Tests read it. */
+    syncedIndex?: number
     handlers: Required<Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseMove' | 'onMouseLeave' | 'onClick'>> &
         Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown' | 'onPointerDown' | 'onContextMenu'>
     /** Render the overlay layer — bases gate this on layout readiness (dimensions + scales). */
     showOverlay: boolean
     children?: React.ReactNode
+}
+
+/** Key of the chart wrapper's label-index → x (plot px) lookup. The test gestures read it to hover
+ *  a label where it is drawn, which a time scale spaces unevenly. */
+export const X_FOR_INDEX = Symbol.for('hog-charts.xForIndex')
+
+export interface ChartWrapperElement extends HTMLElement {
+    [X_FOR_INDEX]?: (index: number) => number | undefined
 }
 
 // Literal cursor classes (no runtime concat) so Tailwind v4's source scan sees them — see the package's tailwind contract.
@@ -73,6 +83,7 @@ export function ChartShell({
     contextMenu = false,
     ariaLabel,
     labelCount,
+    syncedIndex,
     handlers,
     showOverlay,
     children,
@@ -84,6 +95,7 @@ export function ChartShell({
             data-attr={dataAttr}
             data-hog-charts-context-menu={contextMenu ? '' : undefined}
             data-hog-charts-label-count={labelCount}
+            data-hog-charts-synced-index={syncedIndex}
             onMouseDown={handlers.onMouseDown}
             onMouseMove={handlers.onMouseMove}
             onMouseLeave={handlers.onMouseLeave}

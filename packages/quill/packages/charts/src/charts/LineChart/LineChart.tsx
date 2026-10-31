@@ -40,6 +40,7 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
+import { labelTimeExtent } from '../../utils/dates'
 import { closestHoverSeriesKey } from './closest-hover-series'
 
 // Brand for the private ChartScales._private slot used by LineChart. The base Chart
@@ -92,12 +93,15 @@ function LineChartInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         percentStackView = false,
+        stacked,
         showGrid = false,
         showAxisLines = false,
         valueDomain,
         floatBaseline = false,
         yAxes,
         curve,
+        timeScale,
+        connectNulls = false,
     } = config ?? {}
     const smooth = curve === 'monotone'
     // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
@@ -106,23 +110,32 @@ function LineChartInner<Meta = unknown>({
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
-    const hasMultipleFilledSeries = useMemo(() => {
-        const filledSeries = visibleSeries.filter((s) => s.fill && !s.fill.lowerData)
-        return filledSeries.length >= 2
-    }, [visibleSeries])
+    const stackableSeries = useMemo(
+        () => visibleSeries.filter((s) => s.stacked !== false && !s.fill?.lowerData),
+        [visibleSeries]
+    )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
+        // A share axis has no room for a raw value, so percent mode stacks every series.
         if (percentStackView) {
             return computePercentStackData(visibleSeries, labels)
         }
-        // Only stack when there are 2+ fillable series — a single area series has nothing to stack
-        // against, and forcing a stacked band would feed a `bottomValues` array into the canvas
+        // Only stack 2+ series (2+ fillable ones without an explicit `stacked`). A single series has
+        // nothing to stack against, and a stacked band would feed `bottomValues` into the canvas
         // renderer, which disables the gradient fill path.
-        if (hasMultipleFilledSeries) {
-            return computeStackData(visibleSeries, labels)
+        if (stacked !== false && stackableSeries.filter((s) => stacked || s.fill).length >= 2) {
+            return computeStackData(stackableSeries, labels)
         }
         return undefined
-    }, [percentStackView, hasMultipleFilledSeries, visibleSeries, labels])
+    }, [percentStackView, stacked, visibleSeries, stackableSeries, labels])
+
+    const stackedSeriesKeys = useMemo(
+        () =>
+            stackedData && !percentStackView && visibleSeries.some((s) => s.stacked === false)
+                ? new Set(stackableSeries.map((s) => s.key))
+                : undefined,
+        [stackedData, percentStackView, visibleSeries, stackableSeries]
+    )
 
     const chartConfig = useMemo(() => {
         const base = { ...config, isPercent: percentStackView }
@@ -162,19 +175,20 @@ function LineChartInner<Meta = unknown>({
             // a side-channel ref — every render gets a self-contained ChartScales object,
             // which avoids strict-mode / concurrent-rendering races between the createScales
             // pass and the static-draw effect.
-            const lineChartPrivate: LineChartPrivate = {
-                __lineChart: d3Scales,
-            }
+            const xPosition = timeScale
+                ? createTimeXPosition(timeScale, scaleLabels, dimensions)
+                : (label: string) => d3Scales.x(label)
+            const lineChartPrivate: LineChartPrivate = { __lineChart: d3Scales }
 
             return {
-                x: (label: string) => d3Scales.x(label),
+                x: xPosition,
                 y: (value: number) => d3Scales.y(value),
                 yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
                 yAxes: yAxisScales,
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes]
+        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes, timeScale]
     )
 
     const drawStatic = useCallback(
@@ -192,7 +206,7 @@ function LineChartInner<Meta = unknown>({
             const baseDrawCtx: DrawContext = {
                 ctx,
                 dimensions,
-                xScale: d3Scales.x,
+                xScale: scales.x,
                 yScale: d3Scales.y,
                 labels: drawLabels,
             }
@@ -215,7 +229,7 @@ function LineChartInner<Meta = unknown>({
                 dimensions,
                 labels: drawLabels,
                 series: coloredSeries,
-                xScale: d3Scales.x,
+                xScale: scales.x,
                 resolveYScale,
                 yValuesFor: (s) => stackedData?.get(s.key)?.top,
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
@@ -226,6 +240,7 @@ function LineChartInner<Meta = unknown>({
                 // stroke at the y-axis, instead of straddling either axis line.
                 yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
                 clipLeftEdge: axisLines.y,
+                connects: lineConnects(connectNulls, timeScale?.parse, drawLabels),
             })
 
             if (axisLineStyle) {
@@ -238,7 +253,7 @@ function LineChartInner<Meta = unknown>({
                 })
             }
         },
-        [showGrid, axisLines, stackedData, smooth]
+        [showGrid, axisLines, stackedData, smooth, connectNulls, timeScale]
     )
 
     const drawHover = useCallback(
@@ -309,9 +324,46 @@ function LineChartInner<Meta = unknown>({
                 dataAttr={dataAttr}
                 resolveValue={resolveValue}
                 resolvePositionValue={resolvePositionValue}
+                stackedSeriesKeys={stackedSeriesKeys}
             >
                 {children}
             </Chart>
         </ChartLegend>
     )
+}
+
+/** Maps a label to its x pixel by time across `domain`, defaulting to the earliest and latest label
+ *  times. A label outside the domain, or one that does not parse, has no position. */
+function createTimeXPosition(
+    { parse, domain }: NonNullable<LineChartConfig['timeScale']>,
+    labels: string[],
+    dimensions: ChartDimensions
+): (label: string) => number | undefined {
+    const [from, to] = domain ?? labelTimeExtent(labels, parse)
+    const span = to - from
+    return (label) => {
+        const t = parse(label)
+        if (!isFinite(t) || !isFinite(span) || t < from || t > to) {
+            return undefined
+        }
+        // A zero-span domain (one label) centers it, as the point scale does.
+        const fraction = span > 0 ? (t - from) / span : 0.5
+        return dimensions.plotLeft + fraction * dimensions.plotWidth
+    }
+}
+
+/** The renderer's `connects` for `connectNulls`: neighbors only by default, every gap for `true`, and
+ *  on a time scale gaps up to a number of milliseconds. */
+export function lineConnects(
+    connectNulls: LineChartConfig['connectNulls'],
+    parse: ((label: string) => number) | undefined,
+    labels: string[]
+): ((from: number, to: number) => boolean) | undefined {
+    if (connectNulls === true || (typeof connectNulls === 'number' && !parse)) {
+        return () => true
+    }
+    if (typeof connectNulls === 'number' && parse) {
+        return (from, to) => parse(labels[to]) - parse(labels[from]) <= connectNulls
+    }
+    return undefined
 }
