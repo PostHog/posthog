@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal
 
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import (
+    ArtefactAttribution,
     SignalReport,
     SignalReportAction,
     SignalReportArtefact,
@@ -19,6 +20,8 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.report_actions import suppress_report_from_slack
+from products.signals.backend.report_assignments import create_claim
+from products.signals.backend.report_content_gates import INBOX_CLAIM_TO_CLOSE_FLAG
 
 
 class TestSignalReportSlackActions(BaseTest):
@@ -37,6 +40,24 @@ class TestSignalReportSlackActions(BaseTest):
         assert feedback.state == "suppressed"
         assert feedback.reason == "slack_dismiss"
         assert feedback.slack_user_id == "slack-user-1"
+
+    @parameterized.expand([("unclaimed", False, False), ("claimed", True, True)])
+    def test_slack_dismissal_needs_the_claim(self, _name: str, claimed: bool, expected: bool) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        if claimed:
+            create_claim(report, ArtefactAttribution.from_user(self.user.id))
+
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            side_effect=lambda flag, *_args, **_kwargs: flag == INBOX_CLAIM_TO_CLOSE_FLAG,
+        ):
+            dismissed = suppress_report_from_slack(
+                self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id
+            )
+
+        report.refresh_from_db()
+        assert dismissed is expected
+        assert (report.status == SignalReport.Status.SUPPRESSED) is expected
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):

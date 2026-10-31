@@ -6,7 +6,7 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
-import { canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
+import { canCloseReport, canUnassignMe, hasOpenImplementationPr } from '../../utils/reportActions'
 import { isReportClaimable } from '../../utils/reportClaim'
 import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
 import { openDismissReportDialog } from './DismissReportDialog'
@@ -38,6 +38,8 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
         .filter((report) => selectedIds.has(report.id) && canUnassignMe(report, isScopedToMe))
         .map((report) => report.id)
     const claimableIds = selectedReports.filter(isReportClaimable).map((report) => report.id)
+    // A selection can include rows that are no longer loaded, so the server stays the final check for those.
+    const canCloseAny = selectedReports.length < selectedCount || selectedReports.some(canCloseReport)
 
     return (
         <div className="flex items-center justify-between gap-3 flex-wrap rounded border border-accent bg-accent-highlight-secondary px-3 py-2">
@@ -64,41 +66,45 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
                 >
                     Claim
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconCheckCircle />}
-                    loading={isResolving}
-                    disabledReason={busy ? 'Working…' : undefined}
-                    onClick={() =>
-                        openResolveReportDialog({
-                            selectedCount,
-                            hasOpenPr,
-                            isMonitoring,
-                            onConfirm: ({ reason, note }) => bulkResolve(reason, note),
-                        })
-                    }
-                    data-attr="inbox-bulk-resolve"
-                >
-                    Resolve
-                </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconHide />}
-                    loading={isDismissing}
-                    disabledReason={busy ? 'Working…' : undefined}
-                    onClick={() =>
-                        openDismissReportDialog({
-                            selectedCount,
-                            hasOpenPr,
-                            onConfirm: (dismissal) => bulkDismiss(dismissal),
-                        })
-                    }
-                    data-attr="inbox-bulk-dismiss"
-                >
-                    Dismiss
-                </LemonButton>
+                {canCloseAny && (
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconCheckCircle />}
+                            loading={isResolving}
+                            disabledReason={busy ? 'Working…' : undefined}
+                            onClick={() =>
+                                openResolveReportDialog({
+                                    selectedCount,
+                                    hasOpenPr,
+                                    isMonitoring,
+                                    onConfirm: ({ reason, note }) => bulkResolve(reason, note),
+                                })
+                            }
+                            data-attr="inbox-bulk-resolve"
+                        >
+                            Resolve
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconHide />}
+                            loading={isDismissing}
+                            disabledReason={busy ? 'Working…' : undefined}
+                            onClick={() =>
+                                openDismissReportDialog({
+                                    selectedCount,
+                                    hasOpenPr,
+                                    onConfirm: (dismissal) => bulkDismiss(dismissal),
+                                })
+                            }
+                            data-attr="inbox-bulk-dismiss"
+                        >
+                            Dismiss
+                        </LemonButton>
+                    </>
+                )}
                 <LemonMenu
                     placement="top-end"
                     items={[

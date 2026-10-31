@@ -112,6 +112,11 @@ describe('ReportContextMenu', () => {
             expected: ['Select', 'Claim', 'Dismiss', 'Reviewers', 'Remove yourself'],
         },
         {
+            name: 'a report the user must claim first hides resolve and dismiss',
+            report: makeReport({ viewer_can_close: false }),
+            expected: ['Select', 'Claim', 'Create PR', 'Reviewers', 'Remove yourself'],
+        },
+        {
             name: 'a report the user claimed offers unclaim',
             report: makeReport({ assignee: myClaim }),
             expected: ['Select', 'Unclaim', 'Create PR', 'Resolve', 'Dismiss', 'Reviewers', 'Remove yourself'],

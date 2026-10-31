@@ -182,12 +182,13 @@ describe('reportListLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
                 const countBefore = logic.values.totalCount ?? 0
 
-                bulkLogic.actions.reportClaimChanged(FIRST_PAGE[0].id, assignee)
+                bulkLogic.actions.reportClaimChanged(FIRST_PAGE[0].id, assignee, true)
                 await expectLogic(logic).toFinishAllListeners()
 
                 const row = logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)
                 if (assignee) {
                     expect(row?.assignee).toEqual(assignee)
+                    expect(row?.viewer_can_close).toBe(true)
                 } else {
                     expect(row).toBeUndefined()
                     expect(logic.values.totalCount).toBe(countBefore - 1)

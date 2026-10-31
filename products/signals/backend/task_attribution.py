@@ -21,6 +21,8 @@ import uuid
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
+from posthog.oauth_provenance import get_oauth_access_token
+
 from products.signals.backend.models import ArtefactAttribution
 from products.tasks.backend.facade import api as tasks_api
 
@@ -28,6 +30,10 @@ TASK_ID_HEADER = "X-PostHog-Task-Id"
 MCP_CLIENT_NAME_HEADER = "X-Posthog-Mcp-Client-Name"
 MCP_CLIENT_HEADER = "X-PostHog-Client"
 MAX_AGENT_NAME_LENGTH = 200
+SCOUT_TASK_ORIGIN = "signals_scout"
+# Pipeline research and implementation runs, and the Discuss and Create PR runs a person starts
+# from the inbox, all share this origin. Only the pipeline ones are internal.
+REPORT_TASK_ORIGIN = "signal_report"
 
 
 def resolve_task_id_from_header(request: Request, team_id: int) -> str | None:
@@ -69,3 +75,31 @@ def resolve_external_agent_name(request: Request) -> str | None:
         raw = "mcp"
     value = raw.strip() if raw else ""
     return value[:MAX_AGENT_NAME_LENGTH] or None
+
+
+def is_token_bound_task(request: Request, attribution: ArtefactAttribution) -> bool:
+    """Whether the OAuth token was issued for the task this request attributes its writes to.
+
+    The header is caller-supplied metadata, so it carries no authority on its own. A decision that
+    turns on which agent is calling needs this check; plain attribution does not.
+    """
+    if attribution.task_id is None:
+        return False
+    bound_task_id = getattr(get_oauth_access_token(request), "sandbox_task_id", None)
+    return bound_task_id is not None and str(bound_task_id) == attribution.task_id
+
+
+def is_automatic_signal_agent(request: Request, attribution: ArtefactAttribution, team_id: int) -> bool:
+    """Whether a pipeline or scout task makes this request.
+
+    A run a person starts from the inbox answers for that person, so it is not automatic even
+    though it shares the report origin with the pipeline. The pipeline creates its tasks internal,
+    which is what separates the two.
+    """
+    if not is_token_bound_task(request, attribution):
+        return False
+    tasks = tasks_api.get_tasks_by_ids([attribution.task_id], [team_id]) if attribution.task_id else []
+    if not tasks:
+        return False
+    task = tasks[0]
+    return task.origin_product == SCOUT_TASK_ORIGIN or (task.origin_product == REPORT_TASK_ORIGIN and task.internal)
