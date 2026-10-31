@@ -12,9 +12,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { membersLogic } from '~/models/membersLogic'
-import { AccessControlLevel, OrganizationInviteType, OrganizationMemberType, UserType } from '~/types'
-
-import type { PreflightStatus } from '../../../types'
+import { AccessControlLevel, OrganizationInviteType, OrganizationMemberType, PreflightStatus, UserType } from '~/types'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 export interface InviteRowState {
@@ -215,7 +213,7 @@ export interface inviteLogicMeta {
 export type inviteLogicType = MakeLogicType<inviteLogicValues, inviteLogicActions, Record<string, any>, inviteLogicMeta>
 
 export const inviteLogic = kea<inviteLogicType>([
-    path(['scenes', 'organization', 'Settings', 'inviteLogic']),
+    path(['lib', 'logic', 'inviteLogic']),
     connect(() => ({
         values: [preflightLogic, ['preflight'], userLogic, ['user'], membersLogic, ['members']],
         actions: [membersLogic, ['ensureAllMembersLoaded', 'loadAllMembers']],
