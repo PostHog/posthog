@@ -106,6 +106,7 @@ def samples_points_query(
     timezone: str,
     row_filters: Sequence[ast.Expr] = (),
     point_filters: Sequence[ast.Expr] = (),
+    dedupe_points: bool = False,
 ) -> ast.SelectQuery:
     """Return one row per point in `[date_from, date_to)`, with the column names of `metrics`.
 
@@ -115,6 +116,9 @@ def samples_points_query(
     `row_filters` can use only row columns. They apply before the `ARRAY JOIN`.
     `point_filters` can use the selected columns. They apply after it.
     `metric_names=None` reads every metric name.
+    `dedupe_points` drops exact copies of a point. A replayed Kafka batch writes
+    its points again, and they stay in the arrays after merges. A copy has the same
+    series, both timestamps and the same value in every selected column. Other points stay.
     """
     unknown = [column for column in columns if column not in _POINT_ARRAYS and column not in _ROW_COLUMNS]
     if unknown:
@@ -122,7 +126,11 @@ def samples_points_query(
 
     # The time filter always needs the timestamp array.
     point_columns = ["timestamp", *(column for column in columns if column in _POINT_ARRAYS and column != "timestamp")]
+    if dedupe_points and "observed_timestamp" not in point_columns:
+        point_columns.append("observed_timestamp")
     row_columns = [column for column in columns if column in _ROW_COLUMNS]
+    if dedupe_points and "series_fingerprint" not in row_columns:
+        row_columns.append("series_fingerprint")
 
     rows = parse_select(
         "SELECT 1 FROM posthog.metric_samples WHERE {metric_name} AND {row_range}",
@@ -163,6 +171,23 @@ def samples_points_query(
             for column in point_columns
         ],
         where=ast.And(exprs=[point_range, *point_filters]),
+        limit_by=dedupe_points_limit_by(
+            [
+                "point_timestamp",
+                *point_columns[1:],
+                *(column for column in row_columns if column != "series_fingerprint"),
+            ]
+        )
+        if dedupe_points
+        else None,
+    )
+
+
+def dedupe_points_limit_by(point_fields: Sequence[str]) -> ast.LimitByExpr:
+    """Keep one row for each series and each distinct combination of `point_fields`."""
+    return ast.LimitByExpr(
+        n=ast.Constant(value=1),
+        exprs=[ast.Field(chain=[field]) for field in ("series_fingerprint", *point_fields)],
     )
 
 
