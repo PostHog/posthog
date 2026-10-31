@@ -33,6 +33,7 @@ const handle: CloudRunHandle = {
     runId: 'run-1',
     startedAt: '2026-01-01T00:00:00Z',
     projectId: 2,
+    userId: MOCK_DEFAULT_USER.id,
 }
 
 // userLogic reads the bootstrapped user out of the app context, so seeding it there is how a test
@@ -50,13 +51,14 @@ describe('activeCloudRunLogic', () => {
         it.each([
             // The persisted handle is browser-wide localStorage — a fresh account inheriting another
             // project's run must never surface it.
-            ['a handle from another project', handle, 7, null],
-            ['a legacy handle without a projectId', { ...handle, projectId: undefined }, 2, null],
-            ['no current project resolved yet', handle, null, null],
-            ['no handle at all', null, 2, null],
-            ['a handle for the current project', handle, 2, handle],
-        ])('returns %s correctly', (_name, persisted, currentProjectId, expected) => {
-            expect(scopedCloudRun(persisted, currentProjectId as number | null)).toEqual(expected)
+            ['a handle from another project', handle, 7, MOCK_DEFAULT_USER.id, null],
+            ['a handle from another user', handle, 2, 999, null],
+            ['a legacy handle without a userId', { ...handle, userId: undefined }, 2, MOCK_DEFAULT_USER.id, null],
+            ['no current project resolved yet', handle, null, MOCK_DEFAULT_USER.id, null],
+            ['no handle at all', null, 2, MOCK_DEFAULT_USER.id, null],
+            ['a handle for the current user and project', handle, 2, MOCK_DEFAULT_USER.id, handle],
+        ])('returns %s correctly', (_name, persisted, currentProjectId, currentUserId, expected) => {
+            expect(scopedCloudRun(persisted, currentProjectId as number | null, currentUserId)).toEqual(expected)
         })
     })
 
@@ -163,7 +165,7 @@ describe('activeCloudRunLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(mockActiveWizardRun).not.toHaveBeenCalled()
 
-            logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID, MOCK_DEFAULT_USER.id)
 
             await expectLogic(logic).toDispatchActions(['hydrateFromServer', 'clearActiveCloudRun'])
         })
@@ -179,7 +181,7 @@ describe('activeCloudRunLogic', () => {
             })
             logic = activeCloudRunLogic()
             logic.mount()
-            logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID, MOCK_DEFAULT_USER.id)
             await expectLogic(logic).toDispatchActions(['hydrateFromServer'])
             const callsAfterMount = mockActiveWizardRun.mock.calls.length
 
@@ -219,7 +221,7 @@ describe('activeCloudRunLogic', () => {
                 jest.advanceTimersByTime(RECONCILE_INTERVAL_MS)
                 expect(mockActiveWizardRun.mock.calls.length).toBe(callsAfterMount)
 
-                logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID)
+                logic.actions.setActiveCloudRun('task-1', 'run-1', RUN_STARTED_AT, MOCK_TEAM_ID, MOCK_DEFAULT_USER.id)
                 const callsWithHandle = mockActiveWizardRun.mock.calls.length
                 jest.advanceTimersByTime(RECONCILE_INTERVAL_MS)
                 expect(mockActiveWizardRun.mock.calls.length).toBe(callsWithHandle + 1)
@@ -239,7 +241,13 @@ describe('activeCloudRunLogic', () => {
             })
             logic = activeCloudRunLogic()
             logic.mount()
-            logic.actions.setActiveCloudRun('local-task', 'local-run', '2026-03-03T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'local-task',
+                'local-run',
+                '2026-03-03T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
 
             logic.actions.hydrateFromServer()
             await expectLogic(logic).toFinishAllListeners()
@@ -257,7 +265,13 @@ describe('activeCloudRunLogic', () => {
             mockRunCancel.mockResolvedValue({ id: 'run-1', status: 'cancelled' })
             logic = activeCloudRunLogic()
             logic.mount()
-            logic.actions.setActiveCloudRun('task-1', 'run-1', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'task-1',
+                'run-1',
+                '2026-01-01T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
 
             logic.actions.cancelActiveCloudRun()
             expect(logic.values.cancellingRun).toBe(true)
@@ -281,7 +295,13 @@ describe('activeCloudRunLogic', () => {
             mockRunCancel.mockRejectedValue(new Error('temporal unavailable'))
             logic = activeCloudRunLogic()
             logic.mount()
-            logic.actions.setActiveCloudRun('task-1', 'run-1', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'task-1',
+                'run-1',
+                '2026-01-01T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
 
             logic.actions.cancelActiveCloudRun()
             await expectLogic(logic).toDispatchActions(['cancelActiveCloudRun', 'cancelActiveCloudRunFailure'])
@@ -298,11 +318,23 @@ describe('activeCloudRunLogic', () => {
             mockRunCancel.mockReturnValue(new Promise(() => {}))
             logic = activeCloudRunLogic()
             logic.mount()
-            logic.actions.setActiveCloudRun('task-1', 'run-1', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'task-1',
+                'run-1',
+                '2026-01-01T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
             logic.actions.cancelActiveCloudRun()
             expect(logic.values.cancellingRun).toBe(true)
 
-            logic.actions.setActiveCloudRun('task-2', 'run-2', '2026-01-02T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'task-2',
+                'run-2',
+                '2026-01-02T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
 
             expect(logic.values.cancellingRun).toBe(false)
         })
@@ -325,7 +357,13 @@ describe('activeCloudRunLogic', () => {
             mockActiveWizardRun.mockResolvedValue(undefined)
             logic = activeCloudRunLogic()
             logic.mount()
-            logic.actions.setActiveCloudRun('stale-task', 'stale-run', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'stale-task',
+                'stale-run',
+                '2026-01-01T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
             expect(logic.values.activeCloudRun).not.toBeNull()
 
             logic.actions.hydrateFromServer()
@@ -345,10 +383,22 @@ describe('activeCloudRunLogic', () => {
             )
             logic = activeCloudRunLogic()
             logic.mount()
-            logic.actions.setActiveCloudRun('old-task', 'old-run', '2026-01-01T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'old-task',
+                'old-run',
+                '2026-01-01T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
             logic.actions.hydrateFromServer()
 
-            logic.actions.setActiveCloudRun('new-task', 'new-run', '2026-01-02T00:00:00Z', MOCK_TEAM_ID)
+            logic.actions.setActiveCloudRun(
+                'new-task',
+                'new-run',
+                '2026-01-02T00:00:00Z',
+                MOCK_TEAM_ID,
+                MOCK_DEFAULT_USER.id
+            )
             answer(undefined)
             await expectLogic(logic).toFinishAllListeners()
 
