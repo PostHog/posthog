@@ -1,3 +1,5 @@
+from base64 import b64encode
+from datetime import UTC, datetime
 from urllib.parse import parse_qs, urlparse
 
 from posthog.test.base import BaseTest
@@ -52,21 +54,45 @@ class TestCursorPagination(BaseTest):
         rows = paginator.paginate_queryset(queryset, request, view)
         return paginator.get_paginated_response(_AnnotationIdSerializer(rows, many=True).data).data
 
+    def _cursor(self, link: str) -> str:
+        return parse_qs(urlparse(link).query)["cursor"][0]
+
     @parameterized.expand([("queryset",), ("facade",)])
-    def test_pages_through_rows_that_share_the_cursor_field_once(self, mode: str) -> None:
-        shared_marker = Annotation.objects.create(team=self.team, content="first").date_marker
-        for content in ["second", "third", "fourth", "fifth"]:
-            Annotation.objects.create(team=self.team, content=content, date_marker=shared_marker)
+    def test_pages_both_ways_through_rows_that_share_the_cursor_field(self, mode: str) -> None:
+        # A NULL sorts first in descending order, so the walk crosses from NULL rows into a tie group.
+        shared_marker = datetime(2024, 1, 1, tzinfo=UTC)
+        for marker in [None, None, shared_marker, shared_marker, shared_marker]:
+            Annotation.objects.create(team=self.team, content="note", date_marker=marker)
         expected_ids = set(Annotation.objects.filter(team=self.team).values_list("id", flat=True))
 
-        seen_ids: list[int] = []
-        cursor = None
+        forward_pages: list[list[int]] = []
+        page = self._page(mode, None)
         while True:
-            page = self._page(mode, cursor)
             assert page["count"] == 5
-            seen_ids.extend(row["id"] for row in page["results"])
+            forward_pages.append([row["id"] for row in page["results"]])
             if page["next"] is None:
                 break
-            cursor = parse_qs(urlparse(page["next"]).query)["cursor"][0]
+            page = self._page(mode, self._cursor(page["next"]))
 
-        assert sorted(seen_ids) == sorted(expected_ids)
+        assert sorted(id for ids in forward_pages for id in ids) == sorted(expected_ids)
+
+        backward_pages = [[row["id"] for row in page["results"]]]
+        while page["previous"] is not None:
+            page = self._page(mode, self._cursor(page["previous"]))
+            backward_pages.append([row["id"] for row in page["results"]])
+
+        assert backward_pages == list(reversed(forward_pages))
+
+    @parameterized.expand([("queryset",), ("facade",)])
+    def test_reads_a_cursor_in_drfs_format(self, mode: str) -> None:
+        shared_marker = Annotation.objects.create(team=self.team, content="first").date_marker
+        for content in ["second", "third"]:
+            Annotation.objects.create(team=self.team, content=content, date_marker=shared_marker)
+        ids_newest_first = list(
+            Annotation.objects.filter(team=self.team).order_by("-date_marker", "-id").values_list("id", flat=True)
+        )
+
+        # DRF wrote "skip two rows from the start" as `o=2`; clients store such links.
+        page = self._page(mode, b64encode(b"o=2").decode("ascii"))
+
+        assert [row["id"] for row in page["results"]] == ids_newest_first[2:]
