@@ -236,11 +236,7 @@ def test_compile_hogql_predicate_keeps_a_flag_call_subquery_on_events(team, flag
     predicate = f"distinct_id IN ({flag_calls})"
     request = DataDeletionRequest(**_base_kwargs(team_id=team.id, events=["$pageview"], hogql_predicate=predicate))
 
-    with patch(
-        "posthog.hogql.database.database.feature_enabled_or_false",
-        side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-    ):
-        sql, _ = compile_hogql_predicate(request)
+    sql, _ = compile_hogql_predicate(request)
 
     assert "flag_evaluations" not in sql
 

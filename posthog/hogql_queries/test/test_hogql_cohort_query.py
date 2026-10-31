@@ -622,7 +622,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         )
         return {str(row[0]) for row in rows}
 
-    def test_performed_flag_call_criterion_reads_flag_evaluations_when_the_rewrite_is_on(self) -> None:
+    def test_performed_flag_call_criterion_reads_flag_evaluations_in_flag_evaluations_only_mode(self) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
             defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
@@ -665,11 +665,7 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-        ):
-            cohort.calculate_people_ch(pending_version=0)
+        cohort.calculate_people_ch(pending_version=0)
 
         self.assertEqual(self._cohort_member_ids(cohort, 0), {str(caller.uuid)})
 

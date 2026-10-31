@@ -458,7 +458,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "hogql-flag-calls-from-flag-evaluations"})
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -476,16 +476,6 @@ def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
             "organization": {"id": str(team.organization_id)},
             "project": {"id": str(team.id)},
         },
-        send_feature_flag_events=False,
-    )
-
-
-def _evaluate_flag_calls_rewrite_flag(team: Team) -> bool:
-    return feature_enabled_or_false(
-        "hogql-flag-calls-from-flag-evaluations",
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
 
@@ -2070,11 +2060,9 @@ class Database(BaseModel):
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
             # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
-            # organization still on EVENTS. The flag goes first because it reads no row.
+            # organization still on EVENTS.
             read_mode: int = FlagEvaluationsMode.EVENTS
-            if include_flag_evaluations_table and _cached_team_flag(
-                "hogql-flag-calls-from-flag-evaluations", team, lambda: _evaluate_flag_calls_rewrite_flag(team)
-            ):
+            if include_flag_evaluations_table:
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY

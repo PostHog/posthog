@@ -483,49 +483,42 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("events_mode", FlagEvaluationsMode.EVENTS, True, False),
+            ("events_mode", FlagEvaluationsMode.EVENTS, False),
             # DEBUG puts the table in the catalog on EVENTS, but events still holds every flag call.
-            param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, True, False, debug=True),
+            param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, False, debug=True),
             param(
                 "events_mode_with_the_table_forced_in",
                 FlagEvaluationsMode.EVENTS,
-                True,
                 False,
                 include_flag_evaluations_table=True,
             ),
-            ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, True),
-            ("read_mode_with_the_flag_off", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
+            ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
             param(
                 "read_mode_with_reads_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
                 False,
                 reads_forced_to_events=True,
             ),
-            ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True, True),
-            ("only_mode_with_the_flag_off", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, False),
+            ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
             # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
             param(
                 "only_mode_with_reads_forced_to_events",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 True,
                 reads_forced_to_events=True,
             ),
             param(
                 "only_mode_without_the_table",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
                 False,
                 include_flag_evaluations_table=False,
             ),
         ]
     )
-    def test_read_flag_calls_from_flag_evaluations_follows_the_read_mode_and_the_flag(
+    def test_read_flag_calls_from_flag_evaluations_follows_the_read_mode(
         self,
         _name: str,
         mode: FlagEvaluationsMode,
-        flag_enabled: bool,
         expected: bool,
         reads_forced_to_events: bool = False,
         debug: bool = False,
@@ -538,12 +531,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with (
             override_settings(DEBUG=debug),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
-            patch(
-                "posthog.hogql.database.database.feature_enabled_or_false",
-                side_effect=lambda key, *args, **kwargs: (
-                    flag_enabled and key == "hogql-flag-calls-from-flag-evaluations"
-                ),
-            ),
         ):
             database = Database.create_for(
                 team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
