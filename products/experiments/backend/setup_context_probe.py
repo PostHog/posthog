@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 SECTION_NAMES: Final[tuple[str, ...]] = (
     "team_defaults",
     "sdk_profile",
+    "project_traffic",
     "target_surface",
     "candidate_metric",
     "previous_experiments",
