@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 from botocore.loaders import Loader
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cloudtrail import aws_cloudtrail as transport
@@ -37,17 +38,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsCloudTrailSourceConfig,
 )
 
+CREDENTIALS = Credentials("key", "secret")
+
 NOW = dt.datetime(2026, 10, 1, tzinfo=dt.UTC)
 
 
 def driver(region: str = "eu-west-1", token: str | None = "fake-token") -> SourceDriver:
     return SourceDriver(
         AwsCloudTrailSource(),
-        AwsCloudTrailSourceConfig(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="fake-secret",
-            aws_session_token=token,
-            region=region,
+        AwsCloudTrailSourceConfig.from_dict(
+            {
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "fake-secret",
+                "aws_session_token": token,
+                "region": region,
+            }
         ),
     )
 
@@ -115,7 +120,7 @@ def manager(state: AwsCloudTrailResumeConfig | None = None) -> Mock:
 def client(
     region: str = "eu-west-1", version: str = "2013-11-01", token: str | None = "fake-token"
 ) -> AwsCloudTrailClient:
-    return AwsCloudTrailClient("AKIAEXAMPLE", "fake-secret", token, region, version)
+    return AwsCloudTrailClient(Credentials("AKIAEXAMPLE", "fake-secret", token), region, version)
 
 
 def payloads(session: Mock) -> list[dict[str, Any]]:
@@ -215,8 +220,8 @@ def test_full_refresh_omits_watermark_through_pipeline(session: Mock, endpoint: 
         logger=structlog.get_logger(),
         reset_pipeline=False,
     )
-    config = AwsCloudTrailSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="fake-secret", region="eu-west-1"
+    config = AwsCloudTrailSourceConfig.from_dict(
+        {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "fake-secret", "region": "eu-west-1"}
     )
     resume = manager()
     result = source.source_for_pipeline(config, resume, inputs)
@@ -416,7 +421,7 @@ def test_access_denial_only_accepts_source_creation(
     session: Mock, code: str, schema_name: str | None, valid: bool
 ) -> None:
     session.post.return_value = response({"__type": code}, 400)
-    ok, reason = validate_credentials("key", "secret", None, "eu-west-1", "2013-11-01", schema_name)
+    ok, reason = validate_credentials(CREDENTIALS, "eu-west-1", "2013-11-01", schema_name)
     assert ok is valid
     if schema_name is not None:
         assert reason is not None
@@ -443,7 +448,7 @@ def test_access_denial_only_accepts_source_creation(
 )
 def test_credentials_errors_are_actionable_and_terminal(code: str, message: str) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": code})]) as network:
-        valid, reason = validate_credentials("key", "secret", None, "eu-west-1", "2013-11-01")
+        valid, reason = validate_credentials(CREDENTIALS, "eu-west-1", "2013-11-01")
     assert not valid
     assert reason is not None and message in reason
     assert len(network.requests_log) == 1
@@ -468,7 +473,7 @@ def test_credentials_errors_are_actionable_and_terminal(code: str, message: str)
 )
 def test_validation_uses_one_cheap_probe(schema_name: str | None, target: str, params: dict[str, Any]) -> None:
     with scripted_network([ScriptedResponse(json={})]) as network:
-        assert validate_credentials("key", "secret", None, "eu-west-1", "2013-11-01", schema_name) == (True, None)
+        assert validate_credentials(CREDENTIALS, "eu-west-1", "2013-11-01", schema_name) == (True, None)
     assert len(network.requests_log) == 1
     assert network.requests_log[0].headers["x-amz-target"].endswith(f".{target}")
     assert request_payloads(network.requests_log) == [params]
@@ -487,7 +492,10 @@ def test_invalid_setup_fails_before_network(
     key: str, secret: str, region: str, schema: str | None, message: str
 ) -> None:
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(key, secret, None, region, "2013-11-01", schema)
+        config = AwsCloudTrailSourceConfig.from_dict(
+            {"aws_access_key_id": key, "aws_secret_access_key": secret, "region": region}
+        )
+        valid, reason = AwsCloudTrailSource().validate_credentials(config, team_id=1, schema_name=schema)
     assert not valid
     assert reason is not None and message in reason
     assert network.requests_log == []
@@ -495,7 +503,7 @@ def test_invalid_setup_fails_before_network(
 
 def test_connection_error_has_useful_message(session: Mock) -> None:
     session.post.side_effect = requests.ConnectionError("offline")
-    valid, reason = validate_credentials("key", "secret", None, "eu-west-1", "2013-11-01")
+    valid, reason = validate_credentials(CREDENTIALS, "eu-west-1", "2013-11-01")
     assert not valid
     assert reason is not None and "region" in reason
     session.close.assert_called_once()
