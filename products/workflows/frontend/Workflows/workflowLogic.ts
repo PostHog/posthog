@@ -376,6 +376,7 @@ export interface workflowLogicValues {
     isSyncingExternalEdit: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
+    keepsLocalEditsOnExternalEdit: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
     manualTriggerDisabledReason: string | undefined
@@ -3142,6 +3143,7 @@ export interface workflowLogicMeta {
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
         ) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
+        keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
         isRowScopedTrigger: (
             triggerAction:
@@ -4242,6 +4244,10 @@ export const workflowLogic = kea<workflowLogicType>([
         // anything deploys, and agents stage incomplete drafts through the same API). Pausing on
         // them would strand a user's edits unsaved exactly while they iterate.
         autoSaveBlockedByValidation: [(s) => [s.workflow], (workflow: HogFlow): boolean => !workflow.name],
+        keepsLocalEditsOnExternalEdit: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS],
+        ],
 
         triggerAction: [
             (s) => [s.workflow],
@@ -4586,7 +4592,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 ? selectors.originalWorkflow(previousState)
                 : null
             const unsavedEdits =
-                baseBeforeExternalEdit && values.featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]
+                baseBeforeExternalEdit && values.keepsLocalEditsOnExternalEdit
                     ? rebaseWorkflowEdits(withStagedDraft(baseBeforeExternalEdit), values.workflow, loaded)
                     : {}
             actions.resetWorkflow(loaded)
@@ -4605,7 +4611,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 }
             }
         },
-        loadWorkflowFailure: () => {
+        loadWorkflowFailure: (_, __, ___, previousState) => {
+            if (
+                values.keepsLocalEditsOnExternalEdit &&
+                selectors.isSyncingExternalEdit(previousState) &&
+                values.workflowChanged
+            ) {
+                actions.setExternallyEdited(true)
+            }
             actions.replayDeferredResourceEdited()
         },
         saveWorkflow: () => {
@@ -4975,7 +4988,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
                 values.autoSaveBlockedByValidation ||
-                values.isSyncingExternalEdit
+                (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
 
             if (shouldSkip) {
                 actions.clearAutoSavePending()

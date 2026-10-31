@@ -422,6 +422,24 @@ describe('workflowLogic external edits', () => {
         expect(saved.name).toBe('Typed before the reload')
     })
 
+    it('shows the banner when the reload fails while edits wait to be saved', async () => {
+        silenceKeaLoadersErrors()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => [500, { detail: 'boom' }],
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+        })
+        logic.actions.setWorkflowValue('name', 'Typed before the reload')
+
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowFailure'])
+
+        expect(logic.values.externallyEdited).toBe(true)
+        expect(logic.values.workflow.name).toBe('Typed before the reload')
+    })
+
     it('lets the server copy win when the flag is off', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: false })
         logic.actions.setWorkflowValue('name', 'My local edit')
