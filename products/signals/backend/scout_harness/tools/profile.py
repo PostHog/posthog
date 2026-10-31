@@ -173,9 +173,12 @@ def compute_project_profile(*, team: Team, force: bool = False, defer_surfaces: 
     cost is at most one duplicate `build_inventory` per simultaneous force request —
     bounded and only paid by callers who knowingly opted into it.
 
-    The surface queries can take up to `SURFACES_TIME_BUDGET_S`. They run before the
-    transaction, so the advisory lock and the Postgres connection are not held during them.
-    `defer_surfaces=True` skips them: the row copies the stored answers from the last
+    The surface queries can take up to `SURFACES_TIME_BUDGET_S`, and `build_inventory` runs a
+    ClickHouse aggregation. Both run before the transaction, so the advisory lock and the
+    Postgres connection are not held during them. Postgres can end a connection that stays idle
+    in a transaction for too long. The cost is that concurrent cache misses can each build the
+    inventory, but the re-check after the lock still keeps one row. `defer_surfaces=True` skips
+    the surface queries: the row copies the stored answers from the last
     `SURFACES_COPY_MAX_AGE`, and a queued `build_signal_project_profile` adds fresh ones. A forced
     build queues that task even inside the dedupe window, because its caller expects new data.
     """
@@ -186,7 +189,13 @@ def compute_project_profile(*, team: Team, force: bool = False, defer_surfaces: 
     parent_team = team.parent_team
     if parent_team is not None:
         team = parent_team
-    surfaces = None if defer_surfaces else build_surfaces(team)
+    if defer_surfaces:
+        surfaces = deferred_surfaces(
+            team, _stored_surfaces(team_id=team.id), answered_since=timezone.now() - SURFACES_COPY_MAX_AGE
+        )
+    else:
+        surfaces = build_surfaces(team)
+    payload = _inventory_payload(team, surfaces)
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])
@@ -196,11 +205,8 @@ def compute_project_profile(*, team: Team, force: bool = False, defer_surfaces: 
             if existing is not None:
                 return _to_dataclass(existing)
         if defer_surfaces:
-            surfaces = deferred_surfaces(
-                team, _stored_surfaces(team_id=team.id), answered_since=timezone.now() - SURFACES_COPY_MAX_AGE
-            )
             transaction.on_commit(partial(enqueue_project_profile_build, team.id, dedupe=not force))
-        row = _persist_profile(team, surfaces)
+        row = _persist_profile(team, payload)
     return _to_dataclass(row)
 
 
@@ -211,18 +217,24 @@ def refresh_project_profile_surfaces(*, team_id: int) -> None:
     the inventory build that the read just did. With no fresh row, this builds a full profile.
     It does nothing when the fresh row's surfaces were evaluated after the row was written, so
     a queued duplicate does not repeat the queries.
+
+    The inventory for a new row is built before the transaction, for the same reason as in
+    `compute_project_profile`. When the fresh row expires before the lock, the surfaces go on
+    that expired row, so the next read copies them into its new row.
     """
     team = Team.objects.get(id=resolve_effective_team_id(team_id))
     latest = _latest_profile(team_id=team.id)
     if latest is not None and _surfaces_evaluated_since(latest, latest.computed_at):
         return
     surfaces = build_surfaces(team)
+    payload = _inventory_payload(team, surfaces) if latest is None else None
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])
-        latest = _latest_profile(team_id=team.id)
+        latest = _latest_profile(team_id=team.id, include_expired=payload is None)
         if latest is None:
-            _persist_profile(team, surfaces)
+            if payload is not None:
+                _persist_profile(team, payload)
             return
         inventory = {**(latest.payload or {}).get("inventory", {}), "surfaces": surfaces}
         latest.payload = {
@@ -232,9 +244,13 @@ def refresh_project_profile_surfaces(*, team_id: int) -> None:
         latest.save(update_fields=["payload"])
 
 
-def _persist_profile(team: Team, surfaces: dict[str, dict[str, Any]] | None) -> SignalProjectProfile:
-    """Build the inventory, write it as a new row, and prune. The caller holds the advisory lock."""
-    payload: dict[str, Any] = {"inventory": build_inventory(team, surfaces=surfaces).model_dump(mode="json")}
+def _inventory_payload(team: Team, surfaces: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Build the inventory. This runs ClickHouse queries, so call it outside a transaction."""
+    return {"inventory": build_inventory(team, surfaces=surfaces).model_dump(mode="json")}
+
+
+def _persist_profile(team: Team, payload: dict[str, Any]) -> SignalProjectProfile:
+    """Write the payload as a new row, and prune. The caller holds the advisory lock."""
     now = timezone.now()
     # `.unscoped()` to match the reads above — off-request builds have no ambient team.
     row = SignalProjectProfile.objects.unscoped().create(
