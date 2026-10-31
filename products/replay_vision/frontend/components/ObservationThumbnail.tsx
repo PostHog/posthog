@@ -28,6 +28,8 @@ const RETRY_DELAY_MS = 2000
 /** Just under the endpoint's redirect cache, after which a remount refetches the poster. */
 const DECODED_TTL_MS = 9 * 60 * 1000
 
+const MAX_DECODED_ENTRIES = 500
+
 const decodedThumbnails = new Map<string, number>()
 
 const thumbnailPreloads = new Map<string, Promise<void>>()
@@ -45,8 +47,17 @@ function isDecoded(src: string): boolean {
     return false
 }
 
+function pruneExpired(): void {
+    for (const src of decodedThumbnails.keys()) {
+        isDecoded(src)
+    }
+}
+
 /** Downloads and decodes a poster ahead of its card, once per URL, and resolves even when the load fails. */
 export function preloadObservationThumbnail(src: string): Promise<void> {
+    if (decodedThumbnails.size > MAX_DECODED_ENTRIES) {
+        pruneExpired()
+    }
     isDecoded(src) // Drops an expired entry, so the preload below fetches again.
     let preload = thumbnailPreloads.get(src)
     if (!preload) {
@@ -57,7 +68,10 @@ export function preloadObservationThumbnail(src: string): Promise<void> {
             .then(() => {
                 decodedThumbnails.set(src, Date.now())
             })
-            .catch(() => undefined)
+            .catch(() => {
+                // A failed load is not cached, so a later visit tries the poster again.
+                thumbnailPreloads.delete(src)
+            })
         thumbnailPreloads.set(src, preload)
     }
     return preload
