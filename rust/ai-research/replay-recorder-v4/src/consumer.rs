@@ -839,6 +839,7 @@ mod tests {
                 stats: BlockStats::default(),
                 moments: Vec::new(),
                 image_urls: Vec::new(),
+                font_urls: Vec::new(),
                 remote_urls: Vec::new(),
                 url_limit: None,
                 srcsets: Vec::new(),

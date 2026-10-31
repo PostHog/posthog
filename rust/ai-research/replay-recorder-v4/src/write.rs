@@ -714,7 +714,8 @@ mod tests {
 
     use super::*;
     use crate::batch::{Origin, Tp};
-    use replay_core_v4::inspect::dom::MAX_BLOCK_REMOTE_URLS;
+    use replay_core_v4::inspect::dom::{RemoteKind, RemoteUrl, MAX_BLOCK_REMOTE_URLS};
+    use replay_core_v4::refs::UrlAsset;
 
     #[derive(Default)]
     struct MemoryStore {
@@ -782,6 +783,7 @@ mod tests {
             stats: BlockStats::default(),
             moments: Vec::new(),
             image_urls: Vec::new(),
+            font_urls: Vec::new(),
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
@@ -813,7 +815,10 @@ mod tests {
         inspected.srcsets = found.srcsets;
         inspected
             .remote_urls
-            .extend(extra.iter().map(|url| (*url).to_owned()));
+            .extend(extra.iter().map(|url| RemoteUrl {
+                url: (*url).to_owned(),
+                kind: RemoteKind::Image,
+            }));
         let (lines, _, counts) =
             write_block(&inspected, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
         if counts.dropped.is_some() {
@@ -835,6 +840,7 @@ mod tests {
         let lines = stored_lines(&events, &[]);
         let reference = crate::urls::url_reference(
             public,
+            replay_core_v4::refs::UrlAsset::Image,
             7,
             "2026-10",
             &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -995,6 +1001,7 @@ mod tests {
         let reference = |url: &str| {
             crate::urls::url_reference(
                 url,
+                replay_core_v4::refs::UrlAsset::Image,
                 7,
                 "2026-10",
                 &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -1069,6 +1076,7 @@ mod tests {
         let lines = stored_lines(&both, &[]);
         let reference = crate::urls::url_reference(
             "https://cdn.example.com/a.png",
+            replay_core_v4::refs::UrlAsset::Image,
             7,
             "2026-10",
             &replay_core_v4::seal::image_url_key(&[6; 32]),
@@ -1123,10 +1131,25 @@ mod tests {
             "https://cdn.example.com/a.png",
             "https://cdn.example.com/a.png?token=secret",
         );
-        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x")}}}}]);
+        let (font, bundled) = (
+            "https://fonts.example.com/brand.woff2",
+            "https://fonts.example.com/inter.woff2",
+        );
+        let css = format!("@font-face{{font-family:Brand;src:url({font})}}@font-face{{font-family:Inter;src:url({bundled})}}");
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": fetched, "srcset": format!("{declined} 2x"), "_cssText": css}}}}]);
         let mut block = block("kept", events);
         block.image_urls = vec![fetched.to_owned()];
-        block.remote_urls = vec![fetched.to_owned(), declined.to_owned()];
+        block.font_urls = vec![font.to_owned()];
+        let remote = |url: &str, kind| RemoteUrl {
+            url: url.to_owned(),
+            kind,
+        };
+        block.remote_urls = vec![
+            remote(fetched, RemoteKind::Image),
+            remote(declined, RemoteKind::Image),
+            remote(font, RemoteKind::Font),
+            remote(bundled, RemoteKind::BundledFont("inter")),
+        ];
         let mut keys = FlushKeys::default();
         let (id, key) = session_key("kept");
         keys.sessions.insert(id, key);
@@ -1134,18 +1157,32 @@ mod tests {
         let mut stats = BlockStats::default();
         let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
         let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
-
         let lines = String::from_utf8(lines).unwrap();
-        let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
-        assert!(
-            lines.contains(&format!(r#""src":"{reference}""#)),
-            "{lines}"
-        );
-        assert!(lines.contains(&format!(
-            r#""srcset":"{} 2x""#,
-            crate::rewrite::declined_marker("credential")
-        )));
-        assert!(!lines.contains("cdn.example.com"));
+        let references: Vec<_> = jobs
+            .iter()
+            .flat_map(|((_, asset), jobs)| {
+                jobs.iter()
+                    .map(move |job| (*asset, job["originalRef"].as_str().unwrap()))
+            })
+            .collect();
+        let [(UrlAsset::Image, image_reference), (UrlAsset::Font, font_reference)] =
+            references.as_slice()
+        else {
+            panic!("a job each for the image and the fetched font, none for the bundled font: {references:?}");
+        };
+        assert!(font_reference.starts_with("fonturl:v4:7:2026-10:"));
+        for expected in [
+            format!(r#""src":"{image_reference}""#),
+            format!(
+                r#""srcset":"{} 2x""#,
+                crate::rewrite::declined_marker("credential")
+            ),
+            format!("src:url({font_reference})"),
+            "src:url(fonturl:v4:bundled:inter)".to_owned(),
+        ] {
+            assert!(lines.contains(&expected), "{expected} in {lines}");
+        }
+        assert!(!lines.contains("example.com/"), "{lines}");
     }
 
     fn session_key(session: &str) -> (SessionId, Key) {
