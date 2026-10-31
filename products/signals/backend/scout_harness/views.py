@@ -1372,6 +1372,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
                 team=run.team,
                 author=ScoutRunReportAuthor(run=run),
+                slack_message=data.get("slack_message"),
+                update_existing_message=data.get("update_existing_message", False),
                 title=data["title"],
                 summary=data["summary"],
                 evidence=evidence,
@@ -1458,6 +1460,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
                 team=run.team,
                 author=ScoutRunReportAuthor(run=run),
+                slack_message=data.get("slack_message"),
+                update_existing_message=data.get("update_existing_message", False),
                 report_id=data["report_id"],
                 reviewer_proposal=proposal,
                 title=data.get("title"),

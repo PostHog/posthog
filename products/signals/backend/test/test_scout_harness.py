@@ -45,6 +45,7 @@ from posthog.ph_client import filter_scout_experiment_capture
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.quota import SelfDrivingQuotaGate
@@ -1692,7 +1693,7 @@ class TestPromptBuilder(BaseTest):
 # The fixture-based pattern (matching test_agentic_report_activity.py) gives us that.
 
 
-def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock, object]:
+def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock, MagicMock]:
     """Build a (session, summary_result) pair to return from `MultiTurnSession.start`.
 
     The session must carry a saved `task_run` so the bridge insert succeeds
@@ -1704,6 +1705,7 @@ def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock,
     session.end = AsyncMock()
     result = MagicMock()
     result.summary = summary_text
+    result.slack_message = None
     return session, result
 
 
@@ -1837,17 +1839,41 @@ def _fake_start_invoking_hook(session: MagicMock, result: object):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("check_id", [None, "11111111-1111-1111-1111-111111111111"])
+@pytest.mark.parametrize(
+    "slack_message,emit,safe",
+    [
+        (None, None, True),
+        ("A short final message", True, True),
+        ("A short final message", True, False),
+        ("A short final message", False, True),
+    ],
+)
 async def test_successful_run_creates_bridge_row_pointing_at_task_run(
-    ateam: Team, aerrors_skill: LLMSkill, check_id: str | None
+    ateam: Team, aerrors_skill: LLMSkill, check_id: str | None, slack_message: str | None, emit: bool | None, safe: bool
 ) -> None:
     TaskRun = apps.get_model("tasks", "TaskRun")
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(
         ateam, "I would investigate /checkout 500s next."
     )
 
-    with patch(
-        "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
-        new=_fake_start_invoking_hook(session, result),
+    result.slack_message = slack_message
+    if emit is not None:
+        await database_sync_to_async(
+            lambda: SignalScoutConfig.objects.for_team(ateam.id).create(
+                team_id=ateam.id, skill_name="signals-scout-errors", emit=emit
+            )
+        )()
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.judge_edited_report_content",
+            new=AsyncMock(return_value=SafetyJudgment(choice=safe, explanation=None)),
+        ) as slack_judge,
+        patch("products.signals.backend.scout_harness.runner.queue_configured_scout_slack_delivery") as queue,
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
     ):
         # `_spawn_and_run` reaches for sandbox env + user-id resolution; stub the helpers.
         with (
@@ -1888,6 +1914,22 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(
     # Auto-created configs default to enabled (the dogfood flag is the team-level gate).
     assert config.enabled is True
     assert bridge.scout_config_id == config.id
+
+    if slack_message is not None and emit:
+        slack_judge.assert_awaited_once()
+        if safe:
+            queue.assert_called_once_with(
+                run_id=bridge.id,
+                output_type="run",
+                output_id=str(bridge.id),
+                delivery_id=str(bridge.id),
+                slack_message=slack_message,
+            )
+        else:
+            queue.assert_not_called()
+    else:
+        slack_judge.assert_not_awaited()
+        queue.assert_not_called()
 
 
 @pytest.mark.asyncio

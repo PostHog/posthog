@@ -432,6 +432,7 @@ class SignalReport(UUIDModel):
     # than `run_count`, which feeds Temporal workflow IDs and must never gain a second producer.
     # Only a real diff counts, so a scout restating what the report already says does not tick it.
     content_revision_count = models.IntegerField(null=True, blank=True)
+    slack_delivery_version = models.PositiveIntegerField(null=True, blank=True)
     # The revision the report's current implementation PR was built from, the scout-side twin of
     # `implemented_at_run_count`. Null for reports implemented before scout superseding existed.
     implemented_at_revision_count = models.IntegerField(null=True, blank=True)
