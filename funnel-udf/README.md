@@ -20,7 +20,12 @@ For revertible cloud deploys:
 1. Develop using the binary files at the top level of `user_scripts` (see section above), with schema defined in `docker/clickhouse/user_defined_function.xml`
 2. When ready to deploy, increment the version in `posthog/udf_versioner.py` and run it. This generates versioned binaries and `latest_user_defined_function.xml`
 3. Land a PR with the updated `user_scripts` folder — include both the new version folder (e.g. `v12/`) and the regenerated `latest_user_defined_function.xml`. **Do not** include the `UDF_VERSION` bump in this PR — that goes in a separate PR (step 6). Check that git keeps the wrappers, binaries and Python scripts in the version folder executable (mode `100755`), because local, CI and self-hosted ClickHouse run them directly
-4. In `posthog-cloud-infra`, bump `posthog_udfs_revision` to a `master` commit that includes the PR from step 3. Merging that change deploys the pinned `user_scripts` to every ClickHouse environment at once. The bump also ships every other `user_scripts` change since the previous pin, and the unversioned utility UDFs take effect immediately, so list those changes in the infra PR
+4. Within an hour, the `Bump PostHog UDFs Revision` workflow in `posthog-cloud-infra` opens a PR that moves `posthog_udfs_revision` to the latest `master` commit.
+   If a bump PR is already open, the workflow updates it instead.
+   The PR lists every PostHog PR that changed `user_scripts` since the previous pin.
+   Those changes ship together, and the unversioned utility UDFs take effect immediately.
+   The PR requests review from the ClickHouse team.
+   Merging it deploys the pinned `user_scripts` to every ClickHouse environment at once.
 5. Verify in metabase by running `SELECT aggregate_funnel_vXX()`. An "invalid arguments" error means the function is registered. An "unknown function" error means the deploy hasn't taken effect yet. Also run a valid funnel query against the new version. Registration alone does not check the launcher or binary. **Make sure to do this for both EU and US**
 6. Once the deploy is confirmed, land a separate PR that bumps `UDF_VERSION` in `posthog/udf_versioner.py` to the new version. This switches the posthog query builder to use the new UDF
 
