@@ -1234,34 +1234,40 @@ export interface BillingUsageSummaryApi {
     products: ProductUsageApi[]
 }
 
+/**
+ * A usage status item as the project routes serve it, without the limit.
+ */
 export interface UsageStatusItemApi {
     kind: CatalogKindEnumApi
     key: string
     /** @nullable */
     usage_key: string | null
-    /** @nullable */
-    usage_limit: number | null
     has_exceeded_limit: boolean
     approaching_limit: boolean
     /** @nullable */
     quota_limited_until: string | null
     /** @nullable */
     quota_limiting_suspended_until: string | null
+    /** @nullable */
+    usage_limit: number | null
 }
 
+/**
+ * A usage status item as the project routes serve it, without the limit.
+ */
 export interface ProductUsageStatusApi {
     kind: CatalogKindEnumApi
     key: string
     /** @nullable */
     usage_key: string | null
-    /** @nullable */
-    usage_limit: number | null
     has_exceeded_limit: boolean
     approaching_limit: boolean
     /** @nullable */
     quota_limited_until: string | null
     /** @nullable */
     quota_limiting_suspended_until: string | null
+    /** @nullable */
+    usage_limit: number | null
     addons: UsageStatusItemApi[]
 }
 
@@ -1282,10 +1288,50 @@ export interface ProjectUsageItemApi {
 }
 
 export interface ProjectUsageSummaryApi {
-    /** The period the usage covers. Null when the organization has no billing period yet, and the usage then covers the current calendar month in UTC. */
+    /** The billing period the usage covers. An organization without a subscription has a rolling 30-day period. Null when billing returns no period, and the usage then covers the current calendar month in UTC. */
     billing_period: BillingPeriodApi | null
     /** One entry per usage counter the project reported. */
     results: ProjectUsageItemApi[]
+}
+
+/**
+ * A usage status item as the project routes serve it, without the limit.
+ */
+export interface ProjectUsageStatusItemApi {
+    kind: CatalogKindEnumApi
+    key: string
+    /** @nullable */
+    usage_key: string | null
+    has_exceeded_limit: boolean
+    approaching_limit: boolean
+    /** @nullable */
+    quota_limited_until: string | null
+    /** @nullable */
+    quota_limiting_suspended_until: string | null
+}
+
+/**
+ * A usage status item as the project routes serve it, without the limit.
+ */
+export interface ProjectProductUsageStatusApi {
+    kind: CatalogKindEnumApi
+    key: string
+    /** @nullable */
+    usage_key: string | null
+    has_exceeded_limit: boolean
+    approaching_limit: boolean
+    /** @nullable */
+    quota_limited_until: string | null
+    /** @nullable */
+    quota_limiting_suspended_until: string | null
+    addons: ProjectUsageStatusItemApi[]
+}
+
+export interface ProjectBillingUsageStatusApi {
+    billing_period: BillingPeriodApi | null
+    /** @nullable */
+    usage_reported_through: string | null
+    products: ProjectProductUsageStatusApi[]
 }
 
 export type BillingListParams = {

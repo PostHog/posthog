@@ -24,7 +24,12 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
     from rest_framework.views import APIView
 
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import (
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
@@ -543,17 +548,27 @@ class ClickHouseSustainedRateThrottle(PersonalApiKeyRateThrottle):
 # flagSelectionLogic.ts) awaits one copy_flags call per flag, sequentially, for up to 100 flags
 # in one operation, and does not retry on 429, so the burst rate has to clear a full legitimate
 # session (which can complete in well under a minute when each call is fast) without tripping.
-class BillingReadBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Burst limit on the organization billing API's reads, per personal key or, for session,
-    OAuth and MCP callers, per user. Its own scope, so a client hammering billing does not spend
-    the caller's general budget and vice versa. The rates start low and loosen with production
-    evidence."""
+class _BillingReadTokenRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Limits token callers only: personal keys, OAuth tokens, the MCP and project secret keys.
+    The app's pages read the billing routes on a browser session, and the legacy routes they
+    replace had no billing limit for it."""
+
+    def allow_request(self, request, view):
+        if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
+            return True
+        return super().allow_request(request, view)
+
+
+class BillingReadBurstRateThrottle(_BillingReadTokenRateThrottle):
+    """Burst limit on the organization billing API's reads, per personal key or, for OAuth and MCP
+    callers, per user. Its own scope, so a client hammering billing does not spend the caller's
+    general budget and vice versa. The rates start low and loosen with production evidence."""
 
     scope = "billing_read_burst"
     rate = "30/minute"
 
 
-class BillingReadSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+class BillingReadSustainedRateThrottle(_BillingReadTokenRateThrottle):
     scope = "billing_read_sustained"
     rate = "300/hour"
 

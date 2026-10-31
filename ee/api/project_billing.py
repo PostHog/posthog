@@ -2,12 +2,15 @@
 
 Every read is the organization read pinned to the project's teams. A project's numbers match what
 the organization routes report for it, and billing serves no new query.
+
+Features, the products summary and usage status belong to the organization and are the same for
+every project in it. The project routes return them as the organization routes do.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.http import StreamingHttpResponse
@@ -20,21 +23,42 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.models import Team
+from posthog.models import Organization, Team
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 
 from ee.api.billing import BillingExportThrottle, BillingQueryTimeout, BillingUsageRequestSerializer
 from ee.api.organization_billing import (
     BETA_NOTICE,
+    BillingFeaturesSerializer,
     BillingPeriodSerializer,
+    BillingProductsSummarySerializer,
     BillingReadViewSet,
     PaginatedBillingTimeSeriesPointListSerializer,
+    ProjectBillingUsageStatusSerializer,
     _billing_period,
+    _usage_status,
 )
 from ee.billing.grants import BillingEntitlement
 
 PROJECT_BREAKDOWNS_MESSAGE = 'Pass `["type"]` for a series per product, or omit breakdowns for one series.'
+
+
+def _stored_billing_period(organization: Organization) -> Optional[dict[str, Any]]:
+    """The billing period PostHog stores on the organization, in the shape billing returns it. None when
+    PostHog stores no period, or when its period ended and PostHog does not store the next one yet."""
+    period = organization.current_billing_period
+    if period is None:
+        return None
+    start, end = int(period.start.timestamp()), int(period.end.timestamp())
+    if end <= datetime.now(UTC).timestamp():
+        return None
+    return {
+        "current_period_start": start,
+        "current_period_end": end,
+        # Billing calls a period longer than 31 days a year.
+        "interval": "year" if end - start > timedelta(days=31).total_seconds() else "month",
+    }
 
 
 class ProjectTimeseriesRequestSerializer(BillingUsageRequestSerializer):
@@ -72,20 +96,23 @@ class ProjectUsageSummarySerializer(serializers.Serializer):
     billing_period = BillingPeriodSerializer(
         allow_null=True,
         help_text=(
-            "The period the usage covers. Null when the organization has no billing period yet, and the usage then "
-            "covers the current calendar month in UTC."
+            "The billing period the usage covers. An organization without a subscription has a rolling 30-day "
+            "period. Null when billing returns no period, and the usage then covers the current calendar month in UTC."
         ),
     )
     results = ProjectUsageItemSerializer(many=True, help_text="One entry per usage counter the project reported.")
 
 
 PROJECT_BILLING_READ_ACTIONS = ["usage", "usage_timeseries", "spend_timeseries", "usage_export", "spend_export"]
+# The organization's own reads, the same for every project in it, and readable by any member.
+ORGANIZATION_READ_ACTIONS = ["features", "products_summary", "usage_status"]
 EXPORT_THROTTLES = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle]
 
 
 @extend_schema(extensions={"x-product": "billing"})
 class ProjectBillingViewSet(BillingReadViewSet):
-    """Read one project's usage and its share of the organization's spend.
+    """Read one project's usage and its share of the organization's spend, and its organization's
+    features, products and usage status.
 
     A credential reaches a project when it covers the project. An organization-wide session, personal
     key or OAuth token covers every project. A project-scoped key covers its projects, and a project
@@ -93,8 +120,8 @@ class ProjectBillingViewSet(BillingReadViewSet):
     """
 
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = PROJECT_BILLING_READ_ACTIONS
-    scope_object_read_actions = PROJECT_BILLING_READ_ACTIONS
+    psak_allowed_actions = PROJECT_BILLING_READ_ACTIONS + ORGANIZATION_READ_ACTIONS
+    scope_object_read_actions = PROJECT_BILLING_READ_ACTIONS + ORGANIZATION_READ_ACTIONS
     # The routing mixin adds the project membership check for project routes.
     permission_classes = [permissions.IsAuthenticated, PostHogFeatureFlagPermission]
 
@@ -119,11 +146,15 @@ class ProjectBillingViewSet(BillingReadViewSet):
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
         manager = self._manager()
-        try:
-            subscription = manager.get_organization_subscription(organization, grants)
-        except requests.Timeout:
-            raise BillingQueryTimeout()
-        period = _billing_period(subscription.get("billing_period"))
+        # The period PostHog stores costs billing nothing. When PostHog stores no period, or its period ended,
+        # billing's project status supplies the period, because billing renews a period once it ends.
+        billing_period = _stored_billing_period(organization)
+        if billing_period is None:
+            try:
+                billing_period = manager.get_project_usage_status(organization, grants).get("billing_period")
+            except requests.Timeout:
+                raise BillingQueryTimeout()
+        period = _billing_period(billing_period)
         today = datetime.now(UTC).date()
         period_start = (period or {}).get("current_period_start")
         start_date = period_start[:10] if period_start else today.replace(day=1).isoformat()
@@ -199,6 +230,38 @@ class ProjectBillingViewSet(BillingReadViewSet):
         return self._export(
             request, "spend", ProjectTimeseriesRequestSerializer, pinned_team_ids=self._project_team_ids()
         )
+
+    @extend_schema(
+        operation_id="billing_project_features_retrieve",
+        summary="Get the features the project's organization has",
+        description=BETA_NOTICE,
+        responses={200: OpenApiResponse(response=BillingFeaturesSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="features")
+    def features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._features(request)
+
+    @extend_schema(
+        operation_id="billing_project_products_summary_retrieve",
+        summary="Get every product in summary for the project's organization",
+        description=BETA_NOTICE,
+        responses={200: OpenApiResponse(response=BillingProductsSummarySerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="products/summary")
+    def products_summary(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._products_summary(request)
+
+    @extend_schema(
+        operation_id="billing_project_usage_status_retrieve",
+        summary="Get whether the project's organization is over or near its limits, without the counts or limits",
+        description=BETA_NOTICE,
+        responses={200: OpenApiResponse(response=ProjectBillingUsageStatusSerializer)},
+    )
+    @action(methods=["GET"], detail=False, url_path="usage/status")
+    def usage_status(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        return Response(_usage_status(organization, self._manager().get_project_usage_status(organization, grants)))
 
 
 def _usage_key(breakdown_value: Any) -> str:

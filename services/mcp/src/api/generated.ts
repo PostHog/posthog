@@ -19933,34 +19933,40 @@ export namespace Schemas {
       total_count?: number;
     }
 
+    /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
     export interface UsageStatusItem {
       kind: CatalogKindEnum;
       key: string;
       /** @nullable */
       usage_key: string | null;
-      /** @nullable */
-      usage_limit: number | null;
       has_exceeded_limit: boolean;
       approaching_limit: boolean;
       /** @nullable */
       quota_limited_until: string | null;
       /** @nullable */
       quota_limiting_suspended_until: string | null;
+      /** @nullable */
+      usage_limit: number | null;
     }
 
+    /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
     export interface ProductUsageStatus {
       kind: CatalogKindEnum;
       key: string;
       /** @nullable */
       usage_key: string | null;
-      /** @nullable */
-      usage_limit: number | null;
       has_exceeded_limit: boolean;
       approaching_limit: boolean;
       /** @nullable */
       quota_limited_until: string | null;
       /** @nullable */
       quota_limiting_suspended_until: string | null;
+      /** @nullable */
+      usage_limit: number | null;
       addons: UsageStatusItem[];
     }
 
@@ -98210,6 +98216,46 @@ export namespace Schemas {
     }
 
     /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
+    export interface ProjectUsageStatusItem {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      has_exceeded_limit: boolean;
+      approaching_limit: boolean;
+      /** @nullable */
+      quota_limited_until: string | null;
+      /** @nullable */
+      quota_limiting_suspended_until: string | null;
+    }
+
+    /**
+     * A usage status item as the project routes serve it, without the limit.
+     */
+    export interface ProjectProductUsageStatus {
+      kind: CatalogKindEnum;
+      key: string;
+      /** @nullable */
+      usage_key: string | null;
+      has_exceeded_limit: boolean;
+      approaching_limit: boolean;
+      /** @nullable */
+      quota_limited_until: string | null;
+      /** @nullable */
+      quota_limiting_suspended_until: string | null;
+      addons: ProjectUsageStatusItem[];
+    }
+
+    export interface ProjectBillingUsageStatus {
+      billing_period: BillingPeriod | null;
+      /** @nullable */
+      usage_reported_through: string | null;
+      products: ProjectProductUsageStatus[];
+    }
+
+    /**
      * `inventory.project_context` — free-form orientation about the project's product.
      */
     export interface ProjectContext {
@@ -99638,7 +99684,7 @@ export namespace Schemas {
     }
 
     export interface ProjectUsageSummary {
-      /** The period the usage covers. Null when the organization has no billing period yet, and the usage then covers the current calendar month in UTC. */
+      /** The billing period the usage covers. An organization without a subscription has a rolling 30-day period. Null when billing returns no period, and the usage then covers the current calendar month in UTC. */
       billing_period: BillingPeriod | null;
       /** One entry per usage counter the project reported. */
       results: ProjectUsageItem[];
