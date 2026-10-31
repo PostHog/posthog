@@ -23,6 +23,7 @@ import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/fronte
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
 import { personsSceneLogic } from '../logics/personsSceneLogic'
+import { SAMPLE_PERSONS_SOURCE } from '../samplePersonRows'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -81,6 +82,7 @@ export function PersonsScene(): JSX.Element {
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
+                    dataTableSampleRows: SAMPLE_PERSONS_SOURCE,
                     emptyStateHeading:
                         currentTeam?.ingested_event && searchLooksLikeSessionId
                             ? 'Looking for a session?'

@@ -79,41 +79,64 @@ function SampleNumber({ animate }: { animate: boolean }): JSX.Element {
     )
 }
 
-function SampleTable(): JSX.Element {
+/** Sample values for a table the card shows in place of its own made-up rows. */
+export interface SampleTableContent {
+    header: ReactNode[]
+    /** One cell per header column. A `null` cell shows a skeleton bar. */
+    rows: ReactNode[][]
+    dataAttr?: string
+}
+
+function SampleTable({ table }: { table?: SampleTableContent }): JSX.Element {
     return (
-        <div className="w-full max-w-120 self-center m-4 rounded border overflow-hidden text-secondary">
+        <div
+            className="w-full max-w-120 self-center m-4 rounded border overflow-hidden text-secondary"
+            data-attr={table?.dataAttr}
+            // The cells can hold links and popovers for invented records, so `inert` keeps them away
+            // from the pointer, the keyboard and assistive tech. React 18 types lack the attribute.
+            {...(table ? { inert: '' } : {})}
+        >
             <div className="flex items-center gap-3 px-3 py-2 bg-surface-secondary text-xs font-semibold">
-                {TABLE_HEADER.map((label, cellIndex) => (
-                    <div key={cellIndex} className={clsx('flex-1', cellIndex > 0 && 'text-right')}>
+                {(table?.header ?? TABLE_HEADER).map((label, cellIndex) => (
+                    <div
+                        key={cellIndex}
+                        className={clsx('flex-1', table ? 'min-w-0 truncate' : cellIndex > 0 && 'text-right')}
+                    >
                         {label}
                     </div>
                 ))}
             </div>
-            {TABLE_ROWS.map((cells, index) => (
+            {(table?.rows ?? TABLE_ROWS).map((cells, index) => (
                 <div
                     key={index}
                     className="SampleDataState__row flex items-center gap-3 px-3 py-2 border-t text-sm"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ animationDelay: `${index * 110}ms` }}
                 >
-                    {cells.map((value, cellIndex) => (
-                        <div
-                            key={cellIndex}
-                            className={clsx(
-                                'flex-1',
-                                cellIndex === 0 ? 'flex items-center gap-2' : 'text-right tabular-nums'
-                            )}
-                        >
-                            {cellIndex === 0 ? (
-                                <>
-                                    <div className="SampleDataState__row-cell h-3 w-3 shrink-0 rounded-full" />
-                                    <span className="truncate">{value}</span>
-                                </>
-                            ) : (
-                                value
-                            )}
-                        </div>
-                    ))}
+                    {table
+                        ? cells.map((value, cellIndex) => (
+                              <div key={cellIndex} className="flex-1 min-w-0 truncate">
+                                  {value ?? <div className="SampleDataState__row-cell w-16 max-w-full" />}
+                              </div>
+                          ))
+                        : cells.map((value, cellIndex) => (
+                              <div
+                                  key={cellIndex}
+                                  className={clsx(
+                                      'flex-1',
+                                      cellIndex === 0 ? 'flex items-center gap-2' : 'text-right tabular-nums'
+                                  )}
+                              >
+                                  {cellIndex === 0 ? (
+                                      <>
+                                          <div className="SampleDataState__row-cell h-3 w-3 shrink-0 rounded-full" />
+                                          <span className="truncate">{value}</span>
+                                      </>
+                                  ) : (
+                                      value
+                                  )}
+                              </div>
+                          ))}
                 </div>
             ))}
         </div>
@@ -143,9 +166,11 @@ function SampleChart({ variant }: { variant: Exclude<SampleDataVariant, 'number'
 /** Obviously-fake placeholder chart shown instead of an empty state before a project has ingested any events. */
 export function SampleDataState({
     variant = 'line',
+    table,
     children,
 }: {
     variant?: SampleDataVariant
+    table?: SampleTableContent
     children?: ReactNode
 }): JSX.Element {
     const { setupStatus, setupStatusLoading } = useValues(setupWizardStatusLogic)
@@ -229,7 +254,7 @@ export function SampleDataState({
                     (variant === 'number' ? (
                         <SampleNumber animate={!isStatic} />
                     ) : variant === 'table' ? (
-                        <SampleTable />
+                        <SampleTable table={table} />
                     ) : (
                         <SampleChart variant={variant} />
                     ))}
