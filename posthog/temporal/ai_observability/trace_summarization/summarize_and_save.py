@@ -7,9 +7,9 @@ from uuid import uuid4
 import structlog
 import temporalio
 
-from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.redis import get_async_client
+from posthog.temporal.ai_observability.generated_event_usage import create_generated_ai_event
 from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.models import (
     SummarizationActivityResult,
@@ -69,7 +69,7 @@ def _save_trace_summary_event(
         "trace_timestamp": ctx.trace_first_timestamp,
     }
 
-    create_event(
+    create_generated_ai_event(
         event_uuid=uuid4(),
         event=constants.EVENT_NAME_TRACE_SUMMARY,
         team=ctx.team,
@@ -101,7 +101,7 @@ def _save_generation_summary_event(
         "trace_timestamp": ctx.trace_first_timestamp,
     }
 
-    create_event(
+    create_generated_ai_event(
         event_uuid=uuid4(),
         event=constants.EVENT_NAME_GENERATION_SUMMARY,
         team=ctx.team,

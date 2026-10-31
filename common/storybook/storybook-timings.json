@@ -239,7 +239,7 @@
         "chromium": 3.045,
         "webkit": 2.417
     },
-    "frontend/src/lib/components/KeyboardShortcut/KeyboardShortcut.stories.tsx": {
+    "frontend/src/lib/lemon-ui/KeyboardShortcut/KeyboardShortcut.stories.tsx": {
         "chromium": 8.996,
         "webkit": 2.76
     },
@@ -1154,10 +1154,6 @@
     "frontend/src/scenes/integrations/components/SlackIntegration.stories.tsx": {
         "chromium": 24.371,
         "webkit": 3.82
-    },
-    "frontend/src/scenes/marketing-analytics/MarketingAnalyticsFreshness.stories.tsx": {
-        "chromium": 9.726,
-        "webkit": 2.652
     },
     "frontend/src/scenes/max/Max.stories.tsx": {
         "chromium": 101.316,

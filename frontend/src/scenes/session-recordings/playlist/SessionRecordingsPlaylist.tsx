@@ -138,10 +138,20 @@ function WatchPlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Elemen
     if (isPlaylistCollapsed) {
         return <Playlist {...props} />
     }
+    const collections = !props.type
     return picksInList ? (
-        <ReplayListColumnWithPicks logicKey={logicKey} recordingsList={<Playlist {...props} />} />
+        <ReplayListColumnWithPicks
+            logicKey={logicKey}
+            recordingsList={<Playlist {...props} />}
+            collections={collections}
+        />
     ) : (
-        <ReplayListColumn logicKey={logicKey} recordingsList={<Playlist {...props} />} picksMode={null} />
+        <ReplayListColumn
+            logicKey={logicKey}
+            recordingsList={<Playlist {...props} />}
+            picksMode={null}
+            collections={collections}
+        />
     )
 }
 

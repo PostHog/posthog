@@ -2,6 +2,7 @@ import uuid
 import datetime as dt
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
@@ -9,8 +10,14 @@ from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
 from posthog.models.utils import uuid7
+from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.temporal.health_checks.rollups.tests.helpers import publish_rollup_days, window_ending_yesterday
 
-from products.web_analytics.backend.temporal.health_checks.missing_session_id import MissingSessionIdCheck
+from products.web_analytics.backend.rollups.events_health import EventsHealthDailyRollup
+from products.web_analytics.backend.temporal.health_checks.missing_session_id import (
+    MISSING_SESSION_ID_LOOKBACK_DAYS,
+    MissingSessionIdCheck,
+)
 
 MODULE = "products.web_analytics.backend.temporal.health_checks.missing_session_id"
 
@@ -28,7 +35,7 @@ MODULE = "products.web_analytics.backend.temporal.health_checks.missing_session_
 def test_detect_missing_session_id(mock_query: MagicMock, mock_rows: list, expected_teams: set) -> None:
     mock_query.return_value = mock_rows
 
-    result = MissingSessionIdCheck().detect([1, 2, 3, 42])
+    result = MissingSessionIdCheck().detect_from_events([1, 2, 3, 42])
 
     assert set(result.keys()) == expected_teams
     for team_id in expected_teams:
@@ -42,15 +49,21 @@ def test_detect_missing_session_id(mock_query: MagicMock, mock_rows: list, expec
 def test_reason_reports_share_and_splits_the_causes(mock_query: MagicMock) -> None:
     mock_query.return_value = [(7, 20_000, 5_000, 3_000, 5_000, 1_250)]
 
-    reason = MissingSessionIdCheck().detect([7])[7][0].payload["reason"]
+    reason = MissingSessionIdCheck().detect_from_events([7])[7][0].payload["reason"]
 
     assert "25.0%" in reason
     assert "3000 absent or not a UUID, 2000 not a UUIDv7" in reason
 
 
-class TestMissingSessionIdQuery(ClickhouseTestMixin, BaseTest):
+@time_machine.travel("2026-10-29T12:00:00Z", tick=False)
+class TestMissingSessionIdRollup(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self._event_days: set[dt.date] = set()
+
     def _create_pageviews(self, session_ids: list[str | None], days_ago: int = 1) -> None:
         timestamp = dt.datetime.now(dt.UTC) - dt.timedelta(days=days_ago)
+        self._event_days.add(timestamp.date())
         for index, session_id in enumerate(session_ids):
             _create_event(
                 team=self.team,
@@ -69,7 +82,13 @@ class TestMissingSessionIdQuery(ClickhouseTestMixin, BaseTest):
             patch(f"{MODULE}.MISSING_SESSION_ID_THRESHOLD", 0.5),
             patch(f"{MODULE}.MISSING_SESSION_ID_MIN_UNUSABLE", 2),
         ):
-            return self.team.id in MissingSessionIdCheck().detect([self.team.id])
+            return self.team.id in self._detect()
+
+    def _detect(self) -> dict[int, list[HealthCheckResult]]:
+        publish_rollup_days(EventsHealthDailyRollup, self._event_days)
+        return MissingSessionIdCheck().detect_from_rollup(
+            [self.team.id], window_ending_yesterday(MISSING_SESSION_ID_LOOKBACK_DAYS)
+        )
 
     @parameterized.expand(
         [
@@ -100,6 +119,6 @@ class TestMissingSessionIdQuery(ClickhouseTestMixin, BaseTest):
             patch(f"{MODULE}.MISSING_SESSION_ID_THRESHOLD", 0.5),
             patch(f"{MODULE}.MISSING_SESSION_ID_MIN_UNUSABLE", 2),
         ):
-            reason = MissingSessionIdCheck().detect([self.team.id])[self.team.id][0].payload["reason"]
+            reason = self._detect()[self.team.id][0].payload["reason"]
 
         self.assertIn("1 absent or not a UUID, 1 not a UUIDv7", reason)

@@ -14,6 +14,9 @@ pnpm test
 `pnpm typecheck` includes this compatibility check automatically.
 CI runs typecheck, lint, and tests; see [CI.md](CI.md).
 
+For inbox pagination, check that an invalid next-page response keeps the loaded reports visible and shows the retry footer.
+Retry after the server returns a valid page and confirm that the remaining reports load.
+
 ## Authenticated local checks
 
 Run the setup in [README.md](../README.md#sign-in-to-the-local-backend) first.
@@ -113,6 +116,16 @@ Open a report, scroll down, background the app, then return. The report and scro
 visible while a small spinner beside Previous/Next shows the refresh, then fades away without moving
 the navigation controls. Repeat with an unavailable Today page or signals endpoint, and with a failed
 background request. A first load without cached data still shows the full loading state.
+
+## Resolve and dismiss sheets
+
+On Android and iOS, open Resolve and Dismiss for a report with a long title.
+Repeat in portrait and landscape, including a larger text size.
+Include an Android 17 emulator with a Pixel 9 display profile (1080 × 2424 at 420 dpi).
+Scroll through every reason and the optional note. The list must use the available space without clipped rows.
+Select a reason, focus the note, type, and hide the keyboard. The confirm button must stay visible above the keyboard and return to the bottom after it closes.
+Repeat after you open and close the chat keyboard. The sheet must not reserve space for a keyboard that is hidden.
+Confirm the verdict and check that the report leaves the inbox. Close and reopen a sheet to check that its reason and note reset.
 
 ## Notification checks
 

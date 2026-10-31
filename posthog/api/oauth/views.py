@@ -3,6 +3,7 @@ import uuid
 import hashlib
 import calendar
 from collections.abc import Iterable
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, TypedDict, cast
@@ -157,8 +158,14 @@ def get_region_info() -> dict | None:
 # The host the other PostHog Cloud region answers on, so an unknown client_id can name it.
 _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.posthog.com"}
 
+# Why the last CIMD client_id failed to resolve, as (client_id, reason). oauthlib's
+# InvalidClientIdError doesn't carry the request, so this is how error_response learns the
+# reason. validate_client_id resets it on every call, and error_response only uses it for the
+# same client_id.
+_cimd_resolution_error: ContextVar[tuple[str, str] | None] = ContextVar("cimd_resolution_error", default=None)
 
-def unknown_client_id_description(client_id: str | None) -> str:
+
+def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
     """Describe an unknown `client_id` so the client can act on the 400.
 
     An OAuth application exists in one region only, and a request sent to the other
@@ -166,9 +173,15 @@ def unknown_client_id_description(client_id: str | None) -> str:
     region is what makes that case recognizable.
 
     A CIMD client_id is a metadata URL resolved on demand rather than a registration
-    we hold, so it fails for a different reason and gets a different description.
+    we hold, so it fails for a different reason and gets a different description. When
+    /authorize knows why the document failed, `cimd_error` names it. CIMD errors are
+    written to be shown to the client: they describe the client's own public document.
     """
     if is_cimd_client_id(client_id):
+        if cimd_error:
+            return (
+                f"PostHog could not use the client metadata document at this client_id: {cimd_error[:500].rstrip('.')}."
+            )
         return (
             "PostHog could not read the client metadata document at this client_id. "
             "Check that the URL is reachable over HTTPS and returns valid client metadata."
@@ -722,13 +735,15 @@ class OAuthValidator(OAuth2Validator):
         """
 
         # CIMD URLs always go through get_or_create to ensure metadata refresh
+        _cimd_resolution_error.set(None)
         if is_cimd_client_id(client_id):
             try:
                 app = get_or_create_cimd_application(client_id)
                 request.client = app
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
-                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e))
+                logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
+                _cimd_resolution_error.set((client_id, str(e)))
                 return False
 
         # Standard UUID lookup
@@ -1946,7 +1961,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if isinstance(oauthlib_error, InvalidClientIdError):
             # An unknown client_id is fatal, so DOT never redirects it and this description
             # only ever reaches the JSON body.
-            oauthlib_error.description = unknown_client_id_description(self.request.query_params.get("client_id"))
+            client_id = self.request.query_params.get("client_id")
+            failure = _cimd_resolution_error.get()
+            oauthlib_error.description = unknown_client_id_description(
+                client_id, cimd_error=failure[1] if failure and failure[0] == client_id else None
+            )
 
         redirect, error_response = super().error_response(error, **kwargs)
 
