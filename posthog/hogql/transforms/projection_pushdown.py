@@ -6,6 +6,63 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.visitor import TraversingVisitor
 
+# SelectQuery fields that can read a column of a subquery or CTE in FROM. A column that only a
+# skipped clause reads is never demanded, so the pruner drops it and the query fails.
+COLUMN_READING_CLAUSES: tuple[str, ...] = (
+    "array_join_list",
+    "window_exprs",
+    "where",
+    "prewhere",
+    "having",
+    "qualify",
+    "group_by",
+    "order_by",
+    "interpolate",
+    "limit_by",
+    "limit",
+    "offset",
+)
+
+# Set operators that keep every row of every branch. The others compare whole rows, so a column
+# pruned from the branches changes which rows match.
+ROW_PRESERVING_SET_OPERATORS: frozenset[ast.SetOperator] = frozenset({"UNION ALL", "UNION ALL BY NAME"})
+
+
+def _positional_refs(node: ast.SelectQuery) -> list[ast.Constant | ast.PositionalRef]:
+    # ORDER BY, GROUP BY and LIMIT BY read a bare integer (and `#n`) as a 1-based position in the
+    # select list, so dropping a column before it makes the position point at a different column.
+    exprs: list[ast.Expr] = [order.expr for order in node.order_by or []]
+    for expr in node.group_by or []:
+        exprs.extend(expr.exprs if isinstance(expr, ast.GroupingSet) else [expr])
+    if node.limit_by:
+        exprs.extend(node.limit_by.exprs)
+    return [
+        expr
+        for expr in exprs
+        if isinstance(expr, ast.PositionalRef)
+        or (isinstance(expr, ast.Constant) and isinstance(expr.value, int) and not isinstance(expr.value, bool))
+    ]
+
+
+def _position(ref: ast.Constant | ast.PositionalRef) -> int:
+    return ref.index if isinstance(ref, ast.PositionalRef) else ref.value
+
+
+def _set_operation_parts(node: ast.SelectSetQuery) -> tuple[list[ast.SetOperator], list[ast.SelectQuery]]:
+    """Return every set operator and every SELECT leaf of a set operation, nested ones included."""
+    operators: list[ast.SetOperator] = []
+    leaves: list[ast.SelectQuery] = []
+    for set_node in node.subsequent_select_queries:
+        operators.append(set_node.set_operator)
+    for query in node.select_queries():
+        if isinstance(query, ast.SelectSetQuery):
+            nested_operators, nested_leaves = _set_operation_parts(query)
+            operators.extend(nested_operators)
+            leaves.extend(nested_leaves)
+        else:
+            leaves.append(query)
+    return operators, leaves
+
 
 class ProjectionPushdownOptimizer(TraversingVisitor):
     """
@@ -20,10 +77,15 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     Each pass runs these phases per query:
 
     Phase 1 - Register: Map subquery types to AST nodes for demand tracking
-    Phase 2 - Collect: Gather column demands from WHERE/GROUP BY/ORDER BY/etc
+    Phase 2 - Collect: Gather column demands from every clause in COLUMN_READING_CLAUSES
     Phase 3 - Propagate: For demanded columns, visit their source to propagate to child queries
     Phase 4 - Recurse: Visit child subqueries (repeat phases 1-4)
     Phase 5 - Prune: Remove unreferenced asterisk columns from this query (second pass only)
+
+    A column is only pruned when nothing in the query depends on it (see `_kept_columns`). The
+    query itself depends on a column that ORDER BY, GROUP BY or LIMIT BY names by position, and on
+    every column when DISTINCT or GROUP BY ALL compares whole rows. The branches of a set operation
+    line up by position, so they are pruned only when every branch drops the same columns.
     """
 
     def __init__(self):
@@ -51,22 +113,8 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             if not self._is_from_asterisk(expr):
                 self.visit(expr)
 
-        if node.where:
-            self.visit(node.where)
-        if node.prewhere:
-            self.visit(node.prewhere)
-        if node.group_by:
-            for expr in node.group_by:
-                self.visit(expr)
-        if node.having:
-            self.visit(node.having)
-        if node.order_by:
-            for expr in node.order_by:
-                self.visit(expr)
-        if node.limit:
-            self.visit(node.limit)
-        if node.offset:
-            self.visit(node.offset)
+        for clause in COLUMN_READING_CLAUSES:
+            self._visit_clause(getattr(node, clause))
 
         if node.select_from:
             self._collect_join_constraint_column_demands(node.select_from)
@@ -114,6 +162,36 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             return expr.from_asterisk
         return False
 
+    def _visit_clause(self, clause: object) -> None:
+        if isinstance(clause, dict):
+            clause = list(clause.values())
+        for item in clause if isinstance(clause, list) else [clause]:
+            if isinstance(item, ast.AST):
+                self.visit(item)
+
+    def _kept_columns(self, node: ast.SelectQuery, demanded: set[str]) -> list[int] | None:
+        """Return the indexes of the select columns that pruning keeps, in select order.
+
+        Return None when the whole select list must stay: its columns decide which rows exist
+        (DISTINCT, GROUP BY ALL), a position is outside the select list (a negative position
+        counts from the end), or no column would remain.
+        """
+        if node.distinct or node.group_by_mode == "all":
+            return None
+        positional: set[int] = set()
+        for ref in _positional_refs(node):
+            position = _position(ref)
+            if not 1 <= position <= len(node.select):
+                return None
+            positional.add(position - 1)
+
+        kept: list[int] = []
+        for index, expr in enumerate(node.select):
+            col_name = self._get_column_name(expr)
+            if not self._is_from_asterisk(expr) or index in positional or (col_name and col_name in demanded):
+                kept.append(index)
+        return kept or None
+
     def _propagate_demands_to_children(self, node: ast.SelectQuery) -> None:
         """
         Propagate parent demands to child subqueries.
@@ -125,27 +203,35 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         this query defines the output. Visit all asterisk columns to preserve them.
         """
         demanded_from_this = self.demands.get(id(node))
-        if not demanded_from_this:
+        kept = self._kept_columns(node, demanded_from_this) if demanded_from_this else None
+        if kept is None:
             for expr in node.select:
                 if self._is_from_asterisk(expr):
                     self.visit(expr)
             return
 
-        for col_name in demanded_from_this:
-            for expr in node.select:
-                if self._get_column_name(expr) == col_name:
-                    self.visit(expr)
-                    break
+        for index in kept:
+            if self._is_from_asterisk(node.select[index]):
+                self.visit(node.select[index])
 
     def _propagate_demands_to_union_branches(self, node: ast.SelectSetQuery) -> None:
         """
         Propagate demands from parent to all UNION/INTERSECT/EXCEPT branches.
 
-        Since all branches must have identical column structure, we propagate
-        the same demands to all of them.
+        All branches must keep identical column structure, so they get the same demands, and
+        only when every operator is a UNION ALL and every branch would drop the same columns.
         """
         demanded_from_this = self.demands.get(id(node))
         if not demanded_from_this:
+            return
+
+        # Branches that are not pruned keep every column, which is always correct.
+        operators, leaves = _set_operation_parts(node)
+        kept_by_leaf = [self._kept_columns(leaf, demanded_from_this) for leaf in leaves]
+        if any(operator not in ROW_PRESERVING_SET_OPERATORS for operator in operators) or any(
+            kept is None or kept != kept_by_leaf[0] for kept in kept_by_leaf
+        ):
+            self._clear_branch_demands(node)
             return
 
         all_queries = [node.initial_select_query] + [sn.select_query for sn in node.subsequent_select_queries]
@@ -153,6 +239,14 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         for query in all_queries:
             if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
                 self.demands[id(query)].update(demanded_from_this)
+
+    def _clear_branch_demands(self, node: ast.SelectSetQuery) -> None:
+        # The first pass can push a partial demand set into the branches before a later consumer
+        # of the same CTE adds to it. Clear it, or that stale set still prunes the branches.
+        for query in node.select_queries():
+            self.demands.pop(id(query), None)
+            if isinstance(query, ast.SelectSetQuery):
+                self._clear_branch_demands(query)
 
     def _register_subqueries(self, from_clause: ast.JoinExpr) -> None:
         """Register all subqueries in FROM clause before collecting demands"""
@@ -248,34 +342,35 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         demanded = self.demands.get(id(node))
         if not demanded:
             return
+        kept_indexes = self._kept_columns(node, demanded)
+        if kept_indexes is None:
+            return
 
-        pruned_select = []
-        for expr in node.select:
-            if not self._is_from_asterisk(expr):
-                # Keep explicitly written columns
-                pruned_select.append(expr)
+        # Collect the names of asterisk columns we're about to drop
+        kept = set(kept_indexes)
+        dropped_names: set[str] = set()
+        for index, expr in enumerate(node.select):
+            col_name = self._get_column_name(expr)
+            if index not in kept and col_name:
+                dropped_names.add(col_name)
+
+        self._renumber_positions(node, kept_indexes)
+        node.select = [node.select[index] for index in kept_indexes]
+        # Remove dropped asterisk columns from SelectQueryType.columns.
+        # Without this, stale LazyTableType references on pruned columns
+        # leak through type traversal (e.g. CTETableType → SelectQueryType.columns)
+        # and cause KeyErrors in the lazy table resolver.
+        if dropped_names and isinstance(node.type, ast.SelectQueryType):
+            node.type.columns = {k: v for k, v in node.type.columns.items() if k not in dropped_names}
+
+    def _renumber_positions(self, node: ast.SelectQuery, kept_indexes: list[int]) -> None:
+        new_index_by_old = {old: new for new, old in enumerate(kept_indexes)}
+        for ref in _positional_refs(node):
+            new_position = new_index_by_old[_position(ref) - 1] + 1
+            if isinstance(ref, ast.PositionalRef):
+                ref.index = new_position
             else:
-                # Keep demanded asterisk columns
-                col_name = self._get_column_name(expr)
-                if col_name and col_name in demanded:
-                    pruned_select.append(expr)
-
-        if pruned_select:
-            # Collect the names of asterisk columns we're about to drop
-            dropped_names: set[str] = set()
-            for expr in node.select:
-                if self._is_from_asterisk(expr) and expr not in pruned_select:
-                    col_name = self._get_column_name(expr)
-                    if col_name:
-                        dropped_names.add(col_name)
-
-            node.select = pruned_select
-            # Remove dropped asterisk columns from SelectQueryType.columns.
-            # Without this, stale LazyTableType references on pruned columns
-            # leak through type traversal (e.g. CTETableType → SelectQueryType.columns)
-            # and cause KeyErrors in the lazy table resolver.
-            if dropped_names and isinstance(node.type, ast.SelectQueryType):
-                node.type.columns = {k: v for k, v in node.type.columns.items() if k not in dropped_names}
+                ref.value = new_position
 
     def _get_column_name(self, expr: ast.Expr) -> str | None:
         """Extract column name from expression"""
