@@ -40,6 +40,7 @@ from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
 from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
+from products.autoresearch.backend.limits import limits_for_team
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
@@ -951,6 +952,9 @@ def run_training(
     to start the autoresearch agent. Returns the training run immediately; recipe
     ingestion happens asynchronously when the TaskRun completes.
 
+    The run takes at most the project's ``max_iterations_per_run`` (``../limits.py``), whatever
+    the caller asked for.
+
     Raises if Temporal is unreachable or the task cannot be created.
     """
     if user_id is None:
@@ -969,6 +973,7 @@ def run_training(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
     )
     agent_config = agent_run_config_for(pipeline)
+    iteration_budget = min(iteration_budget, limits_for_team(pipeline.team_id).max_iterations_per_run)
 
     now = django_timezone.now()
     with transaction.atomic():

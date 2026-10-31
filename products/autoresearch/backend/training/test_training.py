@@ -382,6 +382,29 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("default_ceiling", None, 25, 10),
+            ("under_the_ceiling", None, 5, 5),
+            ("team_override_raises_the_ceiling", 30, 25, 25),
+        ]
+    )
+    def test_dispatch_caps_iterations_at_the_project_limit(
+        self, facade: MagicMock, _name: str, team_ceiling: int | None, requested: int, expected: int
+    ) -> None:
+        self._dispatched(facade)
+        payload = (
+            {"team_configs": {str(self.team.id): {"max_iterations_per_run": team_ceiling}}} if team_ceiling else None
+        )
+
+        with patch(
+            "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload", return_value=payload
+        ):
+            training_run = run_training(self.pipeline, iteration_budget=requested, user_id=self.user.id)
+
+        assert training_run.iteration_budget == expected
+        assert f"**Iteration budget**: {expected}" in facade.create_and_run_task.call_args.kwargs["description"]
+
+    @parameterized.expand(
+        [
             ("blank_settings", None, None, ("claude", "claude-opus-5-5", "medium")),
             ("sonnet_override", "claude-sonnet-5-5", "high", ("claude", "claude-sonnet-5-5", "high")),
             ("codex_override", "gpt-6.1-sol", None, ("codex", "gpt-6.1-sol", "medium")),

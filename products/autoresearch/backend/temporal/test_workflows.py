@@ -635,6 +635,53 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("sandbox_run_on_another_pipeline_takes_the_slot", "sandbox", 2, None, "team_daily_cap"),
+            ("live_launch_without_a_task_yet_takes_the_slot", "launching", 2, None, "team_daily_cap"),
+            ("run_older_than_the_window_does_not_count", "sandbox", 25, None, "explore"),
+            ("external_agent_run_does_not_count", "external", 2, None, "explore"),
+            ("team_override_raises_the_cap", "sandbox", 2, "this_team", "explore"),
+            ("override_for_another_team_does_not_apply", "sandbox", 2, "other_team", "team_daily_cap"),
+        ]
+    )
+    @patch("products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload")
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_daily_cap_counts_every_pipeline_of_the_team(
+        self,
+        _name: str,
+        prior_run: str,
+        hours_ago: int,
+        override_for: Optional[str],
+        expected_reason: str,
+        mock_run_training: MagicMock,
+        mock_payload: MagicMock,
+    ) -> None:
+        override_team_id = {"this_team": self.team.id, "other_team": self.team.id + 1}.get(override_for or "")
+        mock_payload.return_value = {
+            "default_team_config": {"max_training_runs_per_day": 1},
+            "team_configs": {str(override_team_id): {"max_training_runs_per_day": 2}} if override_team_id else {},
+        }
+        other_pipeline = self._create_pipeline(name="other pipeline")
+        with time_machine.travel(django_timezone.now() - timedelta(hours=hours_ago), tick=False):
+            AutoresearchTrainingRun.objects.create(
+                pipeline=other_pipeline,
+                status=AutoresearchTrainingRun.Status.COMPLETED
+                if prior_run == "sandbox"
+                else AutoresearchTrainingRun.Status.RUNNING,
+                kickoff_reason="explore" if prior_run != "external" else "manual",
+                iteration_budget=3,
+                task_id=uuid.uuid4() if prior_run == "sandbox" else None,
+                agent_runtime_adapter=None if prior_run == "external" else "claude",
+            )
+        pipeline = self._create_pipeline()
+
+        result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert result.reason == expected_reason
+        assert result.error is None
+        assert mock_run_training.called is (expected_reason == "explore")
+
+    @parameterized.expand(
+        [
             ("new_pipeline_explores", 7, [], False, "explore"),
             (
                 "promoting_runs_keep_exploring",

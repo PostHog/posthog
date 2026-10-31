@@ -44,6 +44,10 @@ The real-agent training path additionally needs Tasks access, because it runs in
 Training never ends, but exploration comes first.
 The daily sweep starts research runs on scoring days until a run fails to promote a better model or 5 research runs have run, then one run every `research_interval_days` after the latest run (`backend/training/schedule.py`).
 Each run takes `iterations_per_run` iterations, and records why it started in `kickoff_reason`.
+Per-project limits in `backend/limits.py` bound every sandbox run, however it starts (sweep, UI, API or MCP).
+A project starts at most `max_training_runs_per_day` sandbox runs (default 3) in any rolling 24 hours, across all its pipelines, and no run gets more than `max_iterations_per_run` iterations (default 10).
+Both resolve from the `autoresearch` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants. Edit the payload to change a limit without a deploy.
+Runs that `open_training_run()` opens for an external agent do not count, because the caller's own agent does the work.
 Each run also records the runtime adapter, model and reasoning effort it was dispatched with (see `backend/training/AGENTS.md`).
 `iteration_budget` and `iteration_budget_remaining` are deprecated: nothing scheduled reads them.
 

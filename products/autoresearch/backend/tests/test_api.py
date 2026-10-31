@@ -1086,6 +1086,36 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         mock_run_training.assert_not_called()
 
+    @parameterized.expand([("limit_reached", 1), ("training_turned_off", 0)])
+    def test_start_training_at_the_project_daily_cap_returns_429(self, _name: str, limit: int):
+        other_pipeline = self._make_pipeline(name="Other pipeline")
+        started_at = django_timezone.now() - timedelta(hours=3)
+        AutoresearchTrainingRun.objects.create(
+            pipeline=other_pipeline,
+            status=AutoresearchTrainingRun.Status.COMPLETED,
+            iteration_budget=5,
+            task_id=uuid.uuid4(),
+        )
+        AutoresearchTrainingRun.objects.filter(pipeline=other_pipeline).update(created_at=started_at)
+        pipeline = self._make_pipeline()
+        with (
+            patch(
+                "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
+                return_value={"default_team_config": {"max_training_runs_per_day": limit}},
+            ),
+            patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS, resp.content
+        body = resp.json()
+        assert (body["used"], body["limit"]) == (1, limit)
+        if limit:
+            assert body["next_slot_at"] == (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+        else:
+            assert body["next_slot_at"] is None
+        mock_run_training.assert_not_called()
+
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────
 
     def _make_trained_pipeline(self) -> AutoresearchPipeline:
