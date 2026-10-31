@@ -3,7 +3,8 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged,
 import { featureFlagLogic } from './featureFlagLogic'
 
 export interface FeatureFlagEvaluationContextsLogicProps {
-    flagId?: number | string | null
+    /** Part of the logic key, so each flag keeps its own editing state. */
+    flagId: number | string | null
     /** Differentiates multiple instances for the same flag (e.g., 'sidebar' vs 'form') */
     context: 'sidebar' | 'form' | 'static'
     tags: string[]
