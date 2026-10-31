@@ -21,8 +21,16 @@ const GOAL_PLACEHOLDER =
 export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHandoffFromFilters }): JSX.Element {
     const { goal, budget, spendChoice, freeCreditsLeft, draftInputDisabledReason, consentSpend } =
         useValues(replayFiltersScannerLogic)
-    const { setGoal, setCreditCap, setBudget, draftWithAi, setUpManually, requestConsent, cancelConsent } =
-        useActions(replayFiltersScannerLogic)
+    const {
+        setGoal,
+        setCreditCap,
+        setBudget,
+        draftWithAi,
+        setUpManually,
+        requestConsent,
+        confirmConsent,
+        cancelConsent,
+    } = useActions(replayFiltersScannerLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
 
     const editDisabledReason = getReplayVisionEditDisabledReason()
@@ -47,7 +55,7 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
         if (dataProcessingAccepted) {
             draftWithAi(handoff)
         } else if (spendChoice.spend) {
-            requestConsent(handoff, spendChoice.spend)
+            requestConsent(spendChoice.spend)
         }
     }
 
@@ -167,6 +175,7 @@ export function ReplayFiltersScannerPopover({ handoff }: { handoff: ScannerHando
                     hideTrainingDisclaimer
                     pendingRedirectUrl={urls.replayVisionNewScanner()}
                     hidden={!consentSpend}
+                    onBeforeApprove={() => consentSpend && confirmConsent(handoff, consentSpend)}
                     onApprove={() => draftWithAi(handoff, consentSpend ?? undefined)}
                     onDismiss={cancelConsent}
                 >

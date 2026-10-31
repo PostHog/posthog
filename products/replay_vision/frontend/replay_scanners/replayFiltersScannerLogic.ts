@@ -11,7 +11,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { DEFAULT_GOAL_BUDGET, type GoalDraftSpend, type GoalSpendChoice, goalSpendChoice } from './replayScannerLogic'
 import type { ScannerHandoffFromFilters } from './scannerHandoffFromFilters'
-import { clearScannerGoalDraftIntent, markScannerGoalDraftIntent } from './scannerHandoffIntent'
+import { markScannerGoalDraftIntent } from './scannerHandoffIntent'
 
 export type ReplayFiltersCreditCap = 'free' | 'cap'
 
@@ -61,6 +61,13 @@ export interface replayFiltersScannerLogicActions {
     cancelConsent: () => {
         value: true
     }
+    confirmConsent: (
+        handoff: ScannerHandoffFromFilters,
+        spend: GoalDraftSpend
+    ) => {
+        handoff: ScannerHandoffFromFilters
+        spend: GoalDraftSpend
+    }
     draftWithAi: (
         handoff: ScannerHandoffFromFilters,
         spend?: GoalDraftSpend
@@ -68,11 +75,7 @@ export interface replayFiltersScannerLogicActions {
         handoff: ScannerHandoffFromFilters
         spend: GoalDraftSpend | undefined
     }
-    requestConsent: (
-        handoff: ScannerHandoffFromFilters,
-        spend: GoalDraftSpend
-    ) => {
-        handoff: ScannerHandoffFromFilters
+    requestConsent: (spend: GoalDraftSpend) => {
         spend: GoalDraftSpend
     }
     setBudget: (budget: number | null) => {
@@ -122,7 +125,8 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
         setBudget: (budget: number | null) => ({ budget }),
         draftWithAi: (handoff: ScannerHandoffFromFilters, spend?: GoalDraftSpend) => ({ handoff, spend }),
         setUpManually: (handoff: ScannerHandoffFromFilters) => ({ handoff }),
-        requestConsent: (handoff: ScannerHandoffFromFilters, spend: GoalDraftSpend) => ({ handoff, spend }),
+        requestConsent: (spend: GoalDraftSpend) => ({ spend }),
+        confirmConsent: (handoff: ScannerHandoffFromFilters, spend: GoalDraftSpend) => ({ handoff, spend }),
         cancelConsent: true,
     }),
 
@@ -194,13 +198,12 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
         setPopoverOpen: ({ open }) => {
             if (open) {
                 reportClicked('open')
-            } else {
-                clearScannerGoalDraftIntent()
             }
         },
         // Approving consent can trigger a full-page SSO reauthentication, which unloads the page before
-        // the draft starts. So the draft is stored first, for as long as the consent flow waits to resume.
-        requestConsent: ({ handoff, spend }) => {
+        // the draft starts. So the draft is stored once the person confirms, for as long as the consent
+        // flow waits to resume. Not earlier: a click in the consent dialog closes both popovers.
+        confirmConsent: ({ handoff, spend }) => {
             const goal = values.goal.trim()
             if (goal) {
                 markScannerGoalDraftIntent(
@@ -209,7 +212,6 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
                 )
             }
         },
-        cancelConsent: () => clearScannerGoalDraftIntent(),
         draftWithAi: ({ handoff, spend: capturedSpend }) => {
             const goal = values.goal.trim()
             const spend = capturedSpend ?? values.spendChoice.spend

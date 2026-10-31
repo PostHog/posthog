@@ -82,14 +82,6 @@ export function markScannerGoalDraftIntent(
     }
 }
 
-export function clearScannerGoalDraftIntent(): void {
-    try {
-        sessionStorage.removeItem(SCANNER_GOAL_DRAFT_INTENT_KEY)
-    } catch {
-        // Nothing was stored without storage, so there is nothing to clear.
-    }
-}
-
 export function consumeScannerGoalDraftIntent(): ScannerGoalDraftIntent | null {
     try {
         const raw = sessionStorage.getItem(SCANNER_GOAL_DRAFT_INTENT_KEY)

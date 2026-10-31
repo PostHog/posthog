@@ -597,22 +597,22 @@ describe('replayScannerLogic', () => {
             )
         })
 
+        // A click in the consent dialog closes both popovers before the confirm button's own click.
         it.each([
-            ['after an SSO reauthentication round trip', false, 1],
-            ['never, once the person dismisses consent', true, 0],
-        ])('a draft stored while asking for consent starts %s', async (_, dismissed, drafts) => {
+            ['once the person confirms, even after the dialog closes the popovers', true, 1],
+            ['never, when the person dismisses before confirming', false, 0],
+        ])('a filters draft that waits on AI consent starts %s', async (_, confirmed, drafts) => {
             const popover = replayFiltersScannerLogic()
             popover.mount()
+            const handoff = { chosenQuery: { kind: NodeKind.RecordingsQuery } } as ScannerHandoffFromFilters
             popover.actions.setGoal('find rage clicks')
-            popover.actions.requestConsent(
-                { chosenQuery: { kind: NodeKind.RecordingsQuery } } as ScannerHandoffFromFilters,
-                {
-                    freeOnly: true,
-                }
-            )
-            if (dismissed) {
-                popover.actions.cancelConsent()
+            popover.actions.requestConsent({ freeOnly: true })
+            popover.actions.setPopoverOpen(false)
+            popover.actions.cancelConsent()
+            if (confirmed) {
+                popover.actions.confirmConsent(handoff, { freeOnly: true })
             }
+            // Past the plain intent's lifetime, as after an SSO reauthentication round trip.
             const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 5 * 60 * 1000)
             try {
                 router.actions.push(urls.replayVisionScannerGoal('new'))
