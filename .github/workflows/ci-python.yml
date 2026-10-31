@@ -111,7 +111,7 @@ jobs:
                           - 'uv.lock'
                           - '**/pyproject.toml'
                           - '**/mypy.ini'
-                      schema_python: &schema_python
+                      schema_python:
                           - 'frontend/src/queries/schema.json'
                           - 'posthog/schema.py'
                           - 'posthog/schema_enums.py'
@@ -126,19 +126,22 @@ jobs:
                           - '.github/actions/paths-filter/**'
                           - '.github/workflows/ci-python.yml'
                       python:
-                        - *schema_python
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
                         # file lands undetected and trips the next unrelated PR that does run.
                         - '**/*.py'
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
+                        - '**/pyproject.toml'
+                        - '**/ruff.toml'
+                        - '**/.ruff.toml'
                         - 'uv.lock'
                         - 'posthog/**/*'
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
+                        - '.github/actions/paths-filter/**'
                         - .depot/actions/setup-uv/**
                         - '.depot/workflows/*.yml'
                         - .flox/env/manifest.toml
