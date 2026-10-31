@@ -54,7 +54,7 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
         },
         docsUrl: 'https://posthog.com/docs/error-tracking',
         manualSetupUrl: 'https://posthog.com/docs/error-tracking/installation',
-        previewLabel: 'Issues, once exceptions arrive',
+        previewLabel: 'Example: issues, once exceptions arrive',
         Preview: ErrorTrackingPreview,
         featureFlagOverrides: {
             [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: {
