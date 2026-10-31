@@ -148,7 +148,7 @@ if (args.includes('--prune-baseline')) {
     baseline = kept
 }
 
-const { added, fixed, failed, pruneHint } = compareWithBaseline(current, baseline)
+const { added, fixed, failed, pruneHint, fixHint } = compareWithBaseline(current, baseline)
 console.info(
     `Upward imports: ${current.length} (${baseline.length} in the baseline, ${added.length} new, ${fixed.length} fixed)`
 )
@@ -160,9 +160,9 @@ for (const edge of added) {
             `  It puts ${layerOf(to)} code on the eager path of every logged-in page:\n    ${eagerChains[from].join('\n    -> ')}`
         )
     }
-    console.info(
-        `  Load it with lazyWithRetry() or retryImport(() => import(...)), or move the shared code down a layer.`
-    )
+}
+if (fixHint) {
+    console.info(`\n${fixHint}`)
 }
 if (pruneHint) {
     console.info(`\n${pruneHint}`)

@@ -33,15 +33,32 @@ describe('layers.mjs', () => {
     const FIXED = 'frontend/src/models/thing.ts -> frontend/src/scenes/dashboard/dashboardLogic.tsx'
 
     const PRUNE_HINT = `1 baseline entries are fixed. Run \`hogli lint:frontend-layers --prune-baseline\` to drop them:\n  ${FIXED}`
+    const FIX_HINT = [
+        'Fix each new upward import in one of these ways:',
+        '  1. Move the imported code down to the layer of the importer, or lower.',
+        '  2. Load it with a dynamic import: lazyWithRetry() or retryImport(() => import(...)).',
+        '  3. Register it in a registry that the higher layer fills.',
+        'Never run --update-baseline to hide a new upward import. Run --prune-baseline only after you fix one.',
+    ].join('\n')
 
     it.each([
-        ['an exact match passes', [KEPT], [KEPT], { added: [], fixed: [], failed: false, pruneHint: null }],
-        ['a new edge fails', [KEPT, NEW], [KEPT], { added: [NEW], fixed: [], failed: true, pruneHint: null }],
+        [
+            'an exact match passes',
+            [KEPT],
+            [KEPT],
+            { added: [], fixed: [], failed: false, pruneHint: null, fixHint: null },
+        ],
+        [
+            'a new edge fails',
+            [KEPT, NEW],
+            [KEPT],
+            { added: [NEW], fixed: [], failed: true, pruneHint: null, fixHint: FIX_HINT },
+        ],
         [
             'a fixed edge fails with the prune hint',
             [KEPT],
             [KEPT, FIXED],
-            { added: [], fixed: [FIXED], failed: true, pruneHint: PRUNE_HINT },
+            { added: [], fixed: [FIXED], failed: true, pruneHint: PRUNE_HINT, fixHint: null },
         ],
     ])('compares with the baseline: %s', (_, current, baseline, expected) => {
         expect(compareWithBaseline(current, baseline)).toEqual(expected)

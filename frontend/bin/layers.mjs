@@ -34,7 +34,16 @@ export function compareWithBaseline(current, baseline) {
     const pruneHint = fixed.length
         ? `${fixed.length} baseline entries are fixed. Run \`hogli lint:frontend-layers --prune-baseline\` to drop them:\n${fixed.map((edge) => `  ${edge}`).join('\n')}`
         : null
-    return { added, fixed, failed: added.length > 0 || fixed.length > 0, pruneHint }
+    const fixHint = added.length
+        ? [
+              'Fix each new upward import in one of these ways:',
+              '  1. Move the imported code down to the layer of the importer, or lower.',
+              '  2. Load it with a dynamic import: lazyWithRetry() or retryImport(() => import(...)).',
+              '  3. Register it in a registry that the higher layer fills.',
+              'Never run --update-baseline to hide a new upward import. Run --prune-baseline only after you fix one.',
+          ].join('\n')
+        : null
+    return { added, fixed, failed: added.length > 0 || fixed.length > 0, pruneHint, fixHint }
 }
 
 export const shortName = (file) => file.replace(/^frontend\/src\//, '')
