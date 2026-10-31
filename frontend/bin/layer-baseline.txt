@@ -332,8 +332,6 @@ frontend/src/lib/hooks/useFeatureFlag.ts -> frontend/src/lib/logic/featureFlagLo
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/models/recentItemsModel.ts
 frontend/src/lib/hooks/useKeyboardHotkeys.tsx -> frontend/src/lib/posthog-typed.ts
-frontend/src/lib/hooks/useThemedHtml.ts -> frontend/src/lib/logic/themeLogic.ts
-frontend/src/lib/hooks/useThemedHtml.ts -> frontend/src/scenes/sceneLogic.tsx
 frontend/src/lib/integrations/VercelIntegrationSuffix.tsx -> frontend/src/scenes/settings/organization/organizationIntegrationsLogic.ts
 frontend/src/lib/lemon-ui/LemonCalendar/LemonCalendar.tsx -> frontend/src/scenes/teamLogic.tsx
 frontend/src/lib/lemon-ui/LemonColor/LemonColorButton.tsx -> frontend/src/lib/logic/dataThemeLogic.tsx
