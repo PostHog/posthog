@@ -8,12 +8,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { MAX_SIDE_PANEL_ID, SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSessionLogic'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
-
-import { attachedContextLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -23,17 +24,20 @@ function TestMaxTool({
     identifier = 'read_data',
     context,
     active = true,
+    initialMaxPrompt,
     onRender,
 }: {
     identifier?: 'read_data' | 'create_experiment'
     context: Record<string, unknown>
     active?: boolean
+    initialMaxPrompt?: string
     onRender?: (result: UseMaxToolReturn) => void
 }): null {
     const result = useMaxTool({
         identifier,
         context,
         active,
+        initialMaxPrompt,
         suggestions: ['Show me signups'],
     })
     onRender?.(result)
@@ -57,7 +61,7 @@ describe('useMaxTool', () => {
     })
 
     it('updates the registered tool context without deregistering between updates', () => {
-        const deregisterTool = jest.spyOn(logic.actions, 'deregisterTool')
+        const deregisterTool = jest.spyOn(aiShellLogic.actions, 'deregisterTool')
         const { rerender, unmount } = render(<TestMaxTool context={{ query: 'select 1' }} />)
 
         expect(logic.values.registeredToolMap.read_data?.context).toEqual({ query: 'select 1' })
@@ -82,11 +86,54 @@ describe('useMaxTool', () => {
         expect(listConversations).not.toHaveBeenCalled()
     })
 
-    it('opens the side panel on a new chat with the tool suggestions', () => {
+    // Scenes register their tools on the light shell store, before the Max logics load.
+    it('keeps a tool registered before the Max logics mount', () => {
+        logic.unmount()
+        render(<TestMaxTool context={{ query: 'select 1' }} />)
+
+        logic.mount()
+
+        expect(logic.values.toolMap.read_data?.context).toEqual({ query: 'select 1' })
+    })
+
+    // The first open waits for the Max chunk. The click must still open the panel with the tool's prompt,
+    // and a page that unmounted meanwhile must not leave its context attached to the chat.
+    it('still opens the panel with the prompt when the scene unmounts before the chunk arrives', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+        const unmountContextStore = attachedContextLogic.mount()
+        let openMax: UseMaxToolReturn['openMax'] = null
+        const { unmount } = render(
+            <TestMaxTool
+                context={{ query: 'select 1' }}
+                initialMaxPrompt="Why did signups drop?"
+                onRender={(result) => (openMax = result.openMax)}
+            />
+        )
+
+        let opening: Promise<void> | undefined
+        act(() => {
+            opening = openMax?.()
+        })
+        unmount()
+        await act(async () => {
+            await opening
+        })
+
+        expect(sidePanelStateLogic.values).toMatchObject({
+            selectedTab: SidePanelTab.Max,
+            selectedTabOptions: 'Why did signups drop?',
+        })
+        expect(attachedContextLogic.values.contextItems).toEqual([])
+        unmountContextStore()
+    })
+
+    it('opens the side panel on a new chat with the tool suggestions', async () => {
         let openMax: UseMaxToolReturn['openMax'] = null
         render(<TestMaxTool context={{ query: 'select 1' }} onRender={(result) => (openMax = result.openMax)} />)
 
-        act(() => openMax?.())
+        await act(async () => {
+            await openMax?.()
+        })
 
         expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
         expect(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }).values.activeSuggestionGroup?.suggestions).toEqual([
@@ -98,7 +145,7 @@ describe('useMaxTool', () => {
         { nav: 'Today', chat: 'task', todayRailNav: true, hintQueued: true, taskId: 'task-1' },
         { nav: 'Today', chat: 'draft', todayRailNav: true, hintQueued: true, taskId: undefined },
         { nav: 'classic', chat: 'task', todayRailNav: false, hintQueued: false, taskId: 'task-1' },
-    ])('replaces an open $nav panel $chat chat with a new chat', ({ todayRailNav, hintQueued, taskId }) => {
+    ])('replaces an open $nav panel $chat chat with a new chat', async ({ todayRailNav, hintQueued, taskId }) => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
             [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
@@ -110,7 +157,9 @@ describe('useMaxTool', () => {
 
         let openMax: UseMaxToolReturn['openMax'] = null
         render(<TestMaxTool context={{ query: 'select 1' }} onRender={(result) => (openMax = result.openMax)} />)
-        act(() => openMax?.())
+        await act(async () => {
+            await openMax?.()
+        })
 
         expect(runner.values.activeCreation).toBeNull()
         expect(panelChat.values.previousChatsHintQueued).toBe(hintQueued)
@@ -122,7 +171,7 @@ describe('useMaxTool', () => {
         panelChat.unmount()
     })
 
-    it('attaches only the last clicked tool context, keeps it current, and releases it once a task opens', () => {
+    it('attaches only the last clicked tool context, keeps it current, and releases it once a task opens', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         const unmountContextStore = attachedContextLogic.mount()
         const openers: Record<string, UseMaxToolReturn['openMax']> = {}
@@ -142,8 +191,12 @@ describe('useMaxTool', () => {
                 .map((item) => item.value)
 
         const { rerender, unmount } = render(tools('select 1'))
-        act(() => openers.experiment?.())
-        act(() => openers.sql?.())
+        await act(async () => {
+            await openers.experiment?.()
+        })
+        await act(async () => {
+            await openers.sql?.()
+        })
         expect(toolContextValues()).toEqual([JSON.stringify({ query: 'select 1' })])
 
         rerender(tools('select 2'))
@@ -163,7 +216,9 @@ describe('useMaxTool', () => {
         act(() => runner.actions.clearActiveCreation())
         expect(attachedContextLogic.values.contextItems).toEqual([])
 
-        act(() => openers.sql?.())
+        await act(async () => {
+            await openers.sql?.()
+        })
         rerender(
             <TestMaxTool
                 context={{ query: 'select 2' }}
