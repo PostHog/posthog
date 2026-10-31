@@ -290,7 +290,8 @@
                                         "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -312,7 +313,8 @@
                                         "description": "Partial column fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -334,7 +336,8 @@
                                         "description": "Partial row fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -352,7 +355,8 @@
                                         "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
                                     }
                                 },
-                                "required": ["op", "patch"]
+                                "required": ["op", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -380,7 +384,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "column_id", "content"]
+                                "required": ["op", "column_id", "content"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -394,7 +399,8 @@
                                         "description": "Id of the content block to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -418,7 +424,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "id", "column_id"]
+                                "required": ["op", "id", "column_id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -442,7 +449,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "row"]
+                                "required": ["op", "row"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -456,14 +464,16 @@
                                         "description": "Id of the row to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             }
                         ]
                     },
                     "description": "Ordered edits applied atomically to the template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and saved only if valid — otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design."
                 }
             },
-            "required": ["id", "operations"]
+            "required": ["id", "operations"],
+            "additionalProperties": false
         },
         "EventDefinitionCreateSchema": {
             "type": "object",
@@ -2711,7 +2721,8 @@
                                         "description": "Partial content-block fields, deep-merged into the existing block; a null leaf deletes that key. e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2733,7 +2744,8 @@
                                         "description": "Partial column fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2755,7 +2767,8 @@
                                         "description": "Partial row fields, deep-merged; a null leaf deletes that key."
                                     }
                                 },
-                                "required": ["op", "id", "patch"]
+                                "required": ["op", "id", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2773,7 +2786,8 @@
                                         "description": "Partial body fields, deep-merged. e.g. {values: {backgroundColor: '#ffffff'}}."
                                     }
                                 },
-                                "required": ["op", "patch"]
+                                "required": ["op", "patch"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2801,7 +2815,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "column_id", "content"]
+                                "required": ["op", "column_id", "content"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2815,7 +2830,8 @@
                                         "description": "Id of the content block to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2839,7 +2855,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "id", "column_id"]
+                                "required": ["op", "id", "column_id"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2863,7 +2880,8 @@
                                         "maximum": 9007199254740991
                                     }
                                 },
-                                "required": ["op", "row"]
+                                "required": ["op", "row"],
+                                "additionalProperties": false
                             },
                             {
                                 "type": "object",
@@ -2877,7 +2895,8 @@
                                         "description": "Id of the row to remove."
                                     }
                                 },
-                                "required": ["op", "id"]
+                                "required": ["op", "id"],
+                                "additionalProperties": false
                             }
                         ]
                     }
