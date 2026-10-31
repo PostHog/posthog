@@ -843,8 +843,7 @@ mod tests {
         .1;
         assert!(
             lines.contains(&format!(
-                r#""src":"{}","srcset":"{reference} 2x""#,
-                crate::rewrite::declined_marker("credential")
+                r#""src":"imageurl:v4:declined:credential","srcset":"{reference} 2x""#
             )),
             "{lines}"
         );
@@ -858,7 +857,7 @@ mod tests {
         // A URL too long to fetch is declined, and the block is kept.
         let long_lines = stored_lines(&long(16 * 1024), &[]);
         assert!(
-            long_lines.contains(&crate::rewrite::declined_marker("too_long")),
+            long_lines.contains("imageurl:v4:declined:too_long"),
             "{long_lines}"
         );
         // Keys written with escapes hide no URL.
@@ -877,8 +876,7 @@ mod tests {
             .to_string();
             let lines = stored_lines(&events, &[]);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
-                    && !lines.contains("secret"),
+                lines.contains("imageurl:v4:declined:credential") && !lines.contains("secret"),
                 "{lines}"
             );
         }
@@ -893,7 +891,7 @@ mod tests {
         ] {
             let lines = stored_lines(&events, &[]);
             assert!(
-                lines.contains(&crate::rewrite::declined_marker("credential"))
+                lines.contains("imageurl:v4:declined:credential")
                     && !lines.contains("X-Amz-Signature"),
                 "{lines}"
             );
@@ -933,7 +931,7 @@ mod tests {
             lines.contains("imageurl:v4:7:2026-10:"),
             "named URLs keep their references"
         );
-        assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
+        assert!(lines.contains("imageurl:v4:declined:unchecked"));
         assert!(!lines.contains("https://"));
     }
 
@@ -1082,8 +1080,7 @@ mod tests {
         );
         assert!(
             custom.contains(&format!(
-                r#""srcset":"{reference} 1x, {} 2x""#,
-                crate::rewrite::declined_marker("non_public_host")
+                r#""srcset":"{reference} 1x, imageurl:v4:declined:non_public_host 2x""#
             )),
             "{custom}"
         );
@@ -1141,10 +1138,7 @@ mod tests {
             lines.contains(&format!(r#""src":"{reference}""#)),
             "{lines}"
         );
-        assert!(lines.contains(&format!(
-            r#""srcset":"{} 2x""#,
-            crate::rewrite::declined_marker("credential")
-        )));
+        assert!(lines.contains(r#""srcset":"imageurl:v4:declined:credential 2x""#));
         assert!(!lines.contains("cdn.example.com"));
     }
 
@@ -1246,7 +1240,7 @@ mod tests {
             keys.sessions.insert(id, key);
         }
         keys.team_months.insert(7, [6; 32]);
-        let old_ref = replay_core_v4::refs::image_ref(
+        let old_ref = posthog_replay_anonymizer::v4_image_refs::image_ref(
             7,
             "2026-10",
             &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),
