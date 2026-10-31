@@ -7,8 +7,8 @@ import { LemonButton, LemonCheckbox, LemonTextArea, Link } from '@posthog/lemon-
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
@@ -169,7 +169,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
     const { survey, surveyResponse, showThankYouMessage, thankYouMessage, openChoice } = useValues(logic)
     const { handleChoiceChange, handleSurveyResponse, setOpenChoice } = useActions(logic)
 
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
+    const { askSidePanelMax } = useActions(aiShellLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 

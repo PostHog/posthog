@@ -7,13 +7,12 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -130,6 +129,9 @@ export interface maxGlobalLogicActions {
     requestAiAccess: () => {
         value: true
     } // aiConsentLogic
+    askSidePanelMax: (prompt: string) => {
+        prompt: string
+    } // aiShellLogic
     deregisterTool: (key: string) => {
         key: string
     } // aiShellLogic
@@ -167,9 +169,6 @@ export interface maxGlobalLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
-    askSidePanelMax: (prompt: string) => {
-        prompt: string
-    }
     deleteConversation: (id: string) => {
         id: string
     }
@@ -288,13 +287,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             aiConsentLogic,
             ['acceptDataProcessing', 'dismissDataProcessing', 'requestAiAccess'],
             aiShellLogic,
-            ['setPhaiViewMode', 'registerTool', 'deregisterTool'],
+            ['setPhaiViewMode', 'askSidePanelMax', 'registerTool', 'deregisterTool'],
         ],
     })),
     actions({
         openSidePanelMax: (conversationId?: string) => ({ conversationId }),
         openSidePanelMaxWithTaskBind: (taskId: string) => ({ taskId }),
-        askSidePanelMax: (prompt: string) => ({ prompt }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
@@ -360,9 +358,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         // list must drop the chat row too, or the chat resurfaces as a row of its own.
         [taskEventsLogic.actionTypes.taskDeleted]: () => {
             actions.loadConversationHistory()
-        },
-        askSidePanelMax: ({ prompt }) => {
-            newInternalTab(urls.ai(undefined, prompt))
         },
         openSidePanelMax: ({ conversationId }) => {
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
