@@ -27,14 +27,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { membersLogic } from '~/models/membersLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
-
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from '../../../types'

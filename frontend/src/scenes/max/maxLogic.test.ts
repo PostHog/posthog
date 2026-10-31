@@ -8,13 +8,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { REPORT_AI_PANEL, SCOUT_AI_PANEL, SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
-import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'

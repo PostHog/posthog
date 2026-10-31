@@ -17,7 +17,6 @@ frontend/src/layout/GlobalModals.tsx -> products/conversations/frontend/componen
 frontend/src/layout/GlobalModals.tsx -> products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic.ts
 frontend/src/layout/InternalFeedback/InternalFeedbackWidget.tsx -> frontend/src/toolbar/shared/product-tours/ElementHighlight.tsx
 frontend/src/layout/InternalFeedback/internalFeedbackLogic.ts -> frontend/src/toolbar/shared/utils.ts
-frontend/src/layout/navigation-3000/Navigation.tsx -> frontend/src/scenes/max/maxGlobalLogic.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivitySubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx -> products/notifications/frontend/resourceEditedLogic.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
@@ -53,11 +52,9 @@ frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_
 frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_ai/frontend/api/primitives.ts
 frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/data-management/definitionsSceneTabsLogic.tsx
 frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/onboarding/welcome/welcomeNavItem.ts
-frontend/src/layout/panel-layout/navbar/tabs/navProductsTabLogic.ts -> frontend/src/scenes/settings/organization/aiConsentLogic.ts
 frontend/src/layout/scenes/components/SceneTitlePanelButton.tsx -> frontend/src/scenes/max/useMaxTool.ts
 frontend/src/layout/scenes/components/SceneTitleSection.tsx -> frontend/src/scenes/max/components/AnimatedSparkles.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/components/PhaiSidePanelChat.tsx
-frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/maxGlobalLogic.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/maxLogic.tsx
 frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsPinButton.tsx
 frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analytics/AnalyticsSpaceGlyph.tsx
@@ -68,7 +65,6 @@ frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> frontend/src/scenes/analy
 frontend/src/layout/today/TodayContextPanelMenu.tsx -> frontend/src/scenes/max/components/PhaiViewSwitchMenuItem.tsx
 frontend/src/layout/today/TodayContextPanelMenu.tsx -> products/posthog_ai/frontend/api/menus.ts
 frontend/src/layout/today/TodayNewAnalyticsButton.tsx -> frontend/src/scenes/analytics/NewAnalyticsMenu.tsx
-frontend/src/layout/today/TodayNewChatButton.tsx -> frontend/src/scenes/max/maxGlobalLogic.tsx
 frontend/src/layout/today/TodayObjectHoverCard.tsx -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/TodayObjectHoverCard.tsx -> frontend/src/scenes/project-homepage/today/todayNumbers.ts
 frontend/src/layout/today/TodayPanelTaskMenuItems.tsx -> products/posthog_ai/frontend/api/menus.ts
@@ -87,10 +83,7 @@ frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/fronte
 frontend/src/layout/today/TodaySupportPanel.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/TodaySupportResponseTimes.tsx -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/mainFocusUrl.ts
-frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/maxGlobalLogic.tsx
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/maxLogic.tsx
-frontend/src/layout/today/todayAiChatLogic.ts -> products/posthog_ai/frontend/api/logics.ts
-frontend/src/layout/today/todayAiChatLogic.ts -> products/posthog_ai/frontend/logics/attachedContextLogic.ts
 frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
 frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/todayContextPanelLogic.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
@@ -105,14 +98,12 @@ frontend/src/layout/today/todayObjectGlances.ts -> products/feature_flags/fronte
 frontend/src/layout/today/todayOrgMenuLogic.ts -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/today/todayOrgMenuLogic.ts -> frontend/src/scenes/settings/organization/inviteLogic.ts
 frontend/src/layout/today/todayPaneSearch.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
-frontend/src/layout/today/todayPanelChatSessionLogic.ts -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/today/todayPanelTaskLogic.ts -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/today/todayPreviewCards.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayPreviewCards.ts -> products/posthog_ai/frontend/api/taskSource.ts
 frontend/src/layout/today/todayRailStatusLogic.ts -> frontend/src/scenes/billing/billingLogic.tsx
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
-frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/max/maxGlobalLogic.tsx
 frontend/src/layout/today/todayShellLogic.ts -> frontend/src/scenes/settings/settingsSectionScenes.ts
 frontend/src/layout/today/todaySpacesLogic.ts -> frontend/src/scenes/max/maxGlobalLogic.tsx
 frontend/src/layout/today/todaySpacesLogic.ts -> products/tasks/frontend/spaces/taskPullRequests.ts
@@ -246,7 +237,6 @@ frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx 
 frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx -> products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker.tsx
 frontend/src/lib/components/Cards/InsightCard/dashboardWidgetMenusLogic.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/components/Cards/InsightCard/visualizationShape.ts -> frontend/src/queries/utils.ts
-frontend/src/lib/components/Cards/TextCard/TextCardModal.tsx -> frontend/src/scenes/settings/organization/aiConsentLogic.ts
 frontend/src/lib/components/Cards/TextCard/textCardMarkdown.ts -> products/dashboards/frontend/components/ImageTile/imageTileMarkdown.ts
 frontend/src/lib/components/Cards/TextCard/textCardModalLogic.ts -> products/dashboards/frontend/components/ImageTile/imageTileUtils.ts
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
@@ -254,7 +244,6 @@ frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/i
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/utils/queryUtils.ts
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_analytics/frontend/insights/chartAlternatives/ChartDisplayIcon.tsx
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions.ts
-frontend/src/lib/components/CommandKSearch/commandKSearchLogic.tsx -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputs.tsx -> frontend/src/scenes/hog-functions/email-templater/EmailTemplater.tsx
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputsValidation.ts -> frontend/src/scenes/hog-functions/email-templater/types.ts
 frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/aws-s3/AwsS3SetupModal.tsx

@@ -1,6 +1,5 @@
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { initKeaTests } from '~/test/init'
-
-import { runnerPanelLogic } from './runnerPanelLogic'
 
 describe('runnerPanelLogic', () => {
     let logic: ReturnType<typeof runnerPanelLogic.build>

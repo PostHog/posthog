@@ -6,9 +6,10 @@ import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+
 import { AIAccessRequest } from './AIAccessRequest'
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
-import { aiConsentLogic } from './aiConsentLogic'
 
 export function AIConsentPopoverContent({
     onApprove,

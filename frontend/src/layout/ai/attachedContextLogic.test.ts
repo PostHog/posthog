@@ -1,9 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
-
-import type { AttachedContextItem } from '../types/contextTypes'
-import { attachedContextLogic } from './attachedContextLogic'
 
 describe('attachedContextLogic', () => {
     let logic: ReturnType<typeof attachedContextLogic.build>
