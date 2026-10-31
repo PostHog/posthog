@@ -17,6 +17,7 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson } from '~/types'
 
 import { epochMsToDateTime, eventualReadOptions, parseJsonBytes, strongReadOptions } from './client'
+import type { HandledVerdict } from './grpc-retry'
 
 const textEncoder = new TextEncoder()
 
@@ -40,6 +41,24 @@ export class PersonhogPropertiesSizeError extends Error {
     ) {
         super(message)
         this.name = 'PersonhogPropertiesSizeError'
+    }
+}
+
+/**
+ * The leader knows no such person: deleted, or merged into another. The
+ * persons store redirects the ops to the survivor, so the retry layer files
+ * this under handled verdicts rather than terminal errors. Still a
+ * NoRowsUpdatedError for the callers that branch on that.
+ */
+export class PersonhogPersonNotFoundError extends NoRowsUpdatedError implements HandledVerdict {
+    readonly handledVerdict = 'person_not_found'
+
+    constructor(
+        message: string,
+        public readonly personId: string
+    ) {
+        super(message)
+        this.name = 'PersonhogPersonNotFoundError'
     }
 }
 
@@ -252,7 +271,10 @@ export class PersonHogPersonOperations {
             // property-size ceiling. Everything else propagates untouched.
             if (error instanceof ConnectError) {
                 if (error.code === Code.NotFound) {
-                    throw new NoRowsUpdatedError(`Person ${update.personId} not found by personhog (deleted or merged)`)
+                    throw new PersonhogPersonNotFoundError(
+                        `Person ${update.personId} not found by personhog (deleted or merged)`,
+                        update.personId
+                    )
                 }
                 if (error.code === Code.InvalidArgument && error.rawMessage.includes('size limit')) {
                     throw new PersonhogPropertiesSizeError(error.rawMessage, update.teamId, update.personId)
