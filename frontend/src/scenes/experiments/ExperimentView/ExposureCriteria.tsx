@@ -13,7 +13,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory } from '~/types'
 
+import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import { experimentLogic } from '../experimentLogic'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, resolveFilterTestAccounts } from '../exposureContract'
@@ -27,7 +29,7 @@ type ExposureCriteriaModalProps = {
 
 export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): JSX.Element | null {
     const { isExposureCriteriaModalOpen, exposureCriteria } = useValues(exposureCriteriaModalLogic)
-    const { resolvedExposureEvent } = useValues(experimentLogic)
+    const { experiment, resolvedExposureEvent } = useValues(experimentLogic)
     const { closeExposureCriteriaModal, setExposureCriteria } = useActions(exposureCriteriaModalLogic)
 
     const { currentTeam } = useValues(teamLogic)
@@ -128,7 +130,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         <>
                             If you can't rely on the <LemonTag>{resolvedExposureEvent}</LemonTag> event, you can select
                             a custom event to signal that users reached the part of your app where the experiment runs.
-                            You can also filter out users you would like to exclude from the analysis.
+                            You can also filter which events count as exposure.
                         </>
                     }
                     selected={isCustom}
@@ -174,6 +176,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                     />
+                    <NegatedEventFilterNote
+                        config={exposureCriteria.exposure_config}
+                        launched={isLaunched(experiment)}
+                    />
                 </div>
             )}
             {isActivation && exposureCriteria?.activation_config && (
@@ -200,6 +206,10 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         showNumericalPropsOnly={true}
                         {...commonActionFilterProps}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+                    />
+                    <NegatedEventFilterNote
+                        config={exposureCriteria.activation_config}
+                        launched={isLaunched(experiment)}
                     />
                 </div>
             )}

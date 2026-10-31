@@ -1,9 +1,16 @@
-import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentEventExposureConfig,
+    ExperimentExposureConfig,
+    ExperimentExposureCriteria,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     exposureEventLabel,
     getActivationConfig,
     getExposureEventAndProperty,
+    hasNegatedEventFilter,
     isDefaultExposureConfig,
     resolvedExposureEvent,
 } from './exposureContract'
@@ -177,5 +184,52 @@ describe('exposureContract', () => {
         ],
     ])('resolves the activation config for %s', (_name, exposureCriteria, expectActive) => {
         expect(getActivationConfig(exposureCriteria)).toEqual(expectActive ? activationConfig : undefined)
+    })
+
+    const eventConfig = (...properties: AnyPropertyFilter[]): ExperimentEventExposureConfig => ({
+        kind: NodeKind.ExperimentEventExposureConfig,
+        event: '$pageview',
+        properties,
+    })
+    const eventFilter = (key: string, operator: PropertyOperator): AnyPropertyFilter => ({
+        type: PropertyFilterType.Event,
+        key,
+        operator,
+        value: 'x',
+    })
+
+    it.each<[string, ExperimentExposureConfig | undefined, boolean]>([
+        ['no config', undefined, false],
+        ['no filters', eventConfig(), false],
+        ['a negated event filter', eventConfig(eventFilter('$current_url', PropertyOperator.NotIContains)), true],
+        ['a negated filter without a value', eventConfig(eventFilter('step', PropertyOperator.IsNotSet)), true],
+        ['a filter that selects', eventConfig(eventFilter('$current_url', PropertyOperator.IContains)), false],
+        ['a negated filter on the flag key', eventConfig(eventFilter('$feature_flag', PropertyOperator.IsNot)), false],
+        [
+            'a negated person filter',
+            eventConfig({
+                type: PropertyFilterType.Person,
+                key: 'email',
+                operator: PropertyOperator.NotIContains,
+                value: 'x',
+            }),
+            false,
+        ],
+        [
+            'an action with a negated event filter',
+            {
+                kind: NodeKind.ActionsNode,
+                id: 1,
+                properties: [eventFilter('$current_url', PropertyOperator.IsNot)],
+            },
+            true,
+        ],
+        [
+            'a warehouse exposure',
+            { kind: NodeKind.ExperimentWarehouseNativeExposureConfig, connection_id: 'x', query: 'SELECT 1' },
+            false,
+        ],
+    ])('reads whether the config leaves out events for %s', (_name, config, expected) => {
+        expect(hasNegatedEventFilter(config)).toBe(expected)
     })
 })

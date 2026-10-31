@@ -111,7 +111,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_FILTERS,
-        name="Exposure filters that count unexpected users",
+        name="Dynamic cohorts in the exposure criteria",
         run=exposure_filters,
     ),
     HealthCheck(

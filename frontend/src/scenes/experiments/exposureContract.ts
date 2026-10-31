@@ -4,7 +4,7 @@ import {
     ExperimentExposureCriteria,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
 
 /**
  * The flag exposure event contract for experiments. Mirrors the backend chokepoint
@@ -64,6 +64,37 @@ function isEventConfig(config: ExperimentExposureConfig): config is ExperimentEv
 
 export function isDefaultExposureConfig(config: ExperimentExposureConfig): boolean {
     return isEventConfig(config) && config.event === EXPOSURE_DEFAULT_EVENT
+}
+
+const NEGATED_OPERATORS: ReadonlySet<PropertyOperator> = new Set([
+    PropertyOperator.IsNot,
+    PropertyOperator.NotIn,
+    PropertyOperator.IsNotSet,
+    PropertyOperator.NotIContains,
+    PropertyOperator.NotIContainsMulti,
+    PropertyOperator.NotRegex,
+    PropertyOperator.NotStartsWith,
+    PropertyOperator.NotEndsWith,
+    PropertyOperator.NotBetween,
+    PropertyOperator.IsCleanedPathNotExact,
+    PropertyOperator.SemverNeq,
+])
+
+/**
+ * Whether the config leaves out events by an event property. The operators mirror the backend's
+ * `operator_is_negative`. A person property has one value per user at a time, so a filter on it reads
+ * as leaving out the user. `$feature_flag` names the flag of a flag call event, not a trait of the user.
+ */
+export function hasNegatedEventFilter(config: ExperimentExposureConfig | undefined): boolean {
+    if (!config || config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return false
+    }
+    return (config.properties ?? []).some(
+        (property) =>
+            property.type === PropertyFilterType.Event &&
+            property.key !== '$feature_flag' &&
+            NEGATED_OPERATORS.has(property.operator)
+    )
 }
 
 /**
