@@ -15,7 +15,10 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 
-from products.replay_vision.backend.queries.scanner_volume_estimate import has_recent_matching_recording
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    MatchCheckIncomplete,
+    has_recent_matching_recording,
+)
 
 
 @time_machine.travel("2026-10-01T12:00:00Z", tick=False)
@@ -70,18 +73,25 @@ class TestHasRecentMatchingRecording(ClickhouseTestMixin, APIBaseTest):
 
         assert has_recent_matching_recording(team=self.team, query=query, user=self.user) is expected
 
-    @parameterized.expand([("an older recording matches", True), ("no recording matches", False)])
-    def test_reads_past_a_page_the_negative_filters_empty(self, name, expected):
-        # The sweep applies negative filters to each fetched page, so the newest page can come back empty
-        # while an older recording still matches.
-        if expected:
-            self._recording(hours_ago=2, pathname="/pricing")
-        query = RecordingsQuery.model_validate(
-            {
-                "kind": "RecordingsQuery",
-                "properties": [{"key": "$pathname", "type": "event", "value": "/checkout", "operator": "is_not"}],
-            }
-        )
+    _EXCLUDES_CHECKOUT = RecordingsQuery.model_validate(
+        {
+            "kind": "RecordingsQuery",
+            "properties": [{"key": "$pathname", "type": "event", "value": "/checkout", "operator": "is_not"}],
+        }
+    )
 
-        with patch("products.replay_vision.backend.queries.scanner_volume_estimate._MATCH_CHECK_PAGE", 1):
-            assert has_recent_matching_recording(team=self.team, query=query, user=self.user) is expected
+    @parameterized.expand([("an older recording matches", "/pricing", True), ("no recording matches", None, False)])
+    def test_applies_negative_filters_to_the_fetched_rows(self, _name, older_pathname, expected):
+        if older_pathname:
+            self._recording(hours_ago=2, pathname=older_pathname)
+
+        assert has_recent_matching_recording(team=self.team, query=self._EXCLUDES_CHECKOUT, user=self.user) is expected
+
+    def test_an_excluded_batch_with_more_rows_left_is_not_an_answer(self):
+        self._recording(hours_ago=2, pathname="/pricing")
+
+        with (
+            patch("products.replay_vision.backend.queries.scanner_volume_estimate._MATCH_CHECK_ROWS", 1),
+            self.assertRaises(MatchCheckIncomplete),
+        ):
+            has_recent_matching_recording(team=self.team, query=self._EXCLUDES_CHECKOUT, user=self.user)

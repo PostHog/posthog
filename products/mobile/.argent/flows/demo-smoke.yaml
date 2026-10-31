@@ -70,8 +70,8 @@ steps:
     - await: { visible: { text: Which deploy caused this? } }
 
     - echo: Reply shown. Close the chat. Expect the report again
-    - tap: { id: chat-close }
-    - await: { hidden: { id: chat-close } }
+    - tap: { id: chat-back }
+    - await: { hidden: { id: chat-back } }
     - await: { visible: { id: decision-request } }
     - await: { idle: true }
 
@@ -86,15 +86,15 @@ steps:
     - await: { idle: true }
     - assert: { text: { in: { id: chat-row-session-demo-session-flaky-test }, contains: Fix the flaky checkout test } }
 
-    - echo: On Chats. Open the session Fix the flaky checkout test. Expect the chat sheet with its title and thread
+    - echo: On Chats. Open the session Fix the flaky checkout test. Expect the full-screen chat with its action pill and thread
     - tap: { id: chat-row-session-demo-session-flaky-test }
     - await: { visible: { id: session-thread } }
     - await: { idle: true }
-    - assert: { text: { in: { id: chat-header }, contains: Fix the flaky checkout test } }
+    - assert: { visible: { id: chat-more } }
     - assert: { visible: { id: session-assistant } }
 
     - echo: Session open. Close it. Expect the chats list again
-    - tap: { id: chat-close }
+    - tap: { id: chat-back }
     - await: { visible: { id: chats-screen } }
     - await: { idle: true }
 
@@ -104,7 +104,7 @@ steps:
     - await: { idle: true }
 
     - echo: Decision card open. Close the session. Expect the chats list again
-    - tap: { id: chat-close }
+    - tap: { id: chat-back }
     - await: { visible: { id: chats-screen } }
     - await: { idle: true }
 

@@ -132,12 +132,7 @@ export function SourceSetupPanel({
         ) : null
 
     return (
-        <LemonCard
-            hoverEffect={false}
-            className={
-                compact ? 'w-full mt-6 p-0 overflow-hidden' : 'max-w-3xl w-full mx-auto mt-6 p-0 overflow-hidden'
-            }
-        >
+        <LemonCard hoverEffect={false} className="w-full mt-6 p-0 overflow-hidden">
             <div className={compact ? 'p-4 space-y-3' : 'p-6 space-y-5'}>
                 {!compact && (state === 'scanning' || state === 'suggestions') && (
                     <LemonTag type="muted">7-day event scan</LemonTag>

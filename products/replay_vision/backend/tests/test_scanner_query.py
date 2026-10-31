@@ -27,14 +27,12 @@ _EVENT = {"id": "billing_limit_set", "name": "billing_limit_set", "type": "event
 class TestNarrowChosenQuery:
     @parameterized.expand(
         [
-            # An OR on either side would join the additions with an OR and widen the scan.
             (
                 "chosen OR",
                 {**_CHOSEN, "operand": "OR"},
                 {"kind": "RecordingsQuery", "events": [_EVENT]},
                 NarrowingRefusal.OR_OPERAND,
             ),
-            # The query builder reads anything but AND, an explicit null included, as OR.
             (
                 "chosen null operand",
                 {**_CHOSEN, "operand": None},
@@ -47,7 +45,6 @@ class TestNarrowChosenQuery:
                 {"kind": "RecordingsQuery", "events": [_EVENT, {**_EVENT, "id": "plan_upgraded"}], "operand": "OR"},
                 NarrowingRefusal.OR_OPERAND,
             ),
-            # A saved scanner must meet the size cap, so a proposal that breaks it is not one it can keep.
             (
                 "too large to save",
                 _CHOSEN,
@@ -57,7 +54,6 @@ class TestNarrowChosenQuery:
                 },
                 NarrowingRefusal.INVALID,
             ),
-            # Nothing new is no proposal, so there is nothing to refuse.
             ("repeat only", _CHOSEN, {"kind": "RecordingsQuery", "properties": _CHOSEN["properties"]}, None),
             ("nothing drafted", _CHOSEN, None, None),
         ]
@@ -81,7 +77,6 @@ class TestChosenScope:
     @parameterized.expand(
         [
             ("every variant", {}, None),
-            # An empty name is a variant to check against the experiment, not a request for every variant.
             ("an empty variant name", {"variant": ""}, [""]),
             ("repeated variants", {"variants": ["test", "control", "test"]}, ["test", "control"]),
         ]
@@ -96,8 +91,6 @@ class TestChosenScope:
 
 class TestUnresolvedReferences(BaseTest):
     def test_names_the_references_a_scan_cannot_load(self):
-        # The recordings query builder skips deleted cohorts and fails on missing actions, so both would
-        # make every estimate and every run of the scanner fail.
         live_action = Action.objects.create(team=self.team, name="Completed checkout")
         live_cohort = Cohort.objects.create(team=self.team, name="Paying customers")
         deleted_cohort = Cohort.objects.create(team=self.team, name="Old customers", deleted=True)
@@ -113,8 +106,7 @@ class TestUnresolvedReferences(BaseTest):
         assert unresolved_references(query, self.team) == ["action 999999", f"cohort {deleted_cohort.id}"]
 
     def test_finds_references_in_every_shape_the_query_builder_runs(self):
-        # Each of these runs as an action or cohort filter, so a reference read off the raw JSON would let
-        # a caller without read access use the entity unchecked.
+        # Each runs as an action or cohort filter, so a check that missed one would skip read access.
         query = {
             "kind": "RecordingsQuery",
             "events": [
@@ -153,7 +145,6 @@ class TestUnresolvedReferences(BaseTest):
                 {"properties": [{"type": "hogql", "key": "person_id IN (SELECT person_id FROM cohort_people)"}]},
                 "subquery",
             ),
-            # A tag expands into a query after this check runs.
             (
                 "a HogQLX tag",
                 {"properties": [{"type": "hogql", "key": "properties.$session_id IN <ActorsQuery />"}]},

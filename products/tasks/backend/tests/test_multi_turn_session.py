@@ -1378,12 +1378,28 @@ class TestMultiTurnSessionRetry:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("first_reply", ["private-reply-text", '{"value":', '{"value": "private-value"}'])
-    @pytest.mark.parametrize("retry_reply", [None, '{"value": "ok"}', '{"value": "still-invalid"}'])
+    @pytest.mark.parametrize(
+        "retry_reply,max_json_retries,invalid_corrections",
+        [
+            (None, 1, 0),
+            ('{"value": "ok"}', 1, 0),
+            ('{"value": "still-invalid"}', 1, 0),
+            ('{"value": "ok"}', 4, 3),
+            ('{"value": "still-invalid"}', 4, 3),
+        ],
+    )
     async def test_json_retry_preserves_schema_and_context(
-        self, first_reply: str, retry_reply: str | None, caplog: pytest.LogCaptureFixture
+        self,
+        first_reply: str,
+        retry_reply: str | None,
+        max_json_retries: int,
+        invalid_corrections: int,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         session = self._make_session()
-        replies = [first_reply] + ([retry_reply] if retry_reply is not None else [])
+        replies = [first_reply] + ['{"value": "private-value"}'] * invalid_corrections
+        if retry_reply is not None:
+            replies.append(retry_reply)
         poll = AsyncMock(
             side_effect=[
                 TurnPollResult(last_message=reply, full_log=None, total_lines=index * 10, printed_lines=index * 5)
@@ -1400,6 +1416,7 @@ class TestMultiTurnSessionRetry:
                     "question",
                     _ContextResp,
                     json_retry_prompt="Return valid JSON",
+                    max_json_retries=max_json_retries,
                     validation_context=validation_context,
                 )
                 assert result.value == "ok"
@@ -1409,14 +1426,19 @@ class TestMultiTurnSessionRetry:
                         "question",
                         _ContextResp,
                         json_retry_prompt="Return valid JSON" if retry_reply is not None else None,
+                        max_json_retries=max_json_retries,
                         validation_context=validation_context,
                     )
 
         assert poll.await_count == len(replies)
         if retry_reply is not None:
             assert poll.await_args_list[1].kwargs["skip_lines"] == 10
-            assert cast(AsyncMock, session._workflow_handle).signal.await_args_list[1].args[1] == "Return valid JSON"
-            assert "asking for JSON once" in caplog.text
+            retry_prompt = cast(AsyncMock, session._workflow_handle).signal.await_args_list[-1].args[1]
+            assert retry_prompt.startswith("Return valid JSON")
+            if first_reply == '{"value": "private-value"}' or invalid_corrections:
+                assert retry_prompt.count("value must match the validation context") == 1
+                assert "private-value" not in retry_prompt
+            assert "asking for corrected JSON" in caplog.text
         assert "private-reply-text" not in caplog.text
         assert "private-value" not in caplog.text
 

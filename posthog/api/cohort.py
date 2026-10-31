@@ -125,7 +125,7 @@ from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeReadiness,
     CohortRealtimeState,
-    has_realtime_state,
+    cohorts_with_realtime_state,
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
@@ -1001,7 +1001,7 @@ def _resolve_realtime_readiness_if_in_rollout(
     Eligibility is checked before the rollout flag, and not after, so a project the pipeline does
     not cover never pays for a flag evaluation that cannot change its answer.
     """
-    relevant = [cohort for cohort in cohorts if has_realtime_state(cohort)]
+    relevant = cohorts_with_realtime_state(cohorts)
     if not relevant or not _realtime_targeting_enabled(context):
         return {}
     return resolve_realtime_readiness(relevant)

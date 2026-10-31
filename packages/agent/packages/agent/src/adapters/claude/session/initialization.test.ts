@@ -141,6 +141,10 @@ describe("SessionInitialization", () => {
     ["proxy_invalid", "requires_action"],
     ["worktree_unverified", "transient"],
     ["org_verify_failed", "unknown"],
+    ["sandbox_required_unavailable", "requires_action"],
+    ["provider_not_allowed", "requires_action"],
+    ["org_config_required_unavailable", "unknown"],
+    ["org_config_refused", "requires_action"],
     ["future_provider_reason", "unknown"],
     [null, "unknown"],
   ])(

@@ -5,14 +5,17 @@ import time
 import uuid
 import posixpath
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
+from functools import partial
 from ipaddress import ip_address, ip_network
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
+from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
@@ -26,9 +29,11 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
+from django.utils.functional import SimpleLazyObject
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -638,18 +643,29 @@ class QueryTimeCountingMiddleware:
         "properties",
         "person",
     ]
+    LABELLED_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
-        if not settings.CAPTURE_TIME_TO_SEE_DATA or not self._should_instrument(request):
+        add_server_timing = settings.CAPTURE_TIME_TO_SEE_DATA and self._should_instrument(request)
+        record_pg_queries = request.path.startswith("/api/")
+        if not add_server_timing and not record_pg_queries:
             return self.get_response(request)
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
         start_time = time.perf_counter()
-        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+        with (
+            connection.execute_wrapper(pg_query_counter),
+            clickhouse_query_counter(ch_query_counter) if add_server_timing else nullcontext(),
+        ):
             response: HttpResponse = self.get_response(request)
+
+        if record_pg_queries:
+            self._record_pg_queries(request, response, pg_query_counter.count)
+        if not add_server_timing:
+            return response
 
         server_timing = self._construct_header(
             durations_ms={
@@ -670,6 +686,25 @@ class QueryTimeCountingMiddleware:
             server_timing = f"{existing_server_timing}, {server_timing}"
         response.headers["Server-Timing"] = server_timing
         return response
+
+    def _record_pg_queries(self, request: HttpRequest, response: HttpResponse, query_count: int) -> None:
+        match = request.resolver_match
+        client = posthoganalytics.default_client
+        if match is None or client is None:
+            return
+        method = request.method or ""
+        client.metrics.histogram(
+            "api.request.pg_queries",
+            query_count,
+            unit="{query}",
+            attributes={
+                # The URLconf bounds view_name. The raw path carries ids, so it must never be a label.
+                "route": match.view_name,
+                # A client can send any method token, so unknown methods share one label.
+                "method": method if method in self.LABELLED_METHODS else "other",
+                "status_class": f"{response.status_code // 100}xx",
+            },
+        )
 
     def _construct_header(self, durations_ms: dict[str, float], counts: dict[str, int]) -> str:
         parts = [f"{key};dur={round(value)}" for key, value in durations_ms.items()]
@@ -1153,6 +1188,34 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
 
     return min(idle_expiry_time, total_expiry_time)
+
+
+def _get_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_cached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_cached_user", auth.get_user(request))  # noqa: B010
+    return getattr(request, "_cached_user")  # noqa: B009
+
+
+async def _aget_session_user(request: HttpRequest) -> Any:
+    if not hasattr(request, "_acached_user"):
+        with User.objects.joining_current_organization():
+            setattr(request, "_acached_user", await auth.aget_user(request))  # noqa: B010
+    return getattr(request, "_acached_user")  # noqa: B009
+
+
+class AuthenticationMiddleware(DjangoAuthenticationMiddleware):
+    """Load the session user with its current organization in one query.
+
+    The 2FA and verified-domain checks in `SessionAuthentication` read `user.organization` on every
+    session request, so a separate lazy load costs one query each time.
+    """
+
+    def process_request(self, request: HttpRequest) -> None:
+        super().process_request(request)
+        # The attribute names match Django's middleware, because AdminImpersonationMiddleware writes `_cached_user`.
+        setattr(request, "user", SimpleLazyObject(lambda: _get_session_user(request)))  # noqa: B010
+        setattr(request, "auser", partial(_aget_session_user, request))  # noqa: B010
 
 
 class AdminImpersonationMiddleware:

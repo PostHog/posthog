@@ -97,8 +97,12 @@ class _EstimateQueryPlan:
     sampled: bool
 
 
-# One page of recordings, checked for exclusions together. A page the exclusions empty moves on to the next.
-_MATCH_CHECK_PAGE = 100
+# One exclusion query covers this many ids, which is also the sweep's chunk size.
+_MATCH_CHECK_ROWS = 1_000
+
+
+class MatchCheckIncomplete(Exception):
+    """The match check could not reach an answer: every fetched recording was excluded and more remain."""
 
 
 def has_recent_matching_recording(
@@ -114,12 +118,13 @@ def has_recent_matching_recording(
     The estimate is no answer to this: it drops negative filters, because they never sample and an
     over-count is the safe direction for a forecast. This runs the sweep's own selection instead: the
     recordings list without its in-query blocklists, the sweep's eligibility rules, then the negative
-    filters against each fetched page, the way `find_scanner_candidates` excludes. A page the
-    exclusions empty moves on to the next, so a match further back is still found.
+    filters against the fetched rows, the way `find_scanner_candidates` excludes.
 
-    Every query shares one deadline from `budget`. Raises `TimeoutError` when it passes first, and
-    lets any query failure raise, so the caller never reads "no match" from a check that did not
-    finish. `user` is the principal for the exposure access check and the exclusion reads.
+    It reads one batch, because each further page would scan the whole window again. Raises
+    `MatchCheckIncomplete` when the exclusions remove every fetched row and more remain, and lets a
+    timeout or query failure raise, so the caller never reads "no match" from a check that did not
+    finish. Both queries share one deadline from `budget`. `user` is the principal for the exposure
+    access check and the exclusion reads.
     """
     deadline = time.monotonic() + budget.max_execution_seconds
 
@@ -133,40 +138,39 @@ def has_recent_matching_recording(
     windowed = query.model_copy(deep=True)
     windowed.date_from = (dt.datetime.now(dt.UTC) - dt.timedelta(days=scan_window_days)).isoformat()
     windowed.date_to = None
-    windowed.limit = _MATCH_CHECK_PAGE
+    windowed.limit = _MATCH_CHECK_ROWS
     windowed.offset = None
     windowed.after = None
+    extra_having = eligibility_predicates()
+    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+        extra_having.append(surfacing)
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
-    while True:
-        extra_having = eligibility_predicates()
-        if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
-            extra_having.append(surfacing)
-        listing = SessionRecordingListFromQuery(
+    listing = SessionRecordingListFromQuery(
+        team=team,
+        query=windowed,
+        user=user,
+        extra_having_predicates=extra_having,
+        skip_negative_blocklists=True,
+        max_execution_time=seconds_left(),
+        throw_on_timeout=True,
+    )
+    page = listing.run()
+    session_ids = [row["session_id"] for row in page.results]
+    excluded: set[str] = set()
+    for exclusion in listing.excluded_sessions_queries(session_ids) if session_ids else []:
+        response = execute_hogql_query(
+            query=exclusion,
             team=team,
-            query=windowed,
             user=user,
-            extra_having_predicates=extra_having,
-            skip_negative_blocklists=True,
-            max_execution_time=seconds_left(),
-            throw_on_timeout=True,
+            query_type="ScannerMatchCheckExcludedSessions",
+            settings=HogQLGlobalSettings(max_execution_time=seconds_left(), timeout_overflow_mode="throw"),
         )
-        page = listing.run()
-        session_ids = [row["session_id"] for row in page.results]
-        excluded: set[str] = set()
-        for exclusion in listing.excluded_sessions_queries(session_ids) if session_ids else []:
-            response = execute_hogql_query(
-                query=exclusion,
-                team=team,
-                user=user,
-                query_type="ScannerMatchCheckExcludedSessions",
-                settings=HogQLGlobalSettings(max_execution_time=seconds_left(), timeout_overflow_mode="throw"),
-            )
-            excluded.update(row[0] for row in response.results or [])
-        if any(session_id not in excluded for session_id in session_ids):
-            return True
-        if not page.has_more_recording or not page.next_cursor:
-            return False
-        windowed.after = page.next_cursor
+        excluded.update(row[0] for row in response.results or [])
+    if any(session_id not in excluded for session_id in session_ids):
+        return True
+    if page.has_more_recording:
+        raise MatchCheckIncomplete()
+    return False
 
 
 def estimate_scanner_session_volume(
