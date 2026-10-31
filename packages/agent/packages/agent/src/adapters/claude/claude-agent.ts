@@ -117,6 +117,9 @@ import {
   fetchMcpToolMetadata,
   getCachedMcpTools,
   getConnectedMcpServerNames,
+  getMcpToolApprovalStates,
+  type McpToolApprovals,
+  replaceMcpToolApprovalStates,
   setMcpToolApprovalStates,
 } from "./mcp/tool-metadata";
 import { canUseTool } from "./permissions/permission-handlers";
@@ -2183,6 +2186,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.logger,
     );
     await this.refreshSession(mcpServers);
+    // A refresh can swap the acting user's connections, so states reloaded for
+    // the new server list replace the ones the metadata refresh carried over.
+    if (params.mcpToolApprovals) {
+      replaceMcpToolApprovalStates(params.mcpToolApprovals as McpToolApprovals);
+    }
     return { refreshed: true };
   }
 
@@ -2792,7 +2800,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
   /** Clear stale MCP tool metadata, then re-fetch it for the new server set. */
   private refreshMcpMetadata(q: Query): void {
+    // Approval states come from the session meta, not the server status, so the re-fetch cannot restore them.
+    const approvals = getMcpToolApprovalStates();
     clearMcpToolMetadataCache();
+    setMcpToolApprovalStates(approvals);
     this.deferBackgroundFetches(q);
   }
 

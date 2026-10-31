@@ -24,6 +24,7 @@ import { toolInfoFromToolUse } from "../conversion/tool-use-to-acp";
 import {
   getMcpToolApprovalState,
   getMcpToolMetadata,
+  setMcpToolApprovalStates,
 } from "../mcp/tool-metadata";
 import {
   getClaudePlansDir,
@@ -611,6 +612,18 @@ async function handleMcpApprovalFlow(
     },
   });
 
+  // A cancel carrying a message reaches the model as a denial, like a parked question.
+  const cancelMessage = (response._meta as Record<string, unknown> | undefined)
+    ?.message;
+  if (
+    !context.signal?.aborted &&
+    response.outcome?.outcome === "cancelled" &&
+    typeof cancelMessage === "string"
+  ) {
+    await emitToolDenial(context, cancelMessage);
+    return { behavior: "deny", message: cancelMessage };
+  }
+
   if (context.signal?.aborted || response.outcome?.outcome === "cancelled") {
     throw new Error("Tool use aborted");
   }
@@ -620,6 +633,11 @@ async function handleMcpApprovalFlow(
     (response.outcome.optionId === "allow" ||
       response.outcome.optionId === "allow_always")
   ) {
+    // Both clients record an allow in PostHog, so stop the needs_approval hook
+    // re-prompting. Relayed servers have no stored state and must keep asking.
+    if (metadata?.approvalState === "needs_approval") {
+      setMcpToolApprovalStates({ [toolName]: "approved" });
+    }
     if (response.outcome.optionId === "allow_always") {
       return {
         behavior: "allow",
