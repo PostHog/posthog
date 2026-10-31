@@ -116,6 +116,23 @@ Nearly all of these render numbers, dates, or durations, so nothing of value goe
 `queries/nodes/InsightViz/ComputationTimeWithRefresh` and `scenes/experiments/MetricsView/new/ElapsedTime` are the exemplars.
 A whole subtree of machine data (an event feed, an ID column) opts out at its container instead — `scenes/activity/live/LiveEventsFeed` marks every row `translate="no"` and leaves the headers translatable.
 
+## Rule 8 — A file statically imports only its own layer or a lower one
+
+The layers, lowest first, are `kernel`, `shell`, `query`, `features`.
+`kernel` holds shared primitives, for example `lib/utils`, `lib/lemon-ui`, `lib/api`, `queries/schema/`, and generated types.
+`shell` holds the rest of `lib/`, `layout/`, `models/`, and the top-level files of `frontend/src/` and `scenes/`.
+`query` holds the rest of `queries/`.
+`features` holds every scene folder and product.
+[`frontend/bin/layers.mjs`](../bin/layers.mjs) is the source of truth for the mapping. Read it when you are not sure of the layer of a path.
+`hogli lint:frontend-layers` fails on a new upward import. Fix it in one of these ways:
+
+1. Move the imported code down to the layer of the importer, or lower.
+2. Load it with a dynamic import: `lazyWithRetry()` or `retryImport(() => import(...))`.
+3. Register it in a registry that the higher layer fills.
+
+After you remove an upward import, run `hogli lint:frontend-layers --prune-baseline`.
+Never run `--update-baseline` to hide a new upward import.
+
 ## Typecheck & typegen cadence (don't over-run these)
 
 These are slow; run them at the right moment, not after every edit.
