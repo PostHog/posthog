@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { SlopeChart, createXAxisTickCallback } from '@posthog/quill-charts'
 import type { Series, SlopeChartConfig, SlopeSeriesMeta } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -16,8 +17,6 @@ import { QueryContext } from '~/queries/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
-
-import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 
 interface TrendsSlopeChartProps {
     context?: QueryContext<InsightVizNode>

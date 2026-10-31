@@ -522,17 +522,7 @@ frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/mcp_analytics/
 frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/persons/frontend/components/GroupActorDisplay.tsx
 frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/persons/frontend/components/PersonDisplay.tsx
 frontend/src/queries/nodes/DataTable/renderColumn.tsx -> products/persons/frontend/person-utils.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlBarGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlBoxPlot.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlComboGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlLineGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
 frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlMetricCard.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlPieGraph.tsx -> products/product_analytics/frontend/insights/trends/TrendsPieChart/DonutCenterLabel.tsx
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlPieGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlProportionBar.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/SqlScatterGraph.tsx -> products/product_analytics/frontend/insights/trends/shared/chartErrorHandler.ts
-frontend/src/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter.ts -> products/product_analytics/frontend/insights/shared/chartStyleAdapter.ts
 frontend/src/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter.ts -> products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter.ts
 frontend/src/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/queries/nodes/DataVisualization/Components/SeriesTab.tsx -> frontend/src/scenes/insights/aggregationAxisFormat.ts
