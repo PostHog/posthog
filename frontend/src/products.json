@@ -42,6 +42,7 @@
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
         },
+        { "path": "Platform alerts", "category": "Unreleased", "iconType": "inbox", "type": null, "intents": [] },
         {
             "path": "Application observability",
             "category": "Monitoring",
@@ -288,6 +289,13 @@
             "category": "Messaging",
             "iconType": "broadcasts",
             "type": "broadcasts",
+            "intents": ["workflows"]
+        },
+        {
+            "path": "Transactional",
+            "category": "Messaging",
+            "iconType": "transactional",
+            "type": "transactional",
             "intents": ["workflows"]
         }
     ],

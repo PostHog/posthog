@@ -1,3 +1,4 @@
+import json
 import base64
 import datetime as dt
 
@@ -43,14 +44,31 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         # `attributes` is an ALIAS over attributes_map_str whose keys carry a `__str` type suffix
         # that left(k, -5) strips — so 'http.method__str' surfaces as 'http.method'.
         # `resource_attributes` is a physical column, inserted as-is.
+        # capture-logs JSON-encodes each event attribute value, then encodes the whole event.
+        events = [
+            json.dumps(
+                {
+                    "time_unix_nano": 1780387200002000000,
+                    "name": "exception",
+                    "attributes": {
+                        "exception.type": json.dumps("ValueError"),
+                        "exception.stacktrace": json.dumps('line 1\n  raise ValueError("bad")'),
+                        "exception.escaped": json.dumps(False),
+                    },
+                }
+            ),
+            json.dumps({"time_unix_nano": 1780387200001000000, "name": "cache.miss", "attributes": {}}),
+            "not json",
+        ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
             "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
-            "resource_attributes) VALUES "
+            "resource_attributes, events) VALUES "
             "("
             f"'019e8754-0000-0000-0000-000000000001', {cls.team.id}, '{_b64((1).to_bytes(16, 'big'))}', "
             f"'{_b64((1).to_bytes(8, 'big'))}', '', 'GET /api', 2, '{ts_str}', '{end_str}', '{ts_str}', 0, 'web', "
-            "map('http.method__str', 'POST'), map('service.version', '1.2.3', 'host.name', 'web-1'))"
+            "map('http.method__str', 'POST'), map('service.version', '1.2.3', 'host.name', 'web-1'), %(events)s)",
+            {"events": events},
         )
 
     @classmethod
@@ -61,12 +79,13 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
-    def _run(self, *, exclude: bool) -> list[dict]:
+    def _run(self, *, exclude: bool, single_trace: bool = False) -> list[dict]:
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             orderBy="timestamp",
             limit=100,
             excludeAttributes=exclude,
+            traceId=(1).to_bytes(16, "big").hex() if single_trace else None,
         )
         return TraceSpansQueryRunner(query, self.team).run().results
 
@@ -83,5 +102,36 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["attributes"], expected_attributes)
         self.assertEqual(results[0]["resource_attributes"], expected_resource_attributes)
         # Guards the positional-index shift from adding the resource column: the per-trace duration
-        # key (the last SELECT column) must still land on the right value.
+        # key must still land on the right value.
         self.assertEqual(results[0]["trace_duration"], 5_000_000)
+
+    @parameterized.expand(
+        [
+            ("list_query_skips_events", False, False, None),
+            ("excluded_from_single_trace", True, True, None),
+            (
+                "single_trace_returns_events_earliest_first",
+                True,
+                False,
+                [
+                    {
+                        "name": "cache.miss",
+                        "timestamp": dt.datetime(2026, 6, 2, 8, 0, 0, 1000, tzinfo=dt.UTC),
+                        "attributes": {},
+                    },
+                    {
+                        "name": "exception",
+                        "timestamp": dt.datetime(2026, 6, 2, 8, 0, 0, 2000, tzinfo=dt.UTC),
+                        "attributes": {
+                            "exception.type": "ValueError",
+                            "exception.stacktrace": 'line 1\n  raise ValueError("bad")',
+                            "exception.escaped": "false",
+                        },
+                    },
+                ],
+            ),
+        ]
+    )
+    def test_events(self, _name, single_trace, exclude, expected_events):
+        results = self._run(exclude=exclude, single_trace=single_trace)
+        self.assertEqual(results[0].get("events"), expected_events)

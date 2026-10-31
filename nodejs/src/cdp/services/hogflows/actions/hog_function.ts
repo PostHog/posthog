@@ -18,6 +18,7 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
+import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
@@ -49,10 +50,10 @@ type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
 
 const WORKFLOW_USAGE_KEYS = {
-    fetch: 'workflow_billable_invocations',
-    email: 'workflow_emails_sent',
-    push: 'workflow_push_sent',
-    sms: 'workflow_sms_sent',
+    fetch: ['workflow_billable_invocations'],
+    email: ['workflow_emails_sent'],
+    push: ['workflow_push_sent', 'workflow_billable_invocations'],
+    sms: ['workflow_sms_sent'],
 } as const
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
@@ -162,6 +163,9 @@ export class HogFunctionHandler implements ActionHandler {
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: HogFlowActionBillingType,
+        // Required, so that a caller which builds an email handler without it fails to compile. The
+        // handlers for other channels pass null.
+        private emailStatusService: EmailStatusService | null,
         private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
@@ -212,7 +216,10 @@ export class HogFunctionHandler implements ActionHandler {
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
-            result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
+            result.invocation.state.currentAction!.hogFunctionState = {
+                ...functionResult.invocation.state,
+                ...(functionResult.invocation.hogFunction?.metadata?.sensitive === true ? { sensitive: true } : {}),
+            }
             // Preserve queue routing and parameters from the function result
             result.invocation.queue = functionResult.invocation.queue
             result.invocation.queuePriority = functionResult.invocation.queuePriority
@@ -254,12 +261,16 @@ export class HogFunctionHandler implements ActionHandler {
                     billingMetricType: this.hogFlowActionBillingType,
                 })
 
-                // actionStepCount holds across a retry of this step but changes on a loop revisit.
-                this.usageReporter?.reportBillableInvocation({
-                    teamId: invocation.teamId,
-                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-                })
+                if (!hogExecutorOptions?.isTest || !hogExecutorOptions.functions) {
+                    // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                    for (const usageKey of WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType]) {
+                        this.usageReporter?.reportBillableInvocation({
+                            teamId: invocation.teamId,
+                            usageKey,
+                            recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                        })
+                    }
+                }
             }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
@@ -402,6 +413,18 @@ export class HogFunctionHandler implements ActionHandler {
         return { scheduledAt: deadline }
     }
 
+    // These checks skip the send before the email service runs, so the email's status is recorded here.
+    private recordSkippedEmail(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: Action,
+        reason: EmailSkipReason,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    ): void {
+        if (action.type === 'function_email') {
+            this.emailStatusService?.queueSkippedSend(invocation, reason, hogExecutorOptions?.isTest ?? false)
+        }
+    }
+
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
@@ -411,6 +434,11 @@ export class HogFunctionHandler implements ActionHandler {
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
+        // A send that started protected stays protected through its retries, even if protection is turned off
+        // before the retry runs: the queued message was rendered under protection.
+        if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
+            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
+        }
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
@@ -453,6 +481,12 @@ export class HogFunctionHandler implements ActionHandler {
                           },
                       ]
                     : []
+            this.recordSkippedEmail(
+                hogFunctionInvocation,
+                action,
+                skipReason === 'suppressed' ? 'recipient_suppressed' : 'recipient_opted_out',
+                hogExecutorOptions
+            )
             return {
                 finished: true,
                 skipped: true,
@@ -475,6 +509,7 @@ export class HogFunctionHandler implements ActionHandler {
             () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
         )
         if (emailSkipReason) {
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'recipient_unreachable', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,
@@ -504,6 +539,7 @@ export class HogFunctionHandler implements ActionHandler {
             !hogExecutorOptions?.isTest &&
             (await this.recipientPreferencesService.isFrequencyCapped(hogFunctionInvocation, action))
         ) {
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'frequency_capped', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,

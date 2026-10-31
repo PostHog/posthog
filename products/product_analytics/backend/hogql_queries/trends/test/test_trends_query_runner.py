@@ -1,6 +1,7 @@
 import re
 import zoneinfo
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import groupby
@@ -12,6 +13,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_flag_evaluations,
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
@@ -83,7 +85,31 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
+
+
+def _flag_call_event_series(team: Team, flag_keys: list[str]) -> EventsNode:
+    return EventsNode(
+        event="$feature_flag_called",
+        properties=[EventPropertyFilter(key="$feature_flag", value=flag_keys, operator=PropertyOperator.EXACT)],
+    )
+
+
+def _flag_call_action_series(team: Team, flag_keys: list[str]) -> ActionsNode:
+    action = Action.objects.create(
+        team=team,
+        name="called a flag",
+        steps_json=[
+            {
+                "event": "$feature_flag_called",
+                "properties": [{"key": "$feature_flag", "type": "event", "value": flag_key, "operator": "exact"}],
+            }
+            for flag_key in flag_keys
+        ],
+    )
+    return ActionsNode(id=action.id)
 
 
 @dataclass
@@ -4054,7 +4080,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$pageview",
                 distinct_id=f"person_{value}",
                 timestamp="2020-01-11T12:00:00Z",
-                properties={"breakdown_value": f"{value}"},
+                properties={"breakdown_value": f"{value}", "amount": 7},
             )
 
         # line graph
@@ -4084,6 +4110,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
+
+        # property math is not scaled up
+        runner = self._create_query_runner(
+            "2020-01-01",
+            "2020-01-31",
+            IntervalType.MONTH,
+            [EventsNode(event="$pageview", math=PropertyMathType.MAX, math_property="amount")],
+            TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        )
+        runner.query.samplingFactor = 0.1
+        response = runner.calculate()
+        assert len(response.results) == 1
+        assert response.results[0]["aggregated_value"] == 7
 
     def test_trends_multiple_event_breakdowns(self):
         self._create_test_events()
@@ -6616,6 +6655,121 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 2
         assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
+    @parameterized.expand(
+        [
+            ("event_series", _flag_call_event_series, ["probe-flag"], 2),
+            ("event_series_with_two_flag_keys", _flag_call_event_series, ["probe-flag", "other-flag"], 3),
+            ("action_series", _flag_call_action_series, ["probe-flag"], 2),
+            ("action_with_two_flag_call_steps", _flag_call_action_series, ["probe-flag", "other-flag"], 3),
+            ("daily_active_users", _flag_call_event_series, ["probe-flag"], 2, BaseMathType.DAU),
+            (
+                "breakdown_by_response",
+                _flag_call_event_series,
+                ["probe-flag"],
+                2,
+                None,
+                BreakdownFilter(breakdown="$feature_flag_response", breakdown_type=BreakdownType.EVENT),
+            ),
+            ("test_account_filters", _flag_call_event_series, ["probe-flag"], 2, None, None, True),
+            (
+                "mode_1",
+                _flag_call_event_series,
+                ["probe-flag"],
+                2,
+                None,
+                None,
+                False,
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
+        ]
+    )
+    def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
+        self,
+        _name: str,
+        series: Callable[[Team, list[str]], EventsNode | ActionsNode],
+        flag_keys: list[str],
+        expected_count: int,
+        math: BaseMathType | None = None,
+        breakdown: BreakdownFilter | None = None,
+        filter_test_accounts: bool = False,
+        mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+    ):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+        if filter_test_accounts:
+            self.team.test_account_filters = [
+                {"key": "email", "value": "@posthog.com", "operator": "not_icontains", "type": "person"}
+            ]
+            self.team.save()
+        _create_flag_evaluations(self.team.pk, "probe-flag", count=2)
+        _create_flag_evaluations(self.team.pk, "other-flag")
+        _create_flag_evaluations(self.team.pk, "unselected-flag")
+        node = series(self.team, flag_keys)
+        if math is not None:
+            node = node.model_copy(update={"math": math})
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
+            # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.DAY,
+                [node],
+                breakdown=breakdown,
+                filter_test_accounts=filter_test_accounts,
+                hogql_modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                    useNewEventsSchema=False,
+                ),
+            )
+
+        assert response.results[0]["count"] == expected_count
+        if breakdown is not None:
+            assert response.results[0]["breakdown_value"] == "true"
+
+    def test_flag_call_series_broken_down_by_two_cohorts_reads_flag_evaluations_once_events_gets_no_flag_calls(self):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        cohorts = []
+        for name, calls in (("p1", 2), ("p2", 1)):
+            person = _create_person(team=self.team, distinct_ids=[name], properties={"name": name})
+            _create_flag_evaluations(self.team.pk, "probe-flag", count=calls, distinct_id=name, person_id=person.uuid)
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": name, "type": "person"}]}],
+                name=f"cohort {name}",
+            )
+            cohort.calculate_people_ch(pending_version=0)
+            cohorts.append(cohort)
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            # Two cohorts make the runner join `__in_cohort`, and the series pin compares `event` without a table name.
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.DAY,
+                [_flag_call_event_series(self.team, ["probe-flag"])],
+                breakdown=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[c.pk for c in cohorts]),
+                hogql_modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
+            )
+
+        assert {result["breakdown_value"]: result["count"] for result in response.results} == {
+            cohorts[0].pk: 2,
+            cohorts[1].pk: 1,
+        }
+
     def test_multiple_breakdowns_work_with_formula(self):
         self._create_test_events()
         flush_persons_and_events()
@@ -8047,6 +8201,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for result in response.results:
             self.assertEqual(11, len(result["data"]), "Should have 11 days of data")
             self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")
+
+        # A series saved without a name displays the action's name from here, also inside a group.
+        self.assertEqual(
+            {str(page_action.id): "Page Action", str(pageview_action.id): "Pageview Action"}, response.action_names
+        )
 
     @parameterized.expand(
         [

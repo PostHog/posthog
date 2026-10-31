@@ -8,6 +8,7 @@ one blob. A score step fetches only the newest buckets and scores them with the 
 import datetime
 import dataclasses
 from collections.abc import Collection
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -42,6 +43,17 @@ from products.signals.backend.models import AnomalyScoringState
 logger = structlog.get_logger(__name__)
 
 
+class TrainDue(StrEnum):
+    """Whether a stored model must be replaced before the next score step."""
+
+    NO = "no"
+    # The model is past `train_every_buckets`, or more buckets are due than one visit scores. It still scores,
+    # so the score pass keeps the insight current while the train pass has no budget for a refresh.
+    SOFT = "soft"
+    # No usable model: none stored, a changed identity, too few series, or past `max_model_age_buckets`.
+    HARD = "hard"
+
+
 @frozen
 class RunPlan:
     """What one pick does and the ClickHouse queries it sends."""
@@ -49,9 +61,21 @@ class RunPlan:
     queries: int
     # None when the split is off.
     run: ScoringRun | None = None
+    # A train step whose model can still score. The score pass changes it to a score step when the train pass
+    # does not pick it.
+    stale_model: bool = False
 
 
-def _schedule_needs_training(
+@frozen
+class ScoreReady:
+    """The stored state of an insight that a score step can read."""
+
+    scored_through: datetime.datetime
+    # A soft retrain is due. The train pass can pick the insight first.
+    stale_model: bool = False
+
+
+def _schedule_train_due(
     interval: IntervalType,
     *,
     trained_at: datetime.datetime,
@@ -61,12 +85,18 @@ def _schedule_needs_training(
     now: datetime.datetime,
     timezone: ZoneInfo,
     train_every: int,
+    max_model_age: int,
     max_backfill: int,
-) -> bool:
+) -> TrainDue:
     """The retrain triggers that a state row answers alone, without the insight's query."""
-    if trained_at + interval_spec(interval).period * train_every <= now:
-        return True
-    # More due buckets than one visit scores. A train step scores the newest of them, as a first visit does.
+    if missing_series * 2 > series_count:
+        return TrainDue.HARD
+    period = interval_spec(interval).period
+    if trained_at + period * max_model_age <= now:
+        return TrainDue.HARD
+    if trained_at + period * train_every <= now:
+        return TrainDue.SOFT
+    # More due buckets than one visit scores. A score step scores the newest of them, as a first visit does.
     due = buckets_to_score(
         interval,
         now=now,
@@ -74,20 +104,19 @@ def _schedule_needs_training(
         timezone=timezone,
         limits=dataclasses.replace(DEFAULT_LIMITS, max_backfill_buckets=max_backfill + 1),
     )
-    if due > max_backfill:
-        return True
-    return missing_series * 2 > series_count
+    return TrainDue.SOFT if due > max_backfill else TrainDue.NO
 
 
-def needs_training(
+def train_due(
     state: TrainedState | None,
     *,
     identity: StateIdentity,
     now: datetime.datetime,
     timezone: ZoneInfo,
     train_every: int,
+    max_model_age: int,
     max_backfill: int,
-) -> bool:
+) -> TrainDue:
     if (
         state is None
         or state.identity != identity
@@ -95,8 +124,8 @@ def needs_training(
         or not state.artifact_key
         or state.scored_through is None
     ):
-        return True
-    return _schedule_needs_training(
+        return TrainDue.HARD
+    return _schedule_train_due(
         identity.interval,
         trained_at=state.trained_at,
         scored_through=state.scored_through,
@@ -105,6 +134,7 @@ def needs_training(
         now=now,
         timezone=timezone,
         train_every=train_every,
+        max_model_age=max_model_age,
         max_backfill=max_backfill,
     )
 
@@ -124,15 +154,20 @@ def plan_run(
     except Exception:
         # The scorer fails on the same query and reports the error. A train step charges the larger budget.
         return RunPlan(queries=queries, run=ScoringRun.TRAIN)
-    trains = not supports_score_step(query) or needs_training(
+    if not supports_score_step(query):
+        return RunPlan(queries=queries, run=ScoringRun.TRAIN)
+    due = train_due(
         state,
         identity=identity,
         now=now,
         timezone=team.timezone_info,
         train_every=config.train_every_buckets[interval],
+        max_model_age=config.max_model_age_buckets[interval],
         max_backfill=config.limits.max_backfill_buckets,
     )
-    return RunPlan(queries=queries, run=ScoringRun.TRAIN if trains else ScoringRun.SCORE)
+    if due == TrainDue.NO:
+        return RunPlan(queries=queries, run=ScoringRun.SCORE)
+    return RunPlan(queries=queries, run=ScoringRun.TRAIN, stale_model=due == TrainDue.SOFT)
 
 
 def load_states(team: Team, insights: Collection[Insight]) -> dict[int, TrainedState]:
@@ -144,14 +179,15 @@ def load_states(team: Team, insights: Collection[Insight]) -> dict[int, TrainedS
     return {row.insight_id: _from_row(row) for row in rows if profiles.get(row.insight_id) == row.profile}
 
 
-def scored_through_by_insight(
+def score_ready_by_insight(
     team: Team, insight_ids: Collection[int], config: AnomalyScoringConfig, now: datetime.datetime
-) -> dict[int, datetime.datetime]:
+) -> dict[int, ScoreReady]:
     """Insight id to the newest scored bucket of its stored state, for the rows that a score step can read.
 
-    A row whose retrain is due by age, by due buckets or by missing series is left out, so its insight goes to
-    the train pass without a plan. The identity and the profile are not checked here, because they need the
-    insight's query. `plan_run` checks them, and the score pass hands an insight that fails them to the train pass.
+    A row with a hard retrain trigger is left out, so its insight goes to the train pass without a plan. A row
+    with a soft trigger stays, and is marked stale. The identity and the profile are not checked here, because
+    they need the insight's query. `plan_run` checks them, and the score pass hands an insight that fails them
+    to the train pass.
     """
     if not insight_ids:
         return {}
@@ -162,12 +198,12 @@ def scored_through_by_insight(
         .exclude(series_keys=[])
         .values_list("insight_id", "interval", "trained_at", "scored_through", "missing_series", "series_keys")
     )
-    scored: dict[int, datetime.datetime] = {}
+    ready: dict[int, ScoreReady] = {}
     scorable = {interval.value: interval for interval in config.train_every_buckets}
     for insight_id, interval, trained_at, scored_through, missing_series, series_keys in rows:
         if scored_through is None or interval not in scorable:
             continue
-        if _schedule_needs_training(
+        due = _schedule_train_due(
             scorable[interval],
             trained_at=trained_at,
             scored_through=scored_through,
@@ -176,11 +212,15 @@ def scored_through_by_insight(
             now=now,
             timezone=team.timezone_info,
             train_every=config.train_every_buckets[scorable[interval]],
+            max_model_age=config.max_model_age_buckets[scorable[interval]],
             max_backfill=config.limits.max_backfill_buckets,
-        ):
+        )
+        if due == TrainDue.HARD:
             continue
-        scored[insight_id] = max(scored_through, scored.get(insight_id, scored_through))
-    return scored
+        previous = ready.get(insight_id)
+        if previous is None or scored_through > previous.scored_through:
+            ready[insight_id] = ScoreReady(scored_through=scored_through, stale_model=due == TrainDue.SOFT)
+    return ready
 
 
 def load_state(team: Team, insight: Insight) -> TrainedState | None:

@@ -1,7 +1,6 @@
 """GitHub `pull_request` deliveries of the PostHog GitHub App, routed by action.
 
 - `opened` / `synchronize` / `ready_for_review`: an automatic review (`automatic_reviews.py`).
-- `labeled` with the `posthog-review` label: a label review (`label_reviews.py`).
 
 The webhook handler runs inside the request, so this module only parses the payload, reads the
 cached ownership summary, and queues a Celery task. The task checks ownership and the rules again.
@@ -13,7 +12,6 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter, RepositoryRef
 
-REVIEW_LABEL = "posthog-review"
 # Authors and automation apply this label to opt a pull request out of automatic reviews.
 SKIP_AGENT_REVIEW_LABEL = "skip-agent-review"
 AUTOMATIC_REVIEW_ACTIONS = frozenset({"opened", "synchronize", "ready_for_review"})
@@ -59,13 +57,8 @@ class PullRequestEvent:
     pr_number: int
     author_login: str
     head_sha: str
-    head_branch: str
     draft: bool = False
     skip_agent_review: bool = False
-    # Set on `labeled` deliveries only.
-    label_name: str | None = None
-    sender_login: str | None = None
-    sender_is_bot: bool = False
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> "PullRequestEvent | None":
@@ -90,7 +83,6 @@ class PullRequestEvent:
         head_sha = _text(head.get("sha"))
         if installation_id is None or pr_number is None or author_login is None or head_sha is None:
             return None
-        sender = _mapping(payload.get("sender"))
         return cls(
             action=action,
             installation_id=str(installation_id),
@@ -99,12 +91,8 @@ class PullRequestEvent:
             pr_number=pr_number,
             author_login=author_login.lower(),
             head_sha=head_sha,
-            head_branch=_text(head.get("ref")) or "",
             draft=pull_request.get("draft") is True,
             skip_agent_review=has_skip_agent_review_label(_label_names(pull_request.get("labels"))),
-            label_name=_text(_mapping(payload.get("label")).get("name")),
-            sender_login=_text(sender.get("login")),
-            sender_is_bot=sender.get("type") == "Bot",
         )
 
     @property
@@ -113,42 +101,23 @@ class PullRequestEvent:
             installation_id=self.installation_id, github_repo_id=self.github_repo_id, full_name=self.repository
         )
 
-    @property
-    def is_label_request(self) -> bool:
-        return self.action == "labeled" and (self.label_name or "").lower() == REVIEW_LABEL
-
 
 def accept_pull_request_event(payload: Mapping[str, object]) -> None:
     event = PullRequestEvent.from_payload(payload)
-    if event is None:
-        return
-    wants_automatic_review = event.action in AUTOMATIC_REVIEW_ACTIONS
-    if not (wants_automatic_review or event.is_label_request):
+    if event is None or event.action not in AUTOMATIC_REVIEW_ACTIONS:
         return
     if not OwnedRepositoryPrefilter.may_be_owned(event.ref):
         return
     # Keeps Celery off the registry import path.
-    from products.review_hog.backend.tasks import process_authored_pr_event, process_label_event  # noqa: PLC0415
+    from products.review_hog.backend.tasks import process_authored_pr_event  # noqa: PLC0415
 
-    if wants_automatic_review:
-        process_authored_pr_event.delay(
-            installation_id=event.installation_id,
-            repository=event.repository,
-            author_login=event.author_login,
-            pr_number=event.pr_number,
-            head_sha=event.head_sha,
-            github_repo_id=event.github_repo_id,
-            draft=event.draft,
-            skip_agent_review=event.skip_agent_review,
-        )
-        return
-    process_label_event.delay(
+    process_authored_pr_event.delay(
         installation_id=event.installation_id,
         repository=event.repository,
-        github_repo_id=event.github_repo_id,
-        pr_number=event.pr_number,
         author_login=event.author_login,
-        head_branch=event.head_branch,
-        labeler_login=event.sender_login or "",
-        labeled_by_bot=event.sender_is_bot,
+        pr_number=event.pr_number,
+        head_sha=event.head_sha,
+        github_repo_id=event.github_repo_id,
+        draft=event.draft,
+        skip_agent_review=event.skip_agent_review,
     )

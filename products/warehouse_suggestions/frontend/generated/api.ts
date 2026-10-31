@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AcceptWarehouseSuggestionApi,
+    AssignWarehouseSuggestionApi,
     DismissWarehouseSuggestionApi,
     PaginatedWarehouseSuggestionListApi,
     WarehouseSuggestionApi,
@@ -74,6 +75,24 @@ export const warehouseSuggestionsAcceptCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(acceptWarehouseSuggestionApi),
+    })
+}
+
+export const getWarehouseSuggestionsAssignCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_suggestions/${id}/assign/`
+}
+
+export const warehouseSuggestionsAssignCreate = async (
+    projectId: string,
+    id: string,
+    assignWarehouseSuggestionApi: AssignWarehouseSuggestionApi,
+    options?: RequestInit
+): Promise<WarehouseSuggestionApi> => {
+    return apiMutator<WarehouseSuggestionApi>(getWarehouseSuggestionsAssignCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(assignWarehouseSuggestionApi),
     })
 }
 

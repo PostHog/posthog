@@ -44,6 +44,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
         legendSeriesIsolationMenuEligible,
         getIsOnlyVisibleSeriesInLegend,
         querySource,
+        actionNames,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleOtherSeriesHidden, toggleAllResultsHidden } = useActions(
         trendsDataLogic(insightProps)
@@ -100,7 +101,7 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                         <InsightLabel
                             key={item.id}
                             seriesColor={mainColor}
-                            series={getResultSeries(querySource, item)}
+                            series={getResultSeries(querySource, item, actionNames)}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                             hasMultipleSeries={!isSingleSeriesDefinition}
                             breakdownValue={formattedBreakdownValue}

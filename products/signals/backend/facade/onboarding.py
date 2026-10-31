@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.transactional_email import is_transactional_email_configured
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.first_report_completion import first_report_completion_notifications_enabled
 from products.signals.backend.first_report_experiment import (
@@ -23,8 +24,10 @@ from products.signals.backend.first_report_experiment import (
 from products.signals.backend.first_report_notification import register_first_report_notification
 from products.signals.backend.first_report_scout import first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportStatus
+from products.signals.backend.github_optional import GITHUB_OPTIONAL_ACTIVATION, ResearchAccessPolicy
 from products.signals.backend.models import (
     AutonomyPriority,
+    InboxOnboardingSetupMode,
     SignalFirstReportNotification,
     SignalScoutConfig,
     SignalScoutSuggestionSet,
@@ -35,6 +38,7 @@ from products.signals.backend.models import (
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
 from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
+from products.signals.backend.onboarding_state import is_quick_setup
 from products.signals.backend.report_content_gates import team_first_report_email_enabled
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
@@ -44,6 +48,10 @@ if TYPE_CHECKING:
 
 
 class InboxOnboardingValidationError(ValueError):
+    pass
+
+
+class InboxOnboardingPermissionError(PermissionError):
     pass
 
 
@@ -57,6 +65,10 @@ def onboarding_source_types() -> Sequence[tuple[str, str | Promise]]:
 
 def onboarding_priorities() -> Sequence[tuple[str, str | Promise]]:
     return AutonomyPriority.choices
+
+
+def onboarding_setup_modes() -> Sequence[tuple[str, str | Promise]]:
+    return InboxOnboardingSetupMode.choices
 
 
 def onboarding_first_report_statuses() -> Sequence[tuple[str, str | Promise]]:
@@ -96,9 +108,9 @@ class InboxOnboarding:
         ):
             jobs["recommendations"] = "failed"
         return {
+            "github_optional_available": ResearchAccessPolicy.enabled(self.team_id),
             "draft": state.get("draft"),
             "completed_at": state.get("completed_at"),
-            "variant": state.get("variant"),
             **({"jobs": jobs} if "jobs" in state else {}),
             "first_report": first_report_state(self.team.parent_team_id or self.team_id)
             or (
@@ -126,11 +138,7 @@ class InboxOnboarding:
     def state(self) -> dict[str, Any]:
         return self._state(get_or_create_team_extension(self.team, SignalTeamConfig))
 
-    def reconcile(self) -> dict[str, Any]:
-        InboxOnboardingReconciler(self.team_id).run()
-        return self.state()
-
-    def expose(self, variant: str) -> dict[str, Any]:
+    def expose(self) -> dict[str, Any]:
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=self.team_id)
@@ -138,7 +146,6 @@ class InboxOnboarding:
             if not state.get("exposed_at"):
                 config.onboarding = {
                     **state,
-                    "variant": variant,
                     "exposed_at": timezone.now().isoformat(),
                     "exposed_by": self.user.pk,
                 }
@@ -146,7 +153,19 @@ class InboxOnboarding:
                 transaction.on_commit(lambda: self._report_exposure(self.user, config), robust=True)
         return self._state(config)
 
+    def _validate_pilot(self, draft: dict[str, Any]) -> bool:
+        if draft.get("activation_mode") != GITHUB_OPTIONAL_ACTIVATION:
+            return False
+        if not ResearchAccessPolicy.enabled(self.team_id):
+            raise InboxOnboardingValidationError("The GitHub-optional pilot is not enabled for this project.")
+        if draft["automatic_implementation"]:
+            raise InboxOnboardingValidationError(
+                "Activate without automatic implementation. You can enable it later in settings."
+            )
+        return True
+
     def save_draft(self, draft: dict[str, Any]) -> dict[str, Any]:
+        self._validate_pilot(draft)
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
@@ -161,32 +180,35 @@ class InboxOnboarding:
         return self._state(config)
 
     def complete(self, draft: dict[str, Any]) -> dict[str, Any]:
+        # Activation enqueues scout jobs after commit, so the scout write check has to pass before anything is saved.
+        self.authorize_scouts(True)
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         if (config.onboarding or {}).get("completed_at"):
             self._enqueue_activation_jobs(config)
             return self._state(config)
 
-        if (config.onboarding or {}).get("variant") in ("test-github", "test-ui"):
-            self.authorize_scouts(True)
-        if (config.onboarding or {}).get("variant") == "test-github":
+        pilot = self._validate_pilot(draft)
+        if pilot and self.team.parent_team_id:
+            if not UserAccessControl(user=self.user, team=self.team.parent_team).check_access_level_for_resource(
+                "task", "editor"
+            ):
+                raise InboxOnboardingPermissionError(
+                    "Activating this pilot requires task editor access on the parent project."
+                )
+        if pilot:
             if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]
             ):
                 raise InboxOnboardingValidationError("Quick activation requires the general scout.")
 
-        if any(
-            draft.get(key) or ((config.onboarding or {}).get("draft") or {}).get(key)
-            for key in ("suggestions", "activation_scouts")
-        ):
-            self.authorize_scouts(True)
         if draft["suggestions"]:
             if not InboxOnboardingReconciler.scouts_can_emit(self.team.parent_team_id or self.team_id):
                 raise InboxOnboardingValidationError(
                     "Scout findings are disabled. Enable the scout source before activating."
                 )
 
-        if not InboxOnboardingReconciler(self.team_id).has_repository():
+        if not pilot and not InboxOnboardingReconciler(self.team_id).has_repository():
             raise InboxOnboardingValidationError("Connect GitHub with access to at least one repository.")
 
         selected_source = False
@@ -228,16 +250,17 @@ class InboxOnboarding:
             or any(source["source_product"] == "signals_scout" for source in draft["sources"])
         )
         withheld = withheld_skills_for_team(scout_team_id) if resume_operational_scouts else set()
-        experiment = (
-            resolve_first_report_experiment(self.team.parent_team or self.team)
-            if (config.onboarding or {}).get("variant") in ("test-github", "test-ui")
-            else None
-        )
+        experiment = resolve_first_report_experiment(self.team.parent_team or self.team)
         user = self.user
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
             state = config.onboarding or {}
             if not state.get("completed_at"):
+                if pilot and (parent_team := self.team.parent_team) is not None:
+                    parent_config = get_or_create_team_extension(parent_team, SignalTeamConfig)
+                    SignalTeamConfig.objects.filter(pk=parent_config.pk, team_id=scout_team_id).update(
+                        autostart_enabled=False, updated_at=timezone.now()
+                    )
                 config.autostart_enabled = draft["automatic_implementation"]
                 config.default_autostart_priority = draft["implementation_priority"]
                 config.onboarding = {
@@ -246,15 +269,13 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
-                if state.get("variant") in ("test-github", "test-ui"):
-                    config.onboarding["jobs"] = {
-                        "scout": "pending" if experiment or state.get("variant") == "test-github" else "skipped",
-                        "recommendations": "skipped",
-                    }
+                quick = pilot or is_quick_setup(config.onboarding)
+                config.onboarding["jobs"] = {
+                    "scout": "pending" if experiment or quick else "skipped",
+                    "recommendations": "pending" if quick else "skipped",
+                }
                 if experiment:
                     config.onboarding["first_report_variant"] = experiment.variant
-                if state.get("variant") == "test-github":
-                    config.onboarding["jobs"]["recommendations"] = "pending"
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
                 )
@@ -267,9 +288,6 @@ class InboxOnboarding:
 
     def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
         state = config.onboarding or {}
-        if state.get("variant") not in ("test-github", "test-ui"):
-            return
-        self.authorize_scouts(True)
         from products.signals.backend.tasks import (
             launch_inbox_onboarding_job,  # noqa: PLC0415 - keep the Temporal graph off API route loading
         )
@@ -295,9 +313,3 @@ class InboxOnboarding:
             team=self.team,
             organization=self.team.organization,
         )
-        if (config.onboarding or {}).get("variant") == "control":
-            from products.signals.backend.tasks import (
-                reconcile_inbox_onboarding,  # noqa: PLC0415 - avoid task imports during API initialization
-            )
-
-            reconcile_inbox_onboarding.delay(self.team_id)

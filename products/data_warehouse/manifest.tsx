@@ -63,6 +63,11 @@ export const manifest: ProductManifest = {
             description: 'Manage where your warehouse sources write the rows they sync.',
             iconType: 'data_warehouse',
         },
+        WarehouseDestinationConnect: {
+            import: () => import('./frontend/scenes/DestinationConnectScene/DestinationConnectScene'),
+            projectBased: true,
+            name: 'Connect warehouse destination',
+        },
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
@@ -83,6 +88,7 @@ export const manifest: ProductManifest = {
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+        '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     },
     redirects: {
         // Switching projects while in the new-source wizard truncates the URL to bare
@@ -155,6 +161,8 @@ export const manifest: ProductManifest = {
             `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+        warehouseDestinationConnect: (kind?: string): string =>
+            `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
     treeItemsProducts: [
         {
@@ -195,6 +203,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSourceConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
+                'WarehouseDestinationConnect',
             ],
         },
     ],
@@ -228,7 +237,7 @@ export const manifest: ProductManifest = {
             href: urls.warehouseDestinations(),
             flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
             sceneKey: 'WarehouseDestinations',
-            sceneKeys: ['WarehouseDestinations'],
+            sceneKeys: ['WarehouseDestinations', 'WarehouseDestinationConnect'],
         },
         {
             path: 'Managed viewsets',
@@ -250,6 +259,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSourceConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
+                'WarehouseDestinationConnect',
             ],
         },
     ],

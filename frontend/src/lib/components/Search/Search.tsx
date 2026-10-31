@@ -18,9 +18,9 @@ import {
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
@@ -341,8 +341,8 @@ function SearchRoot({
         for (const category of allCategories) {
             items.push(...category.items)
         }
-        return items
-    }, [allCategories])
+        return logicKey === 'command' ? items : items.filter((item) => item.category !== 'shortcuts')
+    }, [allCategories, logicKey])
 
     // Compute filteredItems synchronously to avoid render gap between loading and content
     const filteredItems = useMemo(() => {
@@ -355,8 +355,8 @@ function SearchRoot({
             const filteredClientItems = filterSearchItems(clientItems, searchValue)
             items = [...filteredClientItems, ...serverItems]
         } else {
-            // When not searching, show recents, starred, and tools
-            items = allItems.filter((item) => ['recents', 'starred', 'tools'].includes(item.category))
+            // When not searching, show recents, starred, tools, and shortcuts
+            items = allItems.filter((item) => ['recents', 'starred', 'tools', 'shortcuts'].includes(item.category))
         }
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
@@ -926,6 +926,11 @@ function SearchResults({
                                                                             {item.productCategory && (
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                     {item.productCategory}
+                                                                                </span>
+                                                                            )}
+                                                                            {item.keybinding && (
+                                                                                <span className="ml-auto shrink-0">
+                                                                                    {item.keybinding}
                                                                                 </span>
                                                                             )}
                                                                             {item.matchedSearchKeyword && (

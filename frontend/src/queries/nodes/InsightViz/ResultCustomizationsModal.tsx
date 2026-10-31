@@ -16,6 +16,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
 import { resultCustomizationsModalLogic } from './resultCustomizationsModalLogic'
@@ -87,9 +88,11 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { breakdownFilter, querySource } = useValues(insightVizDataLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { actionNames } = useValues(trendsDataLogic(insightProps))
 
     // A formula row has no series node, so fall back to the row label.
-    const seriesNode = getResultSeries(querySource, dataset).node
+    const seriesNode = getResultSeries(querySource, dataset, actionNames).node
     const seriesName = seriesNode ? (
         <EntityFilterInfo filter={seriesNode} allowWrap={true} showSingleName={true} />
     ) : (

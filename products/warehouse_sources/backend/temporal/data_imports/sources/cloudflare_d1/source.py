@@ -65,7 +65,7 @@ class CloudflareD1Source(ResumableSource[CloudflareD1SourceConfig, D1ResumeConfi
 Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) with the **D1 Read** permission for the account. The account ID and database ID are on the database's page under **Storage & Databases > D1**.""",
             iconPath="/static/services/cloudflare.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudflare-d1",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

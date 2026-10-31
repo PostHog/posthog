@@ -4,7 +4,7 @@ import { ReactNode } from 'react'
 
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
-import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -43,8 +43,7 @@ export interface QuickFilterItem {
     eventName?: string
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
     /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
-     *  measure contains-shortcut adoption, matching the rebuild menu's
-     *  `wasUrlContainsShortcut`. */
+     *  measure contains-shortcut adoption (`wasUrlContainsShortcut`). */
     isContainsShortcut?: boolean
 }
 
@@ -203,7 +202,7 @@ export interface TaxonomicFilterProps {
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
     /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
-     *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
+     *  shortcut row instead of listing every matching URL.
      *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
      *  so a host must handle `isQuickFilterItem(item)` in onChange to honor the contains
      *  operator. Only `TaxonomicPropertyFilter` (and the property/universal-filter hosts
@@ -417,8 +416,8 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
 
 /** Selection types that reopen on their own tab/panel rather than the default "All" surface,
  *  because they're config/edit flows (an expression editor, a data-warehouse table/column
- *  picker) with no simple category value to verify at a glance. Honored by the legacy
- *  `activeTab` selector and the rebuild menu's `activeChip` initializer alike. */
+ *  picker) with no simple category value to verify at a glance. Honored by the
+ *  `activeTab` selector. */
 export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,

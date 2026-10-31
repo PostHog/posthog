@@ -22,6 +22,11 @@ DEFAULT_REPORT_LOOKBACK_DAYS = 30
 # last kind is for publisher-scoped paths that also require an advertiserId query param.
 AwinEndpointKind = Literal["accounts", "publisher_fanout", "advertiser_fanout", "publisher_programme_fanout"]
 
+# `page_number` sends pageNumber/pageSize query params and reads `totalPagesAvailable` (transaction
+# queries). `promotions` sends a {"filters", "pagination"} POST body and reads `pagination.total`
+# (offers).
+AwinPaginator = Literal["page_number", "promotions"]
+
 # Awin's aggregated report endpoints require a `region` query param naming the account's market
 # (there is no "all regions" value). Options and default ("GB") match Awin's own API docs.
 REGION_OPTIONS: list[tuple[str, str]] = [
@@ -87,6 +92,10 @@ class AwinEndpointConfig:
     # Whether this endpoint needs the account's `region` in its query params. Only Awin's
     # publisher-side aggregated report requires it; the advertiser-side report does not.
     requires_region: bool = False
+    paginator: Optional[AwinPaginator] = None
+    page_size: int = 100
+    # Filters sent in the POST body of the offers endpoint, which takes no query params.
+    request_filters: dict[str, str] = field(default_factory=dict)
     should_sync_default: bool = True
 
 
@@ -194,6 +203,94 @@ AWIN_ENDPOINTS: dict[str, AwinEndpointConfig] = {
         path="/advertisers/{advertiser_id}/publishers",
         primary_keys=["advertiserId", "id"],
         inject_advertiser_id=True,
+    ),
+    "publisher_campaign_reports": AwinEndpointConfig(
+        name="publisher_campaign_reports",
+        kind="publisher_fanout",
+        path="/publishers/{publisher_id}/reports/campaign",
+        # `interval=day` splits the totals into one row per day, so `date` is part of the key.
+        primary_keys=["publisherId", "advertiserId", "campaign", "date"],
+        inject_publisher_id=True,
+        extra_params={"interval": "day"},
+        date_windowed=True,
+        date_format="%Y-%m-%d",
+        report_lookback_days=DEFAULT_REPORT_LOOKBACK_DAYS,
+        requires_region=True,
+    ),
+    "advertiser_campaign_reports": AwinEndpointConfig(
+        name="advertiser_campaign_reports",
+        kind="advertiser_fanout",
+        path="/advertisers/{advertiser_id}/reports/campaign",
+        primary_keys=["advertiserId", "publisherId", "campaign", "date"],
+        inject_advertiser_id=True,
+        extra_params={"interval": "day"},
+        date_windowed=True,
+        date_format="%Y-%m-%d",
+        report_lookback_days=DEFAULT_REPORT_LOOKBACK_DAYS,
+    ),
+    "publisher_creative_reports": AwinEndpointConfig(
+        name="publisher_creative_reports",
+        kind="publisher_fanout",
+        path="/publishers/{publisher_id}/reports/creative",
+        primary_keys=["publisherId", "advertiserId", "creativeId"],
+        inject_publisher_id=True,
+        date_windowed=True,
+        date_format="%Y-%m-%d",
+        report_lookback_days=DEFAULT_REPORT_LOOKBACK_DAYS,
+        requires_region=True,
+    ),
+    "advertiser_creative_reports": AwinEndpointConfig(
+        name="advertiser_creative_reports",
+        kind="advertiser_fanout",
+        path="/advertisers/{advertiser_id}/reports/creative",
+        primary_keys=["advertiserId", "publisherId", "creativeId"],
+        inject_advertiser_id=True,
+        date_windowed=True,
+        date_format="%Y-%m-%d",
+        report_lookback_days=DEFAULT_REPORT_LOOKBACK_DAYS,
+        requires_region=True,
+    ),
+    "transaction_queries": AwinEndpointConfig(
+        name="transaction_queries",
+        kind="publisher_fanout",
+        # Awin serves this one under the singular `/publisher/` prefix.
+        path="/publisher/{publisher_id}/transactionqueries",
+        primary_keys=["publisherId", "enquiryId"],
+        data_key="pageItems",
+        inject_publisher_id=True,
+        date_windowed=True,
+        date_format="%Y-%m-%dT%H:%M:%S",
+        incremental_fields=[
+            {
+                "label": "enquiryDate",
+                "type": IncrementalFieldType.DateTime,
+                "field": "enquiryDate",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+            {
+                "label": "transactionDate",
+                "type": IncrementalFieldType.DateTime,
+                "field": "transactionDate",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        date_type_by_field={"enquiryDate": "enquiryDate", "transactionDate": "transactionDate"},
+        partition_key="enquiryDate",
+        paginator="page_number",
+        page_size=500,
+    ),
+    "offers": AwinEndpointConfig(
+        name="offers",
+        kind="publisher_fanout",
+        path="/publisher/{publisher_id}/promotions",
+        primary_keys=["publisherId", "promotionId"],
+        data_key="data",
+        inject_publisher_id=True,
+        paginator="promotions",
+        page_size=200,
+        # Voucher codes are hidden for programmes the publisher has not joined, so only joined
+        # programmes are worth syncing. Awin offers no status that covers expired offers.
+        request_filters={"membership": "joined", "status": "active"},
     ),
 }
 

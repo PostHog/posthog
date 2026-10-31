@@ -19,6 +19,9 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # series per day are few enough that a dims-early key would make every granule
 # span the whole day.
 #
+# PRIMARY KEY stays the original sort key. `MODIFY ORDER BY` keeps an existing table's primary key, so
+# a fresh table must declare the same key to match a migrated one.
+#
 # The TTL floor is 42 days, which buys 6 weekly samples per time-of-week slot.
 # A team whose raw logs outlive that keeps the rollup alongside them, so the
 # TTL takes whichever of the two is longer. `retention_days` is the bucket's
@@ -44,12 +47,14 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
+    `internal_source` LowCardinality(String),
     `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
-ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
+PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
 {ttl_clause}
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
 """

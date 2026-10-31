@@ -86,7 +86,6 @@ export function TrendsTooltip({
                 breakdown_value: meta.breakdown_value,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
-                filter: meta.filter,
             }
         })
         data.sort(

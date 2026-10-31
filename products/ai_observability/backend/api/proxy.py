@@ -56,19 +56,15 @@ from products.ai_observability.backend.llm import (
     ModelInfo,
     OutputSchema,
     get_playground_models,
+    supports_reasoning_level,
 )
-from products.ai_observability.backend.llm.decisions import decision_evaluations_enabled
 from products.ai_observability.backend.llm.errors import (
     ProviderConfigurationError,
     ProviderHostUnresolvedError,
     UnsupportedProviderError,
 )
-from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL, OpenAIConfig
-from products.ai_observability.backend.llm.providers.openrouter import (
-    OPENROUTER_BASE_URL,
-    decision_model_ids,
-    non_chat_model_ids,
-)
+from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
+from products.ai_observability.backend.llm.providers.openrouter import decision_model_ids, non_chat_model_ids
 from products.ai_observability.backend.models.provider_keys import (
     LLMProvider,
     LLMProviderKey,
@@ -151,6 +147,9 @@ class LLMProxyModelInfoSerializer(serializers.Serializer):
     )
     supports_chat = serializers.BooleanField(
         default=True, help_text="Whether this model supports chat completions with written reasoning."
+    )
+    supports_reasoning = serializers.BooleanField(
+        default=False, help_text="Whether an evaluation judge can set a reasoning level for this model."
     )
 
 
@@ -556,15 +555,11 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()
                 non_chat_models: frozenset[str] = frozenset()
-                if provider_key.provider == LLMProvider.OPENROUTER and decision_evaluations_enabled(
-                    provider_key.team_id, base_url=OPENROUTER_BASE_URL
-                ):
+                if provider_key.provider == LLMProvider.OPENROUTER:
                     decision_models = decision_model_ids() or frozenset()
                     non_chat_models = non_chat_model_ids() or frozenset()
                     models = list(dict.fromkeys([*models, *sorted(decision_models)]))
-                elif provider_key.provider == LLMProvider.OPENAI and decision_evaluations_enabled(
-                    provider_key.team_id, base_url=OPENAI_DECISIONS_BASE_URL
-                ):
+                elif provider_key.provider == LLMProvider.OPENAI:
                     decision_models = OpenAIConfig.DECISION_MODELS
                     models = list(dict.fromkeys([*models, *sorted(decision_models)]))
                 return Response(
@@ -577,6 +572,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             is_recommended=m in recommended,
                             supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
                             supports_chat=provider_key.provider != LLMProvider.SYSTEM_ONE and m not in non_chat_models,
+                            supports_reasoning=supports_reasoning_level(provider_key.provider, m),
                         )
                         for m in models
                     ]

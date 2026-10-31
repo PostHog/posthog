@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -86,6 +86,14 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     )
                 }
             />
+            {/* pinned: survey 01a17c76-64cf-0000-1bbf-c105e1141a32 targets #business-knowledge-feedback-button */}
+            <LemonBanner
+                type="info"
+                dismissKey="business-knowledge-beta-banner"
+                action={{ children: 'Send feedback', id: 'business-knowledge-feedback-button' }}
+            >
+                <p>Business knowledge is in beta. Tell us what you'd like to see here, or report any issues.</p>
+            </LemonBanner>
             <BusinessKnowledgeTabs activeTab="sources" />
             <SceneSection title="Libraries" className="gap-y-2">
                 <LibraryRow />

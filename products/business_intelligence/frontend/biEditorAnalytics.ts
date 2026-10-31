@@ -108,6 +108,7 @@ export type BIWorksheetAction =
     | 'first_chart'
     | 'saved'
     | 'added_to_dashboard'
+    | 'dashboard_segment_selected'
     | 'drilldown_opened'
     | 'underlying_rows_viewed'
     | 'drilldown_worksheet_opened'
@@ -127,7 +128,7 @@ export function captureBIWorksheetAction(
         hierarchy_axis?: 'rows' | 'columns'
         hierarchy_depth?: number
         expanded?: boolean
-        starter_kind?: 'metric' | 'certified_source' | 'events'
+        starter_kind?: 'metric' | 'certified_source' | 'events' | 'daily_people' | 'event_reach' | 'pageview_sources'
         source_certification?: 'certified' | 'deprecated' | 'unmarked'
         setting_keys?: string[]
         rule_count?: number

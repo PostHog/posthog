@@ -97,6 +97,7 @@ class MaterializePayloadSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Why the interval is not shorter. source_sync: the view's sources sync no faster. "
         "fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. "
+        "consumer_refresh: the materialized views that read it refresh no more often. "
         "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
         "recorded.",
     )
@@ -124,6 +125,10 @@ class MaterializePayloadSerializer(DataclassSerializer):
             "lookback_seconds": {
                 "help_text": "How far before the last refresh's highest incremental_key value each refresh reads "
                 "again, in seconds. The last incremental_key value is always read again."
+            },
+            "recomputed_by_views": {
+                "help_text": "How many materialized views compute this view again on every refresh, because it "
+                "is not stored. 0 when the saving comes only from people's reads."
             },
         }
 
@@ -228,6 +233,11 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
     reviewed_by = WarehouseSuggestionReviewerSerializer(
         allow_null=True, help_text="Who accepted or dismissed this suggestion. Null while it is open."
     )
+    assignee = WarehouseSuggestionReviewerSerializer(
+        allow_null=True,
+        help_text="Who should accept or dismiss this suggestion. When a view's suggestion is first shown, it goes to "
+        "the person who created the view, if they can accept it. Null when nobody is assigned.",
+    )
     kind = serializers.ChoiceField(
         choices=WarehouseSuggestionKind.choices,
         help_text="What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. "
@@ -300,6 +310,18 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     )
     subject_id = serializers.UUIDField(
         required=False, help_text="Only return suggestions about the view or table with this ID."
+    )
+    assignee_id = serializers.IntegerField(
+        required=False, help_text="Only return suggestions assigned to the user with this ID."
+    )
+
+
+class AssignWarehouseSuggestionSerializer(serializers.Serializer):
+    assignee_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the user to assign. They must be able to accept the suggestion: edit access to the view or "
+        "table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The "
+        "assignee gets a notification unless they assign themselves.",
     )
 
 

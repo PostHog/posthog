@@ -21,3 +21,15 @@ export function clearAndPrepare(ctx: CanvasRenderingContext2D, dimensions: Chart
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0)
     ctx.clearRect(0, 0, dimensions.width, dimensions.height)
 }
+
+/** Free the backing store of a canvas that has nothing to show. A 0×0 canvas holds no bitmap and
+ *  gets no compositor layer, so idle hover overlays cost nothing. `clearAndPrepare` sizes it again
+ *  on the next draw. */
+export function releaseCanvas(canvas: HTMLCanvasElement): void {
+    if (canvas.width !== 0) {
+        canvas.width = 0
+    }
+    if (canvas.height !== 0) {
+        canvas.height = 0
+    }
+}

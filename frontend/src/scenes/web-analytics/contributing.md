@@ -58,6 +58,30 @@ The sessions table stores pre-computed session properties essential for web anal
 - Feature flag values seen during the session
 - Session replay presence
 
+### How entry and exit values are chosen
+
+Entry and exit values come from page views, not from the first or last event of any kind.
+
+- The entry URL, entry referring domain, UTM parameters, click IDs, ad IDs and channel type inputs come from the session's first `$pageview` or `$screen`.
+- The exit URL comes from the session's last `$pageview` or `$screen`.
+- Other events (autocapture, `$pageleave`, custom events) set these values only when the session has no `$pageview` or `$screen`.
+  The materialized view does this by moving the timestamp of every other event one year later (`pageview_prio_timestamp_min`) before it takes `argMin`.
+- Device and geography values (browser, OS, viewport, country, city) come from the first event that has a value.
+- An empty `gclid` or `fbclid` property does not count as a click ID, so it does not make `$entry_has_gclid` or the channel type say paid.
+
+For the discussion behind the page view rule, see [this thread](https://posthog.slack.com/archives/C05LJK1N3CP/p1748876828748129).
+
+One known inconsistency is accepted:
+
+- `entry_utm_*` and `entry_referring_domain` are separate `argMin` columns over nullable values, and `argMin` skips `NULL`.
+  When the entry page view has no UTM source, `$entry_utm_source` takes the value from a later event in the session.
+- `entry_channel_type_properties`, which `$channel_type` reads, is one tuple that is never `NULL`, so it always holds the entry page view's values.
+- So, for a session that lands without UTMs and gets one later, `$entry_utm_source` shows that later value while `$channel_type` can say Direct.
+
+The materialized views also drop events whose timestamp is more than 31 days from the timestamp in their UUIDv7 session ID.
+A client can send a session ID with a broken timestamp (for example 1970), which would put the session in its own monthly partition and stretch its duration across months.
+The bound is symmetric because the client creates the session ID with its own clock while the server corrects event timestamps, so a client clock that is a few days ahead still gives a real session.
+
 ### Why session properties are central to web analytics
 
 Session properties enable fast, attribution-focused analysis:

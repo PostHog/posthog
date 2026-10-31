@@ -12,24 +12,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
-    AUDIENCE_RETENTION,
     DATA_LATENCY_DAYS,
     DAY_DIMENSION_WINDOW_DAYS,
     DAY_FIELD,
     DEFAULT_LOOKBACK_DAYS,
     FULL_REFRESH_PRIMARY_KEYS,
     MAX_CHANNELS_PER_PAGE,
-    MAX_RETENTION_VIDEOS,
+    MAX_PER_VIDEO_REPORT_VIDEOS,
+    MAX_PLAYLISTS_PER_PAGE,
     MAX_VIDEOS_PER_PAGE,
     MIN_START_DATE,
-    RETENTION_DIMENSION,
-    RETENTION_METRICS,
+    PER_VIDEO_REPORTS,
     VIDEO_PARTS,
     VIDEOS,
     YOUTUBE_ANALYTICS_HOST,
     YOUTUBE_ANALYTICS_REPORTS,
     YOUTUBE_DATA_HOST,
     YouTubeAnalyticsReportConfig,
+    YouTubeAnalyticsVideoReportConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 120
@@ -267,6 +267,33 @@ def _fetch_window(
     return collected
 
 
+def _playlist_ids(
+    client: YouTubeAnalyticsClient,
+    channel_id: str | None,
+    resumable_source_manager: ResumableSourceManager[YouTubeAnalyticsResumeConfig],
+) -> list[str]:
+    """IDs of the playlists the channel owns. Playlist reports only cover the owner's playlists."""
+    params = {"part": "id", "maxResults": str(MAX_PLAYLISTS_PER_PAGE)}
+    cleaned = (channel_id or "").strip()
+    if cleaned:
+        params["channelId"] = cleaned
+    else:
+        params["mine"] = "true"
+    # A playlist created mid-walk shifts the list, which can repeat a playlist on the next page.
+    playlist_ids: dict[str, None] = {}
+    while True:
+        body = client.get_json(f"{YOUTUBE_DATA_HOST}/playlists?{urlencode(params)}")
+        for item in body.get("items") or []:
+            if item.get("id"):
+                playlist_ids[item["id"]] = None
+        page_token = body.get("nextPageToken")
+        if not page_token:
+            return list(playlist_ids)
+        params["pageToken"] = page_token
+        # No report row has been read yet, so a hand-off here loses nothing.
+        resumable_source_manager.safe_point()
+
+
 def get_rows(
     access_token: str,
     refresh_access_token: AccessTokenRefresher | None,
@@ -298,13 +325,20 @@ def get_rows(
             cursor = resumed.date()
             logger.debug(f"YouTube Analytics: resuming {endpoint} from {cursor.isoformat()}")
 
+    filter_values: tuple[str | None, ...] = report.filter_values or (None,)
+    if report.filter_values_from_playlists:
+        filter_values = tuple(_playlist_ids(client, channel_id, resumable_source_manager))
+        if not filter_values:
+            logger.debug(f"YouTube Analytics: the channel owns no playlists, so {endpoint} has nothing to sync")
+            resumable_source_manager.clear_state()
+            return
+
     while cursor <= end_day:
         if report.day_is_dimension:
             window_end = min(cursor + timedelta(days=DAY_DIMENSION_WINDOW_DAYS - 1), end_day)
         else:
             window_end = cursor
 
-        filter_values: tuple[str | None, ...] = report.filter_values or (None,)
         for filter_value in filter_values:
             rows = _fetch_window(client, report, ids, cursor, window_end, filter_value)
             if rows:
@@ -387,7 +421,8 @@ def get_video_rows(
             break
 
 
-def get_audience_retention_rows(
+def get_per_video_rows(
+    report: YouTubeAnalyticsVideoReportConfig,
     access_token: str,
     refresh_access_token: AccessTokenRefresher | None,
     channel_id: str | None,
@@ -396,7 +431,7 @@ def get_audience_retention_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[YouTubeAnalyticsResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Retention curves over the sync window for the channel's top videos by views in that window."""
+    """One report per video over the sync window, for the channel's top videos by views in that window."""
     client = YouTubeAnalyticsClient(
         access_token, refresh_access_token=refresh_access_token, api_version=api_version, logger=logger
     )
@@ -407,17 +442,16 @@ def get_audience_retention_rows(
         return
 
     window = {"ids": channel_ids_param(channel_id), "startDate": start_day.isoformat(), "endDate": end_day.isoformat()}
-    top_videos = rows_from_result(
-        client.query(
-            {
-                **window,
-                "dimensions": "video",
-                "metrics": "views",
-                "sort": "-views",
-                "maxResults": str(MAX_RETENTION_VIDEOS),
-            }
-        )
-    )
+    top_videos_params = {
+        **window,
+        "dimensions": "video",
+        "metrics": "views",
+        "sort": "-views",
+        "maxResults": str(MAX_PER_VIDEO_REPORT_VIDEOS),
+    }
+    if report.video_filter:
+        top_videos_params["filters"] = report.video_filter
+    top_videos = rows_from_result(client.query(top_videos_params))
 
     for video_id in [row.get("video") for row in top_videos]:
         if not video_id:
@@ -427,8 +461,8 @@ def get_audience_retention_rows(
             client.query(
                 {
                     **window,
-                    "dimensions": RETENTION_DIMENSION,
-                    "metrics": ",".join(RETENTION_METRICS),
+                    "dimensions": report.dimension,
+                    "metrics": ",".join(report.metrics),
                     "filters": f"video=={video_id}",
                 }
             )
@@ -466,10 +500,12 @@ def youtube_analytics_source(
             primary_keys=FULL_REFRESH_PRIMARY_KEYS[VIDEOS],
         )
 
-    if endpoint == AUDIENCE_RETENTION:
+    if endpoint in PER_VIDEO_REPORTS:
+        per_video_report = PER_VIDEO_REPORTS[endpoint]
         return SourceResponse(
             name=endpoint,
-            items=lambda: get_audience_retention_rows(
+            items=lambda: get_per_video_rows(
+                report=per_video_report,
                 access_token=access_token,
                 refresh_access_token=refresh_access_token,
                 channel_id=channel_id,
@@ -478,7 +514,7 @@ def youtube_analytics_source(
                 logger=logger,
                 resumable_source_manager=resumable_source_manager,
             ),
-            primary_keys=FULL_REFRESH_PRIMARY_KEYS[AUDIENCE_RETENTION],
+            primary_keys=per_video_report.primary_keys,
         )
 
     report = YOUTUBE_ANALYTICS_REPORTS[endpoint]
@@ -503,5 +539,5 @@ def youtube_analytics_source(
         partition_mode="datetime",
         partition_format="month",
         partition_keys=[DAY_FIELD],
-        sort_mode="asc",
+        sort_mode="asc" if report.rows_ascend_by_day else None,
     )

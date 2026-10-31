@@ -45,7 +45,7 @@ const getIncrementalSyncSupported = (
         return {
             disabled: true,
             disabledReason:
-                "Incremental replication isn't supported on this table. Use full table replication instead.",
+                "Incremental replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
         }
     }
 
@@ -69,7 +69,7 @@ const getAppendOnlySyncSupported = (
         return {
             disabled: true,
             disabledReason:
-                "Append only replication isn't supported on this table. Use full table replication instead.",
+                "Append only replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
         }
     }
 
@@ -336,8 +336,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             <div className="font-normal mb-2">
                                                 <div className="font-semibold">CDC history table only</div>
                                                 <p className="m-0 text-secondary text-sm">
-                                                    Full audit trail in a <code>_cdc</code>-suffixed table with{' '}
-                                                    <code>valid_from</code> / <code>valid_to</code> columns.
+                                                    Full audit trail in a separate history table, with a validity
+                                                    interval on every row.
                                                 </p>
                                             </div>
                                         ),
@@ -348,8 +348,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             <div className="font-normal mb-2">
                                                 <div className="font-semibold">Both</div>
                                                 <p className="m-0 text-secondary text-sm">
-                                                    Consolidated current-state table plus a separate <code>_cdc</code>
-                                                    -suffixed history table.
+                                                    Consolidated current-state table plus a separate history table.
                                                 </p>
                                             </div>
                                         ),

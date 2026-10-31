@@ -10,6 +10,7 @@ import { runInteractionLogic, type RunInteractionLogicProps } from 'products/pos
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { QuillTaskComposerSkeleton } from '../../../components/quill/QuillTaskComposerSkeleton'
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
@@ -18,7 +19,6 @@ import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
 import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
-import { QuillTaskComposerSkeleton } from './QuillTaskComposerSkeleton'
 import { TaskRunComposer } from './TaskRunComposer'
 
 export interface TaskRunChatProps {

@@ -1,0 +1,65 @@
+# Components that use a stylesheet's block class without importing the stylesheet (see frontend/bin/cssCoupling.mjs).
+# Grandfathered debt: the check fails on a coupling that is NOT listed here.
+#
+# DO NOT EDIT BY HAND. Mechanical output of `hogli lint:frontend-css-coupling --update-baseline`.
+# Fixed one? Run `hogli lint:frontend-css-coupling --prune-baseline` to drop it.
+frontend/src/layout/navigation-3000/components/SimpleLayoutFrame.tsx -> .Navigation3000
+frontend/src/layout/navigation-3000/layout-modes/TodayFramedLayout.tsx -> .TodayAppLayout
+frontend/src/layout/navigation-3000/layout-modes/TodayPhoneLayout.tsx -> .TodayAppLayout
+frontend/src/layout/today/TodayAnalyticsSidebar.tsx -> .TodayPane
+frontend/src/layout/today/TodayContextPanelContent.tsx -> .TodayContextPanelContent
+frontend/src/layout/today/TodayContextPanelLauncher.tsx -> .TodayContextPanelButton
+frontend/src/layout/today/TodayPaneRow.tsx -> .TodayIconBadge
+frontend/src/layout/today/TodayPaneSearchList.tsx -> .TodayPaneSearchList
+frontend/src/layout/today/TodayPhoneHeader.tsx -> .TodayPhoneHeader
+frontend/src/layout/today/TodayProductHoverCard.tsx -> .TodayIconBadge
+frontend/src/layout/today/TodayProductsSidebar.tsx -> .TodayPane
+frontend/src/layout/today/TodaySettingsSidebar.tsx -> .TodayPane
+frontend/src/layout/today/TodaySpacesSidebar.tsx -> .TodayPane
+frontend/src/layout/today/TodayTabBar.tsx -> .TodayTabBar
+frontend/src/layout/today/TodayTopBar.tsx -> .TodayTopBar
+frontend/src/lib/components/TileDecorations/TileDecorations.tsx -> .LemonIcon
+frontend/src/lib/lemon-ui/Spinner/Spinner.tsx -> .LemonIcon
+frontend/src/lib/monaco/CodeEditorResizable.tsx -> .CodeEditorResizeable
+frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> .InsightVizDisplay
+frontend/src/scenes/dashboard/items/DashboardErrorTileItem.tsx -> .InsightCard
+frontend/src/scenes/data-warehouse/editor/SQLEditor.tsx -> .EditorScene
+frontend/src/scenes/feature-flags/FeatureFlagVariantsForm.tsx -> .VariantFormList
+frontend/src/scenes/feature-flags/PercentageInput.tsx -> .LemonInput
+frontend/src/scenes/notebooks/Nodes/components/NotebookNodeTitle.tsx -> .NotebookNodeTitle
+frontend/src/scenes/onboarding/productSelection/ProductSelection.tsx -> .OnboardingProductCard
+frontend/src/scenes/project-homepage/today/TodayChange.tsx -> .TodayChange
+frontend/src/scenes/project-homepage/today/TodayCodeExcerpt.tsx -> .TodayCodeExcerpt
+frontend/src/scenes/project-homepage/today/TodayEvidenceDetail.tsx -> .TodayCodeExcerpt
+frontend/src/scenes/project-homepage/today/TodayEvidenceDetail.tsx -> .TodayEvidenceDetail
+frontend/src/scenes/project-homepage/today/TodayExplore.tsx -> .TodayJumpList
+frontend/src/scenes/project-homepage/today/TodayExplore.tsx -> .TodayJumpRow
+frontend/src/scenes/project-homepage/today/TodayFigureMark.tsx -> .TodayFigureMark
+frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRow
+frontend/src/scenes/project-homepage/today/TodayForYou.tsx -> .TodayRows
+frontend/src/scenes/project-homepage/today/TodayHomePage.tsx -> .TodayHome
+frontend/src/scenes/project-homepage/today/TodayHomePage.tsx -> .TodayPulse
+frontend/src/scenes/project-homepage/today/TodayHoverMark.tsx -> .TodayHoverMark
+frontend/src/scenes/project-homepage/today/TodayImplementMenu.tsx -> .TodayImplementMenu
+frontend/src/scenes/project-homepage/today/TodayKeyClauseMark.tsx -> .TodayKeyClauseMark
+frontend/src/scenes/project-homepage/today/TodayPulse.tsx -> .TodayPulse
+frontend/src/scenes/project-homepage/today/TodayRecents.tsx -> .TodayJumpList
+frontend/src/scenes/project-homepage/today/TodayRecents.tsx -> .TodayJumpRow
+frontend/src/scenes/project-homepage/today/TodayReportBody.tsx -> .TodayReportArticle
+frontend/src/scenes/project-homepage/today/TodayReportNav.tsx -> .TodayReportNav
+frontend/src/scenes/project-homepage/today/TodayReportPage.tsx -> .TodayReport
+frontend/src/scenes/session-recordings/player/controller/PlayerController.tsx -> .SkipToNextButton
+frontend/src/scenes/session-recordings/player/controller/PlayerControllerTime.tsx -> .PlayerControlSeekIcon
+frontend/src/scenes/session-recordings/player/controller/PlayerSeekbarTicks.tsx -> .PlayerSeekbarTicks
+frontend/src/scenes/session-recordings/playlist/SessionRecordingPreviewCompact.tsx -> .SessionRecordingPreview
+frontend/src/scenes/session-recordings/playlist/SessionRecordingPreviewFeed.tsx -> .SessionRecordingPreview
+frontend/src/scenes/surveys/SurveyDragHandle.tsx -> .SurveyQuestionDragHandle
+products/business_intelligence/frontend/BIPivotTable.tsx -> .DataVisualizationTable
+products/dashboards/frontend/components/ImageTile/DashboardImageTile.tsx -> .DashboardTileCard
+products/product_analytics/frontend/insights/funnels/Funnel.tsx -> .FunnelInsight
+products/product_analytics/frontend/insights/insightScene/InsightSkeleton.tsx -> .InsightVizDisplay
+products/product_analytics/frontend/insights/insightScene/SqlInsightFilters.tsx -> .InsightVizDisplay
+products/product_analytics/frontend/insights/retention/RetentionContainer.tsx -> .RetentionContainer
+products/product_analytics/frontend/insights/trends/Trends.tsx -> .TrendsInsight
+products/workflows/frontend/TemplateLibrary/MessageTemplateCard.tsx -> .MessageTemplateItem
+products/workflows/frontend/Workflows/hogflows/editor/tile-canvas/TileCanvasContent.tsx -> .TileCanvas

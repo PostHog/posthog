@@ -48,7 +48,7 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
-from posthog.hogql.type_system import parse_sql_runtime_type
+from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
@@ -302,10 +302,20 @@ class ClickHousePrinter(BasePrinter):
                 first_arg is not None
                 and first_arg.type is not None
                 and (
-                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                    first_arg_was_alias
+                    or isinstance(first_arg, ast.Call)
+                    or isinstance(first_arg.type, (ast.FieldType, ast.FieldAliasType))
                 )
             ):
                 first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
+            elif (
+                isinstance(first_arg, ast.TupleAccess)
+                and isinstance(first_arg.tuple, ast.Field)
+                and isinstance(first_arg.tuple.type, ast.FieldAliasType)
+            ):
+                first_arg_constant_type = infer_tuple_access_constant_type(
+                    first_arg.tuple.type.resolve_constant_type(self.context), first_arg.index
+                )
             elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
                 first_arg_constant_type = node.type.arg_types[0]
 
@@ -1232,11 +1242,13 @@ class ClickHousePrinter(BasePrinter):
         node_type: ast.TableOrSelectType | None,
     ) -> ast.Expr | None:
         from posthog.hogql.database.schema.events import EventsTable
+        from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 
         months = self.context.events_retention_months
         if months is None or node_type is None or not isinstance(table_type, ast.TableType):
             return None
-        if not isinstance(table_type.table, EventsTable):
+        # flag_evaluations holds flag calls that are events too, and a query on events can read them from there.
+        if not isinstance(table_type.table, (EventsTable, FlagEvaluationsTable)):
             return None
         return retention_floor_for_table(node_type, months)
 

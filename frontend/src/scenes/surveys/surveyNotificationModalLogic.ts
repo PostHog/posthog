@@ -28,6 +28,7 @@ import {
     getSurveyIdBasedResponseKey,
     surveyEmitsPartialSentEvents,
 } from 'scenes/surveys/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -54,6 +55,8 @@ import {
     SurveyEventName,
     SurveyEventProperties,
     SurveyQuestionType,
+    TeamPublicType,
+    TeamType,
 } from '~/types'
 
 import type {
@@ -265,12 +268,17 @@ function buildSurveyNotificationForm(survey: SurveyNotificationContext): SurveyN
     }
 }
 
-function buildTemplateGlobals(survey: SurveyNotificationContext): CyclotronJobInvocationGlobals {
+export function buildTemplateGlobals(
+    survey: SurveyNotificationContext,
+    team: TeamType | TeamPublicType | null
+): CyclotronJobInvocationGlobals {
+    // The test send posts a real message, and its "View survey" link is built from project.url,
+    // so a placeholder project here ends up as a dead link in the customer's Slack channel.
     return buildSurveyExampleInvocationGlobals({
         survey,
-        projectId: 1,
-        projectName: 'Project',
-        projectUrl: 'https://app.posthog.com/project/1',
+        projectId: team?.id ?? 0,
+        projectName: team?.name ?? 'Default project',
+        projectUrl: `${window.location.origin}/project/${team?.id}`,
     })
 }
 
@@ -998,6 +1006,7 @@ export interface surveyNotificationModalLogicValues {
     surveyLoading: boolean // surveyLogic
     surveyNotifications: HogFunctionType[] // surveyLogic
     surveyNotificationsLoading: boolean // surveyLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     copiedNotification: HogFunctionType | null
     editingNotification: HogFunctionType | null
     hasSlackIntegration: boolean
@@ -1257,7 +1266,10 @@ export interface surveyNotificationModalLogicMeta {
             integrations: IntegrationType[] | null,
             notificationForm: SurveyNotificationForm
         ) => IntegrationType | null
-        templateGlobals: (survey: NewSurvey | Survey) => CyclotronJobInvocationGlobals
+        templateGlobals: (
+            survey: NewSurvey | Survey,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => CyclotronJobInvocationGlobals
         submitDisabledReason: (
             survey: NewSurvey | Survey,
             notificationFormErrors: DeepPartialMap<SurveyNotificationForm, ValidationErrorType>,
@@ -1285,6 +1297,8 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
             ['integrations'],
             surveyLogic({ id: props.surveyId }),
             ['survey', 'surveyLoading', 'surveyNotifications', 'surveyNotificationsLoading'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             surveyLogic({ id: props.surveyId }),
@@ -1450,7 +1464,11 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                 integrations?.find((integration: IntegrationType) => integration.id === form.slackIntegrationId) ??
                 null,
         ],
-        templateGlobals: [(s) => [s.survey], (survey: SurveyNotificationContext) => buildTemplateGlobals(survey)],
+        templateGlobals: [
+            (s) => [s.survey, s.currentTeam],
+            (survey: SurveyNotificationContext, currentTeam: TeamType | TeamPublicType | null) =>
+                buildTemplateGlobals(survey, currentTeam),
+        ],
         submitDisabledReason: [
             (s) => [
                 s.survey,

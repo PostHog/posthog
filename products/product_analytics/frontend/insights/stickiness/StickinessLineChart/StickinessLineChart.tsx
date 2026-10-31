@@ -67,6 +67,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         stickinessFilter,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         showValuesOnSeries,
         isSingleSeriesDefinition,
@@ -77,8 +78,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const seriesIdentification = useMemo(
@@ -91,6 +92,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -99,6 +101,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             }),
         [
             querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -132,20 +135,13 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 yAxisScaleType,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
-                tooltip: { ...tooltipConfig, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: tooltipConfig,
             }),
             curve: chartStyleCurve(stickinessFilter?.chartStyle),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [
-            context?.dashboardResultMenu,
-            yAxisScaleType,
-            showValuesOnSeries,
-            legendConfig,
-            tooltipConfig,
-            stickinessFilter?.chartStyle,
-        ]
+        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -227,6 +223,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

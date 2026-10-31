@@ -446,7 +446,7 @@ export const VisionAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
- * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
  */
 export const VisionObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
     .object({
@@ -464,7 +464,7 @@ export const VisionObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
                 'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
             ),
     })
-    .describe('Why the calling user marked an observation not useful in What to watch.')
+    .describe('Why the calling user marked an observation not useful in the Highlights feed.')
 
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
@@ -486,8 +486,8 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
- * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+ * It embeds text, so it is a POST rather than part of the read.
  */
 export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
     scanner_id: zod
@@ -1037,7 +1037,7 @@ export const VisionScannersBackfillsEstimateCreateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Mark this observation not useful for the calling user, with an optional reason. What to watch stops showing it to that user. Sending it again replaces the reason.
+ * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
  */
 export const VisionScannersObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1055,7 +1055,7 @@ export const VisionScannersObservationsFeedDismissalCreateBody = /* @__PURE__ */
                 'Optional reason the observation was not useful. Omit or send null when the user gave none.\n\n\* `not_a_real_problem` - Not a real problem\n\* `already_known` - Already known\n\* `not_my_area` - Not my area\n\* `other` - Other'
             ),
     })
-    .describe('Why the calling user marked an observation not useful in What to watch.')
+    .describe('Why the calling user marked an observation not useful in the Highlights feed.')
 
 /**
  * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires editor access to the scanner.
@@ -1379,6 +1379,12 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .describe(
                 'A launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it.'
             ),
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                "A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`\/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions."
+            ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")
 
@@ -1474,6 +1480,26 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
 
 /**
+ * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
+ */
+export const visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax = 100
+
+export const VisionScannersHighlightFeedImpressionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        feed_load_id: zod
+            .uuid()
+            .describe("The client's id for the feed load that showed these cards. One load counts each card once."),
+        observation_ids: zod
+            .array(zod.uuid())
+            .min(1)
+            .max(visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax)
+            .describe(
+                'Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/highlight_feed_impressions\/.')
+
+/**
  * Scan named sessions against a prompt without saving a scanner first, for one-off questions.
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
@@ -1540,23 +1566,3 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
     .describe(
         'Body of POST \/vision\/scanners\/inline_scan\/ - a prompt or built-in scan plus the sessions to point it at.'
     )
-
-/**
- * Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time.
- */
-export const visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax = 100
-
-export const VisionScannersWatchFeedImpressionsCreateBody = /* @__PURE__ */ zod
-    .object({
-        feed_load_id: zod
-            .uuid()
-            .describe("The client's id for the feed load that showed these cards. One load counts each card once."),
-        observation_ids: zod
-            .array(zod.uuid())
-            .min(1)
-            .max(visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax)
-            .describe(
-                'Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.'
-            ),
-    })
-    .describe('Body of POST \/vision\/scanners\/watch_feed_impressions\/.')

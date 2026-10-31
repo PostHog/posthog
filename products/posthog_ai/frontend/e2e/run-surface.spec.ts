@@ -111,8 +111,8 @@ async function routeTasksApi(page: Page, mock: TasksApiMock): Promise<void> {
     const runsRe = new RegExp(`/tasks/${TASK_ID}/runs/$`)
     const runRe = new RegExp(`/tasks/${TASK_ID}/runs/${RUN_ID}/$`)
     const tokenRe = new RegExp(`/runs/${RUN_ID}/stream_token/$`)
-    // A paged read (`.../logs?tail_bytes=...`) has no trailing slash either, like the `stream` action below.
-    const logsRe = new RegExp(`/runs/${RUN_ID}/logs/?$`)
+    // A paged read (`.../log_entries?tail_bytes=...`) has no trailing slash either, like the `stream` action below.
+    const logsRe = new RegExp(`/runs/${RUN_ID}/log_entries/?$`)
     // The `stream` action URL has no trailing slash (`.../stream?start=latest`), unlike the other
     // resource paths — match it with an optional slash so the route intercepts instead of falling through
     // to the real backend (a fall-through 404s the fake run id and masks the clean-EOF drop under test).

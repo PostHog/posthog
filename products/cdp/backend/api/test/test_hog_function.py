@@ -7,6 +7,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -2802,6 +2803,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "PostHog connection" in json.dumps(response.json())
         mock_create_hog_invocation_test.assert_not_called()
 
+    def test_test_invocation_of_unsaved_function_cannot_borrow_a_hidden_templates_reserved_calls(self):
+        self._create_email_template()
+
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={
+                    "configuration": {
+                        "type": "destination",
+                        "name": "Sneaky",
+                        "template_id": "template-email-test",
+                        "hog": "sendEmail({'to': {'email': 'someone@example.com'}, 'subject': 'hi'})",
+                        "inputs": {},
+                    },
+                    "mock_async_functions": False,
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "is internal and cannot be used" in json.dumps(response.json())
+        mock_create_hog_invocation_test.assert_not_called()
+
     @parameterized.expand(
         [
             ("errors_list", {"errors": ["Missing event"]}, ["Missing event"]),
@@ -3768,6 +3793,37 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
         assert response.json()["count"] == 150, "Total count should still be 150"
+
+    def _create_functions_from_template(self, count: int) -> None:
+        template = HogFunctionTemplate.get_template(template_slack.id)
+        for i in range(count):
+            HogFunction.objects.create(
+                team=self.team,
+                name=f"Query count function {i}",
+                hog="return event",
+                type="destination",
+                enabled=False,
+                created_by=self.user,
+                template_id=template_slack.id,
+                hog_function_template=template,
+            )
+
+    def _list_query_count(self, expected_results: int) -> int:
+        url = f"/api/projects/{self.team.id}/hog_functions/"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == expected_results
+        return len(ctx.captured_queries)
+
+    def test_list_query_count_does_not_grow_with_function_count(self):
+        self._create_functions_from_template(2)
+        few = self._list_query_count(2)
+        self._create_functions_from_template(4)
+        many = self._list_query_count(6)
+
+        assert few == many, f"listing 6 functions cost {many} queries vs {few} for 2, so something N+1s"
 
     @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=False)
     def test_enable_backfills_blocked_without_feature_flag(self, mock_feature_enabled):
