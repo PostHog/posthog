@@ -169,7 +169,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show legendLegend positionBottom'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -183,7 +183,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show as % of total', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show as % of total', 'Show legendLegend positionBottom'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -197,7 +197,7 @@ describe('InsightDisplayConfig', () => {
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show as % of total', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show as % of total', 'Show legendLegend positionBottom'],
                 },
             ],
             [
@@ -217,7 +217,7 @@ describe('InsightDisplayConfig', () => {
                         'Show names on slices',
                         'Show total below chart',
                         // In-chart legend toggle + position select ("Bottom" is the prospective default)
-                        'Show legendBottom',
+                        'Show legendLegend positionBottom',
                     ],
                 },
             ],
@@ -232,7 +232,7 @@ describe('InsightDisplayConfig', () => {
                         'Show as % of total',
                         'Show names on slices',
                         'Show total in center',
-                        'Show legendBottom',
+                        'Show legendLegend positionBottom',
                     ],
                 },
             ],
@@ -286,7 +286,7 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: [],
                     sections: { General: ['Y-axis', 'Style'] },
-                    displayItems: ['Show values on series', 'Show legendBottom'],
+                    displayItems: ['Show values on series', 'Show legendLegend positionBottom'],
                 },
             ],
             ['stickiness table', makeStickinessQuery(ChartDisplayType.ActionsTable), { tabs: [], sections: {} }],
@@ -300,7 +300,7 @@ describe('InsightDisplayConfig', () => {
                         'Stack bars',
                         'Show values on series',
                         'Show percentages on series',
-                        'Show legendRight',
+                        'Show legendLegend positionRight',
                     ],
                 },
             ],
@@ -384,9 +384,9 @@ describe('InsightDisplayConfig', () => {
             expect(getSectionItems('options-overlays-section')).toEqual([
                 'Show trend lines',
                 'Show moving average',
-                'Intervalsdays',
+                'Intervals days',
                 'Show confidence intervals',
-                'Confidence level%',
+                'Confidence level %',
                 'Show alert threshold lines',
             ])
         })
@@ -457,7 +457,7 @@ describe('InsightDisplayConfig', () => {
     })
 
     describe('in-chart legend position options', () => {
-        it('keeps the "Show legend" checkbox and adds a position select on the same row', async () => {
+        it('shows the "Show legend" toggle with a position select', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph))
             await openOptionsMenu()
 
@@ -484,7 +484,7 @@ describe('InsightDisplayConfig', () => {
             expect(legendItem).toMatch(/Bottom|Right/)
         })
 
-        it('keeps the plain "Show legend" checkbox for the aggregated bar-value chart', async () => {
+        it('keeps the plain "Show legend" toggle for the aggregated bar-value chart', async () => {
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsBarValue))
             await openOptionsMenu()
 

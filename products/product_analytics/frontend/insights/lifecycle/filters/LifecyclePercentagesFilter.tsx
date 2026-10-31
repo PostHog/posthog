@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -10,14 +10,10 @@ export function LifecyclePercentagesFilter(): JSX.Element {
     const { showPercentagesOnSeries } = useValues(insightVizDataLogic(insightProps))
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <ChartOptionSwitch
+            label="Show percentages on series"
             checked={!!showPercentagesOnSeries}
-            onChange={() => {
-                updateInsightFilter({ showPercentagesOnSeries: !showPercentagesOnSeries })
-            }}
-            label={<span className="font-normal">Show percentages on series</span>}
-            size="small"
+            onChange={(checked) => updateInsightFilter({ showPercentagesOnSeries: checked })}
         />
     )
 }

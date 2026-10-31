@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { PercentOfTotalOption } from 'lib/components/ChartOptions/PercentOfTotalOption'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
@@ -11,14 +11,9 @@ export function PercentStackViewFilter(): JSX.Element {
     const { updateInsightFilter } = useActions(trendsDataLogic(insightProps))
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <PercentOfTotalOption
             checked={!!showPercentStackView}
-            onChange={(checked) => {
-                updateInsightFilter({ showPercentStackView: checked })
-            }}
-            label={<span className="font-normal">Show as % of total</span>}
-            size="small"
+            onChange={(checked) => updateInsightFilter({ showPercentStackView: checked })}
         />
     )
 }

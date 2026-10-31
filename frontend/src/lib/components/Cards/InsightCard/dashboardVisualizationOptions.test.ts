@@ -321,8 +321,8 @@ describe('dashboardVisualizationOptions', () => {
             )
             const view = render(displayOptionsElement(result.current))
 
-            expect(await screen.findByText('Right Y-axis')).toBeInTheDocument()
-            expect(screen.getByText('Goals')).toBeInTheDocument()
+            expect(await screen.findByText('Axes')).toBeInTheDocument()
+            expect(screen.getByText('Goal lines')).toBeInTheDocument()
 
             rerender({
                 ...baseProps,
@@ -334,8 +334,8 @@ describe('dashboardVisualizationOptions', () => {
             view.rerender(displayOptionsElement(result.current))
 
             expect(await screen.findByText('Show on slices')).toBeInTheDocument()
-            expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
-            expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+            expect(screen.queryByText('Axes')).not.toBeInTheDocument()
+            expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
         })
 
         it('routes display setting changes through SQL-safe persistence', async () => {

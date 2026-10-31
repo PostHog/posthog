@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
@@ -51,11 +51,9 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
-        await user.click(await screen.findByText('Left Y-axis'))
-        await user.click(screen.getByText('Right Y-axis'))
+        await user.click(await screen.findByText('Axes'))
 
-        expect(screen.getByText('Show X-axis tick labels')).toBeInTheDocument()
-        expect(screen.getAllByText('Show tick labels')).toHaveLength(2)
+        expect(screen.getAllByText('Show tick labels')).toHaveLength(3)
         expect(screen.queryByText('Show X-axis labels')).not.toBeInTheDocument()
         expect(screen.queryByText('Show labels')).not.toBeInTheDocument()
     })
@@ -162,13 +160,13 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
-        await user.type(await screen.findByPlaceholderText('X-axis label'), 'Company size')
-
-        await user.click(screen.getByText('Left Y-axis'))
-        await user.type(await screen.findByPlaceholderText('Left Y-axis label'), 'Accounts')
-
-        await user.click(screen.getByText('Right Y-axis'))
-        await user.type(await screen.findByPlaceholderText('Right Y-axis label'), 'Revenue')
+        await user.click(await screen.findByText('Axes'))
+        await user.type(screen.getByPlaceholderText('X-axis label'), 'Company size')
+        await user.tab()
+        await user.type(screen.getByPlaceholderText('Left Y-axis label'), 'Accounts')
+        await user.tab()
+        await user.type(screen.getByPlaceholderText('Right Y-axis label'), 'Revenue')
+        await user.tab()
 
         await waitFor(() => {
             expect(setQuery).toHaveBeenCalled()
@@ -223,14 +221,15 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
-        expect(await screen.findByText('Y-axis')).toBeInTheDocument()
-        expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
-        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+        expect(await screen.findByText('Axes')).toBeInTheDocument()
+        expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
         expect(screen.queryByText('Show total row')).not.toBeInTheDocument()
         expect(screen.queryByText('Show annotations')).not.toBeInTheDocument()
 
         await user.click(screen.getByText('Exclude outliers'))
-        await user.click(screen.getByText('Y-axis'))
+        await user.click(screen.getByText('Axes'))
+        expect(screen.getByText('Y-axis')).toBeInTheDocument()
+        expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
         expect(screen.queryByText('Begin at zero')).not.toBeInTheDocument()
 
         await waitFor(() => expect(query.chartSettings?.boxPlot?.excludeOutliers).toBe(false))
@@ -274,8 +273,8 @@ describe('DisplayTab', () => {
 
         expect(await screen.findByText('Headline value')).toBeInTheDocument()
         expect(screen.queryByText('Show legend')).not.toBeInTheDocument()
-        expect(screen.queryByText('Left Y-axis')).not.toBeInTheDocument()
-        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
+        expect(screen.queryByText('Axes')).not.toBeInTheDocument()
+        expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
 
         await user.click(screen.getByText('Show change'))
 
@@ -318,16 +317,15 @@ describe('DisplayTab', () => {
 
         const user = userEvent.setup()
 
-        // One gutter per axis, and quill's scatter takes no goal lines.
-        expect(await screen.findByText('X-axis')).toBeInTheDocument()
+        await user.click(await screen.findByText('Show line of best fit'))
+        // Quill's scatter takes no goal lines.
+        expect(screen.queryByText('Goal lines')).not.toBeInTheDocument()
+
+        // One gutter per axis.
+        await user.click(screen.getByText('Axes'))
         expect(screen.getByText('Y-axis')).toBeInTheDocument()
         expect(screen.queryByText('Right Y-axis')).not.toBeInTheDocument()
-        expect(screen.queryByText('Goals')).not.toBeInTheDocument()
-
-        await user.click(screen.getByText('Show line of best fit'))
-
-        await user.click(screen.getByText('X-axis'))
-        await user.click(await screen.findByText('Begin at zero'))
+        await user.click(within(screen.getByText('X-axis').closest('section')!).getByText('Begin at zero'))
 
         // Both live under `scatter`, so the second write must merge into the first rather than replace it.
         await waitFor(() => {

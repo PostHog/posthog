@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
+import { ChartOptionToggleGroup } from 'lib/components/ChartOptions/ChartOptionToggleGroup'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -17,18 +16,13 @@ export function RetentionSeriesColorModePicker(): JSX.Element | null {
     const chartStyle = retentionFilter?.chartStyle
 
     return (
-        <LemonSegmentedButton
-            className="pb-2 px-2"
+        <ChartOptionToggleGroup
             value={chartStyle?.seriesColorMode || 'palette'}
-            onChange={(value) => {
-                updateInsightFilter({ chartStyle: { ...chartStyle, seriesColorMode: value } })
-            }}
+            onChange={(value) => updateInsightFilter({ chartStyle: { ...chartStyle, seriesColorMode: value } })}
             options={[
                 { value: 'palette', label: 'One per cohort' },
                 { value: 'opacity', label: 'One shade' },
             ]}
-            size="small"
-            fullWidth
         />
     )
 }
