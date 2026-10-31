@@ -50,6 +50,12 @@ const templates = {
     ].map(([id, name]) => ({ id, name, transactional_hog_flow_id: id, sensitive: true, deleted: false })),
 }
 
+// The reset password template's count fails to load, so its row shows no count.
+const sentLast30Days: Record<string, number> = {
+    '0190a1b2-0000-7000-8000-000000000001': 1204,
+    '0190a1b2-0000-7000-8000-000000000002': 0,
+}
+
 const meta: Meta = {
     title: 'Products/Workflows/SupabaseAuthEmails',
     component: SupabaseAuthEmails,
@@ -68,6 +74,10 @@ const Template: StoryFn<StoryProps> = ({ settings, setupOpen }) => {
         get: {
             '/api/projects/:team_id/messaging_supabase_auth_emails/settings/': settings,
             '/api/projects/:team_id/messaging_templates/': templates,
+            '/api/projects/:team_id/hog_flows/:id/metrics/totals/': (req) => {
+                const sent = sentLast30Days[req.params.id as string]
+                return sent === undefined ? [500, {}] : [200, { totals: { email_sent: sent } }]
+            },
         },
     })
     const { openSetup } = useActions(supabaseAuthEmailsLogic)
@@ -91,7 +101,7 @@ SetupOpen.parameters = {
     // The modal renders in a portal outside the story root, so only a fullscreen snapshot captures it.
     layout: 'fullscreen',
     testOptions: {
-        waitForSelector: '[data-attr="workflows-supabase-auth-emails-url"]',
+        waitForSelector: ['[data-attr="workflows-supabase-auth-emails-url"]', 'text=Sent 1,204 in the last 30 days'],
         // Tall enough that the modal doesn't scroll, so the snapshot shows all of it.
         viewport: { width: 1280, height: 1600 },
     },
