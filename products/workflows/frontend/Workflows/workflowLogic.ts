@@ -11,6 +11,7 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -4568,7 +4569,12 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.replayDeferredResourceEdited()
         },
         setSyncingExternalEdit: ({ syncing }) => {
-            if (syncing && values.workflowChanged && values.originalWorkflow) {
+            if (
+                syncing &&
+                values.featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS] &&
+                values.workflowChanged &&
+                values.originalWorkflow
+            ) {
                 cache.unsavedEditsBase = withStagedDraft(values.originalWorkflow)
             }
         },

@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -114,6 +117,9 @@ describe('workflowLogic external edits', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS], {
+            [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: true,
+        })
         resourceEditedLogic.mount()
         logic = workflowLogic({ id: WORKFLOW_ID })
         logic.mount()
