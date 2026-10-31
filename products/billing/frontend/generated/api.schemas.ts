@@ -124,6 +124,249 @@ export interface BillingAuthorizationStatusResponseApi {
     success?: boolean
 }
 
+export interface AICreditCardApi {
+    /** The card brand, such as "visa". */
+    brand: string
+    /** The last four digits of the card number. */
+    last4: string
+    /** The month the card expires. */
+    exp_month: number
+    /** The year the card expires. */
+    exp_year: number
+}
+
+export interface AICreditCardResponseApi {
+    /** The card that pays for AI credits. Null when none. */
+    card: AICreditCardApi | null
+}
+
+/**
+ * * `purchase` - Purchase
+ * * `automatic_reload` - Automatic reload
+ */
+export type AICreditHistoryKindEnumApi = (typeof AICreditHistoryKindEnumApi)[keyof typeof AICreditHistoryKindEnumApi]
+
+export const AICreditHistoryKindEnumApi = {
+    Purchase: 'purchase',
+    AutomaticReload: 'automatic_reload',
+} as const
+
+/**
+ * * `added` - Added
+ * * `pending` - Pending
+ */
+export type AICreditHistoryStatusEnumApi =
+    (typeof AICreditHistoryStatusEnumApi)[keyof typeof AICreditHistoryStatusEnumApi]
+
+export const AICreditHistoryStatusEnumApi = {
+    Added: 'added',
+    Pending: 'pending',
+} as const
+
+export interface AICreditHistoryEntryApi {
+    /** When the purchase or reload was made. */
+    created_at: string
+    /** A purchase by a person, or an automatic reload.
+     *
+     * * `purchase` - Purchase
+     * * `automatic_reload` - Automatic reload */
+    kind: AICreditHistoryKindEnumApi
+    /**
+     * The AI credit bought, in USD.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    amount_usd: string
+    /**
+     * The tax charged on it, in USD.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    tax_usd: string
+    /**
+     * The amount charged to the card, in USD.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    total_usd: string
+    /** Pending until the credit reaches the organization's AI balance.
+     *
+     * * `added` - Added
+     * * `pending` - Pending */
+    status: AICreditHistoryStatusEnumApi
+    /**
+     * Stripe's receipt for the payment.
+     * @nullable
+     */
+    receipt_url: string | null
+}
+
+export interface AICreditHistoryResponseApi {
+    /** Purchases and automatic reloads, newest first. */
+    results: AICreditHistoryEntryApi[]
+    /** Whether older entries follow. */
+    has_more: boolean
+}
+
+export interface AICreditPurchaseRequestApi {
+    /**
+     * The AI credit to buy, in USD, such as "50.00". At least $20.00 and at most $1,000,000.00.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    amount_usd: string
+    /**
+     * The total the person confirmed, tax included, from the quote. When the tax has changed since, nothing is charged.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    total_usd: string
+    /**
+     * A new value, such as a UUID, for each purchase the person confirms. Send the same value again to retry that purchase.
+     * @maxLength 100
+     */
+    idempotency_key: string
+}
+
+/**
+ * * `paid` - Paid
+ * * `requires_action` - Requires action
+ */
+export type AICreditPurchaseStatusEnumApi =
+    (typeof AICreditPurchaseStatusEnumApi)[keyof typeof AICreditPurchaseStatusEnumApi]
+
+export const AICreditPurchaseStatusEnumApi = {
+    Paid: 'paid',
+    RequiresAction: 'requires_action',
+} as const
+
+export interface AICreditPurchaseResponseApi {
+    /** Paid, or waiting for the person to authenticate the payment with their bank.
+     *
+     * * `paid` - Paid
+     * * `requires_action` - Requires action */
+    status: AICreditPurchaseStatusEnumApi
+    /**
+     * What the card is charged, in USD.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    total_usd: string
+    /**
+     * Confirm this with Stripe.js when the status is requires_action.
+     * @nullable
+     */
+    client_secret?: string | null
+}
+
+export interface AICreditQuoteResponseApi {
+    /**
+     * The AI credit to buy, in USD.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    amount_usd: string
+    /**
+     * The tax on it, in USD.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    tax_usd: string
+    /**
+     * What the card is charged, in USD.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    total_usd: string
+}
+
+/**
+ * * `card_declined` - Card declined
+ * * `authentication_required` - Card needs authentication
+ * * `no_card` - No card on file
+ */
+export type AIReloadDisabledReasonEnumApi =
+    (typeof AIReloadDisabledReasonEnumApi)[keyof typeof AIReloadDisabledReasonEnumApi]
+
+export const AIReloadDisabledReasonEnumApi = {
+    CardDeclined: 'card_declined',
+    AuthenticationRequired: 'authentication_required',
+    NoCard: 'no_card',
+} as const
+
+export interface AIAutomaticReloadSettingsApi {
+    /** Whether automatic reload is on. */
+    enabled: boolean
+    /**
+     * The AI balance in USD that a reload brings the organization up to.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    target_usd: string | null
+    /**
+     * The most that automatic reloads charge in a billing period, in USD. Null means no limit.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    monthly_reload_limit_usd: string | null
+    /** Why billing turned automatic reload off after a failed reload. Null otherwise.
+     *
+     * * `card_declined` - Card declined
+     * * `authentication_required` - Card needs authentication
+     * * `no_card` - No card on file */
+    disabled_reason: AIReloadDisabledReasonEnumApi | null
+    /**
+     * When billing turned automatic reload off after a failed reload.
+     * @nullable
+     */
+    disabled_at: string | null
+}
+
+export interface AICreditSettingsResponseApi {
+    /**
+     * The most the organization can spend on AI in a billing period, in USD. Null means no limit.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    monthly_spend_limit_usd: string | null
+    /**
+     * Automatic reload charges the card when the AI balance drops below this many USD.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    low_balance_threshold_usd: string | null
+    /** The automatic reload settings. */
+    automatic_reload: AIAutomaticReloadSettingsApi
+}
+
+export interface PatchedAIAutomaticReloadRequestApi {
+    /** Turn automatic reload on or off. */
+    enabled?: boolean
+    /**
+     * Reload when the AI balance drops below this many USD, such as "20.00".
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    low_balance_threshold_usd?: string | null
+    /**
+     * The AI balance in USD that a reload brings the organization up to. At least $20.00 more than the low-balance amount.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    target_usd?: string | null
+    /**
+     * The most that automatic reloads charge in a billing period, in USD. At least $20.00. Pass null for no limit.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    monthly_reload_limit_usd?: string | null
+    /**
+     * The exact words the person agreed to. Turning automatic reload on needs them.
+     * @maxLength 2000
+     */
+    consent_text?: string
+}
+
+export interface PatchedAISpendLimitRequestApi {
+    /**
+     * The most the organization can spend on AI in a billing period, in USD, such as "250.00". Pass null to remove the limit.
+     * @nullable
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    monthly_spend_limit_usd?: string | null
+}
+
 export interface BillingApi {
     /** @maxLength 100 */
     plan: string
@@ -1298,6 +1541,28 @@ export type BillingListParams = {
      * Explicit organization to refresh after payment.
      */
     organization_id?: string
+}
+
+export type BillingAiCreditsHistoryRetrieveParams = {
+    /**
+     * How many entries to return, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * How many of the newest entries to skip.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type BillingAiCreditsQuoteRetrieveParams = {
+    /**
+     * The AI credit to buy, in USD, such as "50.00". At least $20.00 and at most $1,000,000.00.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    amount_usd: string
 }
 
 export type BillingSpendRetrieveParams = {

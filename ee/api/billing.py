@@ -3,11 +3,13 @@ import json
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import timedelta
+from decimal import Decimal
 from typing import Any, Literal, NoReturn, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.db import models
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -645,6 +647,270 @@ class BillingAuthorizationStatusResponseSerializer(serializers.Serializer):
     )
 
 
+# Billing charges between these amounts for AI credit, and refuses anything else.
+MINIMUM_AI_CREDIT_USD = Decimal("20.00")
+MAXIMUM_AI_CREDIT_USD = Decimal("1000000.00")
+
+
+class AICreditsUnavailable(APIException):
+    """Billing doesn't sell AI credits to the organization: it isn't in the rollout, or a partner bills it."""
+
+    status_code = status.HTTP_403_FORBIDDEN
+    default_code = "ai_credits_unavailable"
+    default_detail = "AI credits aren't available for this organization."
+
+
+class AICreditsNoCard(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "ai_credits_no_card"
+    default_detail = "Add a card to your billing details, then try again."
+
+
+class AICreditsTaxUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "ai_credits_tax_unavailable"
+    default_detail = "We can't work out the tax right now. Try again in a minute."
+
+
+class AICreditsCardDeclined(APIException):
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_code = "ai_credits_card_declined"
+    default_detail = "Your bank declined the card. Update your card, then try again."
+
+
+class AICreditsTotalChanged(APIException):
+    """The tax changed after the quote, so billing charged nothing. The page quotes again."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "ai_credits_total_changed"
+    default_detail = "The tax on this purchase changed. Check the new total, then pay again."
+
+
+class AICreditsPurchaseEnded(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "ai_credits_purchase_ended"
+    default_detail = "This purchase ended without a charge. Start a new one."
+
+
+class AICreditsPurchaseUnfinished(APIException):
+    """Billing didn't answer the purchase. A retry with the same idempotency key charges at most once."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "ai_credits_purchase_unfinished"
+    default_detail = "The purchase didn't finish. Try again. You won't be charged twice."
+
+
+class AICreditsSettingsRejected(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "ai_credits_settings_rejected"
+    default_detail = "We couldn't save these settings. Check the amounts and the card on file, then try again."
+
+
+class AIReloadDisabledReason(models.TextChoices):
+    CARD_DECLINED = "card_declined", "Card declined"
+    AUTHENTICATION_REQUIRED = "authentication_required", "Card needs authentication"
+    NO_CARD = "no_card", "No card on file"
+
+
+class AICreditPurchaseStatus(models.TextChoices):
+    PAID = "paid", "Paid"
+    REQUIRES_ACTION = "requires_action", "Requires action"
+
+
+class AICreditHistoryKind(models.TextChoices):
+    PURCHASE = "purchase", "Purchase"
+    AUTOMATIC_RELOAD = "automatic_reload", "Automatic reload"
+
+
+class AICreditHistoryStatus(models.TextChoices):
+    ADDED = "added", "Added"
+    PENDING = "pending", "Pending"
+
+
+def _usd_field(help_text: str, **kwargs: Any) -> serializers.DecimalField:
+    return serializers.DecimalField(max_digits=12, decimal_places=2, help_text=help_text, **kwargs)
+
+
+class AIAutomaticReloadSettingsSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(help_text="Whether automatic reload is on.")
+    target_usd = _usd_field("The AI balance in USD that a reload brings the organization up to.", allow_null=True)
+    monthly_reload_limit_usd = _usd_field(
+        "The most that automatic reloads charge in a billing period, in USD. Null means no limit.", allow_null=True
+    )
+    disabled_reason = serializers.ChoiceField(
+        choices=AIReloadDisabledReason.choices,
+        allow_null=True,
+        help_text="Why billing turned automatic reload off after a failed reload. Null otherwise.",
+    )
+    disabled_at = serializers.DateTimeField(
+        allow_null=True, help_text="When billing turned automatic reload off after a failed reload."
+    )
+
+
+class AICreditSettingsResponseSerializer(serializers.Serializer):
+    monthly_spend_limit_usd = _usd_field(
+        "The most the organization can spend on AI in a billing period, in USD. Null means no limit.",
+        allow_null=True,
+    )
+    low_balance_threshold_usd = _usd_field(
+        "Automatic reload charges the card when the AI balance drops below this many USD.", allow_null=True
+    )
+    automatic_reload = AIAutomaticReloadSettingsSerializer(help_text="The automatic reload settings.")
+
+
+class AISpendLimitRequestSerializer(serializers.Serializer):
+    monthly_spend_limit_usd = _usd_field(
+        'The most the organization can spend on AI in a billing period, in USD, such as "250.00". '
+        "Pass null to remove the limit.",
+        min_value=Decimal("0"),
+        max_value=MAXIMUM_AI_CREDIT_USD,
+        allow_null=True,
+    )
+
+
+class AIAutomaticReloadRequestSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=False, help_text="Turn automatic reload on or off.")
+    low_balance_threshold_usd = _usd_field(
+        'Reload when the AI balance drops below this many USD, such as "20.00".',
+        min_value=Decimal("0"),
+        max_value=MAXIMUM_AI_CREDIT_USD,
+        allow_null=True,
+        required=False,
+    )
+    target_usd = _usd_field(
+        f"The AI balance in USD that a reload brings the organization up to. "
+        f"At least ${MINIMUM_AI_CREDIT_USD} more than the low-balance amount.",
+        min_value=MINIMUM_AI_CREDIT_USD,
+        max_value=MAXIMUM_AI_CREDIT_USD,
+        allow_null=True,
+        required=False,
+    )
+    monthly_reload_limit_usd = _usd_field(
+        f"The most that automatic reloads charge in a billing period, in USD. "
+        f"At least ${MINIMUM_AI_CREDIT_USD}. Pass null for no limit.",
+        min_value=MINIMUM_AI_CREDIT_USD,
+        max_value=MAXIMUM_AI_CREDIT_USD,
+        allow_null=True,
+        required=False,
+    )
+    consent_text = serializers.CharField(
+        required=False,
+        max_length=2000,
+        help_text="The exact words the person agreed to. Turning automatic reload on needs them.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("enabled") is True and not attrs.get("consent_text"):
+            raise ValidationError({"consent_text": "Agree to the automatic charges to turn automatic reload on."})
+        threshold, target = attrs.get("low_balance_threshold_usd"), attrs.get("target_usd")
+        if threshold is not None and target is not None and target - threshold < MINIMUM_AI_CREDIT_USD:
+            raise ValidationError(
+                {"target_usd": f"Reload to at least ${MINIMUM_AI_CREDIT_USD} more than the low-balance amount."}
+            )
+        return attrs
+
+
+class AICreditHistoryRequestSerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        min_value=1, max_value=100, default=50, help_text="How many entries to return, from 1 to 100."
+    )
+    offset = serializers.IntegerField(min_value=0, default=0, help_text="How many of the newest entries to skip.")
+
+
+class AICreditHistoryEntrySerializer(serializers.Serializer):
+    created_at = serializers.DateTimeField(help_text="When the purchase or reload was made.")
+    kind = serializers.ChoiceField(
+        choices=AICreditHistoryKind.choices, help_text="A purchase by a person, or an automatic reload."
+    )
+    amount_usd = _usd_field("The AI credit bought, in USD.")
+    tax_usd = _usd_field("The tax charged on it, in USD.")
+    total_usd = _usd_field("The amount charged to the card, in USD.")
+    status = serializers.ChoiceField(
+        choices=AICreditHistoryStatus.choices,
+        help_text="Pending until the credit reaches the organization's AI balance.",
+    )
+    receipt_url = serializers.URLField(allow_null=True, help_text="Stripe's receipt for the payment.")
+
+
+class AICreditHistoryResponseSerializer(serializers.Serializer):
+    results = AICreditHistoryEntrySerializer(many=True, help_text="Purchases and automatic reloads, newest first.")
+    has_more = serializers.BooleanField(help_text="Whether older entries follow.")
+
+
+class AICreditCardSerializer(serializers.Serializer):
+    brand = serializers.CharField(help_text='The card brand, such as "visa".')
+    last4 = serializers.CharField(help_text="The last four digits of the card number.")
+    exp_month = serializers.IntegerField(help_text="The month the card expires.")
+    exp_year = serializers.IntegerField(help_text="The year the card expires.")
+
+
+class AICreditCardResponseSerializer(serializers.Serializer):
+    card = AICreditCardSerializer(allow_null=True, help_text="The card that pays for AI credits. Null when none.")
+
+
+class AICreditQuoteRequestSerializer(serializers.Serializer):
+    amount_usd = _usd_field(
+        f'The AI credit to buy, in USD, such as "50.00". '
+        f"At least ${MINIMUM_AI_CREDIT_USD} and at most ${MAXIMUM_AI_CREDIT_USD:,}.",
+        min_value=MINIMUM_AI_CREDIT_USD,
+        max_value=MAXIMUM_AI_CREDIT_USD,
+    )
+
+
+class AICreditQuoteResponseSerializer(serializers.Serializer):
+    amount_usd = _usd_field("The AI credit to buy, in USD.")
+    tax_usd = _usd_field("The tax on it, in USD.")
+    total_usd = _usd_field("What the card is charged, in USD.")
+
+
+class AICreditPurchaseRequestSerializer(AICreditQuoteRequestSerializer):
+    total_usd = _usd_field(
+        "The total the person confirmed, tax included, from the quote. "
+        "When the tax has changed since, nothing is charged.",
+        min_value=Decimal("0"),
+    )
+    idempotency_key = serializers.CharField(
+        max_length=100,
+        help_text="A new value, such as a UUID, for each purchase the person confirms. "
+        "Send the same value again to retry that purchase.",
+    )
+
+
+class AICreditPurchaseResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=AICreditPurchaseStatus.choices,
+        help_text="Paid, or waiting for the person to authenticate the payment with their bank.",
+    )
+    total_usd = _usd_field("What the card is charged, in USD.")
+    client_secret = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Confirm this with Stripe.js when the status is requires_action.",
+    )
+
+
+def _ai_credits_error(
+    error: BillingServiceResponseError,
+    organization: Organization,
+    bad_request: type[APIException],
+    unavailable: type[APIException],
+) -> APIException:
+    """The named error for billing's answer to an AI credits call. Billing's own words never reach the page."""
+    logger.warning("ai_credits_billing_error", organization_id=str(organization.id), status=error.status_code)
+    body = error.body if isinstance(error.body, dict) else {}
+    if error.status_code == status.HTTP_400_BAD_REQUEST:
+        return bad_request()
+    if error.status_code == status.HTTP_402_PAYMENT_REQUIRED:
+        return AICreditsCardDeclined()
+    if error.status_code == status.HTTP_403_FORBIDDEN:
+        return AICreditsUnavailable()
+    if error.status_code == status.HTTP_409_CONFLICT:
+        return AICreditsTotalChanged() if body.get("status") == "total_changed" else AICreditsPurchaseEnded()
+    if error.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
+        return unavailable()
+    return BillingServiceError()
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -1179,6 +1445,145 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         billing_manager = self.get_billing_manager()
         res = billing_manager.coupons_overview(organization)
         return Response(res, status=status.HTTP_200_OK)
+
+    def _ai_credits(
+        self,
+        call: Callable[[BillingManager, Organization], dict[str, Any]],
+        *,
+        bad_request: type[APIException] = AICreditsSettingsRejected,
+        unavailable: type[APIException] = BillingServiceError,
+    ) -> dict[str, Any]:
+        if not get_cached_instance_license():
+            raise NotFound("AI credits need PostHog Cloud.")
+        organization = self._get_org_required()
+        try:
+            return call(self.get_billing_manager(), organization)
+        except BillingServiceResponseError as error:
+            raise _ai_credits_error(error, organization, bad_request, unavailable) from error
+        except requests.RequestException as error:
+            logger.warning("ai_credits_billing_unreachable", organization_id=str(organization.id))
+            raise unavailable() from error
+
+    @validated_request(responses={200: OpenApiResponse(response=AICreditSettingsResponseSerializer)})
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="ai_credits/settings",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
+    def ai_credit_settings(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        answer = self._ai_credits(lambda manager, organization: manager.ai_credit_settings(organization))
+        return Response(AICreditSettingsResponseSerializer(answer).data)
+
+    @validated_request(
+        request_serializer=AISpendLimitRequestSerializer,
+        responses={200: OpenApiResponse(response=AICreditSettingsResponseSerializer)},
+    )
+    @action(
+        methods=["PATCH"],
+        detail=False,
+        url_path="ai_credits/settings/spend_limit",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
+    def ai_spend_limit(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        limit = request.validated_data["monthly_spend_limit_usd"]
+        answer = self._ai_credits(
+            lambda manager, organization: manager.update_ai_spend_limit(
+                organization, {"monthly_spend_limit_usd": None if limit is None else str(limit)}
+            )
+        )
+        return Response(AICreditSettingsResponseSerializer(answer).data)
+
+    @validated_request(
+        request_serializer=AIAutomaticReloadRequestSerializer,
+        responses={200: OpenApiResponse(response=AICreditSettingsResponseSerializer)},
+    )
+    @action(
+        methods=["PATCH"],
+        detail=False,
+        url_path="ai_credits/settings/automatic_reload",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
+    def ai_automatic_reload(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        changes = {
+            field: str(value) if isinstance(value, Decimal) else value
+            for field, value in request.validated_data.items()
+        }
+        answer = self._ai_credits(
+            lambda manager, organization: manager.update_ai_automatic_reload(organization, changes)
+        )
+        return Response(AICreditSettingsResponseSerializer(answer).data)
+
+    @validated_request(
+        query_serializer=AICreditHistoryRequestSerializer,
+        responses={200: OpenApiResponse(response=AICreditHistoryResponseSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="ai_credits/history",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
+    def ai_credit_history(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        query = request.validated_query_data
+        answer = self._ai_credits(
+            lambda manager, organization: manager.ai_credit_history(organization, query["limit"], query["offset"])
+        )
+        return Response(AICreditHistoryResponseSerializer(answer).data)
+
+    @validated_request(responses={200: OpenApiResponse(response=AICreditCardResponseSerializer)})
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="ai_credits/card",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
+    def ai_credit_card(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        answer = self._ai_credits(lambda manager, organization: manager.ai_credit_card(organization))
+        return Response(AICreditCardResponseSerializer(answer).data)
+
+    @validated_request(
+        query_serializer=AICreditQuoteRequestSerializer,
+        responses={200: OpenApiResponse(response=AICreditQuoteResponseSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="ai_credits/quote",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
+    def ai_credit_quote(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        amount_usd = str(request.validated_query_data["amount_usd"])
+        answer = self._ai_credits(
+            lambda manager, organization: manager.ai_credit_quote(organization, amount_usd),
+            bad_request=AICreditsNoCard,
+            unavailable=AICreditsTaxUnavailable,
+        )
+        return Response(AICreditQuoteResponseSerializer(answer).data)
+
+    @validated_request(
+        request_serializer=AICreditPurchaseRequestSerializer,
+        responses={200: OpenApiResponse(response=AICreditPurchaseResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="ai_credits/purchase",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
+    def ai_credit_purchase(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        purchase = {
+            "amount_usd": str(data["amount_usd"]),
+            "total_usd": str(data["total_usd"]),
+            "idempotency_key": data["idempotency_key"],
+        }
+        answer = self._ai_credits(
+            lambda manager, organization: manager.purchase_ai_credit(organization, purchase),
+            bad_request=AICreditsNoCard,
+            unavailable=AICreditsPurchaseUnfinished,
+        )
+        return Response(AICreditPurchaseResponseSerializer(answer).data)
 
     @extend_schema(parameters=[BillingUsageRequestSerializer])
     @action(

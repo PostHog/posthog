@@ -61,6 +61,10 @@ BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
 # An export covers every project rather than the chart's top few, so it reads more and is
 # allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.
 BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
+# Billing asks its tax provider for the tax in a quote, and charges the card in a purchase, so both
+# wait longer than a read.
+BILLING_AI_CREDITS_READ_TIMEOUT = (5, 30)
+BILLING_AI_CREDITS_CHARGE_TIMEOUT = (5, 60)
 
 # Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
 # on its read-only billing status path for tokens without a user role.
@@ -1034,6 +1038,56 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def _ai_credits_request(
+        self,
+        organization: Organization,
+        method: Literal["GET", "PATCH", "POST"],
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
+        timeout: tuple[int, int] = BILLING_AI_CREDITS_READ_TIMEOUT,
+    ) -> dict[str, Any]:
+        res = http_session.request(
+            method,
+            f"{BILLING_SERVICE_URL}/api/ai-credits/{path}",
+            headers=self.get_auth_headers(organization),
+            params=params,
+            json=body,
+            timeout=timeout,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res.json()
+
+    def ai_credit_settings(self, organization: Organization) -> dict[str, Any]:
+        return self._ai_credits_request(organization, "GET", "settings")
+
+    def update_ai_spend_limit(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        return self._ai_credits_request(organization, "PATCH", "settings/spend-limit", body=data)
+
+    def update_ai_automatic_reload(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        return self._ai_credits_request(organization, "PATCH", "settings/automatic-reload", body=data)
+
+    def ai_credit_history(self, organization: Organization, limit: int, offset: int) -> dict[str, Any]:
+        return self._ai_credits_request(organization, "GET", "history", params={"limit": limit, "offset": offset})
+
+    def ai_credit_card(self, organization: Organization) -> dict[str, Any]:
+        return self._ai_credits_request(organization, "GET", "card")
+
+    def ai_credit_quote(self, organization: Organization, amount_usd: str) -> dict[str, Any]:
+        return self._ai_credits_request(
+            organization,
+            "GET",
+            "quote",
+            params={"amount_usd": amount_usd},
+            timeout=BILLING_AI_CREDITS_CHARGE_TIMEOUT,
+        )
+
+    def purchase_ai_credit(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        return self._ai_credits_request(
+            organization, "POST", "purchase", body=data, timeout=BILLING_AI_CREDITS_CHARGE_TIMEOUT
+        )
 
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(

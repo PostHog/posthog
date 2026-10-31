@@ -9,8 +9,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AICreditCardResponseApi,
+    AICreditHistoryResponseApi,
+    AICreditPurchaseRequestApi,
+    AICreditPurchaseResponseApi,
+    AICreditQuoteResponseApi,
+    AICreditSettingsResponseApi,
     BillingActivationRequestApi,
     BillingActivationResponseApi,
+    BillingAiCreditsHistoryRetrieveParams,
+    BillingAiCreditsQuoteRetrieveParams,
     BillingAlertCheckNowResponseApi,
     BillingAlertConfigurationApi,
     BillingAlertDeleteDestinationApi,
@@ -58,6 +66,8 @@ import type {
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
     PaginatedBillingTimeSeriesPointListApi,
+    PatchedAIAutomaticReloadRequestApi,
+    PatchedAISpendLimitRequestApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
     ProjectUsageSummaryApi,
@@ -149,6 +159,128 @@ export const billingActivateAuthorizeStatusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(billingAuthorizationStatusRequestApi),
+    })
+}
+
+export const getBillingAiCreditsCardRetrieveUrl = () => {
+    return `/api/billing/ai_credits/card/`
+}
+
+export const billingAiCreditsCardRetrieve = async (options?: RequestInit): Promise<AICreditCardResponseApi> => {
+    return apiMutator<AICreditCardResponseApi>(getBillingAiCreditsCardRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingAiCreditsHistoryRetrieveUrl = (params?: BillingAiCreditsHistoryRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/ai_credits/history/?${stringifiedParams}`
+        : `/api/billing/ai_credits/history/`
+}
+
+export const billingAiCreditsHistoryRetrieve = async (
+    params?: BillingAiCreditsHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<AICreditHistoryResponseApi> => {
+    return apiMutator<AICreditHistoryResponseApi>(getBillingAiCreditsHistoryRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingAiCreditsPurchaseCreateUrl = () => {
+    return `/api/billing/ai_credits/purchase/`
+}
+
+export const billingAiCreditsPurchaseCreate = async (
+    aICreditPurchaseRequestApi: AICreditPurchaseRequestApi,
+    options?: RequestInit
+): Promise<AICreditPurchaseResponseApi> => {
+    return apiMutator<AICreditPurchaseResponseApi>(getBillingAiCreditsPurchaseCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aICreditPurchaseRequestApi),
+    })
+}
+
+export const getBillingAiCreditsQuoteRetrieveUrl = (params: BillingAiCreditsQuoteRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/ai_credits/quote/?${stringifiedParams}`
+        : `/api/billing/ai_credits/quote/`
+}
+
+export const billingAiCreditsQuoteRetrieve = async (
+    params: BillingAiCreditsQuoteRetrieveParams,
+    options?: RequestInit
+): Promise<AICreditQuoteResponseApi> => {
+    return apiMutator<AICreditQuoteResponseApi>(getBillingAiCreditsQuoteRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingAiCreditsSettingsRetrieveUrl = () => {
+    return `/api/billing/ai_credits/settings/`
+}
+
+export const billingAiCreditsSettingsRetrieve = async (options?: RequestInit): Promise<AICreditSettingsResponseApi> => {
+    return apiMutator<AICreditSettingsResponseApi>(getBillingAiCreditsSettingsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingAiCreditsSettingsAutomaticReloadPartialUpdateUrl = () => {
+    return `/api/billing/ai_credits/settings/automatic_reload/`
+}
+
+export const billingAiCreditsSettingsAutomaticReloadPartialUpdate = async (
+    patchedAIAutomaticReloadRequestApi?: PatchedAIAutomaticReloadRequestApi,
+    options?: RequestInit
+): Promise<AICreditSettingsResponseApi> => {
+    return apiMutator<AICreditSettingsResponseApi>(getBillingAiCreditsSettingsAutomaticReloadPartialUpdateUrl(), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAIAutomaticReloadRequestApi),
+    })
+}
+
+export const getBillingAiCreditsSettingsSpendLimitPartialUpdateUrl = () => {
+    return `/api/billing/ai_credits/settings/spend_limit/`
+}
+
+export const billingAiCreditsSettingsSpendLimitPartialUpdate = async (
+    patchedAISpendLimitRequestApi?: PatchedAISpendLimitRequestApi,
+    options?: RequestInit
+): Promise<AICreditSettingsResponseApi> => {
+    return apiMutator<AICreditSettingsResponseApi>(getBillingAiCreditsSettingsSpendLimitPartialUpdateUrl(), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAISpendLimitRequestApi),
     })
 }
 
