@@ -2651,7 +2651,10 @@ export interface _LogsQueryBodyApi {
     searchTerm?: string
     /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
     filterGroup?: LogsFilterGroupInputApi
-    /** Max results (1-1000). */
+    /**
+     * Max results. Values above 2000 are capped at 2000.
+     * @minimum 1
+     */
     limit?: number
     /** Pagination cursor from previous response. */
     after?: string
