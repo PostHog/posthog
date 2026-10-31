@@ -3,7 +3,9 @@ distinct ids off a live person onto persons of their own."""
 
 from __future__ import annotations
 
+import time
 import shlex
+import tempfile
 from collections.abc import Callable, Sequence
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -23,17 +25,21 @@ from posthog.personhog_client.proto import (
 )
 
 from . import cleanup_queue, lookups, observe, repairs
-from .datatypes import RepairAction
 from .flavors import PgMapping, classify_mapping
 
 if TYPE_CHECKING:
     from .verbs import VerbContext
 
-# How long the split waits for its ClickHouse messages before it reports them undelivered.
+# How long the split waits for its own ClickHouse messages to go out before it republishes and checks them.
 _SPLIT_FLUSH_SECONDS = 60.0
 
-# Republish outcomes that leave ClickHouse agreeing with Postgres for the key.
-_RESENT = frozenset({"repaired", "skipped_not_divergent"})
+# A republish command for more distinct ids than this reads them from a file, so the command stays short.
+_INLINE_DISTINCT_IDS = 10
+
+# The pause before the resend tries unconfirmed ids again, for a replica that had not caught up with the split.
+_RESEND_RETRY_SECONDS = 1.0
+
+_sleep = time.sleep
 
 
 class SplitError(Exception):
@@ -166,8 +172,9 @@ def split_distinct_ids(
 
     `Person.split_person` does the split through personhog and refuses one that would leave the person without a
     distinct id; the dry run applies the same check. A distinct id that is not live on this person stops the whole
-    split, so a mistyped id never splits the rest alone. If Kafka does not confirm the split's ClickHouse messages,
-    the moved persons are republished from Postgres once more.
+    split, so a mistyped id never splits the rest alone. Every applied split republishes the moved persons from
+    Postgres and checks the result, and raises with the command that finishes the job when ClickHouse may still
+    show a moved id on this person.
     """
     ids = list(dict.fromkeys(distinct_ids))
     if not ids:
@@ -193,50 +200,87 @@ def split_distinct_ids(
     if not apply:
         log(f"split: would move {len(ids)} distinct ids off person {person_uuid}")
         return []
-    failure: SplitError | None = None
+    failure: Exception | None = None
     try:
         person.split_person(None, None, distinct_ids_to_split=ids)
-    except ValueError as exc:
-        failure = SplitError(str(exc))
+    except Exception as exc:
+        # A failure after the first batch leaves the earlier batches split in Postgres, so they are resent too.
+        failure = exc
     finally:
-        # The split publishes to ClickHouse without waiting, also for the batches done before a failure, and a
-        # command that exits first can lose those messages.
-        undelivered = flush_all_producers(_SPLIT_FLUSH_SECONDS)
-        if undelivered:
-            log(
-                f"split: {undelivered} ClickHouse messages were not delivered; to send them again, run: "
-                f"{_republish_command(team_id, ids)}"
-            )
-    if undelivered and not _resend_split(team_id, person_uuid, ids, log=log):
-        raise SplitError(
-            f"split person {person_uuid} in Postgres, but ClickHouse did not get all of it, and sending it again "
-            f"failed. Do not run a merge a scan suggests for these distinct ids. Run: {_republish_command(team_id, ids)}"
-        ) from failure
+        # The split publishes to ClickHouse without waiting, and a command that exits first can lose those messages.
+        flush_all_producers(_SPLIT_FLUSH_SECONDS)
+    moved: list[str] = []
+    try:
+        moved = _moved_ids(team_id, person_uuid, ids)
+        unconfirmed = _resend_split(team_id, moved, log=log)
+    except Exception as exc:
+        log(f"split: sending the split to ClickHouse again failed: {exc!r}")
+        raise SplitError(_unconfirmed_message(team_id, person_uuid, moved or ids, failure)) from (failure or exc)
+    if unconfirmed:
+        raise SplitError(_unconfirmed_message(team_id, person_uuid, unconfirmed, failure)) from failure
     if failure is not None:
-        raise failure
-    log(f"split: moved {len(ids)} distinct ids off person {person_uuid}")
-    return ids
+        raise SplitError(
+            f"split moved {len(moved)} of {len(ids)} distinct ids off person {person_uuid}, then failed: {failure}"
+        ) from failure
+    if len(moved) < len(ids):
+        raise SplitError(
+            f"split moved {len(moved)} of {len(ids)} distinct ids off person {person_uuid}; check the rest with "
+            "person_inspect"
+        )
+    log(f"split: moved {len(moved)} distinct ids off person {person_uuid}")
+    return moved
 
 
-def _resend_split(team_id: int, person_uuid: str, distinct_ids: list[str], *, log: Callable[[str], None]) -> bool:
-    """Republish the persons the split moved distinct ids to, and return whether ClickHouse got every one.
-
-    Without this, ClickHouse keeps the moved ids on the old person, and a scan suggests merging the two persons
-    back together.
-    """
+def _moved_ids(team_id: int, person_uuid: str, distinct_ids: list[str]) -> list[str]:
     rows = get_distinct_id_rows(team_id, distinct_ids, strong=True)
-    moved = [r.distinct_id for r in rows if not r.is_deleted and r.person_uuid and r.person_uuid != person_uuid]
+    return [r.distinct_id for r in rows if not r.is_deleted and r.person_uuid and r.person_uuid != person_uuid]
+
+
+def _resend_split(team_id: int, moved: list[str], *, log: Callable[[str], None]) -> list[str]:
+    """Republish the persons the split moved distinct ids to, and return the moved ids still unconfirmed.
+
+    Kafka's flush counts only queued messages, not failed deliveries, so every split is resent and checked. Without
+    this, ClickHouse can keep the moved ids on the old person, and a scan suggests merging the two persons back.
+    """
     if not moved:
-        return True
-    actions: list[RepairAction] = []
-    summary = repairs.republish_named(team_id, distinct_ids=moved, apply=True, on_action=actions.append, log=log)
-    confirmed = {a.distinct_id for a in actions if a.distinct_id is not None and a.outcome in _RESENT}
-    owners_resent = all(a.outcome in _RESENT for a in actions if a.distinct_id is None)
-    resent = summary.undelivered == 0 and owners_resent and confirmed.issuperset(moved)
-    log(f"split: sent {len(moved)} moved distinct ids and their persons again: {'done' if resent else 'FAILED'}")
-    return resent
+        return []
+    unconfirmed = list(repairs.republish_named(team_id, distinct_ids=moved, apply=True, log=log).unconfirmed)
+    if unconfirmed:
+        _sleep(_RESEND_RETRY_SECONDS)
+        unconfirmed = list(repairs.republish_named(team_id, distinct_ids=unconfirmed, apply=True, log=log).unconfirmed)
+    log(f"split: sent {len(moved)} moved distinct ids and their persons again, {len(unconfirmed)} unconfirmed")
+    return unconfirmed
+
+
+def _unconfirmed_message(team_id: int, person_uuid: str, distinct_ids: Sequence[str], failure: Exception | None) -> str:
+    # The command prints only this message, not the exception it chains, so the split's own failure goes in it.
+    failed = f" The split also failed: {failure}." if failure is not None else ""
+    return (
+        f"ClickHouse may still show {len(distinct_ids)} split distinct ids on person {person_uuid}.{failed} Do not "
+        f"run a merge a scan suggests for them. Run: {_republish_command(team_id, distinct_ids)}"
+    )
 
 
 def _republish_command(team_id: int, distinct_ids: Sequence[str]) -> str:
-    flags = " ".join(f"--distinct-id {shlex.quote(d)}" for d in distinct_ids)
+    ids_file = _write_ids_file(team_id, distinct_ids) if len(distinct_ids) > _INLINE_DISTINCT_IDS else None
+    if ids_file is not None:
+        flags = f"--distinct-ids-file {shlex.quote(ids_file)}"
+    else:
+        flags = " ".join(f"--distinct-id {shlex.quote(d)}" for d in distinct_ids)
     return f"python manage.py person_consistency republish --team-id {team_id} {flags} --apply"
+
+
+def _write_ids_file(team_id: int, distinct_ids: Sequence[str]) -> str | None:
+    """Write one distinct id per line to a local file and return its path, or None when the ids must go inline.
+
+    An id that is empty or holds a newline would not read back whole, and a failed write must not replace the
+    error that prints the command.
+    """
+    if any(not d or "\n" in d for d in distinct_ids):
+        return None
+    try:
+        with tempfile.NamedTemporaryFile("w", prefix=f"split-{team_id}-", suffix=".txt", delete=False) as ids_file:
+            ids_file.write("".join(f"{d}\n" for d in distinct_ids))
+    except OSError:
+        return None
+    return ids_file.name

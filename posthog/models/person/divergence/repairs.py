@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import field
+from dataclasses import field, replace
 from functools import partial
 from typing import TypeVar
 from uuid import UUID
@@ -69,6 +69,11 @@ _TRANSIENT_RPC_CODES = frozenset(
 
 
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
+
+DEFAULT_MAX_WRITES_PER_SECOND = 20.0
+
+# Outcomes that leave ClickHouse agreeing with Postgres for the key, once the publish is delivered.
+_RESENT = frozenset({"repaired", "skipped_not_divergent"})
 
 # Confirmed produce results are dropped this often, so a long repair does not hold one per published row.
 _DELIVERY_PRUNE_EVERY = 1_000
@@ -522,26 +527,67 @@ def repair_persons(
     return outcomes.summary(applied=apply, persons=processed, undelivered=undelivered)
 
 
+def _landed(action: datatypes.RepairAction, lost: set[tuple[str, str]]) -> bool:
+    key = ("person", action.person_uuid) if action.distinct_id is None else ("mapping", action.distinct_id)
+    return action.outcome in _RESENT and key not in lost
+
+
 def republish_named(
     team_id: int,
     *,
     person_uuids: Sequence[str] = (),
     distinct_ids: Sequence[str] = (),
     apply: bool,
-    on_action: Callable[[datatypes.RepairAction], None],
+    max_writes_per_second: float | None = DEFAULT_MAX_WRITES_PER_SECOND,
     log: Callable[[str], None],
-) -> datatypes.RepairSummary:
+) -> datatypes.RepublishResult:
     """Republish named persons, and the live owners of named distinct ids, where ClickHouse disagrees.
 
     A scan routes a mapping that ClickHouse still gives to another live person to `merge`, which is wrong when
     Postgres moved it on purpose and only the publish was lost, as after a split. This republishes from Postgres.
     The owners are read on the primary, so a distinct id moved moments ago resolves to its new person.
-    """
-    rows = get_distinct_id_rows(team_id, list(dict.fromkeys(distinct_ids)), strong=True) if distinct_ids else []
-    owners = [row.person_uuid for row in rows if not row.is_deleted and row.person_uuid]
-    not_live = len(set(distinct_ids)) - len(owners)
-    if not_live:
-        log(f"republish: {not_live} distinct ids are not live in Postgres, so they have no owner to republish")
-    targets = [datatypes.PersonRef(team_id=team_id, person_uuid=uuid) for uuid in [*person_uuids, *owners]]
-    return repair_persons(targets, apply=apply, on_action=on_action, log=log)
 
+    A named person is confirmed only when it and every mapping it owns were repaired or already agreed, and every
+    row published for them was delivered. A named distinct id needs the same for itself and its owner's row. A
+    distinct id that is not live in Postgres, or a person with too many distinct ids to repair, stays unconfirmed.
+    """
+    named_persons = list(dict.fromkeys(person_uuids))
+    named_ids = list(dict.fromkeys(distinct_ids))
+    rows = get_distinct_id_rows(team_id, named_ids, strong=True) if named_ids else []
+    owner_of = {row.distinct_id: row.person_uuid for row in rows if not row.is_deleted and row.person_uuid}
+    if len(owner_of) < len(named_ids):
+        log(
+            f"republish: {len(named_ids) - len(owner_of)} distinct ids are not live in Postgres, so nothing republishes them"
+        )
+    actions: list[datatypes.RepairAction] = []
+    deliveries = _Deliveries()
+    undelivered = 0
+    try:
+        summary = repair_persons(
+            [
+                datatypes.PersonRef(team_id=team_id, person_uuid=uuid)
+                for uuid in dict.fromkeys([*named_persons, *owner_of.values()])
+            ],
+            apply=apply,
+            max_writes_per_second=max_writes_per_second,
+            on_action=actions.append,
+            log=log,
+            deliveries=deliveries,
+        )
+    finally:
+        if apply:
+            undelivered = deliveries.undelivered(_FLUSH_TIMEOUT_SECONDS)
+    lost = {(key.kind, key.key) for key in deliveries.undelivered_keys()}
+    person_rows_ok = {a.person_uuid for a in actions if a.distinct_id is None and _landed(a, lost)}
+    persons_with_misses = {a.person_uuid for a in actions if not _landed(a, lost)}
+    # A replica that lags a move can still list the distinct id under its old person, so only the owner counts.
+    ids_ok = {
+        a.distinct_id
+        for a in actions
+        if a.distinct_id is not None and a.person_uuid == owner_of.get(a.distinct_id) and _landed(a, lost)
+    }
+    unconfirmed = (
+        *(uuid for uuid in named_persons if uuid not in person_rows_ok or uuid in persons_with_misses),
+        *(d for d in named_ids if d not in ids_ok or owner_of[d] not in person_rows_ok),
+    )
+    return datatypes.RepublishResult(summary=replace(summary, undelivered=undelivered), unconfirmed=unconfirmed)
