@@ -3471,13 +3471,17 @@ class TestResolveLocalSigningKey:
         )
         assert devbox_cli._resolve_local_signing_key() == "ecdsa-sha2-nistp256 AAAA GitHub-Commit-Signing@host"
 
-    def test_reads_file_when_value_is_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        key_file = tmp_path / "id_ed25519.pub"
-        key_file.write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
+    @pytest.mark.parametrize("configured_name", ["id_ed25519.pub", "id_ed25519", "signing-key"])
+    def test_reads_public_file_when_value_is_path(
+        self, configured_name: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "id_ed25519").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n")
+        (tmp_path / "id_ed25519.pub").write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
+        (tmp_path / "signing-key").write_text("ssh-ed25519 AAAAFROMFILE user@host\n")
         monkeypatch.setattr(
             devbox_cli.subprocess,
             "run",
-            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, str(key_file), ""),
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, str(tmp_path / configured_name), ""),
         )
         assert devbox_cli._resolve_local_signing_key() == "ssh-ed25519 AAAAFROMFILE user@host"
 
@@ -3752,7 +3756,10 @@ class TestSetupGitSigning:
     PUBLIC_KEY = "ssh-ed25519 AAAAC3 user@host"
     AGENT_SOCKET = "/tmp/test-agent.sock"
 
-    def _patch_local_config(self, monkeypatch: pytest.MonkeyPatch, *, key: str | None, agent: str | None) -> None:
+    def _patch_local_config(
+        self, monkeypatch: pytest.MonkeyPatch, *, key: str | None, agent: str | None, secure_enclave: bool = False
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "signs_with_secure_enclave_key", lambda: secure_enclave)
         monkeypatch.setattr(devbox_cli, "_resolve_local_signing_key", lambda: key)
         monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: agent)
         monkeypatch.setattr(
@@ -3802,9 +3809,16 @@ class TestSetupGitSigning:
 
         assert upserts == [(coder.GIT_SIGNING_KEY_SECRET, self.PUBLIC_KEY, coder.GIT_SIGNING_KEY_SECRET)]
 
-    def test_skips_when_signing_key_unset_locally(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        "key, secure_enclave",
+        [(None, False), ("sk-ecdsa-sha2-nistp256@openssh.com AAAANEW ssh:", True)],
+        ids=["unset", "secure_enclave"],
+    )
+    def test_skips_when_the_local_key_cannot_sign_on_a_devbox(
+        self, monkeypatch: pytest.MonkeyPatch, key: str | None, secure_enclave: bool
+    ) -> None:
         monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
-        self._patch_local_config(monkeypatch, key=None, agent=None)
+        self._patch_local_config(monkeypatch, key=key, agent=self.AGENT_SOCKET, secure_enclave=secure_enclave)
         upserts: list[tuple[str, str, str | None]] = []
         monkeypatch.setattr(
             devbox_cli,
