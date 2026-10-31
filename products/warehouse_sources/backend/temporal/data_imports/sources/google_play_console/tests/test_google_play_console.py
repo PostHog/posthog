@@ -500,6 +500,37 @@ def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status:
     assert messages and "on Google's side" in messages[0]
 
 
+@pytest.mark.parametrize(
+    "rejected_start,raises",
+    [
+        (dt.date(2022, 4, 1), False),
+        (dt.date(2023, 10, 23), True),
+    ],
+)
+def test_metric_set_skips_a_rejected_window_only_beyond_the_proven_history(
+    rejected_start: dt.date, raises: bool
+) -> None:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/token":
+            return TOKEN
+        if request.path.endswith(":query"):
+            start = request.json()["timelineSpec"]["startTime"]
+            day = dt.date(start["year"], start["month"], start["day"])
+            if day == rejected_start:
+                return ScriptedResponse(status=400, body=b'{"error": {"status": "INVALID_ARGUMENT"}}')
+            return ScriptedResponse(json={"rows": [_metric_row(day, 12, "0.01")]})
+        return ScriptedResponse(json=_freshness(dt.date(2024, 3, 30)))
+
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _driver().run("crash_rate", answer)
+
+    if raises:
+        assert isinstance(result.raised, requests.HTTPError)
+    else:
+        assert result.raised is None
+        assert result.rows[0]["date"] == rejected_start + dt.timedelta(days=30)
+
+
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
     with mock.patch(f"{MODULE}._today", return_value=TODAY):
         result = _run(
@@ -809,8 +840,8 @@ def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:
 @pytest.mark.parametrize(
     "resource_name,expected_start",
     [
-        # The vitals rate metric sets keep the deep 180-day backfill.
-        ("crash_rate", dt.date(2023, 10, 3)),
+        # The vitals rate metric sets backfill 730 days.
+        ("crash_rate", dt.date(2022, 4, 1)),
         # Error counts live on the short-retention error backend, which rejects a start that
         # far back with a 400, so the first sync begins inside the error history window.
         ("error_counts", dt.date(2024, 3, 1)),
