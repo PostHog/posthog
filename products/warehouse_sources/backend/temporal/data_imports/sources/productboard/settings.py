@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -12,7 +15,7 @@ class ProductboardEndpointConfig:
     # Set for endpoints served by the generic `/entities` resource; the value is the
     # `type[]` query param Productboard expects (e.g. "feature", "component").
     entity_type: Optional[str] = None
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable, immutable datetime field used for partitioning. Never use `updatedAt`.
     partition_key: Optional[str] = None
     sort_mode: SortMode = "asc"
@@ -21,6 +24,10 @@ class ProductboardEndpointConfig:
     # actually filters on it (only the notes endpoint exposes such filters).
     incremental_param_map: dict[str, str] = field(default_factory=dict)
     default_incremental_field: Optional[str] = None
+    fanout: Optional[DependentEndpointConfig] = None
+    # Productboard sets the page size server-side; the fan-out helper only reads this when it is
+    # given a page-size param, which this source never passes.
+    page_size: int = 0
 
     @property
     def supports_incremental(self) -> bool:
@@ -60,6 +67,26 @@ def _entity_endpoint(name: str, entity_type: str) -> ProductboardEndpointConfig:
     )
 
 
+# Relationship rows have no id of their own: a relationship is unique per source, type and target.
+# A parent deleted between the parent listing and its child fetch 404s, which is not an error here.
+def _relationship_endpoint(
+    name: str, path: str, parent_name: str, parent_columns: dict[str, str]
+) -> ProductboardEndpointConfig:
+    return ProductboardEndpointConfig(
+        name=name,
+        path=path,
+        primary_keys=[parent_columns["id"], "type", "target_id"],
+        fanout=DependentEndpointConfig(
+            parent_name=parent_name,
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=list(parent_columns.keys()),
+            parent_field_renames=parent_columns,
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    )
+
+
 PRODUCTBOARD_ENDPOINTS: dict[str, ProductboardEndpointConfig] = {
     "features": _entity_endpoint("features", "feature"),
     "subfeatures": _entity_endpoint("subfeatures", "subfeature"),
@@ -76,6 +103,28 @@ PRODUCTBOARD_ENDPOINTS: dict[str, ProductboardEndpointConfig] = {
     # Members carry no documented top-level timestamp, so no partitioning.
     "members": ProductboardEndpointConfig(name="members", path="/members"),
     "teams": ProductboardEndpointConfig(name="teams", path="/teams", partition_key="createdAt"),
+    # One row per entity type, defining its fields (custom fields, statuses and their options) and
+    # allowed relationships. Keyed by type, since the configurations carry no id.
+    "entity_configurations": ProductboardEndpointConfig(
+        name="entity_configurations", path="/entities/configurations", primary_keys=["type"]
+    ),
+    "entity_relationships": _relationship_endpoint(
+        "entity_relationships",
+        "/entities/{id}/relationships",
+        parent_name="entities",
+        parent_columns={"id": "entity_id", "type": "entity_type"},
+    ),
+    "note_relationships": _relationship_endpoint(
+        "note_relationships",
+        "/notes/{id}/relationships",
+        parent_name="notes",
+        parent_columns={"id": "note_id"},
+    ),
+}
+
+# Fan-out parents that are not tables themselves. `entities` lists every entity type in one walk.
+FANOUT_PARENT_ENDPOINTS: dict[str, ProductboardEndpointConfig] = {
+    "entities": ProductboardEndpointConfig(name="entities", path="/entities"),
 }
 
 ENDPOINTS = tuple(PRODUCTBOARD_ENDPOINTS.keys())
