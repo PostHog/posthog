@@ -29,6 +29,12 @@ interface HeadScan {
     doctypeEnd?: number
 }
 
+interface HeadScanContext {
+    html: string
+    scan: HeadScan
+    titleCanClose: boolean
+}
+
 const COMMENT_START = '<!--'
 const COMMENT_END = '-->'
 const TAG_NAME = /<(?:title|meta)\b/iy
@@ -112,54 +118,71 @@ function splice(html: string, start: number, end: number, replacement: string): 
 }
 
 function scanHeadLikeTheSdk(html: string): HeadScan {
-    const scan: HeadScan = { preheaders: [] }
-    let titleCanClose = true
+    const context: HeadScanContext = { html, scan: { preheaders: [] }, titleCanClose: true }
     let position = html.indexOf('<')
     while (position !== -1) {
-        let next = position + 1
-        if (html.startsWith(COMMENT_START, position)) {
-            const commentEnd = html.indexOf(COMMENT_END, position + COMMENT_START.length)
-            if (commentEnd === -1) {
-                break
-            }
-            next = commentEnd + COMMENT_END.length
-        } else if (matchesAt(TAG_NAME, html, position)) {
-            const isTitle = html.slice(position + 1, position + 6).toLowerCase() === 'title'
-            const tag = isTitle ? TITLE_OPEN : META_TAG
-            if (!matchesAt(tag, html, position)) {
-                break
-            }
-            next = tag.lastIndex
-            if (isTitle && titleCanClose) {
-                TITLE_CLOSE.lastIndex = next
-                const close = TITLE_CLOSE.exec(html)
-                if (close) {
-                    scan.title ??= {
-                        start: position,
-                        textStart: next,
-                        textEnd: close.index,
-                        end: TITLE_CLOSE.lastIndex,
-                    }
-                    next = TITLE_CLOSE.lastIndex
-                } else {
-                    titleCanClose = false
-                }
-            } else if (!isTitle) {
-                const value = preheaderOf(html.slice(position, next))
-                if (value !== undefined) {
-                    const preheader = { start: position, end: next, value }
-                    scan.preheaders.push(preheader)
-                    scan.preheader ??= preheader
-                }
-            }
-        } else {
-            scan.headOpenEnd ??= endOfMatchAt(HEAD_OPEN, html, position)
-            scan.htmlOpenEnd ??= endOfMatchAt(HTML_OPEN, html, position)
-            scan.doctypeEnd ??= endOfMatchAt(DOCTYPE, html, position)
+        const next = scanMarkupAt(context, position)
+        if (next === undefined) {
+            break
         }
         position = html.indexOf('<', next)
     }
-    return scan
+    return context.scan
+}
+
+function scanMarkupAt(context: HeadScanContext, position: number): number | undefined {
+    if (context.html.startsWith(COMMENT_START, position)) {
+        return endOfComment(context.html, position)
+    }
+    if (matchesAt(TAG_NAME, context.html, position)) {
+        return scanTitleOrMetaTag(context, position)
+    }
+    recordDocumentOpenings(context, position)
+    return position + 1
+}
+
+function endOfComment(html: string, position: number): number | undefined {
+    const commentEnd = html.indexOf(COMMENT_END, position + COMMENT_START.length)
+    return commentEnd === -1 ? undefined : commentEnd + COMMENT_END.length
+}
+
+function scanTitleOrMetaTag(context: HeadScanContext, position: number): number | undefined {
+    const isTitle = context.html.slice(position + 1, position + 6).toLowerCase() === 'title'
+    const tag = isTitle ? TITLE_OPEN : META_TAG
+    if (!matchesAt(tag, context.html, position)) {
+        return undefined
+    }
+    return isTitle ? scanTitle(context, position, tag.lastIndex) : scanMeta(context, position, tag.lastIndex)
+}
+
+function scanTitle(context: HeadScanContext, start: number, textStart: number): number {
+    if (!context.titleCanClose) {
+        return textStart
+    }
+    TITLE_CLOSE.lastIndex = textStart
+    const close = TITLE_CLOSE.exec(context.html)
+    if (!close) {
+        context.titleCanClose = false
+        return textStart
+    }
+    context.scan.title ??= { start, textStart, textEnd: close.index, end: TITLE_CLOSE.lastIndex }
+    return TITLE_CLOSE.lastIndex
+}
+
+function scanMeta(context: HeadScanContext, start: number, end: number): number {
+    const value = preheaderOf(context.html.slice(start, end))
+    if (value !== undefined) {
+        const preheader = { start, end, value }
+        context.scan.preheaders.push(preheader)
+        context.scan.preheader ??= preheader
+    }
+    return end
+}
+
+function recordDocumentOpenings({ html, scan }: HeadScanContext, position: number): void {
+    scan.headOpenEnd ??= endOfMatchAt(HEAD_OPEN, html, position)
+    scan.htmlOpenEnd ??= endOfMatchAt(HTML_OPEN, html, position)
+    scan.doctypeEnd ??= endOfMatchAt(DOCTYPE, html, position)
 }
 
 function matchesAt(pattern: RegExp, html: string, position: number): boolean {
