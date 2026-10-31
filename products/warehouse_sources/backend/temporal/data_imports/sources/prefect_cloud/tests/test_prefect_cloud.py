@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+from unittest import mock
 
 from parameterized import parameterized
 
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.prefectcloud import (
     PrefectCloudSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud import prefect_cloud
 from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.prefect_cloud import (
     PrefectCloudResumeConfig,
     _build_json_body,
@@ -141,35 +143,35 @@ def _logs(*timestamps: str) -> list[dict[str, Any]]:
 
 
 class TestLogsKeysetPagination:
-    def test_walks_by_timestamp_and_skips_rows_already_read_at_the_cursor(self) -> None:
-        # The page ends on two rows at T2, then a whole page sits at T2, so the cursor must hold at
-        # T2 and only grow the offset past the rows it already read there.
-        first = _logs(*["T1"] * (PAGE_LIMIT - 2), "T2", "T2")
-        second = _logs(*["T2"] * PAGE_LIMIT)
-        third = _logs("T2", "T3")
+    def test_moves_the_lower_bound_before_the_offset_cap_and_rereads_the_boundary_timestamp(self) -> None:
+        # The sort has no tie-breaker, so the restart must read every row at T2 again (offset 0)
+        # rather than skip a count of them.
+        pages = [
+            _page(_logs(*["T1"] * PAGE_LIMIT)),
+            _page(_logs(*["T1"] * PAGE_LIMIT)),
+            _page(_logs(*["T1"] * (PAGE_LIMIT - 2), "T2", "T2")),
+            _page(_logs("T2", "T2", "T3")),
+        ]
 
-        result = _driver().run("logs", [_page(first), _page(second), _page(third)])
+        with mock.patch.object(prefect_cloud, "LOGS_MAX_OFFSET", 2 * PAGE_LIMIT):
+            result = _driver().run("logs", pages)
 
         bodies = [r.json() for r in result.requests]
-        assert [b.get("logs") for b in bodies] == [
-            None,
-            {"timestamp": {"after_": "T2"}},
-            {"timestamp": {"after_": "T2"}},
-        ]
-        assert [b["offset"] for b in bodies] == [0, 2, 2 + PAGE_LIMIT]
+        assert [b["logs"]["timestamp"].get("after_") for b in bodies] == [None, None, None, "T2"]
+        assert [b["offset"] for b in bodies] == [0, PAGE_LIMIT, 2 * PAGE_LIMIT, 0]
+        assert len({b["logs"]["timestamp"]["before_"] for b in bodies}) == 1
         assert all(b["sort"] == "TIMESTAMP_ASC" and b["limit"] == PAGE_LIMIT for b in bodies)
-        assert len(result.rows) == 2 * PAGE_LIMIT + 2
 
-    def test_incremental_starts_at_the_watermark_and_resume_overrides_it(self) -> None:
+    def test_resume_keeps_the_saved_bounds_over_the_watermark(self) -> None:
         result = _driver().run(
             "logs",
             [_page(_logs("T9"))],
-            resume_state=PrefectCloudResumeConfig(after="T5", offset=3),
+            resume_state=PrefectCloudResumeConfig(after="T5", before="T8", offset=3),
             incremental_field="timestamp",
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
-        assert [r.json()["logs"] for r in result.requests] == [{"timestamp": {"after_": "T5"}}]
+        assert [r.json()["logs"] for r in result.requests] == [{"timestamp": {"after_": "T5", "before_": "T8"}}]
         assert [r.json()["offset"] for r in result.requests] == [3]
 
 

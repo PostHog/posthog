@@ -30,7 +30,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class StateHistoryFanout:
     # The run table to list, and the query param the per-run states endpoint takes its id in.
     parent: str

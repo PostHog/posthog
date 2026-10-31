@@ -50,8 +50,9 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 class PrefectCloudResumeConfig:
     # Row offset of the next page to fetch. 0 means "start from the first page".
     offset: int = 0
-    # Lower timestamp bound of the next logs page; `offset` then counts rows already read at it.
+    # Timestamp bounds of the logs walk; `offset` then counts rows read under those bounds.
     after: Optional[str] = None
+    before: Optional[str] = None
     # Next `/events/filter/next` link.
     next_url: Optional[str] = None
     # The framework's per-parent state for the state-history fan-outs, stored unchanged.
@@ -59,20 +60,32 @@ class PrefectCloudResumeConfig:
 
 
 class TimestampKeysetPaginator(BasePaginator):
-    """Walk an ascending timestamp sort by moving an inclusive lower bound forward.
+    """Walk an ascending timestamp sort with offset pages, moving the lower bound before the offset cap.
 
     `POST /logs/filter` caps `offset`, so a plain offset walk stops partway through a large
-    workspace. Each page restarts at the last timestamp read, and `offset` only skips the rows
-    already read at exactly that timestamp.
+    workspace. Near the cap the walk restarts at offset 0 from the last timestamp read. The sort
+    has no tie-breaker, so the restart reads the rows at that timestamp again rather than skipping
+    a count of them; merge dedupes the repeats on `id`. The fixed upper bound keeps a busy
+    workspace from extending the walk while it runs.
     """
 
-    def __init__(self, limit: int, timestamp_field: str, after_param: str, max_offset: int) -> None:
+    def __init__(
+        self,
+        limit: int,
+        timestamp_field: str,
+        after_param: str,
+        before_param: str,
+        before: str,
+        max_offset: int,
+    ) -> None:
         super().__init__()
         self.limit = limit
         self.timestamp_field = timestamp_field
         self.after_param = after_param
+        self.before_param = before_param
         self.max_offset = max_offset
         self.after: Optional[str] = None
+        self.before = before
         self.offset = 0
 
     def _apply(self, request: Request) -> None:
@@ -80,6 +93,7 @@ class TimestampKeysetPaginator(BasePaginator):
             request.json = {}
         if self.after is not None:
             set_json_param(request.json, self.after_param, self.after)
+        set_json_param(request.json, self.before_param, self.before)
         request.json["offset"] = self.offset
         request.json["limit"] = self.limit
 
@@ -94,27 +108,29 @@ class TimestampKeysetPaginator(BasePaginator):
             self._has_next_page = False
             return
 
-        last = data[-1].get(self.timestamp_field)
-        if last is None:
-            raise ValueError(f"Prefect Cloud returned a row without '{self.timestamp_field}'; can't page past it")
-        if last == self.after:
-            self.offset += len(data)
+        if self.offset + self.limit <= self.max_offset:
+            self.offset += self.limit
         else:
-            # Rows are ascending, so every row read so far at `last` is on this page.
+            last = data[-1].get(self.timestamp_field)
+            if last is None:
+                raise ValueError(f"Prefect Cloud returned a row without '{self.timestamp_field}'; can't page past it")
+            if last == self.after:
+                raise ValueError(
+                    f"More than {self.max_offset} Prefect Cloud rows share the timestamp {last}; can't page past them"
+                )
             self.after = last
-            self.offset = sum(1 for row in data if row.get(self.timestamp_field) == last)
-        if self.offset > self.max_offset:
-            raise ValueError(
-                f"More than {self.max_offset} Prefect Cloud rows share the timestamp {last}; can't page past them"
-            )
+            self.offset = 0
         self._has_next_page = True
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
-        return {"after": self.after, "offset": self.offset} if self._has_next_page else None
+        if not self._has_next_page:
+            return None
+        return {"after": self.after, "before": self.before, "offset": self.offset}
 
     def set_resume_state(self, state: dict[str, Any]) -> None:
-        if state.get("after") is not None:
-            self.after = state["after"]
+        if state.get("before") is not None:
+            self.after = state.get("after")
+            self.before = state["before"]
             self.offset = int(state.get("offset") or 0)
             self._has_next_page = True
 
@@ -227,6 +243,8 @@ def _paginator(config: PrefectCloudEndpointConfig) -> BasePaginator:
             limit=PAGE_LIMIT,
             timestamp_field="timestamp",
             after_param="logs.timestamp.after_",
+            before_param="logs.timestamp.before_",
+            before=_format_after(datetime.now(UTC)),
             max_offset=LOGS_MAX_OFFSET,
         )
     if config.pagination == "next_page":
@@ -312,6 +330,7 @@ def prefect_cloud_source(
         "auth": {"type": "bearer", "token": api_key},
         # Keeps the key on Prefect's host when following an events `next_page` link.
         "allowed_hosts": [PREFECT_CLOUD_API_HOST],
+        "allow_redirects": False,
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -321,7 +340,12 @@ def prefect_cloud_source(
             if config.fanout is not None:
                 initial_paginator_state = resume.fanout
             else:
-                initial_paginator_state = {"offset": resume.offset, "after": resume.after, "next_url": resume.next_url}
+                initial_paginator_state = {
+                    "offset": resume.offset,
+                    "after": resume.after,
+                    "before": resume.before,
+                    "next_url": resume.next_url,
+                }
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; the pipeline commits it once the page is written.
@@ -332,7 +356,10 @@ def prefect_cloud_source(
         else:
             resumable_source_manager.save_state(
                 PrefectCloudResumeConfig(
-                    offset=int(state.get("offset") or 0), after=state.get("after"), next_url=state.get("next_url")
+                    offset=int(state.get("offset") or 0),
+                    after=state.get("after"),
+                    before=state.get("before"),
+                    next_url=state.get("next_url"),
                 )
             )
 
