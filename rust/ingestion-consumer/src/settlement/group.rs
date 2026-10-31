@@ -4,8 +4,7 @@ use std::time::{Duration, Instant};
 use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use super::{
-    Accounting, Admission, Charged, ChargedSlice, Commit, PartitionBudget, RunOutcome, Settlement,
-    Uncommitted,
+    Accounting, Admission, Charged, Commit, PartitionBudget, RunOutcome, Settlement, Uncommitted,
 };
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
@@ -72,10 +71,6 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
             return Ok(RunOutcome::Stale);
         }
         Ok(RunOutcome::Settled)
-    }
-
-    fn settle_poll(&self, _slices: &[ChargedSlice<'_>]) -> anyhow::Result<()> {
-        Ok(())
     }
 
     fn take_due(&self, now: Instant) -> Option<Commit> {
@@ -258,26 +253,6 @@ mod tests {
             settlement.settle_run(&p(0), 0, &[Offset(10)]).is_err(),
             run.expected_error
         );
-    }
-
-    #[test]
-    fn a_retired_poll_settles_nothing() {
-        let (settlement, accounting, _) = settlement();
-        let charges = [(Offset(10), Charge::ZERO)];
-
-        settlement
-            .settle_poll(&[ChargedSlice {
-                topic_partition: &p(0),
-                generation: 0,
-                span: OffsetSpan {
-                    first: 10,
-                    last: 10,
-                },
-                charges: &charges,
-            }])
-            .unwrap();
-
-        assert!(accounting.settles_seen().is_empty());
     }
 
     #[test]

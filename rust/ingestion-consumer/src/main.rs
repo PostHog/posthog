@@ -53,6 +53,9 @@ fn main() -> Result<()> {
     config
         .partition_budget()
         .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
+    config
+        .in_flight_limit()
+        .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
