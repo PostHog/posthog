@@ -8,8 +8,12 @@ export interface ChartAxisContextValue {
     /** `horizontal` swaps which axis carries the value scale (`scales.y` returns x-pixels). */
     orientation: 'vertical' | 'horizontal'
     /** Resolved x-axis tick formatter (the same one `<AxisLabels>` uses). Overlays that
-     *  need to align with the visible tick set should read this rather than recompute. */
+     *  need to align with the visible tick set should read this rather than recompute. Its
+     *  `index` refers to {@link xTickLabels}. */
     xTickFormatter: ((value: string, index: number) => string | null) | undefined
+    /** Labels the x ticks sit at: `ChartConfig.xTickLabels` when set (a time scale's tick grid),
+     *  else the data labels. */
+    xTickLabels: string[]
     /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. Overlays
      *  that format values can use this to default to a percent formatter. */
     isPercent: boolean

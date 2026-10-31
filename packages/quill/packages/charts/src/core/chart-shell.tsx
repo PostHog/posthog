@@ -50,6 +50,14 @@ export interface ChartShellProps {
     children?: React.ReactNode
 }
 
+/** Key of the chart wrapper's label-index → x (plot px) lookup. The test gestures read it to hover
+ *  a label where it is drawn, which a time scale spaces unevenly. */
+export const X_FOR_INDEX = Symbol.for('hog-charts.xForIndex')
+
+export interface ChartWrapperElement extends HTMLElement {
+    [X_FOR_INDEX]?: (index: number) => number | undefined
+}
+
 // Literal cursor classes (no runtime concat) so Tailwind v4's source scan sees them — see the package's tailwind contract.
 function cursorClass(pointer: boolean, crosshair: boolean): string {
     if (pointer) {

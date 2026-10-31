@@ -6,7 +6,8 @@ import { buildYTickFormatter, type YFormatterConfig } from './y-formatters'
 
 export interface XAxisConfig {
     label?: string
-    /** Explicit tick formatter. When set, it wins over the auto date formatter. */
+    /** Explicit tick formatter. When set, it wins over the auto date formatter. `index` refers to
+     *  the tick labels, which on a time scale are the tick grid rather than the data labels. */
     tickFormatter?: (value: string, index: number) => string | null
     /** Fixed tick-label rotation in degrees, clamped to -90..90. Negative values tilt left. */
     tickLabelRotation?: number
