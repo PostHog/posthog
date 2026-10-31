@@ -6,7 +6,6 @@ import {
     isUnmaterializePayload,
     monthlyCost,
     readTimeLabel,
-    savesTime,
     savingSentence,
     unmaterializeSaving,
 } from '../suggestionCopy'
@@ -22,7 +21,6 @@ export function UnmaterializeSuggestionModal(): JSX.Element | null {
     }
     const inFlight = !!actionsInFlight[acceptConfirmSuggestion.id]
     const saving = unmaterializeSaving(payload)
-    const inTime = savesTime(saving)
 
     return (
         <LemonModal
@@ -59,13 +57,16 @@ export function UnmaterializeSuggestionModal(): JSX.Element | null {
                     <div className="flex flex-col gap-0.5">
                         <span className="text-xs font-semibold text-secondary">Materialized now</span>
                         <span className="text-sm">
-                            {monthlyCost(payload.refresh_seconds_per_month, payload.refresh_bytes_per_month, inTime)}
+                            {monthlyCost({
+                                seconds: payload.refresh_seconds_per_month,
+                                bytes: payload.refresh_bytes_per_month,
+                            })}
                         </span>
                     </div>
                     <div className="flex flex-col gap-0.5">
                         <span className="text-xs font-semibold text-secondary">Computed on each read</span>
                         <span className="text-sm">
-                            {`${monthlyCost(payload.live_seconds_per_month, payload.live_bytes_per_month, inTime)} (estimate)`}
+                            {`${monthlyCost({ seconds: payload.live_seconds_per_month, bytes: payload.live_bytes_per_month })} (estimate)`}
                         </span>
                         <span className="text-xs text-secondary">{readTimeLabel(payload.read_seconds)}</span>
                     </div>

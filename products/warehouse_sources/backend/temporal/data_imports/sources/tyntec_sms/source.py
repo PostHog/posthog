@@ -123,6 +123,7 @@ class TyntecSMSSource(SimpleSource[TyntecSMSSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="request_ids",
+                        sync_setting=True,
                         label="SMS request IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,

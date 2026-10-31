@@ -1,22 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
+import { IconCheck } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import {
-    isUnmaterializePayload,
-    readSummary,
-    readTimeLabel,
-    savingHighlight,
-    unmaterializeSaving,
-} from '../suggestionCopy'
+import { isUnmaterializePayload, readSummary, savingHighlight, unmaterializeSaving } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { DismissSuggestionMenu } from './DismissSuggestionMenu'
+import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
+import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view'
@@ -46,17 +40,11 @@ export function UnmaterializeSuggestionRow({
     return (
         <SuggestionRow
             suggestionId={suggestion.id}
+            assignee={suggestion.assignee}
+            canAct={suggestion.can_act}
             leaving={leaving}
             icon={iconForType('data_modeling')}
-            title={
-                <Link
-                    to={urls.sqlEditor({ view_id: suggestion.subject_id })}
-                    subtle
-                    className="block min-w-0 truncate text-sm font-semibold"
-                >
-                    {payload.subject_name}
-                </Link>
-            }
+            title={<SuggestionSubjectLink suggestion={suggestion} />}
             meta={[
                 <WhyThisSuggestion
                     key="reads"
@@ -64,7 +52,6 @@ export function UnmaterializeSuggestionRow({
                     windowDays={windowDays}
                     label={readSummary(suggestion.evidence)}
                 />,
-                <span key="read-time">{readTimeLabel(payload.read_seconds)}</span>,
             ]}
             highlight={savingHighlight(unmaterializeSaving(payload))}
             actions={
@@ -72,13 +59,13 @@ export function UnmaterializeSuggestionRow({
                     <LemonButton
                         size="small"
                         type="secondary"
+                        icon={<IconCheck />}
+                        tooltip="Stop materializing"
                         disabledReason={blockedReason}
                         onClick={() => openAcceptConfirm(suggestion.id)}
                         data-attr="warehouse-suggestions-unmaterialize"
-                    >
-                        Stop materializing
-                    </LemonButton>
-                    <DismissSuggestionMenu
+                    />
+                    <DismissSuggestionButtons
                         suggestionId={suggestion.id}
                         kind={suggestion.kind}
                         disabledReason={blockedReason}

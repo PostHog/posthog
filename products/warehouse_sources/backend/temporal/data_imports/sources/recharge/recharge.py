@@ -258,7 +258,9 @@ def recharge_source(
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,
-        sort_mode="asc",
+        # Without `sort_by` the rows come in the API's default order, not by the
+        # incremental field.
+        sort_mode="asc" if config.supports_sort else None,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,

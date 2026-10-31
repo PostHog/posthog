@@ -3,6 +3,7 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import type {
+    SignalReportStatusEnumApi,
     SignalReportCheckApi,
     SignalReportCheckInconclusiveReasonEnumApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -25,6 +26,7 @@ const FALLBACK_LANE_LABEL = 'The follow-up scout'
 
 export interface ReportCheckRowData {
     check: SignalReportCheckApi
+    reportStatus: SignalReportStatusEnumApi
     tag: { label: string; type: LemonTagType }
     /** The line under the title: when it runs, who runs it, or what the verdict said. */
     detail: string
@@ -162,7 +164,16 @@ const MONITORING_CHECK_ROWS: Record<
     },
 }
 
-function openCheckRow(check: SignalReportCheckApi): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+function openCheckRow(
+    check: SignalReportCheckApi,
+    reportStatus: SignalReportStatusEnumApi
+): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    if (reportStatus !== 'monitoring') {
+        return {
+            tag: { label: 'Paused', type: 'muted' },
+            detail: 'Checks run only while this report is in Monitoring.',
+        }
+    }
     if (check.monitoring_timing) {
         return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
     }
@@ -275,7 +286,8 @@ export function latestCheckExplanations(artefacts: SignalReportArtefact[]): Map<
 
 export function buildReportCheckRows(
     checks: SignalReportCheckApi[],
-    explanations: Map<string, string>
+    explanations: Map<string, string>,
+    reportStatus: SignalReportStatusEnumApi
 ): ReportCheckRowData[] {
     return [...checks]
         .sort((a, b) => {
@@ -287,7 +299,8 @@ export function buildReportCheckRows(
             const open = OPEN_STATUSES.includes(check.status)
             return {
                 check,
-                ...(open ? openCheckRow(check) : terminalCheckRow(check, explanations.get(check.id))),
+                reportStatus,
+                ...(open ? openCheckRow(check, reportStatus) : terminalCheckRow(check, explanations.get(check.id))),
                 cancelled: check.status === 'cancelled',
                 cancellable: open,
             }
@@ -316,7 +329,10 @@ export function splitReportCheckRows(rows: ReportCheckRowData[]): {
 }
 
 /** The section header's right-hand summary: how many checks, and then the next thing that happens. */
-export function reportChecksMeta(checks: SignalReportCheckApi[]): string {
+export function reportChecksMeta(checks: SignalReportCheckApi[], reportStatus: SignalReportStatusEnumApi): string {
+    if (reportStatus !== 'monitoring' && checks.some((check) => OPEN_STATUSES.includes(check.status))) {
+        return `${checks.length} · paused`
+    }
     if (checks.some((check) => check.monitoring_timing)) {
         return String(checks.length)
     }
@@ -352,25 +368,38 @@ const CHECK_CANCELLED_REASONS: Record<string, string> = {
     replaced_by_research: 'Replaced when research re-ran on this report and wrote a new check',
     replaced_by_request: 'Replaced on request by a revised check',
     no_check_lane: 'Stopped because this project has no scout that can run it',
+    monitoring_completed: 'Stopped because this Monitoring attempt ended',
+}
+
+function pendingCheckTiming(content: CheckScheduledContent, monitoringEnabled: boolean): string {
+    if (monitoringEnabled) {
+        if (content.soak_minutes == null) {
+            return 'Final evaluation during monitoring'
+        }
+        return content.soak_minutes === 0
+            ? 'Final evaluation when monitoring starts'
+            : `Final evaluation after ${monitoringPeriodLabel(content.soak_minutes)} of monitoring`
+    }
+    if (!content.soak_minutes) {
+        return 'Starts when this report is resolved'
+    }
+    return `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
 }
 
 /**
  * The entry written when a check is attached. A check on an open report has no date to give yet,
  * so it says what starts the clock instead of naming a day it cannot keep.
  */
-export function checkScheduledEntry(content: CheckScheduledContent): CheckLifecycleEntry {
+export function checkScheduledEntry(content: CheckScheduledContent, monitoringEnabled = false): CheckLifecycleEntry {
     const lane = laneRunsIt(content.kind, content.skill_name)
     const runs = content.runs && content.runs > 1 ? `${content.runs} runs` : null
 
     if (content.arms_on_resolve) {
-        const start = content.soak_minutes
-            ? `${content.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(content.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
         return {
-            tag: { label: 'Waiting for resolve', type: 'muted' },
+            tag: { label: monitoringEnabled ? 'Runs during monitoring' : 'Waiting for resolve', type: 'muted' },
             detail: joinDetail([
-                start,
-                content.kind === 'metric_threshold' ? 'Waits for a full query window' : null,
+                pendingCheckTiming(content, monitoringEnabled),
+                content.kind === 'metric_threshold' && !monitoringEnabled ? 'Waits for a full query window' : null,
                 lane,
                 runs,
             ]),
@@ -409,7 +438,10 @@ export function checkCancelledEntry(content: CheckCancelledContent): CheckLifecy
 }
 
 /** Which builder reads each lifecycle entry, so the renderer needs one arm rather than three. */
-export const CHECK_LIFECYCLE_ENTRIES: Record<string, (content: CheckLifecycleContent) => CheckLifecycleEntry> = {
+export const CHECK_LIFECYCLE_ENTRIES: Record<
+    string,
+    (content: CheckLifecycleContent, monitoringEnabled?: boolean) => CheckLifecycleEntry
+> = {
     check_scheduled: checkScheduledEntry,
     check_expired: checkExpiredEntry,
     check_cancelled: checkCancelledEntry,

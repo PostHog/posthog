@@ -1,5 +1,6 @@
 from django.db.models import Q, QuerySet
 
+import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
@@ -14,7 +15,24 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
+    saved_query_name = serializers.CharField(
+        source="saved_query.name",
+        read_only=True,
+        allow_null=True,
+        help_text="Model name, or null if permanently deleted.",
+    )
+    saved_query_deleted = serializers.BooleanField(
+        source="saved_query.deleted",
+        read_only=True,
+        allow_null=True,
+        help_text="Whether the model is soft-deleted, or null if permanently deleted.",
+    )
     engine = serializers.CharField(read_only=True, help_text="The engine that ran this materialization job.")
+    read_bytes = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Bytes read by this run, or null if it has not been measured yet.",
+    )
     updated_at = serializers.DateTimeField(
         read_only=True,
         help_text="When the job row last changed. For finished jobs this is when the run reached its terminal status.",
@@ -40,6 +58,8 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "saved_query_id",
+            "saved_query_name",
+            "saved_query_deleted",
             "status",
             "engine",
             "run_mode",
@@ -66,6 +86,51 @@ class DataModelingJobPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
+class UUIDInFilter(django_filters.BaseInFilter, django_filters.UUIDFilter):
+    pass
+
+
+DATA_MODELING_JOB_LIST_FIELDS = (
+    "id",
+    "saved_query_id",
+    "status",
+    "engine",
+    "run_mode",
+    "full_refresh_reason",
+    "rows_materialized",
+    "error",
+    "created_at",
+    "last_run_at",
+    "updated_at",
+    "workflow_id",
+    "workflow_run_id",
+    "rows_expected",
+    "read_bytes",
+    "read_rows",
+    "cpu_microseconds",
+    "query_count",
+    "usage_updated_at",
+)
+
+
+class DataModelingJobFilterSet(django_filters.FilterSet):
+    saved_query_ids = UUIDInFilter(
+        field_name="saved_query_id",
+        lookup_expr="in",
+        help_text="Comma-separated materialized view IDs.",
+    )
+    after = django_filters.IsoDateTimeFilter(
+        field_name="last_run_at", lookup_expr="gte", help_text="Include jobs finished at or after this time."
+    )
+    before = django_filters.IsoDateTimeFilter(
+        field_name="last_run_at", lookup_expr="lt", help_text="Include jobs finished before this time."
+    )
+
+    class Meta:
+        model = DataModelingJob
+        fields = ["saved_query_id", "saved_query_ids", "status", "engine"]
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -89,7 +154,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["saved_query_id", "status"]
+    filterset_class = DataModelingJobFilterSet
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
@@ -108,7 +173,15 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             )
             queryset = queryset.filter(saved_query_id__in=accessible_saved_queries.values("id"))
 
-        return queryset.order_by("-created_at")
+        return (
+            queryset.select_related("saved_query")
+            .only(
+                *DATA_MODELING_JOB_LIST_FIELDS,
+                "saved_query__name",
+                "saved_query__deleted",
+            )
+            .order_by("-created_at")
+        )
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

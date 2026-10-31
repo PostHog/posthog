@@ -107,6 +107,22 @@ class TestMedusaTransport:
         assert endpoint["incremental"]["start_param"] == "updated_at[$gte]"
         assert endpoint["incremental"]["cursor_path"] == "updated_at"
 
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_fields"),
+        [
+            ("Orders", None),
+            # The payments list route omits its timestamps by default; without them the cursor and
+            # the partition key have nothing to read.
+            ("Payments", "+created_at,+updated_at,+canceled_at,+provider_id,+metadata"),
+        ],
+    )
+    def test_requests_extra_fields_only_where_defaults_omit_them(
+        self, endpoint: str, expected_fields: str | None
+    ) -> None:
+        resource = cast(dict[str, Any], get_resource(MEDUSA_ENDPOINTS[endpoint], should_use_incremental_field=False))
+
+        assert resource["endpoint"]["params"].get("fields") == expected_fields
+
     @pytest.mark.parametrize("endpoint", ["PriceLists", "InventoryItems"])
     def test_incremental_rejected_for_endpoint_without_timestamp_filters(self, endpoint: str) -> None:
         with pytest.raises(ValueError, match="does not support incremental"):

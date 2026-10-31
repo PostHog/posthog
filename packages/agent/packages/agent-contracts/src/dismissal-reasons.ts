@@ -48,6 +48,7 @@ export type ResolveReasonOptionValue =
 export type ReportStateReason =
   | DismissalReasonOptionValue
   | ResolveReasonOptionValue
+  | "verified_manually"
   | "pr_merged";
 
 /** Whether the given reason snoozes the report (temporarily) instead of permanently dismissing it. */
@@ -71,6 +72,7 @@ export function dismissalReasonLabel(value: string): string {
   return (
     DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ??
     RESOLVE_REASON_OPTIONS.find((o) => o.value === value)?.label ??
+    (value === "verified_manually" ? "Verified manually" : undefined) ??
     (value === "pr_merged" ? "PR already merged" : value)
   );
 }

@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, Union, cast
+from uuid import UUID
 
 from django.core.validators import URLValidator
 from django.db import transaction
@@ -668,7 +669,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise exceptions.NotFound("Current organization not found.")
             return organization
 
-        filter_kwargs = {self.lookup_field: lookup_value}
+        try:
+            organization_id = UUID(lookup_value)
+        except ValueError:
+            raise exceptions.NotFound("Organization not found.")
+
+        filter_kwargs = {self.lookup_field: organization_id}
         return get_object_or_404(queryset, **filter_kwargs)
 
     def perform_destroy(self, organization: Organization):

@@ -16,6 +16,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_comm
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.adobe_commerce import (
     HOST_NOT_ALLOWED_ERROR,
     MAX_RESPONSE_BYTES,
+    SERVER_ERROR,
+    UNEXPECTED_RESPONSE_ERROR,
     AdobeCommerceConfigurationError,
     AdobeCommerceCredentials,
     AdobeCommerceHostNotAllowedError,
@@ -622,12 +624,22 @@ class TestValidateCredentials:
         assert message is not None and "standalone Bearer tokens" in message
         assert len(session.gets) == len(VALIDATION_PROBE_ENDPOINTS)
 
-    def test_not_a_magento_rest_api_reports_the_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        session = _FakeSession(self._routes_all(lambda: _make_response(404)))
+    @pytest.mark.parametrize(
+        "status,expected",
+        [
+            (404, "No Adobe Commerce REST API found at that store URL. Check the URL and store code."),
+            (400, UNEXPECTED_RESPONSE_ERROR),
+            (503, SERVER_ERROR),
+        ],
+    )
+    def test_probe_failure_status_is_reported(
+        self, status: int, expected: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        session = _FakeSession(self._routes_all(lambda: _make_response(status)))
         _install_session(monkeypatch, session)
         valid, message = validate_credentials("https://store.example.com", None, TOKEN_CREDENTIALS, team_id=1)
         assert valid is False
-        assert message == "No Adobe Commerce REST API found at that store URL. Check the URL and store code."
+        assert message == expected
 
     def test_connection_failure_is_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = _FakeSession(self._routes_all(lambda: requests.ConnectionError("boom")))

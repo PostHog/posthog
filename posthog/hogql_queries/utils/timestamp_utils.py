@@ -33,7 +33,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team, User
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.event.new_events_schema import get_events_route, get_new_events_cluster_host, use_new_events_schema
+from posthog.models.event.new_events_schema import get_events_route, use_new_events_schema
 from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
 
@@ -143,14 +143,11 @@ def _events_route_modifiers(team: Team) -> HogQLQueryModifiers:
 
 
 def _events_route_cache_key(team: Team, modifiers: HogQLQueryModifiers, cache_key: str) -> str:
-    # Each events table and cluster holds its own copy of the events, so one route's result must not answer another.
-    # The route goes in front, because legacy keys end in event names and table names that a suffix could collide with.
-    native_table = use_new_events_schema(team.pk, modifiers)
-    native_cluster = bool(modifiers.useNewEventsCluster)
-    if not (native_table or native_cluster):
+    # Each events table holds its own copy of the events, so one table's result must not answer for the other.
+    # The table goes in front, because legacy keys end in event names and table names that a suffix could collide with.
+    if not use_new_events_schema(team.pk, modifiers):
         return cache_key
-    native_host = get_new_events_cluster_host() if native_cluster else None
-    return f"events_route:{native_table}:{native_host}:{cache_key}"
+    return f"events_json:{cache_key}"
 
 
 def _coerce_to_datetime(value: Any, tz: tzinfo) -> datetime:

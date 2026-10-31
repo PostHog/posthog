@@ -69,20 +69,20 @@ def test_rolling_hours_keep_their_real_length_across_daylight_saving(_name: str,
 @parameterized.expand(
     [
         ("end before start", date(2026, 3, 10), date(2026, 3, 9), "date_from"),
-        ("91 days", date(2026, 8, 4), date(2026, 11, 2), "date_from"),
+        ("92 days", date(2026, 8, 3), date(2026, 11, 2), "date_from"),
         ("last day of year 9999", None, date(9999, 12, 31), "out of range"),
         ("first day of year 1", None, date(1, 1, 1), "out of range"),
-        # Clocks fall back on November 1, so these 90 days are 2161 hours long.
-        ("90 days across daylight saving", date(2026, 8, 5), date(2026, 11, 2), None),
+        # Clocks fall back on November 1, so these 91 days are 2185 hours long.
+        ("91 days across daylight saving", date(2026, 8, 4), date(2026, 11, 2), None),
         (
-            "90 days of instants",
-            datetime(2026, 8, 5, tzinfo=UTC),
+            "91 days of instants",
+            datetime(2026, 8, 4, tzinfo=UTC),
             datetime(2026, 11, 3, tzinfo=UTC),
             None,
         ),
         (
-            "an instant past 90 days",
-            datetime(2026, 8, 5, tzinfo=UTC),
+            "an instant past 91 days",
+            datetime(2026, 8, 4, tzinfo=UTC),
             datetime(2026, 11, 3, 0, 0, 1, tzinfo=UTC),
             "date_from",
         ),

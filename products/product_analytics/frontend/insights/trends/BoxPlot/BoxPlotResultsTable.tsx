@@ -49,6 +49,12 @@ export function BoxPlotResultsTable(): JSX.Element | null {
                     render: (_, datum: BoxPlotDatum) => datum.label,
                 },
                 {
+                    title: 'Count',
+                    key: 'count',
+                    align: 'right',
+                    render: (_, datum: BoxPlotDatum) => datum.count?.toLocaleString() ?? '-',
+                },
+                {
                     title: 'Min',
                     key: 'min',
                     align: 'right',

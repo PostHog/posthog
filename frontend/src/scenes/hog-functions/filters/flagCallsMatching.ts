@@ -69,11 +69,12 @@ export function matchesOnlyFlagCallsOutsideEvents(
 /**
  * Daily counts of the flag calls that `filters` match over the last `days` days. The events query runner reads
  * flag_evaluations for a query that names only the flag call event. The window starts a day early, so the first
- * day of a trends window over the same days is whole in every timezone.
+ * day of a trends window over the same days is whole in every timezone. The count takes the modifiers of
+ * `trendsQuery`, so a person filter reads the same person properties in both counts.
  */
 function flagCallsDailyCountQuery(
     filters: PropertyGroupFilter,
-    filterTestAccounts: boolean | undefined,
+    { filterTestAccounts, modifiers }: Pick<TrendsQuery, 'filterTestAccounts' | 'modifiers'>,
     days: number
 ): EventsQuery {
     return setLatestVersionsOnQuery({
@@ -84,6 +85,7 @@ function flagCallsDailyCountQuery(
         filterTestAccounts,
         after: `-${days + 1}d`,
         orderBy: ['toDate(timestamp) ASC'],
+        modifiers,
     })
 }
 
@@ -167,9 +169,7 @@ export async function performTrendsQueryWithFlagCalls(
         performQuery(
             flagCallFilters ? { ...trendsQuery, properties: withoutFlagCalls(trendsQuery.properties) } : trendsQuery
         ),
-        flagCallFilters
-            ? performQuery(flagCallsDailyCountQuery(flagCallFilters, trendsQuery.filterTestAccounts, days))
-            : null,
+        flagCallFilters ? performQuery(flagCallsDailyCountQuery(flagCallFilters, trendsQuery, days)) : null,
     ])
     const series = trends.results?.[0] as TrendResult | undefined
     const rows = (flagCalls?.results as [string, number][] | undefined) ?? null

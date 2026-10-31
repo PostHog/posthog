@@ -73,6 +73,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="appointment_start_date",
+                        sync_setting=True,
                         label="Appointment start date",
                         caption="Optional. Defaults to 2000-01-01. Use YYYY-MM-DD.",
                         type=SourceFieldInputConfigType.TEXT,
@@ -82,6 +83,7 @@ class AcculynxSource(ResumableSource[AcculynxSourceConfig, AcculynxResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="appointment_end_date",
+                        sync_setting=True,
                         label="Appointment end date",
                         caption="Optional. Defaults to 90 days from today. Use YYYY-MM-DD.",
                         type=SourceFieldInputConfigType.TEXT,

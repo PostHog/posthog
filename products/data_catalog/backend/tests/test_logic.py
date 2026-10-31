@@ -12,7 +12,12 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
-from products.data_catalog.backend.logic.exceptions import MetricDrifted, MetricNameTaken, SourceInsightUnavailable
+from products.data_catalog.backend.logic.exceptions import (
+    MetricChanged,
+    MetricDrifted,
+    MetricNameTaken,
+    SourceInsightUnavailable,
+)
 from products.data_catalog.backend.logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
@@ -346,6 +351,22 @@ class TestApproveMetric(BaseTest):
 
         with self.assertRaises(MetricDrifted):
             approve_metric(stale, self.user)
+
+    def test_approve_keeps_a_metric_proposed_when_it_changed_since_the_expected_version(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        reviewed_at = metric.updated_at
+        update_metric(metric, team=self.team, user=self.user, definition=_HOGQL_B)
+
+        with self.assertRaises(MetricChanged):
+            approve_metric(metric, self.user, expected_updated_at=reviewed_at)
+
+        metric.refresh_from_db()
+        assert metric.status == MetricStatus.PROPOSED
+
+    def test_approve_accepts_the_expected_version(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approved = approve_metric(metric, self.user, expected_updated_at=metric.updated_at)
+        assert approved.status == MetricStatus.APPROVED
 
 
 class TestBulkRenameRace(BaseTest):

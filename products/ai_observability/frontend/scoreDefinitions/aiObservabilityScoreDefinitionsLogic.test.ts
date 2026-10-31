@@ -182,33 +182,45 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         expect(logic.values.filters.tags).toEqual(['other'])
     })
 
-    it('does not show the empty count label while loading', async () => {
-        let resolveRequest:
-            | ((value: Awaited<ReturnType<typeof aiObservabilityScoreDefinitionsList>>) => void)
-            | undefined
+    it.each([
+        [{}, true],
+        [{ search: 'missing' }, false],
+        [{ kind: 'boolean' }, false],
+        [{ created_by: 1 }, false],
+        [{ tags: ['quality'] }, false],
+        [{ archived: 'true' }, false],
+        [{ page: 2 }, false],
+    ])('only shows setup after an unfiltered empty response for %p', async (filters, showsSetup) => {
+        const requests: ((value: Awaited<ReturnType<typeof aiObservabilityScoreDefinitionsList>>) => void)[] = []
         mockAIObservabilityScoreDefinitionsList.mockImplementation(
             () =>
                 new Promise((resolve) => {
-                    resolveRequest = resolve
+                    requests.push(resolve)
                 })
         )
 
+        router.actions.push(urls.aiObservabilityScorers(), filters)
         const logic = aiObservabilityScoreDefinitionsLogic()
         logic.mount()
 
         expect(logic.values.scoreDefinitionsLoading).toBe(true)
         expect(logic.values.scoreDefinitionCountLabel).toBe('')
+        expect(logic.values.showEmptyState).toBe(false)
 
-        resolveRequest?.({
-            results: [],
-            count: 0,
-            next: null,
-            previous: null,
-        })
+        for (const resolveRequest of requests) {
+            resolveRequest({ results: [], count: 0, next: null, previous: null })
+        }
 
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.scoreDefinitionCountLabel).toBe('0 scorers')
+        expect(logic.values.showEmptyState).toBe(showsSetup)
+
+        if (showsSetup) {
+            mockAIObservabilityScoreDefinitionsList.mockRejectedValueOnce(new Error('Unavailable'))
+            await expectLogic(logic, () => logic.actions.loadScoreDefinitions(false)).toFinishAllListeners()
+            expect(logic.values.showEmptyState).toBe(false)
+        }
     })
 
     it('archives through logic and reloads the list', async () => {

@@ -1,19 +1,19 @@
-import { urls } from 'scenes/urls'
+import { combineUrl } from 'kea-router'
 
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
+import { urls } from 'scenes/urls'
 
 import type { WarehouseSuggestionApi } from './generated/api.schemas'
 
-const TABLE_PREVIEW_LIMIT = 100
+type ModelPageTab = Parameters<typeof urls.nodeDetail>[1]
 
-function escapeTableName(name: string): string {
-    return name.split('.').map(escapeRawPropertyAsHogQLIdentifier).join('.')
-}
+const SAVED_QUERY_LOOKUP = { lookup: 'saved_query' }
 
-export function subjectUrl(suggestion: WarehouseSuggestionApi): string {
-    if (suggestion.subject_kind === 'table') {
-        const table = escapeTableName(suggestion.payload.subject_name)
-        return urls.sqlEditor({ query: `SELECT * FROM ${table} LIMIT ${TABLE_PREVIEW_LIMIT}` })
+export function subjectUrl(suggestion: WarehouseSuggestionApi, tab?: ModelPageTab): string {
+    if (suggestion.subject_kind === 'saved_query') {
+        return combineUrl(urls.nodeDetail(suggestion.subject_id, tab), SAVED_QUERY_LOOKUP).url
     }
-    return urls.sqlEditor({ view_id: suggestion.subject_id })
+    if (suggestion.subject_source_id && suggestion.subject_schema_id) {
+        return urls.dataWarehouseSourceSchema(`managed-${suggestion.subject_source_id}`, suggestion.subject_schema_id)
+    }
+    return urls.dataWarehouseSource(`self-managed-${suggestion.subject_id}`)
 }

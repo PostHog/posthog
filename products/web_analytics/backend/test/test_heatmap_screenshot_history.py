@@ -30,7 +30,7 @@ from products.web_analytics.backend.heatmap_history import (
 )
 from products.web_analytics.backend.heatmap_history_storage import image_key
 from products.web_analytics.backend.models import HeatmapCaptureRequest, HeatmapScreenshotHistory, SavedHeatmap
-from products.web_analytics.backend.tasks.heatmap_screenshot import BrowserlessPermanentError
+from products.web_analytics.backend.tasks.heatmap_screenshot import BrowserlessPermanentError, PageHttpStatusError
 from products.web_analytics.backend.temporal.page_history.scheduling import prune_history, schedule_due_captures
 from products.web_analytics.backend.temporal.page_history.types import ClaimedCapture, FinishInputs, RenderOutcome
 
@@ -507,22 +507,43 @@ class TestHeatmapHistory(APIBaseTest):
         self.execute_capture(manual, BrowserlessPermanentError("Failed", cause="invalid_image"))
         assert self.enqueue("scheduled").state == "queued"
 
-    def test_transient_storage_failure_retries_until_the_final_attempt(self) -> None:
+    @parameterized.expand(
+        [
+            ("storage_write", None, True, RenderOutcome(failure_cause="storage_write_failed")),
+            (
+                "page_503",
+                PageHttpStatusError("Failed", status_code=503, cause="page_http_status"),
+                True,
+                RenderOutcome(failure_cause="page_http_status", page_status=503),
+            ),
+            (
+                "page_404",
+                PageHttpStatusError("Failed", status_code=404, cause="page_http_status"),
+                False,
+                RenderOutcome(failure_cause="page_http_status", page_status=404),
+            ),
+        ]
+    )
+    def test_transient_failure_retries_until_the_final_attempt(
+        self, _name: str, render_error: Exception | None, retried: bool, expected: RenderOutcome
+    ) -> None:
         claimed = HeatmapHistoryService.claim(team_id=self.team.id, request_id=self.enqueue().id)
         assert claimed is not None
-        self.storage.write.side_effect = ObjectStorageError("unavailable")
-        with patch.object(HeatmapHistoryService, "render", return_value=jpeg()):
-            with self.assertRaises(ObjectStorageError):
-                HeatmapHistoryService.render_and_store(claimed, final_attempt=False)
-            outcome = HeatmapHistoryService.render_and_store(claimed, final_attempt=True)
-        assert outcome.failure_cause == "storage_write_failed"
+        if render_error is None:
+            self.storage.write.side_effect = ObjectStorageError("unavailable")
+        with patch.object(HeatmapHistoryService, "render", return_value=jpeg(), side_effect=render_error):
+            if retried:
+                with self.assertRaises(ObjectStorageError if render_error is None else type(render_error)):
+                    HeatmapHistoryService.render_and_store(claimed, final_attempt=False)
+            else:
+                assert HeatmapHistoryService.render_and_store(claimed, final_attempt=False) == expected
+            assert HeatmapHistoryService.render_and_store(claimed, final_attempt=True) == expected
         HeatmapCaptureRequest.objects.for_team(self.team.id).filter(id=claimed.id).update(
             deadline=timezone.now() + timedelta(seconds=60)
         )
         claimed.refresh_from_db()
-        with patch.object(HeatmapHistoryService, "render", return_value=jpeg()):
-            outcome = HeatmapHistoryService.render_and_store(claimed, final_attempt=False)
-        assert outcome.failure_cause == "storage_write_failed"
+        with patch.object(HeatmapHistoryService, "render", return_value=jpeg(), side_effect=render_error):
+            assert HeatmapHistoryService.render_and_store(claimed, final_attempt=False) == expected
 
 
 @pytest.mark.django_db(transaction=True)

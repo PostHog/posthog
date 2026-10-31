@@ -126,7 +126,7 @@ class EverflowSource(ResumableSource[EverflowSourceConfig, EverflowResumeConfig]
             caption="Sync offers, partners, advertisers, conversions and daily performance from your Everflow network.",
             docsUrl="https://posthog.com/docs/cdp/sources/everflow",
             iconPath="/static/services/everflow.png",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -151,6 +151,7 @@ class EverflowSource(ResumableSource[EverflowSourceConfig, EverflowResumeConfig]
                     ),
                     SourceFieldInputConfig(
                         name="currency_code",
+                        sync_setting=True,
                         label="Reporting currency",
                         caption="Three-letter currency code for the daily performance table.",
                         type=SourceFieldInputConfigType.TEXT,

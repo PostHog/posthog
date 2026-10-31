@@ -969,6 +969,13 @@ describe('dataVisualizationLogic', () => {
             hogVm: expect.anything(),
         },
         {
+            name: 'loads the Hog VM for a BI hierarchy pivot with formatting rules',
+            display: ChartDisplayType.TwoDimensionalHeatmap,
+            rules: [equalsRule],
+            hogVm: expect.anything(),
+            pivot: true,
+        },
+        {
             name: 'does not load the Hog VM for a table without formatting rules',
             display: ChartDisplayType.ActionsTable,
             rules: [],
@@ -986,10 +993,28 @@ describe('dataVisualizationLogic', () => {
             rules: [equalsRule],
             hogVm: null,
         },
-    ])('$name', async ({ display, rules, hogVm }) => {
+    ])('$name', async ({ display, rules, hogVm, pivot }) => {
         const tableLogic = dataVisualizationLogic({
             key: 'hog-vm-loading',
-            query: { ...defaultQuery, display, tableSettings: { conditionalFormatting: rules } },
+            query: {
+                ...defaultQuery,
+                ...(pivot
+                    ? {
+                          kind: NodeKind.BIVisualizationNode,
+                          config: {
+                              source: null,
+                              chartType: display,
+                              rows: [],
+                              columns: [],
+                              values: [],
+                              filters: [],
+                              limit: 100,
+                          },
+                      }
+                    : {}),
+                display,
+                tableSettings: { conditionalFormatting: rules },
+            },
             dataNodeCollectionId,
         } as DataVisualizationLogicProps)
         tableLogic.mount()

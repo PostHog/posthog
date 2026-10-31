@@ -36,9 +36,11 @@ from django.utils import timezone as django_timezone
 
 import structlog
 
+from posthog.schema import ExperimentQueryResponse
+
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.logic.result_stats import MetricResultStats
+from products.experiments.backend.logic.result_stats import MetricResultStats, parse_stored_response
 from products.experiments.backend.metric_calculation.config import MetricCalculationConfig, build_calculation_configs
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -107,8 +109,9 @@ class MetricResultStore:
 
     experiment_id: int
 
-    def for_run(self, run: ExperimentMetricsRecalculation) -> list[ExperimentMetricResult]:
-        """The rows of a recalculation run, one per metric uuid, ordered by metric uuid.
+    def for_run(self, run: ExperimentMetricsRecalculation, *, with_result: bool = True) -> list[ExperimentMetricResult]:
+        """The rows of a recalculation run, one per metric uuid, ordered by metric uuid. With `with_result=False` the
+        rows don't load `result`, which for a funnel holds the sessions of each step, and reading it queries again.
 
         A run has no link to its rows. The rows are found by the salted keys of the run's metrics under the
         current configuration of the experiment, at the run's query_to. A metric that no longer resolves on the
@@ -133,6 +136,8 @@ class MetricResultStore:
         rows = ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id, fingerprint__in=fingerprints, query_to=run.query_to
         )
+        if not with_result:
+            rows = rows.defer("result")
         return list(_newest_write_first(rows, "metric_uuid").distinct("metric_uuid"))
 
     def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
@@ -187,8 +192,21 @@ class MetricResultStore:
 
     def current_result(self, calculation_config: MetricCalculationConfig) -> MetricResultStats | None:
         """The statistics of the result that `current_outcome` picks, or None when it has none or doesn't parse."""
+        response = self.current_response(calculation_config)
+        return MetricResultStats.from_response(response) if response is not None else None
+
+    def current_response(self, calculation_config: MetricCalculationConfig) -> ExperimentQueryResponse | None:
+        """The baseline and variant results of the result that `current_outcome` picks, or None when it has none or
+        doesn't parse."""
         stored = self._current_rows({self.experiment_id: calculation_config}).values_list("result", flat=True).first()
-        return MetricResultStats.from_stored(stored)
+        return parse_stored_response(stored)
+
+    def current_data_until(self, calculation_config: MetricCalculationConfig) -> datetime | None:
+        """When the data of the result that `current_outcome` picks ends, as `current_outcomes` defines it, or None when
+        it has none."""
+        # F() selects the alias, which values_list can't select by name.
+        rows = self._current_rows({self.experiment_id: calculation_config})
+        return rows.values_list(F("data_until"), flat=True).first()
 
     def previous_completed(
         self, metric_uuid: str, calculation_key: str, *, before: datetime

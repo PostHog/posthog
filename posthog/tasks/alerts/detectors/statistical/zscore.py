@@ -1,8 +1,10 @@
+from typing import Any
+
 import numpy as np
 
 from posthog.schema import DetectorType
 
-from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
+from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult, DetectorArtifact
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
@@ -15,8 +17,10 @@ def _zscore_to_probability(z_score: float, window_zscores: np.ndarray) -> float:
     training window: 0 means at or below the minimum, 1 means at or above
     the maximum.
     """
-    min_z = float(window_zscores.min())
-    max_z = float(window_zscores.max())
+    return _normalize_zscore(z_score, float(window_zscores.min()), float(window_zscores.max()))
+
+
+def _normalize_zscore(z_score: float, min_z: float, max_z: float) -> float:
     if max_z == min_z:
         return 1.0 if z_score > max_z else 0.0
     return float(np.clip((z_score - min_z) / (max_z - min_z), 0.0, 1.0))
@@ -41,8 +45,8 @@ class ZScoreDetector(BaseDetector):
 
     def detect(self, data: np.ndarray) -> DetectionResult:
         """Check if the most recent point is an anomaly based on z-score."""
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -98,8 +102,8 @@ class ZScoreDetector(BaseDetector):
 
     def detect_batch(self, data: np.ndarray) -> DetectionResult:
         """Check all points for z-score anomalies."""
-        threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
-        window = self.config.get("window", 30)
+        threshold = self.threshold
+        window = self.window
         # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
         # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
         # is introduced regardless of the configured magnitude.
@@ -148,6 +152,37 @@ class ZScoreDetector(BaseDetector):
             all_scores=scores,
             metadata={"threshold": threshold, "window": window},
         )
+
+    def fit(self, history: np.ndarray) -> DetectorArtifact:
+        window = self.window
+        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
+        rows = self._fit_rows(history, min_rows=window + diffs_n)
+        values = rows if rows.ndim == 1 else rows[:, 0]
+        window_data = values[diffs_n:][-window:]
+        mean = np.mean(window_data)
+        std = np.std(window_data)
+        params: dict[str, Any] = {"mean": float(mean), "std": float(std)}
+        if std != 0:
+            window_zscores = np.abs((window_data - mean) / std)
+            params.update(min_z=float(window_zscores.min()), max_z=float(window_zscores.max()))
+        return self._artifact(params)
+
+    def _score_rows(
+        self, artifact: DetectorArtifact, rows: np.ndarray
+    ) -> tuple[list[float | None], list[dict[str, Any]]]:
+        mean = artifact.params["mean"]
+        std = artifact.params["std"]
+        scores: list[float | None] = []
+        metadata: list[dict[str, Any]] = []
+        for value in rows if rows.ndim == 1 else rows[:, 0]:
+            if std == 0:
+                scores.append(1.0 if abs(value - mean) > 0 else 0.0)
+                metadata.append({"mean": mean, "std": 0.0, "value": float(value), "raw_zscore": None})
+                continue
+            z_score = abs((value - mean) / std)
+            scores.append(_normalize_zscore(z_score, artifact.params["min_z"], artifact.params["max_z"]))
+            metadata.append({"mean": mean, "std": std, "value": float(value), "raw_zscore": float(z_score)})
+        return scores, metadata
 
     @classmethod
     def get_default_config(cls) -> dict:

@@ -5,10 +5,13 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import _State
 
 import pyarrow as pa
 import structlog
@@ -45,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     iter_file_tables,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import (
+    ClickHouseGlob,
     compile_clickhouse_glob,
     glob_key_prefix,
     glob_listing_prefix,
@@ -55,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     UnmappableTableError,
     needs_preserved_column_names,
     parse_self_managed_url,
+    refuse_columns_an_import_changes,
     source_format_for,
     table_definition_for,
 )
@@ -289,15 +294,25 @@ class TestClickHouseGlob:
             ("eight_stars", "*a*a*a*a*a*a*a*a*b.csv"),
         ]
     )
-    def test_adversarial_match_time(self, _name: str, pattern: str) -> None:
+    def test_adversarial_match_work_is_bounded(self, _name: str, pattern: str) -> None:
         glob = compile_clickhouse_glob(pattern)
-        path = "a" * 200 + ".csv"
+        # Short enough that a backtracking matcher returns and fails the assertions below instead of hanging.
+        path = "a" * 20 + ".csv"
+        closure = ClickHouseGlob._epsilon_closure
+        state_counts: list[int] = []
 
-        started = time.perf_counter()
-        for _ in range(1000):
+        def counting_closure(self: ClickHouseGlob, states: set[_State]) -> set[_State]:
+            result = closure(self, states)
+            state_counts.append(len(result))
+            return result
+
+        with patch.object(ClickHouseGlob, "_epsilon_closure", counting_closure):
             assert glob.matches(path) is False
-        assert time.perf_counter() - started < 2
-        assert glob.matches("a" * 200 + "b.csv") is True
+
+        # One state set per character, each no larger than the token count, keeps the work linear.
+        assert 0 < len(state_counts) <= len(path) + 1
+        assert max(state_counts) <= len(glob.tokens) + 1
+        assert glob.matches("a" * 20 + "b.csv") is True
 
     @parameterized.expand(
         [
@@ -525,11 +540,18 @@ class TestTableDefinition:
             table_definition_for("orders", parse_self_managed_url(url), table_format, columns, None)
 
     @parameterized.expand([("Date",), ("Nullable(Date32)",), ("DateTime",), ("Nullable(DateTime64(9))",)])
-    def test_json_dates_and_times_are_refused(self, column_type: str) -> None:
+    def test_json_dates_and_times_are_cast_not_refused(self, column_type: str) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.jsonl")
+        columns = {"id": "Int64", "created": column_type}
 
-        with pytest.raises(UnmappableTableError, match="'created'"):
-            table_definition_for("orders", location, "JSONEachRow", {"id": "Int64", "created": column_type}, None)
+        refuse_columns_an_import_changes(columns, "jsonl")
+        definition = table_definition_for("orders", location, "JSONEachRow", columns, None)
+
+        assert [column.name for column in definition.csv.column_types] == ["created"]
+
+    def test_json_nested_columns_are_still_refused(self) -> None:
+        with pytest.raises(UnmappableTableError, match="'tags'"):
+            refuse_columns_an_import_changes({"tags": "Array(String)", "day": "Date"}, "jsonl")
 
     def test_csv_header_names_with_surrounding_spaces_are_refused(self) -> None:
         location = parse_self_managed_url("https://storage.googleapis.com/lake/orders/*.csv")

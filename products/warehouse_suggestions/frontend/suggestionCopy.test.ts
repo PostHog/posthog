@@ -1,14 +1,20 @@
 import type { WarehouseSuggestionMaterializePayloadApi } from './generated/api.schemas'
 import {
+    MonthlySaving,
+    SavingHighlight,
     UNKNOWN_SOURCES_CAVEAT,
     dataAgeLabel,
     notNowCondition,
+    savingHighlight,
+    savingSentence,
     suggestedScheduleHint,
     todayAgeLabel,
 } from './suggestionCopy'
 
 const DAY = 24 * 60 * 60
 const HOUR = 60 * 60
+const MB = 1024 ** 2
+const TB = 1024 ** 4
 
 function payload(
     freshnessTodaySeconds: number | null,
@@ -44,9 +50,38 @@ describe('suggestionCopy', () => {
         expect(todayAgeLabel(input)).toEqual(today)
     })
 
+    it.each<[string, MonthlySaving, SavingHighlight, string]>([
+        [
+            'time and bytes',
+            { seconds: 17 * 60, bytes: 3.2 * TB },
+            {
+                amount: '~17 minutes',
+                detail: '~3.20 TB less scanned',
+                narrowLabel: 'saved a month, ~3.20 TB less scanned',
+            },
+            'Saves about 17 minutes of query time and 3.20 TB of scanning a month',
+        ],
+        [
+            'time and too few bytes to name',
+            { seconds: 17 * 60, bytes: 40 * MB },
+            { amount: '~17 minutes', detail: null, narrowLabel: 'saved a month' },
+            'Saves about 17 minutes of query time a month',
+        ],
+        [
+            'only bytes',
+            { seconds: 30, bytes: 40 * MB },
+            { amount: '~40.00 MB', detail: 'less scanned', narrowLabel: 'less scanned a month' },
+            'Saves about 40.00 MB of scanning a month',
+        ],
+    ])('names every saving worth naming when a suggestion saves %s', (_name, saving, highlight, sentence) => {
+        expect(savingHighlight(saving)).toEqual(highlight)
+        expect(savingSentence(saving)).toEqual(sentence)
+    })
+
     it.each<[Parameters<typeof suggestedScheduleHint>[0], string]>([
         ['source_sync', "sources don't sync more often"],
         ['read_rate', "People don't read it more often"],
+        ['consumer_refresh', "The views that read it don't refresh more often"],
         ['fastest_schedule', 'the most often PostHog refreshes a view'],
         ['savings', 'saves more than it costs'],
         [null, 'saves more than it costs'],

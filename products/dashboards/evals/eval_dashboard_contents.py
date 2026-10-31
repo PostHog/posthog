@@ -8,14 +8,12 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.evals.offline_config import offline_suite
 from products.dashboards.evals.scorers import SavedDashboardContents
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 from products.product_analytics.backend.facade.models import Insight
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-
-NO_SEND_LOGS = True
 
 DASHBOARD_NAME = "File activity overview"
 SIGNUPS_NAME = "Saved daily signups"
@@ -69,8 +67,7 @@ def seed_existing_dashboard(context: CustomPromptSandboxContext) -> dict[str, An
 
 
 async def eval_dashboard_contents(ctx: EvalContext) -> None:
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-dashboards-saved-contents-cli",
         offline_suite=offline_suite(
             "dashboards/eval_dashboard_contents::eval_dashboard_contents",

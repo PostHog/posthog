@@ -9,7 +9,6 @@ import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
-import { TodayPulseEditor } from './TodayPulseEditor'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
 
@@ -18,7 +17,7 @@ const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: '
 function TodayPulseSkeleton(): JSX.Element {
     return (
         <ul className="TodayPulse" aria-busy aria-label="Loading key numbers">
-            {['w-14', 'w-16', 'w-20'].map((width) => (
+            {['w-14', 'w-20', 'w-16', 'w-24'].map((width) => (
                 <li key={width} className="TodayPulse__metric">
                     <span className="TodayPulse__name">
                         <Skeleton className={`inline-block h-3 align-middle ${width}`} />
@@ -27,6 +26,9 @@ function TodayPulseSkeleton(): JSX.Element {
                         <span className="TodayPulse__value">
                             <Skeleton className="inline-block h-4 w-28 align-middle" />
                         </span>
+                    </span>
+                    <span className="TodayPulse__spark">
+                        <Skeleton className="h-3 w-full" />
                     </span>
                 </li>
             ))}
@@ -47,10 +49,38 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
+    const { greeting, isNewProject, recentObjects, returnFocusReportId, useSampleData } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
-    const { highlights, highlightsPending, pulseTiles, pulsePinsLoaded } = useValues(todayHighlightsLogic)
+    const {
+        currentProjectId,
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulsePending,
+        pulseTiles,
+    } = useValues(todayHighlightsLogic)
+    const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+
+    useLayoutEffect(() => {
+        pulseViewMounted(useSampleData)
+        return () => pulseViewUnmounted()
+    }, [currentProjectId, useSampleData, pulseViewMounted, pulseViewUnmounted])
+
+    useLayoutEffect(() => {
+        pulseViewUpdated()
+    }, [
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulsePending,
+        pulseTiles,
+        pulseViewUpdated,
+        currentProjectId,
+        useSampleData,
+    ])
 
     useLayoutEffect(() => {
         const scroller = rootRef.current?.closest('main')
@@ -87,14 +117,17 @@ export function TodayHomePage(): JSX.Element {
                 </div>
                 <div className="TodayHome__metaRow">
                     <TodayMetaLine />
-                    {!highlightsPending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
                 </div>
             </section>
             <div className="TodayHome__body">
-                {highlightsPending ? (
+                {pulsePending ? (
                     <TodayPulseSkeleton />
                 ) : highlights && pulseTiles.length > 0 ? (
                     <TodayPulse metrics={pulseTiles} />
+                ) : highlights?.status === 'ready' ? (
+                    <Text size="sm" variant="muted" render={<p />} className="m-0">
+                        Key numbers show here when you or your team open a few trend insights.
+                    </Text>
                 ) : null}
                 {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
                 <TodayForYou />

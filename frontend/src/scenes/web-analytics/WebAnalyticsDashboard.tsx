@@ -66,6 +66,7 @@ import { AgentAnalytics } from 'products/web_analytics/frontend/agent_analytics/
 import { AgentAnalyticsFilters } from 'products/web_analytics/frontend/agent_analytics/AgentAnalyticsFilters'
 import { ContentAutopilot } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilot'
 import { MarketingAnalyticsFilterHint } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsFilterHint'
+import { PageReportsTabLabel } from 'products/web_analytics/frontend/pageReports/PageReportsTabLabel'
 
 import { BotAnalyticsFilters } from './BotAnalyticsFilters'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
@@ -121,7 +122,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     )
 }
 
-const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
+export const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
     const { featureFlags } = useValues(featureFlagLogic)
     const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
@@ -972,7 +973,15 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
+                {
+                    key: ProductTab.PAGE_REPORTS,
+                    label: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS_DIRECTORY] ? (
+                        <PageReportsTabLabel />
+                    ) : (
+                        'Page reports'
+                    ),
+                    link: '/web/page-reports',
+                },
                 ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
                 ...pagePerformanceTab(featureFlags),

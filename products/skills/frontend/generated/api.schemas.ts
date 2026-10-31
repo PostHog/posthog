@@ -596,6 +596,81 @@ export interface LLMSkillImportApi {
     file: string
 }
 
+export interface LLMSkillManifestResourceApi {
+    /** Path of the file relative to the skill directory. SKILL.md for the rendered skill file. */
+    path: string
+    /**
+     * Bare hex SHA-256 of the exact bytes served for this file, without a 'sha256:' prefix. Null on rows written before digests were stamped.
+     * @nullable
+     */
+    sha256: string | null
+    /**
+     * Byte length of the exact bytes served for this file, encoded as UTF-8. Null on rows written before digests were stamped.
+     * @nullable
+     */
+    size: number | null
+    /** MIME type of the file, e.g. text/markdown. */
+    content_type: string
+}
+
+/**
+ * * `too_many_files` - Too many files
+ * * `too_large` - Too large
+ * * `digest_missing` - Digest missing
+ * * `spec_problems` - Spec problems
+ */
+export type SkillUnservableReasonEnumApi =
+    (typeof SkillUnservableReasonEnumApi)[keyof typeof SkillUnservableReasonEnumApi]
+
+export const SkillUnservableReasonEnumApi = {
+    TooManyFiles: 'too_many_files',
+    TooLarge: 'too_large',
+    DigestMissing: 'digest_missing',
+    SpecProblems: 'spec_problems',
+} as const
+
+export type LLMSkillManifestApiFrontmatterMetadata = { [key: string]: string }
+
+/**
+ * The frontmatter of the served SKILL.md as a JSON object, equal to the frontmatter field of the skill-md endpoint for the same version.
+ */
+export type LLMSkillManifestApiFrontmatter = {
+    name: string
+    description: string
+    license?: string
+    compatibility?: string
+    metadata: LLMSkillManifestApiFrontmatterMetadata
+    'allowed-tools'?: string
+}
+
+export interface LLMSkillManifestApi {
+    /** Name of the skill, which is also its directory name. */
+    name: string
+    /** Version of the skill that this manifest describes. */
+    version: number
+    /** The frontmatter of the served SKILL.md as a JSON object, equal to the frontmatter field of the skill-md endpoint for the same version. */
+    frontmatter: LLMSkillManifestApiFrontmatter
+    /** Every file of the skill exactly once: SKILL.md first, then the bundled files sorted by path. */
+    resources: LLMSkillManifestResourceApi[]
+    /** Number of entries in resources, SKILL.md included. */
+    file_count: number
+    /** Sum of every resource size in bytes. A resource with a null size counts as zero. */
+    total_size: number
+    /** Whether an MCP server may serve this skill. False when unservable_reasons is not empty. */
+    servable: boolean
+    /** Why the skill must not be served, one code per reason. too_many_files: more than 512 files. too_large: more than 16777216 bytes in total. digest_missing: a stored digest or size is null. spec_problems: the skill fails the Agent Skills spec check, see spec_problems on the skill. */
+    unservable_reasons: SkillUnservableReasonEnumApi[]
+}
+
+export interface PaginatedLLMSkillManifestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMSkillManifestApi[]
+}
+
 /**
  * * `absent` - absent
  * * `exists` - exists
@@ -1064,6 +1139,37 @@ export const LlmSkillsBundleRetrieveContent = {
     Full: 'full',
 } as const
 
+export type LlmSkillsManifestsListParams = {
+    /**
+     * Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.
+     */
+    category?: string
+    /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number
+    /**
+     * Leave out skills in this exact category, e.g. "scout" to skip Signals scouts. An empty string leaves out uncategorized skills.
+     */
+    exclude_category?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.
+     */
+    owner_id?: number
+    /**
+     * Optional substring filter applied to skill names and descriptions.
+     */
+    search?: string
+}
+
 export type LlmSkillsNameRetrieveParams = {
     /**
      * Maximum number of characters of the body to return starting at body_offset. Omit to return the whole body from the offset onwards. When the slice stops before the end, body_next_offset is the offset to request next.
@@ -1104,6 +1210,14 @@ export type LlmSkillsNameFilesDestroyParams = {
      * @minimum 1
      */
     base_version?: number
+}
+
+export type LlmSkillsNameManifestRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
 }
 
 export type LlmSkillsNameSkillMdRetrieveParams = {

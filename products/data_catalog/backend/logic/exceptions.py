@@ -17,6 +17,12 @@ class MetricDrifted(APIException):
     default_code = "metric_drifted"
 
 
+class MetricChanged(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This metric changed after you saved it. Review the latest version before approving it."
+    default_code = "metric_changed"
+
+
 class SourceInsightUnavailable(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "The source insight is no longer available. Edit the definition directly or unlink the insight."

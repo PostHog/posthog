@@ -60,6 +60,18 @@ class TestPagination:
 
         assert result.urls[0].split("?")[0] == f"{salesflare.SALESFLARE_BASE_URL}{SALESFLARE_ENDPOINTS[endpoint].path}"
 
+    @parameterized.expand([(e, SALESFLARE_ENDPOINTS[e].paginated) for e in ENDPOINTS])
+    def test_only_paginated_endpoints_send_page_params(self, endpoint: str, paginated: bool) -> None:
+        result = _driver().run(endpoint, [_response(_full_page(0)), _response([])])
+
+        if paginated:
+            assert result.params("offset") == ["0", str(PAGE_SIZE)]
+            assert result.params("limit")[0] == str(PAGE_SIZE)
+        else:
+            assert len(result.requests) == 1
+            assert result.urls[0] == f"{salesflare.SALESFLARE_BASE_URL}{SALESFLARE_ENDPOINTS[endpoint].path}"
+            assert len(result.rows) == PAGE_SIZE
+
 
 class TestErrorHandling:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])

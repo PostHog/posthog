@@ -3376,6 +3376,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Detector-specific values for this bucket, for example ensemble sub-scores. Its shape depends on the detector.",
             "type": "String",
         },
+        "$anomaly_run": {
+            "label": "Anomaly scoring run",
+            "description": "How the bucket was scored. `train` fit a new model on the history of the series, and `score` scored the bucket with a stored model. Empty when scoring fits the detector again on every run.",
+            "examples": ["train", "score"],
+            "type": "String",
+        },
+        "$anomaly_model_id": {
+            "label": "Anomaly model ID",
+            "description": "ID of the stored model that scored the bucket. Buckets with the same ID were scored with the same fit. Empty when scoring fits the detector again on every run.",
+            "type": "String",
+        },
         "$csp_document_url": {
             "label": "Document URL",
             "description": "The URL of the document where the violation occurred.",

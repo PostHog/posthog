@@ -1,7 +1,7 @@
 """Contract types for warehouse_suggestions."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -17,6 +17,11 @@ from .enums import (
 )
 
 PAYLOAD_VERSION = 1
+WAREHOUSE_SCOPE_OBJECT: Final = "warehouse_objects"
+SUBJECT_SCOPE_OBJECTS = {
+    WarehouseSuggestionSubjectKind.SAVED_QUERY: "warehouse_view",
+    WarehouseSuggestionSubjectKind.TABLE: "warehouse_table",
+}
 
 
 @frozen
@@ -60,6 +65,7 @@ class MaterializePayload:
     unique_key: tuple[str, ...] = ()
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
+    recomputed_by_views: int = 0
 
 
 @frozen
@@ -99,6 +105,7 @@ class MaterializeSuggestionPayload:
     unique_key: tuple[str, ...] = ()
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
+    recomputed_by_views: int = 0
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
@@ -151,6 +158,9 @@ class Suggestion:
     realized_seconds_saved_per_month: float | None
     realized_bytes_saved_per_month: float | None
     can_act: bool
+    subject_source_id: UUID | None = None
+    subject_schema_id: UUID | None = None
+    assignee: SuggestionReviewer | None = None
 
 
 @frozen
@@ -248,6 +258,14 @@ class AcceptOptionRefusedError(Exception):
 
 
 class SuggestionOutdatedError(Exception):
+    pass
+
+
+class AssigneeCannotActError(Exception):
+    pass
+
+
+class SuggestionNotOpenError(Exception):
     pass
 
 

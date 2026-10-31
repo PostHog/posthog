@@ -25,6 +25,12 @@ from products.replay_vision.backend.models.replay_scanner import (
     initial_watermark,
 )
 from products.replay_vision.backend.queries import excluded_sessions
+from products.replay_vision.backend.queries.filter_errors import (
+    clear_filter_error,
+    filter_error_message,
+    filter_error_pending,
+    record_filter_error,
+)
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
     DEFAULT_CANDIDATE_LIMIT,
@@ -140,6 +146,18 @@ def _seconds_left(started_at: float) -> float:
     return FIND_SCANNER_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at)
 
 
+def _fail_on_filter_error(scanner: ReplayScanner, error: Exception) -> None:
+    """Record a filter that cannot run and fail without retries, which only repeat the rejected query."""
+    message = filter_error_message(error)
+    if message is None:
+        return
+    record_filter_error(scanner, message)
+    record_sweep_outcome("filter_error")
+    raise ApplicationError(
+        f"ReplayScanner {scanner.id} has a filter that cannot run: {message}", non_retryable=True
+    ) from error
+
+
 @activity.defn
 @track_activity()
 def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> FindScannerCandidatesOutput:
@@ -202,9 +220,16 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         record_sweep_outcome("no_principal")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    if filter_error_pending(scanner):
+        # The filter failed recently and fails the same way until someone edits it, so skip the
+        # query. The watermark holds, like any other skipped tick.
+        record_sweep_outcome("filter_error")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
     try:
         query = scanner.targeted_recordings_query()
     except ValidationError as exc:
+        record_filter_error(scanner, "The filter is malformed and cannot be read.")
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
         ) from exc
@@ -256,20 +281,29 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # tick (no watermark advance) instead of failing it on every fire.
         record_sweep_outcome("experiment_linkage_unresolved")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
+    except Exception as exc:
+        _fail_on_filter_error(scanner, exc)
+        raise
     fetched = batch.matched
     if batch.saturated:
         record_candidate_page_full()
 
     # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
     # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
-    excluded = excluded_sessions.excluded_session_ids(
-        query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
-        team=scanner.team,
-        candidate_query=candidate_query,
-        candidates=fetched,
-        scanner_id=str(scanner.id),
-        seconds_remaining=_seconds_left(started_at),
-    )
+    try:
+        excluded = excluded_sessions.excluded_session_ids(
+            query_type=EXCLUDED_SESSIONS_QUERY_TYPE,
+            team=scanner.team,
+            candidate_query=candidate_query,
+            candidates=fetched,
+            scanner_id=str(scanner.id),
+            seconds_remaining=_seconds_left(started_at),
+        )
+    except Exception as exc:
+        # A broken negative filter only fails here, since the fast query leaves the blocklists out.
+        _fail_on_filter_error(scanner, exc)
+        raise
+    clear_filter_error(scanner)
     candidates = [c for c in fetched if c.session_id not in excluded]
 
     # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep

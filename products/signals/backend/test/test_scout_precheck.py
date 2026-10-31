@@ -23,6 +23,7 @@ from posthog.models.scoping import team_scope
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.customer_analytics.backend.facade.testing import create_account
+from products.experiments.backend.facade.testing import create_experiment
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.precheck import (
@@ -348,12 +349,14 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def _seed_experiment(self, *, started: bool, days_since_update: int) -> None:
         FeatureFlag = apps.get_model("feature_flags", "FeatureFlag")
-        Experiment = apps.get_model("experiments", "Experiment")
         flag = FeatureFlag.objects.create(team=self.team, key=f"exp_flag_{started}_{days_since_update}")
-        experiment = Experiment.objects.create(
-            team=self.team, name="e", feature_flag=flag, start_date=NOW - timedelta(days=60) if started else None
+        create_experiment(
+            team_id=self.team.id,
+            name="e",
+            feature_flag_id=flag.id,
+            start_date=NOW - timedelta(days=60) if started else None,
+            updated_at=NOW - timedelta(days=days_since_update),
         )
-        Experiment.objects.filter(pk=experiment.pk).update(updated_at=NOW - timedelta(days=days_since_update))
 
     def _seed_report(self, status: str, *, days_since_update: int) -> None:
         report = SignalReport.objects.create(team=self.team, status=status, title="r")
