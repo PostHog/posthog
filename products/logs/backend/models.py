@@ -491,6 +491,9 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         PATH_DROP = "path_drop", "Path exclusion"
         RATE_LIMIT = "rate_limit", "Rate limit"
 
+    # Same choice set as metric rules, so the OpenAPI schema emits one enum for both.
+    RecordSource = LogsMetricRule.RecordSource
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=False)
@@ -503,6 +506,12 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
     scope_path_pattern = models.CharField(max_length=1024, null=True, blank=True)
     scope_attribute_filters = models.JSONField(default=list)
     config = models.JSONField(default=dict)
+    # Record source the rule filters. Immutable after create: it decides which consumer (logs or traces)
+    # evaluates the rule. The default keeps pre-existing rows as log rules.
+    # db_default keeps inserts from workers on the previous release valid during a rolling deploy.
+    source = models.CharField(
+        max_length=16, choices=RecordSource.choices, default=RecordSource.LOGS, db_default=RecordSource.LOGS
+    )
     version = models.PositiveIntegerField(default=1)
 
     class Meta:

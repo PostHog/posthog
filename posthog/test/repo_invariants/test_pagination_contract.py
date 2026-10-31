@@ -201,6 +201,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.growth.backend.api.identity_matching.IdentityMatchingLinkViewSet",
     "products.legal_documents.backend.presentation.views.LegalDocumentViewSet",
     "products.logs.backend.presentation.views.alerts_api.LogsAlertViewSet",
+    # extend_schema_view only documents the source query parameter; the list itself stays the stock
+    # paginated one, with priority ordering and a page-boundary test.
+    "products.logs.backend.presentation.views.sampling_api.LogsSamplingRuleViewSet",
     "products.managed_migrations.backend.api.batch_imports.BatchImportViewSet",
     "products.managed_migrations.backend.api.support_batch_imports.BatchImportSupportViewSet",
     "products.mcp_analytics.backend.presentation.views.MCPFeedbackViewSet",

@@ -70065,6 +70065,11 @@ export namespace Schemas {
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
       /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config: unknown;
+      /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
       readonly created_by: number;
@@ -90255,6 +90260,11 @@ export namespace Schemas {
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
       /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config?: unknown;
+      /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+       *
+       * * `logs` - Logs
+       * * `spans` - Spans */
+      source?: LogsMetricRuleRecordSourceEnum;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
       readonly created_by?: number;
@@ -139863,7 +139873,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesListSource;
     };
+
+    export type LogsSamplingRulesListSource = typeof LogsSamplingRulesListSource[keyof typeof LogsSamplingRulesListSource];
+
+
+    export const LogsSamplingRulesListSource = {
+      Logs: 'logs',
+      Spans: 'spans',
+    } as const;
 
     export type LogsSamplingRulesReorderCreateParams = {
     /**
@@ -139874,7 +139900,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesReorderCreateSource;
     };
+
+    export type LogsSamplingRulesReorderCreateSource = typeof LogsSamplingRulesReorderCreateSource[keyof typeof LogsSamplingRulesReorderCreateSource];
+
+
+    export const LogsSamplingRulesReorderCreateSource = {
+      Logs: 'logs',
+      Spans: 'spans',
+    } as const;
 
     export type LogsValuesRetrieveParams = {
     /**
