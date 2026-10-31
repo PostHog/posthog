@@ -172,7 +172,7 @@ def create_event_definitions_sql(
     if order_expressions is None:
         order_expressions = []
 
-    # Qualified, because the base table also has columns with the enterprise column names.
+    # Qualified by table, so a column name both joined tables carry stays unambiguous.
     event_definition_fields = {
         f'{f.model._meta.db_table}."{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
