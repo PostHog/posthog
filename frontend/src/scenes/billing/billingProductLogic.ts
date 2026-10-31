@@ -9,6 +9,10 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import type { FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from 'lib/logic/billing/billingLogic'
+import { billingProductRowDisplayName } from 'lib/logic/billing/billingProductDisplayName'
+import { getHeldCompanions } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
@@ -26,15 +30,11 @@ import {
     calculateFreeTier,
     canHaveBillingLimit,
     createGaugeItems,
-    getHeldCompanions,
     isAddonVisible,
     isProductVariantPrimary,
 } from './billing-utils'
 import { getBillingLimitConfig } from './billingLimitConfig'
 import type { BillingLimitConfig } from './billingLimitConfig'
-import { billingLogic } from './billingLogic'
-import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
-import { billingProductRowDisplayName } from './billingProductDisplayName'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
