@@ -8,12 +8,12 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 from posthog.models.user import User
-from posthog.queryset_paging import stable_queryset_ordering
+from posthog.paging import CursorPageRequest, Page, PageRequest
+from posthog.queryset_paging import select_cursor_page, select_page
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.subscriptions.backend.facade.contracts import (
-    CreatedAtCursorWindow,
     MalformedIdError,
     SubscriptionCreator,
     SubscriptionDashboardContext,
@@ -22,7 +22,6 @@ from products.subscriptions.backend.facade.contracts import (
     SubscriptionInsightContext,
     SubscriptionListQuery,
     SubscriptionNotFoundError,
-    SubscriptionPage,
     SubscriptionPermissionDeniedError,
     SubscriptionRecord,
     SubscriptionRef,
@@ -33,6 +32,8 @@ from products.subscriptions.backend.models.subscription_context import Subscript
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import get_ai_query_plan_status
 
 from .visibility import viewable_delivery_filter, viewable_subscription_filter
+
+DELIVERY_ORDERING_FIELDS = ("created_at",)
 
 # Each search term must match one of these, ignoring case.
 SEARCH_LOOKUPS = (
@@ -190,8 +191,8 @@ def _filter_subscriptions(queryset: QuerySet, filters: SubscriptionFilters) -> Q
 
 
 def list_subscriptions(
-    *, team_id: int, query: SubscriptionListQuery, viewer: UserAccessControl, offset: int, limit: int
-) -> SubscriptionPage:
+    *, team_id: int, query: SubscriptionListQuery, viewer: UserAccessControl, page: PageRequest
+) -> Page[SubscriptionRecord]:
     context_queryset = SubscriptionContext.objects.for_team(team_id).select_related("dashboard", "insight")
     queryset = Subscription.objects.prefetch_related(
         "dashboard_export_insights",
@@ -218,14 +219,7 @@ def list_subscriptions(
         queryset = viewer.filter_queryset_by_access_level(queryset, include_all_if_admin=query.include_all_if_admin)
     if query.ordering:
         queryset = queryset.order_by(*query.ordering)
-    queryset = stable_queryset_ordering(queryset)
-
-    count = queryset.count()
-    if count == 0 or offset > count:
-        return SubscriptionPage(count=count, results=())
-    return SubscriptionPage(
-        count=count, results=tuple(subscription_record(obj) for obj in queryset[offset : offset + limit])
-    )
+    return select_page(queryset, page).map(subscription_record)
 
 
 def get_subscription_row(
@@ -280,15 +274,6 @@ def is_ai_prompt_subscription(*, team_id: int, subscription_id: str | int) -> bo
     )
 
 
-def _window(queryset: QuerySet, window: CreatedAtCursorWindow) -> list:
-    queryset = queryset.order_by("-created_at" if window.newest_first else "created_at")
-    if window.created_before is not None:
-        queryset = queryset.filter(created_at__lt=window.created_before)
-    if window.created_after is not None:
-        queryset = queryset.filter(created_at__gt=window.created_after)
-    return list(queryset[window.offset : window.offset + window.limit])
-
-
 def _deliveries(
     *, team_id: int, subscription_id: str | None, status: str | None, viewer: UserAccessControl
 ) -> QuerySet[SubscriptionDelivery]:
@@ -297,8 +282,10 @@ def _deliveries(
         queryset = queryset.filter(subscription_id=subscription_id)
     if status:
         queryset = queryset.filter(status=status)
-    queryset = queryset.filter(viewable_delivery_filter(viewer, team_id)).distinct()
-    return queryset.filter(team_id=team_id)
+    # The visibility joins can repeat a row. An id subquery removes the repeats without DISTINCT over
+    # content_snapshot, which holds full query results and makes the page and count queries slow.
+    visible_ids = SubscriptionDelivery.objects.filter(viewable_delivery_filter(viewer, team_id)).values("id")
+    return queryset.filter(team_id=team_id, id__in=visible_ids)
 
 
 def list_subscription_deliveries(
@@ -307,14 +294,14 @@ def list_subscription_deliveries(
     subscription_id: str | None,
     status: str | None,
     viewer: UserAccessControl,
-    window: CreatedAtCursorWindow,
+    page: CursorPageRequest,
     filter_by_object_access: bool,
     include_all_if_admin: bool,
-) -> list[SubscriptionDeliveryRecord]:
+) -> Page[SubscriptionDeliveryRecord]:
     queryset = _deliveries(team_id=team_id, subscription_id=subscription_id, status=status, viewer=viewer)
     if filter_by_object_access:
         queryset = viewer.filter_queryset_by_access_level(queryset, include_all_if_admin=include_all_if_admin)
-    return [delivery_record(delivery) for delivery in _window(queryset, window)]
+    return select_cursor_page(queryset, page, ordering_fields=DELIVERY_ORDERING_FIELDS).map(delivery_record)
 
 
 def get_subscription_delivery(
@@ -344,14 +331,26 @@ def viewable_live_insight_id(*, team_id: int, insight_id: int, viewer: UserAcces
     return insight.pk
 
 
+def _summary_record(delivery: SubscriptionDelivery) -> SubscriptionSummaryRecord:
+    return SubscriptionSummaryRecord(
+        id=delivery.id,
+        subscription_id=delivery.subscription_id,
+        subscription_title=delivery.subscription.title,
+        target_type=delivery.target_type,
+        change_summary=delivery.change_summary,
+        period_start=delivery.period_start,  # type: ignore[attr-defined]
+        created_at=delivery.created_at,
+    )
+
+
 def list_subscription_summaries(
     *,
     team_id: int,
     insight_id: int | None,
     dashboard_id: int | None,
     viewer: UserAccessControl,
-    window: CreatedAtCursorWindow,
-) -> list[SubscriptionSummaryRecord]:
+    page: CursorPageRequest,
+) -> Page[SubscriptionSummaryRecord]:
     # A subscription can change its source, so also match the source in the delivery snapshot.
     if insight_id is not None:
         source_filter = Q(subscription__insight_id=insight_id, content_snapshot__insights__0__id=insight_id)
@@ -388,15 +387,4 @@ def list_subscription_summaries(
         .only("id", "subscription_id", "subscription__title", "target_type", "change_summary", "created_at")
         .annotate(period_start=Subquery(previous_delivery_at))
     )
-    return [
-        SubscriptionSummaryRecord(
-            id=delivery.id,
-            subscription_id=delivery.subscription_id,
-            subscription_title=delivery.subscription.title,
-            target_type=delivery.target_type,
-            change_summary=delivery.change_summary,
-            period_start=delivery.period_start,
-            created_at=delivery.created_at,
-        )
-        for delivery in _window(deliveries, window)
-    ]
+    return select_cursor_page(deliveries, page, ordering_fields=DELIVERY_ORDERING_FIELDS).map(_summary_record)
