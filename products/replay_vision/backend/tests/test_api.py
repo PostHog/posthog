@@ -44,6 +44,7 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
+from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.highlight_builds import build_highlight_feed
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -52,6 +53,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_observation_feed_impression import ReplayObservationFeedImpression
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -61,13 +63,18 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
-from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
+from products.replay_vision.backend.models.replay_scanner_semantics import (
+    ReplayScannerFeedGroup,
+    ReplayScannerSearchTheme,
+)
+from products.replay_vision.backend.observation_ranks import CATEGORY_CODES
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
+from products.replay_vision.backend.semantic_clusters import cluster_status
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
@@ -5817,3 +5824,219 @@ class TestScannerActivityLogging(_VisionAPITestCase):
     def test_every_machine_owned_field_is_excluded(self) -> None:
         # A machine-written column that misses the registry turns every sweep into an audit row.
         self.assertEqual(set(ReplayScanner._MACHINE_OWNED_FIELDS) - set(replay_scanner_machine_fields), set())
+
+
+class TestClusterViewSets(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.checkout = self._create_scanner(name="checkout")
+        self.hidden = self._create_scanner(name="hidden")
+        now = timezone.now()
+        self.big, self.growing, self.secret = (uuid.uuid4() for _ in range(3))
+        # Themes get their own ids, so a theme id sent to the groups endpoint finds nothing.
+        self.theme_of = {cluster: uuid.uuid4() for cluster in (self.big, self.growing, self.secret)}
+        for cluster, scanner, age_days in [
+            (self.big, self.checkout, 30),
+            (self.growing, self.checkout, 3),
+            (self.secret, self.hidden, 3),
+        ]:
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                id=self.theme_of[cluster],
+                team=self.team,
+                scanner=scanner,
+                vector_sum=b"",
+                name="coupon rejected" if cluster == self.big else "",
+                last_member_at=now,
+            )
+            ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
+                id=cluster, team=self.team, scanner=scanner, vector_sum=b"", last_member_at=now
+            )
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).filter(id=self.theme_of[cluster]).update(
+                created_at=now - timedelta(days=age_days)
+            )
+            ReplayScannerFeedGroup.objects.for_team(self.team.id).filter(id=cluster).update(
+                created_at=now - timedelta(days=age_days)
+            )
+        for session, scanner, cluster, person, age_days, category, variant, experiment in [
+            # Two people in the window, one of them twice, plus one member in the window before it.
+            ("big-1", self.checkout, self.big, 1, 1, "failure", "test", 0),
+            ("big-2", self.checkout, self.big, 1, 2, "failure", "test", 0),
+            ("big-3", self.checkout, self.big, 2, 3, "failure", None, 0),
+            ("big-prev", self.checkout, self.big, 3, 40, "failure", "control", 0),
+            ("big-routine", self.checkout, self.big, 4, 1, "routine", "control", 0),
+            # Scanned for an experiment nobody here can open.
+            ("big-restricted", self.checkout, self.big, 5, 1, "failure", "test", 999_999),
+            ("growing-1", self.checkout, self.growing, 6, 1, "struggle", None, 0),
+            ("growing-2", self.checkout, self.growing, 7, 2, "struggle", None, 0),
+            ("growing-3", self.checkout, self.growing, 8, 3, "struggle", None, 0),
+            ("secret-1", self.hidden, self.secret, 9, 1, "failure", None, 0),
+        ]:
+            created_at = now - timedelta(days=age_days)
+            row = ReplayObservation.objects.create(
+                scanner=scanner,
+                session_id=session,
+                scanner_snapshot={
+                    **_snapshot_for(scanner),
+                    **({"experiment_targeting": {"experiment_id": experiment}} if experiment else {}),
+                },
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=created_at,
+                scanner_result={"experiment_variant": variant} if variant else {},
+            )
+            ReplayObservation.objects.filter(id=row.id).update(created_at=created_at)
+            ReplayObservationRank.objects.for_team(self.team.id).create(
+                observation=row,
+                team=self.team,
+                scanner=scanner,
+                created_at=created_at,
+                anchor_version=ANCHOR_VERSION,
+                contrast=0.3,
+                category=CATEGORY_CODES[category],
+                feed_group_id=cluster,
+                search_theme_id=self.theme_of[cluster],
+                person_key=person,
+                experiment_id=experiment,
+            )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(self.hidden.id), access_level="none"
+        )
+
+    def url(self, kind: str, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/vision/{kind}/{suffix}"
+
+    def session_row(self, session_id: str) -> uuid.UUID:
+        return ReplayObservation.objects.get(team=self.team, session_id=session_id).id
+
+    @parameterized.expand(
+        [
+            ("themes_by_people", "themes", "people", ["growing", "big"]),
+            ("groups_by_people", "groups", "people", ["growing", "big"]),
+            ("groups_by_growth", "groups", "growth", ["growing", "big"]),
+        ]
+    )
+    def test_list_counts_readable_issue_members_in_the_window(
+        self, _name: str, kind: str, order: str, expected_order: list[str]
+    ) -> None:
+        resp = self.client.get(
+            self.url(kind), {"order": order, "scanner_id": str(self.checkout.id), "date_from": "-30d"}
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        ids = {"big": self.big, "growing": self.growing}
+        if kind == "themes":
+            ids = {name: self.theme_of[cluster] for name, cluster in ids.items()}
+        names = {str(cluster): name for name, cluster in ids.items()}
+        results = resp.json()["results"]
+        self.assertEqual([names[row["id"]] for row in results], expected_order)
+        big = next(row for row in results if row["id"] == str(ids["big"]))
+        self.assertEqual((big["observation_count"], big["people_count"], big["previous_observation_count"]), (3, 2, 1))
+        self.assertEqual((big["name"], big["status"]), ("coupon rejected" if kind == "themes" else None, "active"))
+        growing = next(row for row in results if row["id"] == str(ids["growing"]))
+        self.assertEqual(growing["status"], "emerging")
+        self.assertEqual(len(big["example_observation_ids"]), 3)
+        self.assertNotIn(str(self.session_row("big-restricted")), big["example_observation_ids"])
+
+    @parameterized.expand(
+        [
+            ("readable", "big", 200),
+            ("unreadable_scanner", "secret", 404),
+            ("theme_id_on_groups", "big_theme", 404),
+            ("unknown", None, 404),
+        ]
+    )
+    def test_retrieve_hides_what_the_caller_cannot_read(self, _name: str, cluster: str | None, status: int) -> None:
+        cluster_id = {"big": self.big, "secret": self.secret, "big_theme": self.theme_of[self.big]}.get(
+            cluster or "", uuid.uuid4()
+        )
+
+        resp = self.client.get(self.url("groups", f"{cluster_id}/"))
+
+        self.assertEqual(resp.status_code, status)
+
+    @parameterized.expand(
+        [
+            ("issues", {}, {"test": (2, 1), UNATTRIBUTED_VARIANT: (1, 1)}),
+            (
+                "with_routine",
+                {"include_routine": "true"},
+                {"test": (2, 1), "control": (1, 1), UNATTRIBUTED_VARIANT: (1, 1)},
+            ),
+            ("one_variant", {"variant": "test"}, {"test": (2, 1)}),
+        ]
+    )
+    def test_group_splits_its_window_by_variant(
+        self, _name: str, params: dict[str, str], expected: dict[str, tuple[int, int]]
+    ) -> None:
+        resp = self.client.get(self.url("groups", f"{self.big}/"), {"by_variant": "true", **params})
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        variants = {row["key"]: (row["observation_count"], row["people_count"]) for row in resp.json()["variants"]}
+        self.assertEqual(variants, expected)
+        self.assertEqual(resp.json()["observation_count"], sum(count for count, _ in expected.values()))
+
+    @parameterized.expand(
+        [
+            ("one_scanner_90d", "checkout", {"date_from": "-90d"}, 200),
+            ("cross_scanner_30d", "", {"date_from": "-30d"}, 200),
+            ("cross_scanner_90d", "", {"date_from": "-90d"}, 400),
+            ("past_the_cap", "checkout", {"date_from": "-120d"}, 400),
+        ]
+    )
+    def test_window_cap(self, _name: str, scanner: str, params: dict[str, str], status: int) -> None:
+        query = {**params, **({"scanner_id": str(self.checkout.id)} if scanner else {})}
+
+        resp = self.client.get(self.url("groups"), query)
+
+        self.assertEqual(resp.status_code, status, resp.json())
+
+    @parameterized.expand(
+        [
+            ("theme", {"theme": "big"}, {"big-1", "big-2", "big-3"}),
+            ("group", {"group": "big"}, {"big-1", "big-2", "big-3"}),
+            (
+                "group_with_routine",
+                {"group": "big", "include_routine": "true"},
+                {"big-1", "big-2", "big-3", "big-routine"},
+            ),
+        ]
+    )
+    def test_observation_list_filters_to_the_members_a_cluster_counts(
+        self, _name: str, params: dict[str, str], expected: set[str]
+    ) -> None:
+        big = {"theme": self.theme_of[self.big], "group": self.big}
+        query = {key: str(big[key]) if value == "big" else value for key, value in params.items()}
+
+        resp = self.client.get(self.observations_url(str(self.checkout.id)), {**query, "date_from": "-7d"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
+
+    def test_list_pages_with_offset(self) -> None:
+        params = {"scanner_id": str(self.checkout.id), "order": "people", "limit": "1"}
+
+        first = self.client.get(self.url("groups"), params).json()
+        second = self.client.get(self.url("groups"), {**params, "offset": "1"}).json()
+
+        self.assertEqual(([row["id"] for row in first["results"]], first["has_more"]), ([str(self.growing)], True))
+        self.assertEqual(([row["id"] for row in second["results"]], second["has_more"]), ([str(self.big)], False))
+
+
+class TestClusterStatus(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dormant_with_no_member_in_two_weeks", 0, 0, True, "dormant"),
+            ("emerging_with_no_member_before_last_week", 5, 0, False, "emerging"),
+            ("fading_under_half_the_week_before", 2, 5, True, "fading"),
+            ("active_at_half_the_week_before", 3, 6, True, "active"),
+        ]
+    )
+    def test_status_from_member_activity(
+        self, _name: str, last_week: int, week_before: int, has_older_member: bool, expected: str
+    ) -> None:
+        status = cluster_status(last_week=last_week, week_before=week_before, has_older_member=has_older_member)
+        self.assertEqual(status, expected)

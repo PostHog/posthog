@@ -243,3 +243,21 @@ def scanner_for_recording_derived_read(
     if not can_read_targeted_experiment(viewset.user_access_control, viewset.team_id, scanner):
         raise NotFound()
     return scanner
+
+
+def readable_scanner_ids_in_scope(access: UserAccessControl, team_id: int, scanner_id: uuid.UUID | None) -> list[str]:
+    """The one scanner asked for, or every scanner the caller may read observations of."""
+    # Observations expose recording-derived output, so reading them across scanners requires session_recording read.
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        raise PermissionDenied("Reading replay observations requires session_recording read access.")
+    if scanner_id is not None:
+        scanner = scanner_for_reading_observations(team_id, scanner_id)
+        # Not-found doubles as no-access so the response never leaks the scanner or its experiment.
+        if (
+            scanner is None
+            or not access.check_access_level_for_object(scanner, "viewer")
+            or not can_read_targeted_experiment(access, team_id, scanner)
+        ):
+            raise NotFound("Scanner not found.")
+        return [str(scanner.id)]
+    return [str(sid) for sid in readable_observation_scanner_ids(access, team_id)]
