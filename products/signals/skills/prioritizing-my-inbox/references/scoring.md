@@ -1,5 +1,8 @@
 # Scoring candidates
 
+This formula is for the fallback in [pool-and-score.md](pool-and-score.md).
+When `inbox-reports-for-me` works, show its order and do not score.
+
 The score is a first pass.
 It turns 60 to 150 candidates into a rough order so you only judge the top 40 or so carefully.
 Adjust the weights when the person's request or the data calls for it, and say what you changed.
@@ -58,7 +61,7 @@ Widen the bands when the person asks for a longer window.
 
 ### `interest_bonus`
 
-Match each report's title and summary against the interest profile from Step 1.
+Match each report's title and summary against the interest profile from Step 1 of [pool-and-score.md](pool-and-score.md).
 
 - +2 for each matched theme, up to two themes.
 - Count a title match in full and a summary-only match at half.

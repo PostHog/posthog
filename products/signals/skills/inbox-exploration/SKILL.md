@@ -39,8 +39,8 @@ the user's actual question.
   _Workflow: run an action on a report_
 
 When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
-**`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
-what waits on them.
+**`prioritizing-my-inbox`** skill. It shows the user's personal ranking from `inbox-reports-for-me`, with a
+reason and a next step for each report.
 
 For deeper investigation, hand off to other skills and tools:
 
