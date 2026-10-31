@@ -11,6 +11,7 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
@@ -25,7 +26,6 @@ import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
 import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
-import { traceDialogOpenLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogOpenLogic'
 
 import { globalModalsLogic } from './globalModalsLogic'
 
