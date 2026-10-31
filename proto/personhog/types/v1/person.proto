@@ -782,15 +782,22 @@ enum DistinctIdWriteAction {
   DISTINCT_ID_WRITE_ACTION_INSERT = 1;
   // Raise a live row on the person to at least min_version.
   DISTINCT_ID_WRITE_ACTION_RAISE = 2;
+  // Tombstone a live row whose person is tombstoned (a stray), at version max(row + 1, min_version).
+  // A live person's row is refused: moving a distinct id off a live person is a split.
+  // Retry with the same min_version: a row this call already tombstoned then reports unchanged.
+  // On applied or unchanged, publish the returned row to ClickHouse only while ClickHouse still holds a
+  // live row for the distinct id. After the deletion sweep removed it, a published tombstone outlives
+  // the cleanup drain's hard delete and hides a later re-use of the distinct id.
+  DISTINCT_ID_WRITE_ACTION_TOMBSTONE = 3;
 }
 
 message DistinctIdWrite {
   string distinct_id = 1;
   DistinctIdWriteAction action = 2;
-  // The person the row must point at: the insert target, or the current owner for raise.
+  // The person the row must point at: the insert target, or the current owner for raise and tombstone.
   string person_uuid = 3;
   int64 min_version = 4;
-  // When set, raise applies only while the row holds exactly this version.
+  // When set, raise and tombstone apply only while the row holds exactly this version.
   optional int64 expected_version = 5;
 }
 
@@ -803,11 +810,11 @@ message WriteDistinctIdsRequest {
 enum DistinctIdWriteOutcome {
   DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED = 0;
   DISTINCT_ID_WRITE_OUTCOME_APPLIED = 1;
-  // The row already satisfies the write (raise at or above min_version).
+  // The row already satisfies the write (raise at or above min_version, or a tombstone already at or above it).
   DISTINCT_ID_WRITE_OUTCOME_UNCHANGED = 2;
   // The row is not in the state the write expects; it is left unchanged and reported.
   DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED = 3;
-  // The person does not exist or is tombstoned.
+  // The person does not exist, or is tombstoned for an insert or raise.
   DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE = 4;
 }
 
