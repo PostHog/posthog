@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, kea, path, reducers } from 'kea'
 import posthog from 'posthog-js'
 
-import { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { AppContext, PreflightStatus } from '~/types'
@@ -47,6 +47,14 @@ export function getPersistedFeatureFlags(appContext: AppContext | undefined = ge
     return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
 }
 
+/** PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI. */
+function applyServerAccessGates(flags: FeatureFlagsSet, appContext: AppContext | undefined): FeatureFlagsSet {
+    if (typeof appContext?.posthog_ai_access === 'boolean') {
+        flags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = appContext.posthog_ai_access
+    }
+    return flags
+}
+
 let cachedFlagsSerialized: string | null = null
 let cachedFlagsProxy: FeatureFlagsSet | null = null
 
@@ -57,6 +65,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
         areClientFeatureFlagsHonored(appContext?.preflight ?? null) || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
+    applyServerAccessGates(availableFlags, appContext)
 
     const serialized = JSON.stringify(availableFlags)
     if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {
@@ -137,7 +146,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     reducers({
         featureFlags: [
-            getPersistedFeatureFlags(),
+            applyServerAccessGates(getPersistedFeatureFlags(), getAppContext()),
             { persist: true },
             {
                 setFeatureFlags: (_, { variants }) => spyOnFeatureFlags(variants),

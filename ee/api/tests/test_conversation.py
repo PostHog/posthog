@@ -38,6 +38,7 @@ from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAg
 
 from products.posthog_ai.backend.message_routing import SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.models import Channel, Task, TaskRun
 
 from ee.api.conversation import ConversationViewSet, MessageSerializer, QueueMessageSerializer
@@ -1315,6 +1316,11 @@ class TestConversationSandboxRoute(APIBaseTest):
         )
         self.mock_select_repo = patcher.start()
         self.addCleanup(patcher.stop)
+        access_patcher = patch(
+            "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+        )
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
 
     def _sandbox_conversation(self) -> Conversation:
         return Conversation.objects.create(
@@ -1371,7 +1377,9 @@ class TestConversationSandboxRoute(APIBaseTest):
             task_id="t", run_id="r", trace_id=None, run_status="queued", just_created_run=True
         )
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
             patch("ee.api.conversation.report_user_action"),
         ):
@@ -1410,7 +1418,9 @@ class TestConversationSandboxRoute(APIBaseTest):
             task_id=str(task.id), run_id="r", trace_id=None, run_status="queued", just_created_run=True
         )
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
             patch("ee.api.conversation.report_user_action"),
         ):
@@ -1443,7 +1453,9 @@ class TestConversationSandboxRoute(APIBaseTest):
         conversation_id = str(uuid.uuid4())
 
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
@@ -1496,7 +1508,9 @@ class TestConversationSandboxRoute(APIBaseTest):
         )
         conversation_id = str(uuid.uuid4())
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
@@ -1521,7 +1535,9 @@ class TestConversationSandboxRoute(APIBaseTest):
         )
         conversation_id = str(uuid.uuid4())
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
@@ -1576,7 +1592,9 @@ class TestConversationSandboxRoute(APIBaseTest):
             agent_runtime=Conversation.AgentRuntime.SANDBOX,
         )
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
@@ -1604,7 +1622,9 @@ class TestConversationSandboxRoute(APIBaseTest):
             task_id=str(signal_task.id), run_id="r", trace_id=None, run_status="queued", just_created_run=True
         )
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
             patch("ee.api.conversation.report_user_action"),
         ):
@@ -1767,7 +1787,7 @@ class TestConversationSandboxRoute(APIBaseTest):
         # with random ids — first-use creation is gated on eligibility, so no row is persisted.
         conversation_id = str(uuid.uuid4())
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.BETA_OFF),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
@@ -1784,7 +1804,9 @@ class TestConversationSandboxRoute(APIBaseTest):
         # action returns 204 and removes the row it created — no orphaned conversations accumulate.
         conversation_id = str(uuid.uuid4())
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             m_session.return_value.open.return_value = None
@@ -1870,7 +1892,9 @@ class TestConversationSandboxRoute(APIBaseTest):
             agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
         )
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_session,
         ):
             response = self.client.post(
@@ -2027,7 +2051,9 @@ class TestConversationCreateRuntime(APIBaseTest):
         # Opening a conversation never converts — conversion only fires on a new message.
         conversation = self._langgraph_conversation()
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock),
         ):
@@ -2044,7 +2070,9 @@ class TestConversationCreateRuntime(APIBaseTest):
         # even for a user on the sandbox flag — and never touches the sandbox router.
         conversation_id = str(uuid.uuid4())
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
             patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._mock_streaming_response),
@@ -2092,7 +2120,7 @@ class TestConversationCreateRuntime(APIBaseTest):
         # takes the streaming path — never the sandbox router.
         conversation = self._langgraph_conversation()
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=False),
+            patch("ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.BETA_OFF),
             patch("ee.api.conversation.SandboxSession") as m_routing,
             patch("ee.hogai.core.executor.AgentExecutor.astream", return_value=_async_generator()),
             patch("posthog.api.streaming.StreamingHttpResponse", side_effect=self._mock_streaming_response),
@@ -2109,7 +2137,9 @@ class TestConversationCreateRuntime(APIBaseTest):
         # message hits the existing "cannot resume streaming" conflict instead.
         conversation = self._langgraph_conversation(status=Conversation.Status.IN_PROGRESS)
         with (
-            patch("ee.api.conversation.has_sandbox_mode_feature_flag", return_value=True),
+            patch(
+                "ee.api.conversation.get_posthog_ai_access_decision", return_value=PostHogAIAccessDecision.GRANDFATHERED
+            ),
             patch("ee.api.conversation.SandboxSession") as m_routing,
         ):
             response = self._send(conversation)

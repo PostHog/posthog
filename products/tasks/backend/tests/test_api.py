@@ -248,6 +248,14 @@ class BaseTaskAPITest(TestCase):
             ),
         )
         self.desktop_access_patcher.start()
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.GRANDFATHERED
+        for module in ("logic.services.code_usage_gate", "logic.services.warm", "facade.access"):
+            posthog_ai_access_patcher = patch(
+                f"products.tasks.backend.{module}.get_posthog_ai_access_decision",
+                side_effect=lambda *_args, **_kwargs: self._posthog_ai_access,
+            )
+            posthog_ai_access_patcher.start()
+            self.addCleanup(posthog_ai_access_patcher.stop)
         self.set_tasks_feature_flag(True)
 
     def tearDown(self):
@@ -14484,13 +14492,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.ACP,
                 "permission_response",
                 {"requestId": "perm-1", "optionId": "allow"},
+                False,
                 status.HTTP_200_OK,
+            ),
+            (
+                "permission_response_posthog_ai_denied",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                True,
+                status.HTTP_403_FORBIDDEN,
             ),
             (
                 "pi_permission_response",
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "permission_response", "optionId": "allow"}},
+                False,
                 status.HTTP_200_OK,
             ),
             (
@@ -14502,6 +14520,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                     "server": "playwright",
                     "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
                 },
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
             (
@@ -14509,6 +14528,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "prompt", "message": "continue"}},
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
         ]
@@ -14524,6 +14544,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         runtime: Task.Runtime,
         method: str,
         params: dict[str, Any],
+        posthog_ai_denied: bool,
         expected_status: int,
         mock_post: MagicMock,
         _mock_access: MagicMock,
@@ -14531,6 +14552,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {"accepted": True}})
         task = self.create_task(runtime=runtime)
+        if posthog_ai_denied:
+            self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
+            Task.objects.filter(id=task.id).update(origin_product=Task.OriginProduct.POSTHOG_AI)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14543,7 +14567,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         if expected_status == status.HTTP_200_OK:
             mock_post.assert_called_once()
         else:
-            self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+            expected_code = "task_unavailable" if posthog_ai_denied else "desktop_access_unavailable"
+            self.assertEqual(response.json()["code"], expected_code)
             mock_post.assert_not_called()
 
     @parameterized.expand(
@@ -14862,10 +14887,20 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(forwarded["method"], "side_question")
         self.assertEqual(forwarded["params"]["question"], "what does it do?")
 
+    @parameterized.expand(
+        [
+            ("desktop_denied", False, Task.OriginProduct.USER_CREATED, "code_access_required"),
+            ("posthog_ai_denied", True, Task.OriginProduct.POSTHOG_AI, "task_unavailable"),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_side_question_requires_code_access(self, mock_post):
-        self.set_tasks_feature_flag(False)
+    def test_command_side_question_requires_access(
+        self, _name: str, desktop_access: bool, origin_product: str, expected_code: str, mock_post
+    ):
+        self.set_tasks_feature_flag(desktop_access)
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
         task = self.create_task()
+        Task.objects.filter(id=task.id).update(origin_product=origin_product)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14875,7 +14910,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["code"], expected_code)
         mock_post.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
