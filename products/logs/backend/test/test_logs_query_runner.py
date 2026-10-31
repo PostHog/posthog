@@ -602,6 +602,13 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
+    def test_logs_query_out_of_range_date_from_returns_400(self):
+        response = self._make_logs_api_request(
+            {"dateRange": {"date_from": "-100000000d", "date_to": None}, "limit": 10},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.assertIn("too far from today", response.json()["detail"])
+
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_integration_exact_limit(self):
         # query matches exactly 50 results from the test data
