@@ -914,9 +914,14 @@ class TestBackgroundEnrollment:
         with team_scope(team.id, canonical=True):
             _create_skill(team, _GENERAL)
             _create_config(team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
-        background = None if block == "absent" else _background({team.id}, enabled=block != "disabled")
-        if block == "requires_missing_precheck":
-            background = dataclasses.replace(background, require_precheck=True)
+        background = (
+            None
+            if block == "absent"
+            else dataclasses.replace(
+                _background({team.id}, enabled=block != "disabled"),
+                require_precheck=block == "requires_missing_precheck",
+            )
+        )
         enrollment = Enrollment(wildcard=False, explicit={team.id}, skip=set())
 
         with patch("products.signals.backend.temporal.agentic.scout_coordinator.register_missing_configs") as seed:
