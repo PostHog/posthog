@@ -16,6 +16,8 @@ from posthog.models import EventDefinition, PropertyDefinition
 from posthog.taxonomy import definition_search
 from posthog.taxonomy.definition_search import project_definition_scale, search_plan
 
+TEAM_SCAN_SEARCH = "name IN (SELECT name FROM posthog_eventdefinition WHERE team_id = "
+
 
 class TestSearchPlan(BaseTest):
     def setUp(self) -> None:
@@ -31,11 +33,14 @@ class TestSearchPlan(BaseTest):
         ]
     )
     def test_plan_follows_the_definition_count(self, _name: str, max_definitions: int, expected: str) -> None:
-        with patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions):
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions),
+            patch.object(definition_search, "EVENT_SEARCH_TEAM_SCAN_MAX_DEFINITIONS", max_definitions),
+        ):
             assert search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS) == expected
-            assert project_definition_scale("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS).large is (
-                expected == "trigram"
-            )
+            scale = project_definition_scale("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
+            assert scale.large is (expected == "trigram")
+            assert scale.searches_by_trigram is (expected == "trigram")
 
     def test_plan_is_cached_per_table_and_project(self) -> None:
         search_plan("posthog_eventdefinition", self.team.pk, DEFAULT_DB_ALIAS)
@@ -54,24 +59,33 @@ class TestSearchPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("property_search_keeps_the_unordered_count", search_plan, "posthog_propertydefinition", False, 50_001),
             (
-                "event_list_counts_past_the_name_threshold",
+                "property_search_keeps_the_unordered_count",
+                search_plan,
+                "posthog_propertydefinition",
+                False,
+                "COALESCE(project_id, team_id) =",
+                50_001,
+            ),
+            (
+                "event_list_counts_past_the_team_scan_threshold_on_the_team_index",
                 project_definition_scale,
                 "posthog_eventdefinition",
                 True,
-                100_001,
+                "WHERE team_id =",
+                2_000_001,
             ),
         ]
     )
     def test_size_check_statement_per_reader(
-        self, _name: str, check: Callable[..., object], table: str, ordered: bool, limit: int
+        self, _name: str, check: Callable[..., object], table: str, ordered: bool, scope: str, limit: int
     ) -> None:
         with CaptureQueriesContext(connection) as queries:
             check(table, self.team.pk, DEFAULT_DB_ALIAS)
 
         (size_check,) = [q["sql"] for q in queries.captured_queries if "bounded" in q["sql"]]
         assert f"FROM {table} " in size_check
+        assert scope in size_check
         assert ("ORDER BY name" in size_check) is ordered
         assert f"LIMIT {limit}" in size_check
 
@@ -97,22 +111,30 @@ class TestDefinitionEndpointsUseSearchPlan(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("event_definitions_small_project", "event_definitions", 1, "lower(name) like lower("),
-            ("event_definitions_huge_project", "event_definitions", 0, "name ilike "),
-            ("property_definitions_small_project", "property_definitions", 1, "lower(name) like lower("),
-            ("property_definitions_huge_project", "property_definitions", 0, "name ilike "),
+            ("event_definitions_small_project", "event_definitions", 1, 1, TEAM_SCAN_SEARCH),
+            ("event_definitions_large_project_below_team_scan_limit", "event_definitions", 0, 1, TEAM_SCAN_SEARCH),
+            ("event_definitions_huge_project", "event_definitions", 0, 0, "name ilike "),
+            ("property_definitions_small_project", "property_definitions", 1, 1, "lower(name) like lower("),
+            ("property_definitions_huge_project", "property_definitions", 0, 1, "name ilike "),
         ]
     )
     def test_search_predicate_follows_the_plan(
-        self, _name: str, endpoint: str, max_definitions: int, expected_predicate: str
+        self,
+        _name: str,
+        endpoint: str,
+        project_scan_max: int,
+        event_team_scan_max: int,
+        expected_predicate: str,
     ) -> None:
         with (
-            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", max_definitions),
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", project_scan_max),
+            patch.object(definition_search, "EVENT_SEARCH_TEAM_SCAN_MAX_DEFINITIONS", event_team_scan_max),
             CaptureQueriesContext(connection) as queries,
         ):
             response = self.client.get(f"/api/projects/{self.team.pk}/{endpoint}/?search=foo")
 
         assert response.status_code == 200
+        assert [r["name"] for r in response.json()["results"]] == ["foo"]
         search_queries = [q["sql"] for q in queries.captured_queries if "%foo%" in q["sql"]]
         assert search_queries, "no search query was captured"
         assert all(expected_predicate in sql for sql in search_queries), search_queries
