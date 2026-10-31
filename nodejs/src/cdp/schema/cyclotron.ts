@@ -133,6 +133,14 @@ export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.o
     webhook_id: z.string(),
 })
 
+// When `hmac_sha256` is present on a fetch queue payload, the cyclotron fetch
+// executor signs the body with HMAC-SHA256 in the GitHub style for receivers that
+// do not implement Standard Webhooks. The fields follow `standard_webhooks` above.
+export const CyclotronInvocationQueueParametersFetchHmacSha256Schema = z.object({
+    secret_input: z.string(),
+    webhook_id: z.string(),
+})
+
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     type: z.literal('fetch'),
     url: z.string(),
@@ -142,6 +150,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
+    hmac_sha256: CyclotronInvocationQueueParametersFetchHmacSha256Schema.optional(),
     // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
     secret_headers_input: z.string().optional(),
 })
@@ -188,6 +197,9 @@ export type CyclotronInvocationQueueParametersFetchAwsSigV4Type = z.infer<
 >
 export type CyclotronInvocationQueueParametersFetchStandardWebhooksType = z.infer<
     typeof CyclotronInvocationQueueParametersFetchStandardWebhooksSchema
+>
+export type CyclotronInvocationQueueParametersFetchHmacSha256Type = z.infer<
+    typeof CyclotronInvocationQueueParametersFetchHmacSha256Schema
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>

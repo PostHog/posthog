@@ -521,6 +521,8 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            # Back the inbox list ordered by `-updated_at`. The view appends `id` as a tie-breaker.
+            models.Index(fields=["team", "-updated_at", "id"], name="signals_report_team_updated"),
             # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
             models.Index(
                 fields=["team", "first_visible_at"],
@@ -1124,6 +1126,13 @@ class SignalReport(UUIDModel):
         can invert the join and scan every team's `task_run` artefacts when `task_ids` is a
         subquery. Only cross-team callers with literal `task_ids` (the PR webhook) leave it unset.
         """
+        artefact_rows, legacy_rows, assignment_rows = SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id)
+        return models.Q(id__in=artefact_rows) | models.Q(id__in=legacy_rows) | models.Q(id__in=assignment_rows)
+
+    @staticmethod
+    def report_ids_for_task_ids(task_ids: Any, *, team_id: int | None = None) -> list["models.QuerySet[Any]"]:
+        """The `report_id` querysets behind `reports_for_task_ids_filter`, one per link table. A caller
+        can run them as separate indexed lookups instead of one `OR` over `SignalReport`."""
         artefact_rows = SignalReportArtefact.objects.filter(
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
         )
@@ -1136,11 +1145,7 @@ class SignalReport(UUIDModel):
             artefact_rows = artefact_rows.filter(team_id=team_id)
             legacy_rows = legacy_rows.filter(team_id=team_id)
             assignment_rows = assignment_rows.filter(team_id=team_id)
-        return (
-            models.Q(id__in=artefact_rows.values("report_id"))
-            | models.Q(id__in=legacy_rows.values("report_id"))
-            | models.Q(id__in=assignment_rows.values("report_id"))
-        )
+        return [rows.values("report_id") for rows in (artefact_rows, legacy_rows, assignment_rows)]
 
 
 class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
@@ -1458,6 +1463,7 @@ class SignalReportArtefact(UUIDModel):
         CHECK_RESULT = "check_result"
         CHECK_OBSERVATION = "check_observation"
         CHECK_SCHEDULED = "check_scheduled"
+        CHECK_AUTHORING = "check_authoring"
         CHECK_EXPIRED = "check_expired"
         CHECK_CANCELLED = "check_cancelled"
         IMPLEMENTATION_DECISION = "implementation_decision"
@@ -1493,6 +1499,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.IMPLEMENTATION_DISPATCH,
             ArtefactType.RANKING_SCORE,
             ArtefactType.SOURCE_SUGGESTION,
+            ArtefactType.CHECK_AUTHORING,
         }
     )
     # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
@@ -1500,7 +1507,7 @@ class SignalReportArtefact(UUIDModel):
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset(
-        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT}
+        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT, ArtefactType.CHECK_AUTHORING}
     )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
@@ -4270,6 +4277,56 @@ class UserActivitySummaryQueueCursor(models.Model):
     source = models.CharField(max_length=40, primary_key=True)
     position = models.DateTimeField()
     updated_at = models.DateTimeField(auto_now=True)
+
+
+class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
+    """One build of one person's ranked inbox list, from `personal_ranking/logic.py`.
+
+    Append-only: every build writes one row, so later readers can reuse the latest row while its
+    `input_hash` still matches the current inputs.
+    """
+
+    class Status(models.TextChoices):
+        # The model ranked the candidates.
+        OK = "ok"
+        # The model call failed, timed out or answered outside the schema. The list is in model order.
+        FALLBACK = "fallback"
+        # No candidates, so no model call.
+        EMPTY = "empty"
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents. Django still cascades a delete of either parent.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Covers the candidates with their status, priority, PR state, needs-you facts and score, the summary version, the prompt version and the focus.
+    input_hash = models.CharField(max_length=64)
+    # Report ids in candidate order.
+    candidate_ids = models.JSONField(default=list)
+    # Every candidate with its rank, tier and reason, and the folded reports. See `PersonalRankingResult.as_json`.
+    result = models.JSONField(default=dict)
+    personalized = models.BooleanField(default=False)
+    # Null when the person had no ready activity summary.
+    activity_summary_version = models.PositiveIntegerField(null=True, blank=True)
+    model = models.CharField(max_length=100)
+    prompt_version = models.PositiveSmallIntegerField()
+    # Null when the response had no usage, or there was no model call.
+    tokens_in = models.IntegerField(null=True, blank=True)
+    tokens_out = models.IntegerField(null=True, blank=True)
+    latency_ms = models.IntegerField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status)
+    # One of the fixed strings of `personal_ranking/logic.py`, never model output.
+    fallback_reason = models.CharField(max_length=100, null=True, blank=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "user", "-created_at"], name="signals_personal_rank_latest"),
+        ]
 
 
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):

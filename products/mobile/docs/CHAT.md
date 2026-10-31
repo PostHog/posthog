@@ -1,15 +1,22 @@
 # Chat
 
-The chat sheet talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
+The chat screen talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
 Every chat is a task with interactive runs in a sandbox.
 A new chat creates the task on its first message; the Chats list reopens one by its task id.
+New and existing chats open as full-screen stack pages. Back returns to the previous screen or the
+configured default page for a direct link. The title-free header uses the shared blur and fading edge;
+New chat and the ellipsis share the Inbox's pill control. The composer clears the keyboard and safe area.
+
+The ellipsis menu offers **Copy link to chat** and **Archive chat**. Copy uses the current project's
+web URL. Archive returns to the previous page after success and keeps the chat open for retry on failure.
+The menu is disabled for an unsaved new chat. Model, Mode, and attachment options still open as overlays.
 The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
 
 ## Files
 
 | File                                                 | Role                                                                                                                                                                                                                                    |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/features/chat/ChatSheet.tsx`                    | The sheet: header, thread or empty state, composer, the options reducer, draft restore                                                                                                                                                  |
+| `src/features/chat/ChatScreen.tsx`                   | The sheet: header, thread or empty state, composer, the options reducer, draft restore                                                                                                                                                  |
 | `src/features/chat/chatSheetEvents.ts`               | The sheet's `entry` from the route params, and the opened and closed events                                                                                                                                                             |
 | `src/features/chat/ChatAccessGate.tsx`               | The organization AI approval and the personal consent before the composer (see [AI consent](#ai-consent))                                                                                                                               |
 | `src/features/chat/session/useSession.ts`            | `useSession({ taskId?, runId? })`: create, follow, send, sync options, resume, stop, answer, reset, demo replies                                                                                                                        |
@@ -382,27 +389,27 @@ New chat drops it.
 
 ## New chat
 
-The compose button in the header shows once a chat has a task or a message.
+The compose button stays available in the header.
 It drops the open task (or the one the first send created), clears the text and attached reports, and resets the options to Default and Auto.
-The header shows the task title, else "New chat".
+The header has no chat title.
 The empty state with suggested prompts shows while there is no task and no message.
 `mobile_chat_suggestion_picked` is captured with `source` (`report` for the report's own prompts, else `default`), `index` and `report_count`; never the prompt.
 
 `@` or the @ button opens the report list. `mobile_chat_mention_opened` is captured with `trigger` (`typed` or `button`),
 `mobile_chat_report_attached` with `attached_count`, and `mobile_chat_report_removed` (a chip's ×) with `attached_count` and `initial` (the report the sheet opened with).
 
-## Sheet lifecycle
+## Page lifecycle
 
 The navigator keeps one chat screen. Opening another chat reuses that screen and loads fresh
 conversation state. A notification for the chat already on screen leaves its session, draft and
 scroll position intact, including a chat started from the composer. A notification for a different
-chat replaces the open chat, so one Close returns to the screen underneath. Starting New chat
+chat replaces the open chat, so one Back returns to the screen underneath. Starting New chat
 does not prevent a later notification from reopening the previous conversation.
 
 Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
 A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.
 
-The sheet opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
+The page opens from the bottom bar's compose button, a report's Chat button, a report's task status, an inbox row's menu and the Chats tab.
 The route takes an optional `entry` param; `chatSheetSource` falls back on `report` with a `reportId`, `task` with only a `taskId`, else `compose`.
 
 - `mobile_chat_sheet_opened` is captured once per open with `entry` (`chats_list`, `chats_search`, `chats_empty`, `compose`, `report`, `report_task`, `inbox_menu` or `task`),

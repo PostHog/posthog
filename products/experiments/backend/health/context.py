@@ -34,6 +34,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
@@ -117,7 +118,7 @@ class FlagHistory:
 
 
 class FlagHistoryNotCheckedReason(StrEnum):
-    # pinned: the finding's `evidence.reason`.
+    # pinned: the finding's `reason`.
     NO_HISTORY_ACCESS = "no_history_access"
     NO_QUERY_ACCESS = "no_query_access"
     EXPOSURE_FILTERS = "exposure_filters"
@@ -326,6 +327,9 @@ class MetricCalculationFailure:
     retriable: bool
     # The effective definition now, in which the wording looks for the names that the message gives.
     definition: Mapping[str, Any]
+    # Where the query read the exposures. None for a failure stored before calculations stored it, and for a query that
+    # failed before it was built.
+    exposures_path: ExposuresPath | None
 
 
 @frozen
@@ -338,6 +342,10 @@ class LatestCalculation:
     finished_at: datetime | None
     # The metrics of the experiment now whose latest calculation failed, in calculation order.
     failures: tuple[MetricCalculationFailure, ...]
+    # The metrics of the experiment now whose result of this calculation the page shows.
+    completed_count: int
+    # Where the queries of those results read the exposures, when there is a failure to compare them with.
+    completed_exposures_paths: frozenset[ExposuresPath]
 
 
 @frozen
@@ -349,6 +357,23 @@ class FlagKeyFilter:
 
 
 ExposurePropertyType = Literal["event", "person"]
+ExposureFilterPropertyType = ExposurePropertyType | Literal["group"]
+
+
+class ExposureFilterSource(StrEnum):
+    EXPOSURE_CRITERIA = "exposure_criteria"
+    EXPOSURE_ACTION = "exposure_action"
+    TEST_ACCOUNTS = "test_accounts"
+
+
+@frozen
+class ExposureFilterWithoutColumn:
+    """A property that the exposure query filters on and reads from the JSON of all the properties of each event, person
+    or group."""
+
+    type: ExposureFilterPropertyType
+    key: str
+    source: ExposureFilterSource
 
 
 @frozen
@@ -506,6 +531,9 @@ class HealthContext:
     # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
     # isn't archived.
     latest_calculation: LatestCalculation | None
+    # None when not loaded or unknown. Only the health endpoints load it, and only when no metric of the latest
+    # calculation completed and a failed query read the events.
+    exposure_filters_without_column: tuple[ExposureFilterWithoutColumn, ...] | None
 
 
 def parse_flag_state(
@@ -965,4 +993,5 @@ def load_health_context(
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
         latest_calculation=None,
+        exposure_filters_without_column=None,
     )

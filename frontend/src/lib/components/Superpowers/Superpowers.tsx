@@ -8,8 +8,8 @@ import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@
 import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -251,7 +251,7 @@ function SuperpowersContent(): JSX.Element {
     const { fakeStatusOverride, fakeBillingAlert, mcpHintsDismissed } = useValues(superpowersLogic)
     const { closeSuperpowers, setFakeStatusOverride, setFakeBillingAlert, reenableMCPHints } =
         useActions(superpowersLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { isDev } = useValues(preflightLogic)
 

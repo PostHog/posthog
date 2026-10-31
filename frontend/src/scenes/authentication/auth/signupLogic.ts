@@ -12,6 +12,7 @@ import { ValidatedPasswordResult, validatePassword } from 'lib/components/Passwo
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
@@ -19,7 +20,6 @@ import {
     clearPendingVerificationEmail,
     setPendingVerificationEmail,
 } from 'scenes/authentication/shared/verificationCode'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
@@ -610,7 +610,9 @@ export const signupLogic = kea<signupLogicType>([
     listeners(({ actions, values }) => ({
         precheckSignupEmail: async ({ email }, breakpoint) => {
             actions.setPasskeyError(null)
-            actions.setSignupPanelAuthManualErrors({})
+            // Reset rather than `setSignupPanelAuthManualErrors({})`: kea-forms turns error display on with
+            // any manual errors call, so the empty password field would open with a red error
+            actions.resetSignupPanelAuth()
             let precheckResponse: SignupEmailPrecheckResponse
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.

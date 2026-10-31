@@ -2171,6 +2171,29 @@ export interface SavedQueryMaterializeApi {
     sync_frequency?: MaterializeSyncFrequencyEnumApi
 }
 
+/**
+ * * `clickhouse` - ClickHouse
+ * * `trino` - Trino
+ */
+export type MaterializationEngineEnumApi =
+    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
+
+export const MaterializationEngineEnumApi = {
+    Clickhouse: 'clickhouse',
+    Trino: 'trino',
+} as const
+
+/**
+ * Body of the `resume` action.
+ */
+export interface SavedQueryResumeRequestApi {
+    /** Resume only this engine's materialization: 'clickhouse' or 'trino' (the managed warehouse). Omit it to resume every engine the query is suspended on.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino */
+    engine?: MaterializationEngineEnumApi
+}
+
 export interface SavedQueryResumeApi {
     /** False when the query's materialization was not suspended. */
     resumed: boolean
@@ -2186,18 +2209,6 @@ export type MaterializationRunDirectionEnumApi =
 export const MaterializationRunDirectionEnumApi = {
     Upstream: 'upstream',
     Downstream: 'downstream',
-} as const
-
-/**
- * * `clickhouse` - ClickHouse
- * * `trino` - Trino
- */
-export type MaterializationEngineEnumApi =
-    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
-
-export const MaterializationEngineEnumApi = {
-    Clickhouse: 'clickhouse',
-    Trino: 'trino',
 } as const
 
 /**
@@ -3842,6 +3853,7 @@ export interface CredentialApi {
  * * `WooPayments` - WooPayments
  * * `Soniox` - Soniox
  * * `Nango` - Nango
+ * * `Fathom` - Fathom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5260,6 +5272,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WooPayments: 'WooPayments',
     Soniox: 'Soniox',
     Nango: 'Nango',
+    Fathom: 'Fathom',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5332,6 +5345,11 @@ export interface TableApi {
     readonly external_data_source: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema: TableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: TableApiOptions
     /**
@@ -5411,6 +5429,11 @@ export interface PatchedTableApi {
     readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     /** @nullable */
     readonly external_schema?: PatchedTableApiExternalSchema
+    /**
+     * The managed source that will import this self-managed table on its first sync, if one is linked.
+     * @nullable
+     */
+    readonly pending_source_id?: string | null
     /** Per-format read options. The only one read today is `csv_allow_double_quotes` (boolean), for CSV files that quote fields with doubled quotes. */
     options?: PatchedTableApiOptions
     /**
@@ -6050,6 +6073,10 @@ export type WarehouseTablesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only return self-managed tables that a managed source will import on its first sync.
+     */
+    pending_source?: boolean
     /**
      * A search term.
      */

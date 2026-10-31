@@ -520,7 +520,12 @@ class CheckSpec(BaseModel):
 
     @model_validator(mode="after")
     def config_must_match_its_kind(self) -> CheckSpec:
-        config = parse_check_config(self.kind, self.config)
+        try:
+            config = parse_check_config(self.kind, self.config)
+        except CheckConfigValidationError as error:
+            if isinstance(error.__cause__, ValidationError):
+                raise error.__cause__
+            raise
         if self.run_interval_minutes is not None:
             if not isinstance(config, MetricThresholdConfig) or config.monitoring is None:
                 raise ValueError("Research can author an interval only for a Monitoring metric check.")

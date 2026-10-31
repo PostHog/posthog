@@ -13,9 +13,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { WizardHandoffDialog } from 'scenes/onboarding/shared/wizard-sync/WizardHandoffDialog'
 import { WizardSyncDebugPanel } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel'
-import { WizardSyncFab } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -27,7 +27,6 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
-import { WizardRunSyncFab } from 'products/wizard/frontend/runs/WizardRunSyncFab'
 
 import { sceneLogic } from './sceneLogic'
 
@@ -38,6 +37,18 @@ const TerminalDock = lazyWithRetry(() =>
 const InternalFeedbackWidget = lazyWithRetry(() =>
     import('~/layout/InternalFeedback/InternalFeedbackWidget').then(({ InternalFeedbackWidget }) => ({
         default: InternalFeedbackWidget,
+    }))
+)
+// Deciding whether a run is active takes API polls, so the shell cannot gate these cheaply.
+// Lazy loading keeps their logic and generated API clients off the first paint instead.
+const WizardSyncFab = lazyWithRetry(() =>
+    import('scenes/onboarding/shared/wizard-sync/WizardSyncFab').then(({ WizardSyncFab }) => ({
+        default: WizardSyncFab,
+    }))
+)
+const WizardRunSyncFab = lazyWithRetry(() =>
+    import('products/wizard/frontend/runs/WizardRunSyncFab').then(({ WizardRunSyncFab }) => ({
+        default: WizardRunSyncFab,
     }))
 )
 
@@ -97,7 +108,11 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 )}
                 <Command />
                 <ImpersonationNotice />
-                {runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}
+                <ErrorBoundary>
+                    <ChunkLoadErrorBoundary>
+                        <Suspense fallback={null}>{runSyncEnabled ? <WizardRunSyncFab /> : <WizardSyncFab />}</Suspense>
+                    </ChunkLoadErrorBoundary>
+                </ErrorBoundary>
                 {/* Separate from the FAB: the FAB stands down while an inline panel shows the run,
                     but the doc dialog must be able to open from any surface. */}
                 <WizardHandoffDialog />

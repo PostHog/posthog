@@ -742,7 +742,18 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert pr.state == SignalReportAssignment.PrState.UNKNOWN
         assert pr.state != "merged"
 
-    def test_only_current_actor_can_release_and_pr_is_preserved(self):
+    @parameterized.expand(
+        [
+            ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK),
+            ("responsible_user", None, False, False, status.HTTP_200_OK),
+            ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK),
+            ("different_agent", "codex", False, True, status.HTTP_409_CONFLICT),
+            ("different_user", None, True, True, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_only_current_actor_or_responsible_user_can_release_and_pr_is_preserved(
+        self, _name: str, agent: str | None, different_user: bool, include_claim_id: bool, expected_status: int
+    ) -> None:
         report = self._create_report()
         claim = self.client.post(
             self._claim_url(report),
@@ -752,23 +763,24 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
         assert claim.status_code == status.HTTP_200_OK
 
-        rejected = self.client.post(
-            self._claim_url(report),
-            data={"release": True},
-            format="json",
-            headers=self._agent_headers("codex"),
-        )
-        assert rejected.status_code == status.HTTP_409_CONFLICT
+        if different_user:
+            other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+            self.client.force_login(other_user)
 
         released = self.client.post(
             self._claim_url(report),
-            data={"release": True},
+            data={"release": True, **({"claim_id": claim.json()["assignee"]["claim_id"]} if include_claim_id else {})},
             format="json",
-            headers=self._agent_headers("claude-code"),
+            headers=self._agent_headers(agent) if agent else {},
         )
 
-        assert released.status_code == status.HTTP_200_OK
+        assert released.status_code == expected_status
         assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        if expected_status == status.HTTP_409_CONFLICT:
+            assert assignment is not None
+            assert str(assignment.claim_id) == claim.json()["assignee"]["claim_id"]
+            assert not SignalReportArtefact.objects.filter(report=report, type="work_release").exists()
+            return
         assert assignment is None
         assert released.json()["implementation_pr_url"] == "https://github.com/PostHog/posthog/pull/123"
         assert released.json()["implementation_pr_state"] == "unknown"
