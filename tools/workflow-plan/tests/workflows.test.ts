@@ -6,7 +6,7 @@ import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { evaluateValue, planFunctions } from '../src/expressions.ts'
+import { evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -190,7 +190,7 @@ const EXPECTATIONS: Expectation[] = [
     ),
     depotBackend(
         { name: 'ready PR, superseded and cancelled', cancelled: true },
-        { results: { django_tests: 'cancelled' } }
+        { results: { django_tests: 'cancelled', 'backend-coverage-report': 'cancelled' } }
     ),
     depotBackend(
         { name: 'draft PR', github: pullRequest({ draft: true }) },
@@ -282,7 +282,7 @@ const EXPECTATIONS: Expectation[] = [
                 },
             },
         },
-        { runs: ['turbo-tests', 'django_tests'], skipped: ['django'] }
+        { runs: ['turbo-tests', 'django_tests', 'backend-coverage-report'], skipped: ['django'] }
     ),
     depotBackend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
@@ -307,6 +307,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build_django_matrix',
                 'sdk-major-guard',
+                'backend-coverage-report',
             ],
         }
     ),
@@ -728,6 +729,139 @@ describe('CI workflow run plans', () => {
                 .filter((step) => step.runs && validationSteps.includes(step.name ?? ''))
                 .map((step) => step.name)
         ).toEqual(checks === 'full' ? validationSteps : checks === 'typecheck' ? ['Typecheck'] : [])
+    })
+
+    it.each([
+        ['both skipped', 'skipped', 'skipped', 'full', false],
+        ['core only', 'success', 'skipped', 'full', true],
+        ['products only', 'skipped', 'success', 'full', true],
+        ['failed core shards', 'failure', 'skipped', 'full', true],
+        ['failed product shards', 'skipped', 'failure', 'full', true],
+        ['selected tests', 'success', 'success', 'selected', false],
+    ])('backend coverage reporting with %s', (_name, django, products, mode, runs) => {
+        expect(
+            evaluateCondition(
+                workflow(DEPOT_BACKEND).jobs['backend-coverage-report']!.if,
+                {
+                    github: pullRequest(),
+                    needs: {
+                        django: { result: django },
+                        'turbo-tests': { result: products },
+                        django_tests: { result: 'success' },
+                        'turbo-discover': { outputs: { mode } },
+                    },
+                },
+                planFunctions({
+                    dependenciesSucceeded: django === 'success' && products === 'success',
+                    dependenciesFailed: django === 'failure' || products === 'failure',
+                    cancelled: false,
+                })
+            )
+        ).toBe(runs)
+    })
+
+    it.each([
+        {
+            name: 'frontend-only ready PR',
+            backend: 'false',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: true,
+        },
+        {
+            name: 'backend changes',
+            backend: 'true',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'core matrix ran',
+            backend: 'false',
+            django: 'success',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'product matrix ran',
+            backend: 'false',
+            django: 'skipped',
+            products: 'success',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'upstream failure',
+            backend: 'false',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'failure',
+            runs: false,
+        },
+        {
+            name: 'unknown change result',
+            backend: '',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+    ])('stale backend coverage cleanup on $name', ({ backend, django, products, gate, runs }) => {
+        const step = workflow(DEPOT_BACKEND).jobs['calculate-running-time']!.steps!.find(
+            (step) => step.id === 'coverage-cleanup'
+        )!
+        expect(
+            evaluateCondition(
+                step.if,
+                {
+                    github: pullRequest(),
+                    needs: {
+                        changes: { outputs: { backend } },
+                        django: { result: django },
+                        'turbo-tests': { result: products },
+                        django_tests: { result: gate },
+                    },
+                },
+                planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+            )
+        ).toBe(runs)
+    })
+
+    it.each([
+        { name: 'ready PR', github: pullRequest(), cancelled: false, runs: true },
+        { name: 'draft PR', github: pullRequest({ draft: true }), cancelled: false, runs: false },
+        {
+            name: 'draft PR labeled no-ci',
+            github: pullRequest({ draft: true, labels: ['no-ci'] }),
+            cancelled: false,
+            runs: false,
+        },
+        { name: 'fork PR', github: pullRequest({ fork: true }), cancelled: false, runs: false },
+        { name: 'cancelled PR', github: pullRequest(), cancelled: true, runs: false },
+        { name: 'master push', github: push(), cancelled: false, runs: false },
+    ])('stale backend coverage cleanup policy on $name', ({ name, github, cancelled, runs }) => {
+        const plan = planWorkflow(workflow(DEPOT_BACKEND), {
+            name,
+            github,
+            cancelled,
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                ...backendSelectors,
+                ...frontendOnlyFilters,
+                'calculate-running-time': { 'coverage-cleanup': { outputs: { needed: 'true' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(
+            plan.jobs['calculate-running-time']?.steps.find((step) => step.id === 'coverage-cleanup')?.runs ?? false
+        ).toBe(runs)
+        const cleanup = plan.jobs['calculate-running-time']?.steps.find(
+            (step) => step.name === 'Clear stale backend coverage warning'
+        )
+        expect(cleanup?.runs ?? false).toBe(runs)
     })
 
     it.each([
