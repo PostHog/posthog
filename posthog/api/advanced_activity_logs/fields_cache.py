@@ -30,7 +30,7 @@ def cache_fields(organization_id: str, fields_data: dict, record_count: int) -> 
     try:
         client = get_client()
         key = _get_cache_key(organization_id)
-        json_data = json.dumps(fields_data, default=str)
+        json_data = json.dumps({**fields_data, "record_count": record_count}, default=str)
 
         if record_count > SMALL_ORG_THRESHOLD:
             # Non-expiring cache for large orgs
