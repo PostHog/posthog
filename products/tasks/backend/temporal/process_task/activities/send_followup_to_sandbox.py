@@ -49,6 +49,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_slack_interaction_state,
     loop_mcp_installation_allowlist,
     mark_sandbox_github_identity,
@@ -618,7 +619,7 @@ def _refresh_sandbox_mcp(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
-        include_personal=not task_run.task.internal,
+        include_personal=include_personal_mcp_for_task(task_run.task),
         interaction_origin=(state or {}).get("interaction_origin"),
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),
@@ -626,6 +627,7 @@ def _refresh_sandbox_mcp(
         task_agent_key=task_run.task.mcp_builtin_agent_key,
         credential_owner_id=task_run.task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task_run.task.mcp_gateway_server_allowlist,
+        profile=task_run.task.stored_profile,
     )
     if user_mcp.configs:
         mcp_configs = mcp_configs + user_mcp.configs
