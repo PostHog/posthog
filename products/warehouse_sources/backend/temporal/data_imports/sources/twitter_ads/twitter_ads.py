@@ -37,7 +37,7 @@ class TwitterAdsResumeConfig:
     complete: bool = False
 
 
-# X rejects a DAY-granularity window wider than this.
+# X rejects a stats window wider than this.
 MAX_STATS_WINDOW = timedelta(days=7)
 
 # Cap on how much of X's error body rides along in the exception message.
@@ -53,6 +53,49 @@ def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
     400 rather than a shifted result.
     """
     return datetime.combine(day, time.min, account_timezone).astimezone(UTC)
+
+
+def _hour_ceiling(moment: datetime) -> datetime:
+    if moment.minute == moment.second == moment.microsecond == 0:
+        return moment
+    return moment.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+
+def _stats_bound(day: date, account_timezone: ZoneInfo, hourly: bool) -> datetime:
+    midnight = _account_midnight(day, account_timezone)
+    return _hour_ceiling(midnight) if hourly else midnight
+
+
+def _utc_param(moment: datetime) -> str:
+    return moment.isoformat().replace("+00:00", "Z")
+
+
+def _hours_to_days(
+    payload: dict[str, Any], start_time: datetime, start: date, end: date, account_timezone: ZoneInfo
+) -> dict[str, Any]:
+    """Fold an HOUR-granularity stats payload into the per-day arrays `stats_rows` reads.
+
+    Each hour counts toward the account-local date it starts in. On a half-hour offset that day runs
+    from 00:30 to 00:30 local time, the closest whole-hour window X will serve.
+    """
+    days = (end - start).days
+    for entity in payload["data"]:
+        for segment in entity["id_data"]:
+            daily: dict[str, Any] = {}
+            for key, values in segment["metrics"].items():
+                if not isinstance(values, list):
+                    daily[key] = values
+                    continue
+                totals: list[Any] = [None] * days
+                for hour, value in enumerate(values):
+                    if value is None:
+                        continue
+                    index = ((start_time + timedelta(hours=hour)).astimezone(account_timezone).date() - start).days
+                    if 0 <= index < days:
+                        totals[index] = (totals[index] or 0) + value
+                daily[key] = totals
+            segment["metrics"] = daily
+    return payload
 
 
 def _error_detail(response: requests.Response) -> str:
@@ -205,13 +248,16 @@ class TwitterAdsClient:
         end = date.fromisoformat(state.end_date) if state.end_date else account_now.date()
         while start < end:
             window_end = min(start + timedelta(days=7), end)
-            start_time = _account_midnight(start, account_timezone)
-            end_time = _account_midnight(window_end, account_timezone)
+            # X takes a DAY window only when both bounds are local midnight, sent as whole UTC hours.
+            # On a half-hour offset (e.g. UTC+5:30) local midnight never is one, so ask for hours instead.
+            hourly = any(_account_midnight(day, account_timezone).minute for day in (start, window_end))
+            start_time = _stats_bound(start, account_timezone, hourly)
+            end_time = _stats_bound(window_end, account_timezone, hourly)
             # A week containing a fall-back transition spans 169 hours, one over X's ceiling, so
             # hand that window a day back rather than letting the request 400.
             while end_time - start_time > MAX_STATS_WINDOW:
                 window_end -= timedelta(days=1)
-                end_time = _account_midnight(window_end, account_timezone)
+                end_time = _stats_bound(window_end, account_timezone, hourly)
             for batch_start in range(0, len(entity_ids), 20):
                 for placement in PLACEMENTS:
                     payload = self.get(
@@ -219,18 +265,17 @@ class TwitterAdsClient:
                         {
                             "entity": STATS_TABLES[table],
                             "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            # A bare date tells X to resolve midnight-to-midnight in the account's
-                            # own timezone itself. An account on a half-hour-offset timezone (e.g.
-                            # IST) never lands on a whole UTC hour, so sending our own UTC
-                            # conversion here gets a 400 ("whole hours" requirement) that this
-                            # sidesteps entirely.
-                            "start_time": start.isoformat(),
-                            "end_time": window_end.isoformat(),
-                            "granularity": "DAY",
+                            # X reads a bare date as UTC midnight, not the account's, so send the
+                            # converted timestamp.
+                            "start_time": _utc_param(start_time),
+                            "end_time": _utc_param(end_time),
+                            "granularity": "HOUR" if hourly else "DAY",
                             "placement": placement,
                             "metric_groups": "ENGAGEMENT,BILLING",
                         },
                     )
+                    if hourly:
+                        payload = _hours_to_days(payload, start_time, start, window_end, account_timezone)
                     rows = self.stats_rows(payload, start, window_end, placement, currencies, account_id)
                     if batch_start + 20 >= len(entity_ids) and placement == PLACEMENTS[-1]:
                         manager.save_state(
