@@ -71,6 +71,7 @@ import {
     RankingScoreView,
     readRankingScore,
     NoteContent,
+    ScoutNoteLeftContent,
     RelatedToContent,
     REPORT_LINK_KIND_LABELS,
     ReportLinkContent,
@@ -151,6 +152,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     commit: IconCommit,
     task_run: IconTerminal,
     note: IconComment,
+    scout_note_left: IconComment,
     priority_judgment: IconFlag,
     actionability_judgment: IconListCheck,
     safety_judgment: IconShield,
@@ -772,6 +774,17 @@ function renderArtefactBody({
         case 'note': {
             const c = content as NoteContent
             return <NoteBody note={c.note} author={c.author} />
+        }
+        case 'scout_note_left': {
+            const c = content as ScoutNoteLeftContent
+            return (
+                <div className="w-full">
+                    <NoteBody note={c.note} />
+                    <span className="mt-1 block text-xs text-tertiary">
+                        {c.skill_name?.trim() ? `For ${c.skill_name}` : 'For every scout on this project'}
+                    </span>
+                </div>
+            )
         }
         case 'priority_judgment': {
             const c = content as { explanation?: string }
