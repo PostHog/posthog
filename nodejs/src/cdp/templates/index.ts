@@ -48,6 +48,7 @@ import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit
 import { template as retainTemplate } from './_destinations/retain/retain.template'
 import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
+import { template as t3CodeTemplate } from './_destinations/t3_code/t3-code.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as unifyTemplate } from './_destinations/unify/unify.template'
@@ -114,6 +115,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogSendTicketMessageTemplate,
     posthogUpdateTicketTemplate,
     posthogCreateTaskTemplate,
+    t3CodeTemplate,
     posthogRunScoutTemplate,
     posthogClassifyTemplate,
     posthogAddToStaticCohortTemplate,
