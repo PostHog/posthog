@@ -50,6 +50,7 @@ vi.mock("node:fs/promises", () => {
   return { default: fns, ...fns };
 });
 
+import fs from "node:fs/promises";
 import type { IWorkspaceSettings } from "@posthog/platform/workspace-settings";
 import { createMockArchiveRepository } from "@posthog/workspace-server/db/repositories/archive-repository.mock";
 import { createMockRepositoryRepository } from "@posthog/workspace-server/db/repositories/repository-repository.mock";
@@ -318,6 +319,31 @@ describe("SuspensionService", () => {
         expect(suspended[0].reason).toBe("inactivity");
       },
     );
+  });
+
+  describe("suspendTask", () => {
+    it("keeps the parent folder of an adopted external worktree", async () => {
+      const codeParent = "/home/dev/code";
+      mocks.repositoryRepo.create({
+        path: `${codeParent}/repo`,
+        id: "repo-ext",
+      });
+      const ws = mocks.workspaceRepo.create({
+        taskId: "task-ext",
+        repositoryId: "repo-ext",
+        mode: "worktree",
+      });
+      mocks.worktreeRepo.create({
+        workspaceId: ws.id,
+        name: "repo.feature",
+        path: `${codeParent}/repo.feature`,
+      });
+
+      await service.suspendTask("task-ext", "manual");
+
+      const removedPaths = vi.mocked(fs.rm).mock.calls.map(([p]) => p);
+      expect(removedPaths).not.toContain(codeParent);
+    });
   });
 
   describe("withRollback", () => {
