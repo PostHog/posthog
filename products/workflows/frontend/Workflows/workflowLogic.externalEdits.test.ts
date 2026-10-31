@@ -231,6 +231,7 @@ describe('workflowLogic external edits', () => {
             },
             server: withChainedSteps(['follow_up'], () => 'Follow-up rewritten elsewhere', { updated_at: NEWER }),
             expectedEdges: chain('trigger_node', 'welcome', 'follow_up', 'exit_node'),
+            expectedSubjects: { welcome: 'Welcome, typed here', followUp: 'Follow-up rewritten elsewhere' },
         },
         {
             label: 'the user reordered steps while the server deleted one',
@@ -239,8 +240,9 @@ describe('workflowLogic external edits', () => {
             },
             server: withChainedSteps(['welcome'], () => 'Welcome', { updated_at: NEWER }),
             expectedEdges: chain('trigger_node', 'follow_up', 'welcome', 'exit_node'),
+            expectedSubjects: { welcome: 'Welcome', followUp: 'Follow-up' },
         },
-    ])('saves a connected graph when $label', async ({ editLocally, server, expectedEdges }) => {
+    ])('saves a connected graph when $label', async ({ editLocally, server, expectedEdges, expectedSubjects }) => {
         useWorkflowMock(
             withChainedSteps(['welcome', 'follow_up'], (id) => (id === 'welcome' ? 'Welcome' : 'Follow-up'))
         )
@@ -256,6 +258,9 @@ describe('workflowLogic external edits', () => {
         const saved = (await flushAutoSave()) as HogFlow
         expect(saved.edges).toEqual(expectedEdges)
         expect(danglingEdges(saved)).toEqual([])
+        expect({ welcome: subjectOf(saved, 'welcome'), followUp: subjectOf(saved, 'follow_up') }).toEqual(
+            expectedSubjects
+        )
     })
 
     it('keeps branch conditions matched to their edges when the user adds a step while the server removes a condition', async () => {
