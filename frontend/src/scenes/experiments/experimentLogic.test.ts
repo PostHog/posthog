@@ -2421,6 +2421,7 @@ describe('experimentLogic', () => {
             health?: ExperimentHealthApi
             expected: ExperimentWarning | null
             healthFindingsFlag?: boolean
+            impersonated?: boolean
         }>([
             {
                 desc: 'running experiment with active flag and normal rollout',
@@ -2600,8 +2601,17 @@ describe('experimentLogic', () => {
                 healthFindingsFlag: false,
                 expected: { key: 'running_but_flag_disabled' },
             },
-        ])('$desc → $expected', ({ overrides, health, expected, healthFindingsFlag = true }) => {
+            {
+                desc: 'server findings replace the local rules for staff impersonating a customer without the flag',
+                overrides: { ...running, feature_flag: flag(false, multivariantFilters) },
+                health: { findings: [], checks: [] },
+                healthFindingsFlag: false,
+                impersonated: true,
+                expected: null,
+            },
+        ])('$desc → $expected', ({ overrides, health, expected, healthFindingsFlag = true, impersonated = false }) => {
             setHealthFindingsFlag(healthFindingsFlag)
+            userLogic.actions.loadUserSuccess({ ...userLogic.values.user!, is_impersonated: impersonated })
             logic.actions.setExperiment(createExperiment(overrides))
             if (health) {
                 logic.actions.loadExperimentHealthSuccess(health)
