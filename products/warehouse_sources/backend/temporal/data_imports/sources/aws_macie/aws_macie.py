@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.loaders import Loader
@@ -21,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.
     MACIE_API_VERSION,
     MACIE_ENDPOINTS,
     USAGE_TIME_RANGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -53,12 +56,10 @@ class AwsMacieError(Exception):
 
 
 class AwsMacieClient:
-    def __init__(self, config: AwsMacieSourceConfig, api_version: str | None = None) -> None:
+    def __init__(self, config: AwsMacieSourceConfig, credentials: Credentials, api_version: str | None = None) -> None:
         version = api_version or MACIE_API_VERSION
         if version != MACIE_API_VERSION:
             raise ValueError(f"Unsupported AWS Macie API version: {version}")
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
         if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", config.region):
             raise ValueError("Enter an AWS region, such as us-east-1.")
         self.region = config.region
@@ -66,11 +67,7 @@ class AwsMacieClient:
         self._url = f"https://macie2.{self.region}.{suffix}"
         self._model = ServiceModel(Loader().load_service_model("macie2", "service-2", api_version=version))
         self._serializer = create_serializer(self._model.protocol)
-        self._signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "macie2",
-            self.region,
-        )
+        self._credentials = credentials
         self._session = make_tracked_session(
             retry=BoundedRetry(
                 total=3,
@@ -79,11 +76,7 @@ class AwsMacieClient:
                 allowed_methods=frozenset({"GET", "POST"}),
                 raise_on_status=False,
             ),
-            redact_values=tuple(
-                value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -97,7 +90,7 @@ class AwsMacieClient:
         request = AWSRequest(
             method=serialized["method"], url=url, data=serialized["body"], headers=serialized["headers"]
         )
-        self._signer.add_auth(request)
+        sign_aws_request(request, self._credentials, "macie2", self.region)
         response = self._session.request(
             serialized["method"],
             url,
@@ -241,6 +234,7 @@ def get_bucket_rows(
 
 def get_rows(
     config: AwsMacieSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsMacieResumeConfig],
     since: dt.datetime | str | None,
@@ -252,7 +246,7 @@ def get_rows(
         state = AwsMacieResumeConfig(since_ms=int(timestamp(since).timestamp() * 1000) if since is not None else None)
     if state.completed:
         return
-    client = AwsMacieClient(config, api_version)
+    client = AwsMacieClient(config, credentials, api_version)
     try:
         if setting.per_bucket:
             yield from get_bucket_rows(client, endpoint, manager, state, config.region)
@@ -288,13 +282,16 @@ def get_rows(
 
 
 def validate_credentials(
-    config: AwsMacieSourceConfig, schema_name: str | None = None, api_version: str | None = None
+    config: AwsMacieSourceConfig,
+    credentials: Credentials,
+    schema_name: str | None = None,
+    api_version: str | None = None,
 ) -> tuple[bool, str | None]:
     endpoint = schema_name or "findings"
     if endpoint not in MACIE_ENDPOINTS:
         return False, f"Unknown AWS Macie table: {endpoint}"
     try:
-        client = AwsMacieClient(config, api_version)
+        client = AwsMacieClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     try:
@@ -324,6 +321,7 @@ def validate_credentials(
 
 def aws_macie_source(
     config: AwsMacieSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsMacieResumeConfig],
     since: dt.datetime | str | None = None,
@@ -333,7 +331,7 @@ def aws_macie_source(
         raise ValueError(f"Unknown AWS Macie table: {endpoint}")
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint, manager, since, api_version),
+        items=lambda: get_rows(config, credentials, endpoint, manager, since, api_version),
         primary_keys=list(MACIE_ENDPOINTS[endpoint].primary_keys),
         # GetFindings can return details in a different order from ListFindings.
         # "desc" saves the watermark once at job end, so unordered rows cannot strand older ones.

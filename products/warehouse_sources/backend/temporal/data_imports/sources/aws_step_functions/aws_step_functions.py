@@ -5,7 +5,6 @@ from dataclasses import field, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -21,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
     PAGE_SIZE,
     PROBE_PARENT_LIMIT,
     TARGET_PREFIXES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -64,21 +67,16 @@ class AwsStepFunctionsResumeConfig:
 
 
 class AwsStepFunctionsClient:
-    def __init__(self, config: AwsStepFunctionsSourceConfig, api_version: str) -> None:
+    def __init__(self, config: AwsStepFunctionsSourceConfig, credentials: Credentials, api_version: str) -> None:
         if api_version not in TARGET_PREFIXES:
             raise ValueError(f"Unsupported AWS Step Functions API version: {api_version}")
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
         if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", config.region):
             raise ValueError("Enter an AWS region, such as us-east-1.")
         suffix = "amazonaws.com.cn" if config.region.startswith("cn-") else "amazonaws.com"
         self.url = f"https://states.{config.region}.{suffix}/"
         self.target_prefix = TARGET_PREFIXES[api_version]
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "states",
-            config.region,
-        )
+        self._signing_region = config.region
+        self._credentials = credentials
         self.session = make_tracked_session(
             retry=BoundedRetry(
                 total=3,
@@ -87,7 +85,7 @@ class AwsStepFunctionsClient:
                 allowed_methods=frozenset(["POST"]),
                 raise_on_status=False,
             ),
-            redact_values=tuple(value for value in (config.aws_secret_access_key, config.aws_session_token) if value),
+            redact_values=aws_redact_values(credentials),
         )
 
     # AWS also reports throttling as HTTP 400, outside the transport's status retries.
@@ -105,7 +103,7 @@ class AwsStepFunctionsClient:
             data=body,
             headers={"Content-Type": CONTENT_TYPE, "X-Amz-Target": f"{self.target_prefix}.{operation}"},
         )
-        self.signer.add_auth(request)
+        sign_aws_request(request, self._credentials, "states", self._signing_region)
         response = self.session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -282,6 +280,7 @@ def get_rows(
 
 def aws_step_functions_source(
     config: AwsStepFunctionsSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsStepFunctionsResumeConfig],
@@ -290,7 +289,7 @@ def aws_step_functions_source(
         raise ValueError(f"Unknown AWS Step Functions table: {endpoint}")
 
     def items() -> Iterator[list[dict[str, Any]]]:
-        client = AwsStepFunctionsClient(config, api_version)
+        client = AwsStepFunctionsClient(config, credentials, api_version)
         try:
             yield from get_rows(client, endpoint, manager)
         finally:
@@ -388,12 +387,12 @@ def probe(client: AwsStepFunctionsClient, schema_name: str | None) -> None:
 
 
 def validate_credentials(
-    config: AwsStepFunctionsSourceConfig, schema_name: str | None, api_version: str
+    config: AwsStepFunctionsSourceConfig, credentials: Credentials, schema_name: str | None, api_version: str
 ) -> tuple[bool, str | None]:
     if schema_name is not None and schema_name not in ENDPOINTS:
         return False, f"Unknown AWS Step Functions table: {schema_name}"
     try:
-        client = AwsStepFunctionsClient(config, api_version)
+        client = AwsStepFunctionsClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     try:

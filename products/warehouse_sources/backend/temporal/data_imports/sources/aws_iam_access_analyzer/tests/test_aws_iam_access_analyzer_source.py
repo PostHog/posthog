@@ -1,5 +1,7 @@
 import pytest
 
+from botocore.credentials import Credentials
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer import (
     aws_iam_access_analyzer as transport,
 )
@@ -16,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     always,
     scripted_network,
 )
+
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret")
 
 
 @pytest.mark.parametrize("incremental", [False, True])
@@ -68,7 +72,7 @@ def test_permission_errors_are_scoped_to_each_selected_table() -> None:
 def test_api_errors_match_the_pipeline_retry_policy(code: str, terminal: bool) -> None:
     with scripted_network(always(ScriptedResponse(status=403 if terminal else 500, json={"__type": code}))):
         with pytest.raises(transport.AwsIamAccessAnalyzerError) as caught:
-            transport.AwsIamAccessAnalyzerClient(CONFIG).request("analyzers")
+            transport.AwsIamAccessAnalyzerClient(CONFIG, CREDENTIALS).request("analyzers")
     matches = [
         message
         for pattern, message in AwsIamAccessAnalyzerSource().get_non_retryable_errors().items()

@@ -7,7 +7,6 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
@@ -20,6 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_ac
     ERROR_MESSAGES,
     PAGE_SIZE,
     TIMESTAMP_COLUMNS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -48,21 +51,17 @@ class AwsIamAccessAnalyzerError(Exception):
 
 
 class AwsIamAccessAnalyzerClient:
-    def __init__(self, config: AwsIamAccessAnalyzerSourceConfig, api_version: str = API_VERSION) -> None:
+    def __init__(
+        self, config: AwsIamAccessAnalyzerSourceConfig, credentials: Credentials, api_version: str = API_VERSION
+    ) -> None:
         if api_version != API_VERSION:
             raise ValueError(f"Unsupported AWS IAM Access Analyzer API version: {api_version}")
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
         self.region = (config.region or "").strip() or DEFAULT_REGION
         if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", self.region):
             raise ValueError("Enter a valid AWS region, such as us-east-1.")
         suffix = "amazonaws.com.cn" if self.region.startswith("cn-") else "amazonaws.com"
         self.url = f"https://access-analyzer.{self.region}.{suffix}"
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "access-analyzer",
-            self.region,
-        )
+        self._credentials = credentials
         self.session = make_tracked_session(
             retry=BoundedRetry(
                 total=3,
@@ -71,11 +70,7 @@ class AwsIamAccessAnalyzerClient:
                 allowed_methods=frozenset({"GET", "POST"}),
                 raise_on_status=False,
             ),
-            redact_values=tuple(
-                value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -113,7 +108,7 @@ class AwsIamAccessAnalyzerClient:
         else:
             body = json.dumps(payload).encode("utf-8")
         request = AWSRequest(method=definition.method, url=url, data=body, headers={"Content-Type": "application/json"})
-        self.signer.add_auth(request)
+        sign_aws_request(request, self._credentials, "access-analyzer", self.region)
         response = self.session.request(
             definition.method,
             url,
@@ -207,6 +202,7 @@ def get_finding_row(
 
 def get_rows(
     config: AwsIamAccessAnalyzerSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsIamAccessAnalyzerResumeConfig],
     api_version: str,
@@ -215,7 +211,7 @@ def get_rows(
     state = state or AwsIamAccessAnalyzerResumeConfig()
     if state.finished:
         return
-    client = AwsIamAccessAnalyzerClient(config, api_version)
+    client = AwsIamAccessAnalyzerClient(config, credentials, api_version)
     try:
         while not state.finished:
             analyzer = None
@@ -275,13 +271,14 @@ def get_rows(
 
 def validate_credentials(
     config: AwsIamAccessAnalyzerSourceConfig,
+    credentials: Credentials,
     schema_name: str | None = None,
     api_version: str = API_VERSION,
 ) -> tuple[bool, str | None]:
     if schema_name is not None and schema_name not in ENDPOINTS:
         return False, f"Unknown AWS IAM Access Analyzer table: {schema_name}"
     try:
-        client = AwsIamAccessAnalyzerClient(config, api_version)
+        client = AwsIamAccessAnalyzerClient(config, credentials, api_version)
         try:
             page = client.request("analyzers", page_size=1)
             if schema_name is not None and schema_name != "analyzers":
@@ -320,6 +317,7 @@ def validate_credentials(
 
 def aws_iam_access_analyzer_source(
     config: AwsIamAccessAnalyzerSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsIamAccessAnalyzerResumeConfig],
     api_version: str,
@@ -329,7 +327,7 @@ def aws_iam_access_analyzer_source(
     partition_key = ENDPOINTS[endpoint].partition_key
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(config, endpoint, manager, api_version),
+        items=lambda: get_rows(config, credentials, endpoint, manager, api_version),
         primary_keys=list(ENDPOINTS[endpoint].primary_keys),
         partition_keys=[partition_key] if partition_key else None,
         partition_mode="datetime" if partition_key else None,

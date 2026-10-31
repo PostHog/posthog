@@ -9,6 +9,7 @@ import pytest
 from unittest.mock import patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_access_analyzer import (
     aws_iam_access_analyzer as transport,
@@ -37,11 +38,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsIamAccessAnalyzerSourceConfig,
 )
 
-CONFIG = AwsIamAccessAnalyzerSourceConfig(
-    aws_access_key_id="AKIAEXAMPLE",
-    aws_secret_access_key="example-secret",
-    aws_session_token="example-token",
-    region="eu-west-1",
+CREDENTIALS = Credentials("AKIAEXAMPLE", "example-secret", "example-token")
+
+CONFIG = AwsIamAccessAnalyzerSourceConfig.from_dict(
+    {
+        "aws_access_key_id": "AKIAEXAMPLE",
+        "aws_secret_access_key": "example-secret",
+        "aws_session_token": "example-token",
+        "region": "eu-west-1",
+    }
 )
 PARENT_A = {"arn": "arn:aws:access-analyzer:eu-west-1:123456789012:analyzer/example-a", "name": "example-a"}
 PARENT_B = {"arn": "arn:aws:access-analyzer:eu-west-1:123456789012:analyzer/example-b", "name": "example-b"}
@@ -120,7 +125,7 @@ def test_requests_use_rest_json_and_sign_the_exact_url_and_body(
     with scripted_network(
         [ScriptedResponse(json={}), ScriptedResponse(status=302, headers={"Location": "/elsewhere"})]
     ) as network:
-        client = AwsIamAccessAnalyzerClient(CONFIG, API_VERSION)
+        client = AwsIamAccessAnalyzerClient(CONFIG, CREDENTIALS, API_VERSION)
         try:
             client.request(endpoint, analyzer=PARENT_A, finding_id="finding/1", next_token="a+/=")
             with pytest.raises(AwsIamAccessAnalyzerError) as caught:
@@ -155,7 +160,7 @@ def test_analyzer_pagination_continues_after_empty_page_and_stages_terminal_stat
             response({"analyzers": [], "nextToken": "next"}),
             response({"analyzers": [{**PARENT_A, "createdAt": "2025-01-01T00:00:00Z"}]}),
         ]
-        result = aws_iam_access_analyzer_source(CONFIG, "analyzers", manager, API_VERSION)
+        result = aws_iam_access_analyzer_source(CONFIG, CREDENTIALS, "analyzers", manager, API_VERSION)
         batches = list(cast(Iterable[list[dict[str, Any]]], result.items()))
         assert manager.cleared is False
         assert result.on_complete is not None
@@ -360,7 +365,7 @@ def test_errors_extract_aws_codes_without_exposing_response_text(code: str, stat
     )
     with scripted_network(always(answer)):
         with pytest.raises(AwsIamAccessAnalyzerError) as caught:
-            AwsIamAccessAnalyzerClient(CONFIG).request("analyzers")
+            AwsIamAccessAnalyzerClient(CONFIG, CREDENTIALS).request("analyzers")
     assert caught.value.code == code
     assert "example-secret" not in str(caught.value)
 
@@ -380,7 +385,7 @@ def test_errors_extract_aws_codes_without_exposing_response_text(code: str, stat
 def test_validation_accepts_only_missing_permissions_at_source_creation(schema_name: str | None, code: str) -> None:
     with patch.object(transport, "make_tracked_session") as factory:
         factory.return_value.request.return_value = response({"__type": code}, 403)
-        valid, message = validate_credentials(CONFIG, schema_name)
+        valid, message = validate_credentials(CONFIG, CREDENTIALS, schema_name)
     assert valid == (schema_name is None and code in {"AccessDenied", "AccessDeniedException"})
     assert (message is None) == valid
     factory.return_value.request.assert_called_once()
@@ -391,11 +396,9 @@ def test_validation_accepts_only_missing_permissions_at_source_creation(schema_n
     "region,suffix", [("cn-north-1", "amazonaws.com.cn"), ("us-gov-west-1", "amazonaws.com"), ("", "amazonaws.com")]
 )
 def test_region_controls_endpoint_and_signing_scope(region: str, suffix: str) -> None:
-    config = AwsIamAccessAnalyzerSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="example-secret", region=region
-    )
+    config = AwsIamAccessAnalyzerSourceConfig.from_dict({"region": region})
     with scripted_network([ScriptedResponse(json={"analyzers": []})]) as network:
-        client = AwsIamAccessAnalyzerClient(config)
+        client = AwsIamAccessAnalyzerClient(config, Credentials("AKIAEXAMPLE", "example-secret"))
         try:
             client.request("analyzers")
         finally:
@@ -411,10 +414,11 @@ def test_region_controls_endpoint_and_signing_scope(region: str, suffix: str) ->
     "field,value", [("region", "bad.example/path"), ("aws_access_key_id", ""), ("aws_secret_access_key", "")]
 )
 def test_invalid_configuration_fails_before_network(field: str, value: str) -> None:
-    config = AwsIamAccessAnalyzerSourceConfig(aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="example-secret")
-    setattr(config, field, value)
+    config = AwsIamAccessAnalyzerSourceConfig.from_dict(
+        {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "example-secret", field: value}
+    )
     with scripted_network([]) as network:
-        valid, message = validate_credentials(config)
+        valid, message = AwsIamAccessAnalyzerSource().validate_credentials(config, team_id=1)
     assert not valid
     assert message
     assert network.requests_log == []
@@ -423,10 +427,10 @@ def test_invalid_configuration_fails_before_network(field: str, value: str) -> N
 
 def test_unknown_version_and_table_fail_before_network() -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(CONFIG, api_version="2099-01-01")[0] is False
-        assert validate_credentials(CONFIG, schema_name="unknown")[0] is False
+        assert validate_credentials(CONFIG, CREDENTIALS, api_version="2099-01-01")[0] is False
+        assert validate_credentials(CONFIG, CREDENTIALS, schema_name="unknown")[0] is False
         with pytest.raises(ValueError, match="required"):
-            AwsIamAccessAnalyzerClient(CONFIG).request("findings")
+            AwsIamAccessAnalyzerClient(CONFIG, CREDENTIALS).request("findings")
     result = driver().run("unknown", [])
     assert isinstance(result.raised, ValueError)
     assert "Unknown" in str(result.raised)
@@ -437,7 +441,7 @@ def test_unknown_version_and_table_fail_before_network() -> None:
 def test_transport_failure_returns_a_safe_validation_message() -> None:
     with patch.object(transport, "make_tracked_session") as factory:
         factory.return_value.request.side_effect = requests.ConnectionError("example-secret")
-        valid, message = validate_credentials(CONFIG)
+        valid, message = validate_credentials(CONFIG, CREDENTIALS)
     assert not valid
     assert message is not None and "example-secret" not in message
     factory.return_value.close.assert_called_once()
@@ -447,7 +451,7 @@ def test_transport_failure_returns_a_safe_validation_message() -> None:
 def test_non_json_and_redirect_errors_keep_the_http_status(status: int, body: bytes) -> None:
     with scripted_network(always(ScriptedResponse(status=status, body=body))):
         with pytest.raises(AwsIamAccessAnalyzerError) as caught:
-            AwsIamAccessAnalyzerClient(CONFIG).request("analyzers")
+            AwsIamAccessAnalyzerClient(CONFIG, CREDENTIALS).request("analyzers")
     assert caught.value.code == f"HTTP {status}"
 
 
@@ -459,7 +463,7 @@ def test_table_validation_walks_empty_analyzer_pages() -> None:
             ScriptedResponse(json={"findings": []}),
         ]
     ) as network:
-        assert validate_credentials(CONFIG, "findings") == (True, None)
+        assert validate_credentials(CONFIG, CREDENTIALS, "findings") == (True, None)
     assert network.requests_log[1].url.endswith("nextToken=next")
     assert network.requests_log[-1].json() == {"maxResults": 1, "analyzerArn": PARENT_A["arn"]}
 
@@ -474,7 +478,7 @@ def test_recommendation_validation_accepts_findings_without_a_generated_recommen
             ScriptedResponse(status=404, json={"__type": "ResourceNotFoundException"}),
         ]
     ) as network:
-        assert validate_credentials(CONFIG, "finding_recommendations") == (True, None)
+        assert validate_credentials(CONFIG, CREDENTIALS, "finding_recommendations") == (True, None)
     assert network.requests_log[2].json() == {"maxResults": 100, "analyzerArn": UNUSED_PARENT["arn"]}
     assert network.requests_log[3].json()["nextToken"] == "more"
     assert network.requests_log[-1].url.split("?")[0].endswith("/recommendation/f-1")

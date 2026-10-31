@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.serialize import create_serializer
@@ -25,6 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     SUBSCRIPTION_MESSAGE,
     UNMODELED_OPERATION_PATHS,
     SecurityHubEndpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -77,7 +80,7 @@ class AwsSecurityHubError(Exception):
 
 
 class AwsSecurityHubClient:
-    def __init__(self, config: AwsSecurityHubSourceConfig, api_version: str) -> None:
+    def __init__(self, config: AwsSecurityHubSourceConfig, credentials: Credentials, api_version: str) -> None:
         if api_version != SECURITY_HUB_API_VERSION:
             raise ValueError(f"Unsupported AWS Security Hub API version: {api_version}")
         if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", config.region):
@@ -87,18 +90,11 @@ class AwsSecurityHubClient:
         # REST-JSON has no version path. The pinned model defines the request paths and fields.
         self.model = Session().get_service_model("securityhub", api_version=api_version)
         self.serializer = create_serializer(self.model.metadata["protocol"])
-        self.signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "securityhub",
-            config.region,
-        )
+        self._signing_region = config.region
+        self._credentials = credentials
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def serialize(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -119,7 +115,7 @@ class AwsSecurityHubClient:
             url += "?" + urlencode(serialized["query_string"], doseq=True)
         body = serialized["body"]
         request = AWSRequest(method=serialized["method"], url=url, data=body, headers=serialized["headers"])
-        self.signer.add_auth(request)
+        sign_aws_request(request, self._credentials, "securityhub", self._signing_region)
         response = self.session.request(
             serialized["method"], url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
@@ -183,6 +179,7 @@ def _prepare(endpoint: str, item: dict[str, Any]) -> dict[str, Any]:
 
 def get_rows(
     config: AwsSecurityHubSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsSecurityHubResumeConfig],
@@ -208,7 +205,7 @@ def get_rows(
     if state:
         updated_after = state.updated_after
         cutoff = state.cutoff
-    client = AwsSecurityHubClient(config, api_version)
+    client = AwsSecurityHubClient(config, credentials, api_version)
     try:
         if endpoint == "finding_history":
             yield from _finding_history_rows(client, manager, state, updated_after, cutoff)
@@ -374,15 +371,13 @@ def _probe(client: AwsSecurityHubClient, endpoint: SecurityHubEndpoint) -> None:
 
 
 def validate_credentials(
-    config: AwsSecurityHubSourceConfig, api_version: str, schema_name: str | None = None
+    config: AwsSecurityHubSourceConfig, credentials: Credentials, api_version: str, schema_name: str | None = None
 ) -> tuple[bool, str | None]:
-    if not config.aws_access_key_id or not config.aws_secret_access_key:
-        return False, "Enter both an AWS access key ID and a secret access key."
     endpoint = ENDPOINTS.get(schema_name or "findings")
     if endpoint is None:
         return False, f"Unknown AWS Security Hub table: {schema_name}"
     try:
-        client = AwsSecurityHubClient(config, api_version)
+        client = AwsSecurityHubClient(config, credentials, api_version)
         try:
             _probe(client, endpoint)
         finally:
@@ -399,9 +394,9 @@ def validate_credentials(
 
 
 def probe_endpoint_permissions(
-    config: AwsSecurityHubSourceConfig, api_version: str, endpoints: list[str]
+    config: AwsSecurityHubSourceConfig, credentials: Credentials, api_version: str, endpoints: list[str]
 ) -> dict[str, str | None]:
-    client = AwsSecurityHubClient(config, api_version)
+    client = AwsSecurityHubClient(config, credentials, api_version)
     permissions: dict[str, str | None] = dict.fromkeys(endpoints)
     try:
         for name in endpoints:
@@ -422,6 +417,7 @@ def probe_endpoint_permissions(
 
 def aws_security_hub_source(
     config: AwsSecurityHubSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     api_version: str,
     manager: ResumableSourceManager[AwsSecurityHubResumeConfig],
@@ -432,7 +428,13 @@ def aws_security_hub_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            config, endpoint, api_version, manager, should_use_incremental_field, db_incremental_field_last_value
+            config,
+            credentials,
+            endpoint,
+            api_version,
+            manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
         ),
         primary_keys=list(endpoint_config.primary_keys),
         # Finding history arrives grouped by finding, and GetFindingsV2 is not sorted, so the pipeline
