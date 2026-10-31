@@ -13,6 +13,7 @@ from posthog.models.integration import AWSS3Integration, AWSS3RoleBasedIntegrati
 from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
@@ -81,17 +82,77 @@ class AwsAuth(Protocol):
     def aws_integration_id(self) -> int | None: ...
 
 
-def aws_auth_field() -> SourceFieldSelectConfig:
+class RoleCredentials(RefreshableCredentials):
+    """Credentials of an assumed IAM role, which botocore refreshes before they expire."""
+
+    def metadata(self) -> dict[str, str]:
+        """The current credentials and their expiry, refreshed first if they are about to expire.
+
+        Clients that keep their own credential object, such as aiobotocore under s3fs, build it from
+        this so that they refresh on the same schedule.
+        """
+        self.get_frozen_credentials()
+        # botocore swaps the keys and the expiry under this lock, so read them together, or a refresh
+        # on another thread can pair old keys with a new expiry. Its type stubs leave both attributes out.
+        with self._refresh_lock:  # type: ignore[attr-defined]
+            frozen = self._frozen_credentials  # type: ignore[attr-defined]
+            expiry_time = self._expiry_time  # type: ignore[attr-defined]
+        assert frozen.access_key and frozen.secret_key and frozen.token
+        return {
+            "access_key": frozen.access_key,
+            "secret_key": frozen.secret_key,
+            "token": frozen.token,
+            "expiry_time": expiry_time.isoformat(),
+        }
+
+
+def aws_auth_field(
+    *,
+    access_key_id_name: str = "aws_access_key_id",
+    secret_access_key_name: str = "aws_secret_access_key",
+    session_token: bool = True,
+) -> SourceFieldSelectConfig:
     """The choice between typed-in access keys and an IAM role from an `aws-s3` integration.
 
     The key fields are optional in the config so that a role config parses. `resolve_aws_credentials`
     enforces them for the access keys branch. Configs saved before this field existed hold the keys
-    at the top level, and they parse into the access keys branch, which is the default.
+    at the top level, and they parse into the access keys branch, which is the default. A source
+    passes the key names it stored before the field existed, so that those configs still lift.
 
     The IAM role picker names batch exports' `aws-s3` connections, so the default `credential_kind`
     would be `aws-s3` for every source with this field. A source sets its own `credential_kind`, so
     that its typed-in keys keep a kind of their own.
     """
+    key_fields: list[SourceFieldConfig] = [
+        SourceFieldInputConfig(
+            name=access_key_id_name,
+            label="AWS access key ID",
+            type=SourceFieldInputConfigType.TEXT,
+            required=False,
+            placeholder="AKIA...",
+            secret=False,
+        ),
+        SourceFieldInputConfig(
+            name=secret_access_key_name,
+            label="AWS secret access key",
+            type=SourceFieldInputConfigType.PASSWORD,
+            required=False,
+            placeholder="",
+            secret=True,
+        ),
+    ]
+    if session_token:
+        key_fields.append(
+            SourceFieldInputConfig(
+                name="aws_session_token",
+                label="AWS session token",
+                type=SourceFieldInputConfigType.PASSWORD,
+                required=False,
+                placeholder="Only needed for temporary credentials",
+                caption="Only for temporary credentials. Session tokens expire after a few hours, so scheduled syncs fail once the token expires. Use a permanent access key (starts with AKIA) or an IAM role for recurring imports.",
+                secret=True,
+            )
+        )
     return SourceFieldSelectConfig(
         name=AWS_AUTH_FIELD_NAME,
         label="Authentication",
@@ -101,33 +162,7 @@ def aws_auth_field() -> SourceFieldSelectConfig:
             SourceFieldSelectConfigOption(
                 label="Access keys",
                 value="access_keys",
-                fields=[
-                    SourceFieldInputConfig(
-                        name="aws_access_key_id",
-                        label="AWS access key ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=False,
-                        placeholder="AKIA...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_secret_access_key",
-                        label="AWS secret access key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="aws_session_token",
-                        label="AWS session token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=False,
-                        placeholder="Only needed for temporary credentials",
-                        caption="Only for temporary credentials. Session tokens expire after a few hours, so scheduled syncs fail once the token expires. Use a permanent access key (starts with AKIA) or an IAM role for recurring imports.",
-                        secret=True,
-                    ),
-                ],
+                fields=key_fields,
             ),
             SourceFieldSelectConfigOption(
                 label="IAM role",
@@ -257,7 +292,7 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
         last_failure = None
         return metadata
 
-    return RefreshableCredentials.create_from_metadata(fetch(), refresh_using=fetch, method="sts-assume-role")
+    return RoleCredentials.create_from_metadata(fetch(), refresh_using=fetch, method="sts-assume-role")
 
 
 def aws_auth_endpoint_reasons(error: AwsAuthError, endpoints: list[str]) -> dict[str, str | None]:

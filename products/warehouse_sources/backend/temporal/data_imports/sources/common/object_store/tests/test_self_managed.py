@@ -1,6 +1,7 @@
 import io
 import time
 import uuid
+import dataclasses
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -952,7 +953,7 @@ class TestJobInputsForSelfManaged:
     def test_maps_the_bucket_and_credential(
         self, _name: str, source_class: type, url: str, expected: dict[str, str]
     ) -> None:
-        job_inputs = source_class().job_inputs_for_self_managed(parse_self_managed_url(url), _credential())
+        job_inputs = source_class().job_inputs_for_self_managed(parse_self_managed_url(url), _credential(), team_id=1)
 
         assert {key: job_inputs[key] for key in expected} == expected
         assert job_inputs["secret_access_key"] == "c2VjcmV0"
@@ -963,7 +964,9 @@ class TestJobInputsForSelfManaged:
     def test_azure_takes_the_account_from_the_url_and_the_key_from_the_secret(self) -> None:
         location = parse_self_managed_url("https://examplestore.blob.core.windows.net/exports/a.csv")
 
-        job_inputs = AzureBlobSource().job_inputs_for_self_managed(location, _credential(access_key="ExampleStore"))
+        job_inputs = AzureBlobSource().job_inputs_for_self_managed(
+            location, _credential(access_key="ExampleStore"), team_id=1
+        )
 
         assert (job_inputs["url_pattern"], job_inputs["account_key"]) == (
             "https://examplestore.blob.core.windows.net/exports/",
@@ -998,24 +1001,12 @@ class TestJobInputsForSelfManaged:
         self, _name: str, source_class: type, url: str, credential: SelfManagedCredential
     ) -> None:
         with pytest.raises(UnmappableTableError):
-            source_class().job_inputs_for_self_managed(parse_self_managed_url(url), credential)
+            source_class().job_inputs_for_self_managed(parse_self_managed_url(url), credential, team_id=1)
 
 
 class TestSourceForPipeline:
-    @parameterized.expand([("preserved", True), ("normalized", False)])
-    def test_the_response_carries_the_column_name_choice(self, _name: str, preserve: bool) -> None:
-        source = AmazonS3Source()
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
-        definition = table_definition_for("orders", location, "CSVWithNames", {}, None)
-        metadata = {**definition.schema_metadata(), "preserve_column_names": preserve}
-        config = source.parse_config(
-            {
-                "url_pattern": "https://s3.us-east-1.amazonaws.com/exports/",
-                "access_key_id": "AKIAEXAMPLE",
-                "secret_access_key": "c2VjcmV0",
-            }
-        )
-        inputs = SourceInputs(
+    def _inputs(self, metadata: dict[str, Any]) -> SourceInputs:
+        return SourceInputs(
             schema_name="orders",
             schema_id=str(uuid.uuid4()),
             source_id=str(uuid.uuid4()),
@@ -1030,8 +1021,38 @@ class TestSourceForPipeline:
             reset_pipeline=False,
             schema_metadata=metadata,
         )
+
+    def _config(self, source: AmazonS3Source) -> Any:
+        return source.parse_config(
+            {
+                "url_pattern": "https://s3.us-east-1.amazonaws.com/exports/",
+                "access_key_id": "AKIAEXAMPLE",
+                "secret_access_key": "c2VjcmV0",
+            }
+        )
+
+    @parameterized.expand([("preserved", True), ("normalized", False)])
+    def test_the_response_carries_the_column_name_choice(self, _name: str, preserve: bool) -> None:
+        source = AmazonS3Source()
+        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
+        definition = table_definition_for("orders", location, "CSVWithNames", {}, None)
+        metadata = {**definition.schema_metadata(), "preserve_column_names": preserve}
         source.open_store = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
 
-        response = source.source_for_pipeline(config, inputs)
+        response = source.source_for_pipeline(self._config(source), self._inputs(metadata))
 
         assert response.preserve_column_names is preserve
+
+    def test_a_delta_read_gets_the_data_filesystem_of_the_store(self) -> None:
+        source = AmazonS3Source()
+        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/lake/orders/")
+        definition = table_definition_for("orders", location, "Delta", {}, None)
+        store = MagicMock()
+        source.open_store = MagicMock(return_value=store)  # type: ignore[method-assign]
+
+        inputs = dataclasses.replace(self._inputs(definition.schema_metadata()), source_cursor=MagicMock())
+
+        with patch.object(source_base, "plan_delta_read") as plan:
+            source.source_for_pipeline(self._config(source), inputs)
+
+        assert plan.call_args.kwargs["data_filesystem"] is store.delta_data_filesystem.return_value

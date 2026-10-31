@@ -62,7 +62,7 @@ class GoogleCloudStorageSource(ObjectStorageSource[GoogleCloudStorageSourceConfi
         # The URL picks the bucket the stored key is sent to, so changing it must re-require the key.
         return ["url_pattern"]
 
-    def object_store_config(self, config: GoogleCloudStorageSourceConfig) -> ObjectStoreConfig:
+    def object_store_config(self, config: GoogleCloudStorageSourceConfig, team_id: int) -> ObjectStoreConfig:
         return ObjectStoreConfig.from_url(
             ObjectStoreProvider.GCS,
             parse_gcs_url(config.url_pattern),
