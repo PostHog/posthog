@@ -11,11 +11,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_session,
     retry_with_deadline,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import (
     PRINTIFY_ENDPOINTS,
     PrintifyEndpointConfig,
+    PrintifyFanOut,
 )
 
 PRINTIFY_BASE_URL = "https://api.printify.com/v1"
@@ -23,6 +27,9 @@ REQUEST_TIMEOUT_SECONDS = 60
 # Cheap endpoint used to confirm a token is genuine. Every shop-scoped stream needs the shop list
 # anyway, so `shops.read` access is effectively required for the source to work at all.
 DEFAULT_PROBE_PATH = "/shops.json"
+# Catalog endpoints share a separate 100 requests/minute limit per account. Catalog fan-out makes
+# hundreds of requests, so it paces itself rather than relying on 429 backoff.
+CATALOG_REQUEST_INTERVAL_SECONDS = 0.6
 
 
 class PrintifyRetryableError(Exception):
@@ -37,6 +44,11 @@ class PrintifyResumeConfig:
     shop_id: int | None = None
     # Next page to fetch (1-based, Laravel-style page numbers). Ignored by non-paginated endpoints.
     page: int = 1
+    # Last catalog parent whose child rows were yielded, for catalog fan-out endpoints.
+    blueprint_id: int | None = None
+    print_provider_id: int | None = None
+    # Last product on `page` whose child rows were yielded, for product fan-out endpoints.
+    product_id: str | None = None
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -48,25 +60,21 @@ def _headers(api_key: str) -> dict[str, str]:
     }
 
 
-@retry_with_deadline(
+_retry = retry_with_deadline(
     retry=retry_if_exception_type((PrintifyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(
+
+
+def _request(
     session: requests.Session,
     path: str,
-    page: int | None,
-    limit: int | None,
+    params: dict[str, Any],
     logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], bool]:
-    params: dict[str, Any] = {}
-    if page is not None:
-        params["page"] = page
-    if limit is not None:
-        params["limit"] = limit
-
+    allow_not_found: bool = False,
+) -> Any:
     response = session.get(
         f"{PRINTIFY_BASE_URL}{path}",
         params=params or None,
@@ -76,6 +84,9 @@ def _fetch_page(
     # Printify throttles at 600 req/min globally (100 req/min on catalog endpoints) with HTTP 429.
     if response.status_code == 429 or response.status_code >= 500:
         raise PrintifyRetryableError(f"Printify API error (retryable): status={response.status_code}, path={path}")
+
+    if allow_not_found and response.status_code == 404:
+        return None
 
     if not response.ok:
         logger.error(f"Printify API error: status={response.status_code}, body={response.text}, path={path}")
@@ -91,7 +102,24 @@ def _fetch_page(
             response=response,
         )
 
-    data = response.json()
+    return response.json()
+
+
+@_retry
+def _fetch_page(
+    session: requests.Session,
+    path: str,
+    page: int | None,
+    limit: int | None,
+    logger: FilteringBoundLogger,
+) -> tuple[list[dict[str, Any]], bool]:
+    params: dict[str, Any] = {}
+    if page is not None:
+        params["page"] = page
+    if limit is not None:
+        params["limit"] = limit
+
+    data = _request(session, path, params, logger)
 
     # Non-paginated endpoints (shops, webhooks, catalog) return a bare JSON array.
     if isinstance(data, list):
@@ -160,9 +188,216 @@ def _iter_endpoint_pages(
         resumable_source_manager.save_state(PrintifyResumeConfig(shop_id=shop_id, page=page))
 
 
+@_retry
+def _fetch_child(
+    session: requests.Session, path: str, params: dict[str, str], logger: FilteringBoundLogger
+) -> Any | None:
+    # A product can be deleted after the parent listing, and a product can keep a catalog
+    # blueprint/provider pair that Printify has since retired. Both answer 404; skip that parent.
+    return _request(session, path, params, logger, allow_not_found=True)
+
+
+def _shipping_rate_rows(payload: Any, parent: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[Any, Any]] = set()
+    for profile in payload.get("profiles") or []:
+        for variant_id in profile.get("variant_ids") or []:
+            for country in profile.get("countries") or []:
+                # The primary key is (pair, variant, country); keep the first profile if two overlap.
+                if (variant_id, country) in seen:
+                    continue
+                seen.add((variant_id, country))
+                rows.append(
+                    {
+                        **parent,
+                        "variant_id": variant_id,
+                        "country": country,
+                        "handling_time": payload.get("handling_time"),
+                        "first_item": profile.get("first_item"),
+                        "additional_items": profile.get("additional_items"),
+                    }
+                )
+    return rows
+
+
+def _shape_child_rows(endpoint: str, payload: Any, parent: dict[str, Any]) -> list[dict[str, Any]]:
+    if endpoint == "catalog_variants":
+        variants = payload.get("variants") if isinstance(payload, dict) else None
+        return [{**variant, **parent} for variant in variants or []]
+    if endpoint == "catalog_shipping_rates":
+        return _shipping_rate_rows(payload, parent)
+    if endpoint == "product_gpsr":
+        return [{**parent, "sections": payload}] if isinstance(payload, list) and payload else []
+    return [{**row, **parent} for row in payload] if isinstance(payload, list) else []
+
+
+def _iter_child_rows(
+    session: requests.Session,
+    config: PrintifyEndpointConfig,
+    parent: dict[str, Any],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
+    state: PrintifyResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    path = config.path.format(**parent)
+    payload = _fetch_child(session, path, config.query_params, logger)
+    if payload is None:
+        logger.debug(f"Printify: {path} returned 404, skipping")
+    rows = _shape_child_rows(config.name, payload, parent) if payload is not None else []
+
+    resumable_source_manager.save_state(state)
+    if rows:
+        yield rows
+    else:
+        resumable_source_manager.safe_point()
+
+
+def _pace_catalog_request(resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig]) -> None:
+    interruptible_wait(CATALOG_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
+
+
 def _list_shops(session: requests.Session, logger: FilteringBoundLogger) -> list[dict[str, Any]]:
     shops, _ = _fetch_page(session, PRINTIFY_ENDPOINTS["shops"].path, None, None, logger)
     return shops
+
+
+def _iter_shop_product_pages(
+    session: requests.Session,
+    shop_id: int,
+    start_page: int,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
+) -> Iterator[tuple[int, list[dict[str, Any]]]]:
+    products_config = PRINTIFY_ENDPOINTS["products"]
+    path = products_config.path.format(shop_id=shop_id)
+    page = start_page
+    while True:
+        products, has_more = _fetch_page(session, path, page, products_config.page_size, logger)
+        # The product listing yields no rows itself; every child row of earlier products is yielded.
+        resumable_source_manager.safe_point()
+        yield page, products
+        if not has_more or not products:
+            return
+        page += 1
+
+
+def _iter_blueprint_fan_out(
+    session: requests.Session,
+    config: PrintifyEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
+    resume: PrintifyResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    blueprints, _ = _fetch_page(session, PRINTIFY_ENDPOINTS["blueprints"].path, None, None, logger)
+    resume_after = resume.blueprint_id if resume else None
+    # Sorted ids let a resumed sync skip completed blueprints even when the catalog changed.
+    for blueprint_id in sorted({blueprint["id"] for blueprint in blueprints}):
+        if resume_after is not None and blueprint_id <= resume_after:
+            continue
+        _pace_catalog_request(resumable_source_manager)
+        yield from _iter_child_rows(
+            session,
+            config,
+            {"blueprint_id": blueprint_id},
+            logger,
+            resumable_source_manager,
+            PrintifyResumeConfig(blueprint_id=blueprint_id),
+        )
+
+
+def _list_product_catalog_pairs(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
+) -> list[tuple[int, int]]:
+    pairs: set[tuple[int, int]] = set()
+    for shop in _list_shops(session, logger):
+        for _, products in _iter_shop_product_pages(session, shop["id"], 1, logger, resumable_source_manager):
+            for product in products:
+                blueprint_id = product.get("blueprint_id")
+                print_provider_id = product.get("print_provider_id")
+                if isinstance(blueprint_id, int) and isinstance(print_provider_id, int):
+                    pairs.add((blueprint_id, print_provider_id))
+    return sorted(pairs)
+
+
+def _iter_product_catalog_pair_fan_out(
+    session: requests.Session,
+    config: PrintifyEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
+    resume: PrintifyResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    resume_after: tuple[int, int] | None = None
+    if resume and resume.blueprint_id is not None and resume.print_provider_id is not None:
+        resume_after = (resume.blueprint_id, resume.print_provider_id)
+
+    for blueprint_id, print_provider_id in _list_product_catalog_pairs(session, logger, resumable_source_manager):
+        if resume_after is not None and (blueprint_id, print_provider_id) <= resume_after:
+            continue
+        _pace_catalog_request(resumable_source_manager)
+        yield from _iter_child_rows(
+            session,
+            config,
+            {"blueprint_id": blueprint_id, "print_provider_id": print_provider_id},
+            logger,
+            resumable_source_manager,
+            PrintifyResumeConfig(blueprint_id=blueprint_id, print_provider_id=print_provider_id),
+        )
+
+
+def _iter_product_fan_out(
+    session: requests.Session,
+    config: PrintifyEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PrintifyResumeConfig],
+    resume: PrintifyResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    shops = _list_shops(session, logger)
+    resume_shop_id = resume.shop_id if resume else None
+    resume_page = resume.page if resume else 1
+    resume_product_id = resume.product_id if resume else None
+    if resume_shop_id is not None and all(shop["id"] != resume_shop_id for shop in shops):
+        logger.debug(f"Printify: saved shop {resume_shop_id} not found, restarting {config.name} from the first shop")
+        resume_shop_id = None
+
+    skipping = resume_shop_id is not None
+    for shop in shops:
+        shop_id = shop["id"]
+        skip_through_product_id: str | None = None
+        if skipping:
+            if shop_id != resume_shop_id:
+                continue
+            skipping = False
+            start_page = resume_page
+            skip_through_product_id = resume_product_id
+        else:
+            start_page = 1
+
+        for page, products in _iter_shop_product_pages(session, shop_id, start_page, logger, resumable_source_manager):
+            if skip_through_product_id is not None:
+                product_ids = [product["id"] for product in products]
+                if skip_through_product_id in product_ids:
+                    products = products[product_ids.index(skip_through_product_id) + 1 :]
+                skip_through_product_id = None
+            for product in products:
+                yield from _iter_child_rows(
+                    session,
+                    config,
+                    {"shop_id": shop_id, "product_id": product["id"]},
+                    logger,
+                    resumable_source_manager,
+                    PrintifyResumeConfig(shop_id=shop_id, page=page, product_id=product["id"]),
+                )
+
+
+_FAN_OUT_ITERATORS = {
+    PrintifyFanOut.BLUEPRINT: _iter_blueprint_fan_out,
+    PrintifyFanOut.PRODUCT_CATALOG_PAIR: _iter_product_catalog_pair_fan_out,
+    PrintifyFanOut.PRODUCT: _iter_product_fan_out,
+}
 
 
 def get_rows(
@@ -175,6 +410,12 @@ def get_rows(
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if config.fan_out is not None:
+        if resume:
+            logger.debug(f"Printify: resuming {endpoint} from {resume}")
+        yield from _FAN_OUT_ITERATORS[config.fan_out](session, config, logger, resumable_source_manager, resume)
+        return
 
     if not config.shop_scoped:
         start_page = resume.page if resume else 1
