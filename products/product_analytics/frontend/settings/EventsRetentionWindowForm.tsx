@@ -15,8 +15,6 @@ export interface EventsRetentionFallback {
     deleteMonthly: boolean
     /** False when the fallback is the default window rather than one set in settings. */
     isSet: boolean
-    /** The fallback as the end of a sentence, e.g. "the default window of 24 months". */
-    description: string
 }
 
 export interface EventsRetentionWindowFormProps {
@@ -148,14 +146,14 @@ export function EventsRetentionWindowForm({
                     value={draftMonths ?? NaN}
                     onChange={(value) => setDraftMonths(value === undefined || Number.isNaN(value) ? null : value)}
                     onPressEnter={() => !saveDisabledReason && save()}
-                    placeholder={String(fallback.months)}
+                    placeholder={String(Math.min(planMonths, fallback.months))}
                     suffix={<span className="text-secondary">months</span>}
                     disabled={!!restrictionReason || saving}
                     className="w-40"
                     data-attr={`${dataAttr}-input`}
                 />
                 <p className="mb-0 text-sm text-secondary">
-                    {`Leave empty to use ${fallback.description}. You can choose between ${minMonths} and ${maxMonths} months.`}
+                    {`You can choose between ${minMonths} and ${maxMonths} months.`}
                     {maxMonths === planMonths && planMonths < LONGEST_PLAN_RETENTION_MONTHS && (
                         <>
                             {' '}
@@ -174,22 +172,15 @@ export function EventsRetentionWindowForm({
                     bordered
                     data-attr={`${dataAttr}-delete-monthly`}
                 />
-                <div className="text-sm" data-attr={`${dataAttr}-next-deletion`}>
-                    {deletesOn && (
-                        <p className="mb-0">
-                            Next deletion: <span translate="no">{formatDate(deletesOn)}</span>. Events from before{' '}
-                            <span translate="no">
-                                {dayjs(deletesOn).subtract(draft.months, 'month').format('MMMM YYYY')}
-                            </span>{' '}
-                            will be deleted.
-                        </p>
-                    )}
-                    <p className="mb-0 text-secondary">
-                        {draft.deleteMonthly
-                            ? 'After that, deletions run every month.'
-                            : 'Deletions run every 3 months. A shorter window waits at least 3 months.'}
+                {deletesOn && (
+                    <p className="mb-0 text-sm" data-attr={`${dataAttr}-next-deletion`}>
+                        Next deletion: <span translate="no">{formatDate(deletesOn)}</span>. Events from before{' '}
+                        <span translate="no">
+                            {dayjs(deletesOn).subtract(draft.months, 'month').format('MMMM YYYY')}
+                        </span>{' '}
+                        will be deleted.
                     </p>
-                </div>
+                )}
                 <div>
                     <LemonButton
                         type="primary"

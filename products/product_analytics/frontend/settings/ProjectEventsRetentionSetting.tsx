@@ -25,13 +25,11 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                   months: organizationMonths,
                   deleteMonthly: projectRetention.organization_delete_monthly,
                   isSet: true,
-                  description: `the organization's window of ${organizationMonths} months`,
               }
             : {
                   months: projectRetention.default_retention_months,
                   deleteMonthly: false,
                   isSet: false,
-                  description: `the default window of ${projectRetention.default_retention_months} months`,
               }
 
     return (
