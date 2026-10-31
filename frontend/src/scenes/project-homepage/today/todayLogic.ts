@@ -36,6 +36,7 @@ import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/ge
 
 import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
 import { EXPLORE_ITEMS, type TodayExploreItem } from './todayExploreItems'
+import { feedRowSource } from './todayFeedText'
 import {
     VISIBLE_ROWS,
     forYouRows,
@@ -81,9 +82,26 @@ export interface TodayReportOpenContext {
 }
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
-export type TodayAskSource = 'walk_through' | 'report_page'
+export type TodayAskSource = 'walk_through' | 'report_page' | 'feed'
 
 export type TodayList = 'for_you' | 'recents'
+
+export type TodayForYouView = 'list' | 'feed'
+
+export interface TodayFeedCardEvent {
+    kind: TodayForYouRow['kind']
+    report_id: string | null
+    highlight_source: string | null
+    source: string
+    position: number
+    priority: string | null
+}
+
+export interface TodayFeedSource {
+    label: string
+    count: number
+    row: TodayForYouRow
+}
 
 export interface TodayReports {
     results: SignalReport[]
@@ -174,17 +192,23 @@ export interface todayLogicValues {
     highlightsWaitOver: boolean // todayHighlightsLogic
     reportStateOverrides: Record<string, TodayReportState> // todayVerdictLogic
     user: UserType | null // userLogic
+    activeFeedSource: string | null
     askingAi: boolean
     canLoadMoreReports: boolean
     currentMoreReports: TodayMoreReports | null
     expandedReportRows: Record<string, boolean>
     exploreItems: TodayExploreItem[]
+    feedRows: TodayForYouRow[]
+    feedSource: string | null
+    feedSources: TodayFeedSource[]
     forYouCanShowLess: boolean
     forYouCanShowMore: boolean
     forYouFailedNote: string | null
     forYouOpenCount: number
     forYouReady: boolean
     forYouRows: TodayForYouRows
+    forYouView: TodayForYouView
+    forYouViewChoice: TodayForYouView | null
     forYouVisibleRows: TodayForYouRow[]
     frequentObjects: FileSystemEntry[]
     frequentObjectsLoading: boolean
@@ -264,6 +288,16 @@ export interface todayLogicActions {
         position: number
         product: string
     }
+    feedCardClicked: (
+        card: TodayFeedCardEvent,
+        target: string
+    ) => {
+        card: TodayFeedCardEvent
+        target: string
+    }
+    feedCardHovered: (card: TodayFeedCardEvent) => {
+        card: TodayFeedCardEvent
+    }
     jumpBackOpened: (
         entry: FileSystemEntry,
         position: number,
@@ -327,6 +361,12 @@ export interface todayLogicActions {
     }
     retryFailedLoads: () => {
         value: true
+    }
+    setFeedSource: (source: string | null) => {
+        source: string | null
+    }
+    setForYouView: (view: TodayForYouView) => {
+        view: TodayForYouView
     }
     setHomeScrollTop: (top: number | null) => {
         top: number | null
@@ -406,13 +446,22 @@ export interface todayLogicMeta {
         ) => boolean
         forYouFailedNote: (reportsBroken: boolean, highlightsFailed: boolean) => string | null
         forYouOpenCount: (forYouRows: TodayForYouRows) => number
+        forYouView: (forYouViewChoice: TodayForYouView | null, featureFlags: FeatureFlagsSet) => TodayForYouView
+        feedSources: (forYouRows: TodayForYouRows) => TodayFeedSource[]
+        activeFeedSource: (feedSource: string | null, feedSources: TodayFeedSource[]) => string | null
+        feedRows: (forYouRows: TodayForYouRows, activeFeedSource: string | null) => TodayForYouRow[]
         forYouVisibleRows: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => TodayForYouRow[]
         forYouCanShowMore: (
             forYouRows: TodayForYouRows,
             listExpanded: Record<TodayList, boolean>,
-            canLoadMoreReports: boolean
+            canLoadMoreReports: boolean,
+            forYouView: TodayForYouView
         ) => boolean
-        forYouCanShowLess: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => boolean
+        forYouCanShowLess: (
+            forYouRows: TodayForYouRows,
+            listExpanded: Record<TodayList, boolean>,
+            forYouView: TodayForYouView
+        ) => boolean
         isNewProject: (currentTeam: TeamPublicType | TeamType | null, useSampleData: boolean) => boolean
         exploreItems: (currentTeam: TeamPublicType | TeamType | null) => TodayExploreItem[]
         reportPreviews: (
@@ -469,6 +518,10 @@ export const todayLogic = kea<todayLogicType>([
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
+        setForYouView: (view: TodayForYouView) => ({ view }),
+        setFeedSource: (source: string | null) => ({ source }),
+        feedCardHovered: (card: TodayFeedCardEvent) => ({ card }),
+        feedCardClicked: (card: TodayFeedCardEvent, target: string) => ({ card, target }),
         jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
             entry,
             position,
@@ -618,6 +671,8 @@ export const todayLogic = kea<todayLogicType>([
         topReports: {
             setUseSampleData: () => null,
         },
+        forYouViewChoice: [null as TodayForYouView | null, { persist: true }, { setForYouView: (_, { view }) => view }],
+        feedSource: [null as string | null, { setFeedSource: (_, { source }) => source }],
         listExpanded: [
             { for_you: false, recents: false } as Record<TodayList, boolean>,
             {
@@ -743,23 +798,56 @@ export const todayLogic = kea<todayLogicType>([
             (s) => [s.forYouRows],
             ({ rows }: TodayForYouRows): number => rows.filter((row) => !row.done).length,
         ],
+        forYouView: [
+            (s) => [s.forYouViewChoice, s.featureFlags],
+            (choice: TodayForYouView | null, featureFlags: FeatureFlagsSet): TodayForYouView => {
+                const variantView = featureFlags[FEATURE_FLAGS.TODAY_FOR_YOU_DEFAULT_VIEW] === 'test' ? 'feed' : 'list'
+                return choice ?? variantView
+            },
+        ],
+        feedSources: [
+            (s) => [s.forYouRows],
+            ({ rows }: TodayForYouRows): TodayFeedSource[] => {
+                const sources = new Map<string, TodayFeedSource>()
+                for (const row of rows) {
+                    const label = feedRowSource(row)
+                    const source = sources.get(label)
+                    sources.set(label, source ? { ...source, count: source.count + 1 } : { label, count: 1, row })
+                }
+                return [...sources.values()]
+            },
+        ],
+        activeFeedSource: [
+            (s) => [s.feedSource, s.feedSources],
+            (feedSource: string | null, feedSources: TodayFeedSource[]): string | null =>
+                feedSources.some(({ label }) => label === feedSource) ? feedSource : null,
+        ],
+        feedRows: [
+            (s) => [s.forYouRows, s.activeFeedSource],
+            ({ rows }: TodayForYouRows, activeFeedSource: string | null): TodayForYouRow[] =>
+                activeFeedSource ? rows.filter((row) => feedRowSource(row) === activeFeedSource) : rows,
+        ],
         forYouVisibleRows: [
             (s) => [s.forYouRows, s.listExpanded],
             ({ rows, limit }: TodayForYouRows, listExpanded: Record<TodayList, boolean>): TodayForYouRow[] =>
                 listExpanded.for_you ? rows : rows.slice(0, limit),
         ],
         forYouCanShowMore: [
-            (s) => [s.forYouRows, s.listExpanded, s.canLoadMoreReports],
+            (s) => [s.forYouRows, s.listExpanded, s.canLoadMoreReports, s.forYouView],
             (
                 { rows, limit }: TodayForYouRows,
                 listExpanded: Record<TodayList, boolean>,
-                canLoadMoreReports: boolean
-            ): boolean => (!listExpanded.for_you && rows.length > limit) || canLoadMoreReports,
+                canLoadMoreReports: boolean,
+                forYouView: TodayForYouView
+            ): boolean => canLoadMoreReports || (forYouView === 'list' && !listExpanded.for_you && rows.length > limit),
         ],
         forYouCanShowLess: [
-            (s) => [s.forYouRows, s.listExpanded],
-            ({ rows }: TodayForYouRows, listExpanded: Record<TodayList, boolean>): boolean =>
-                listExpanded.for_you && rows.length > VISIBLE_ROWS + 1,
+            (s) => [s.forYouRows, s.listExpanded, s.forYouView],
+            (
+                { rows }: TodayForYouRows,
+                listExpanded: Record<TodayList, boolean>,
+                forYouView: TodayForYouView
+            ): boolean => forYouView === 'list' && listExpanded.for_you && rows.length > VISIBLE_ROWS + 1,
         ],
         isNewProject: [
             (s) => [s.currentTeam, s.useSampleData],
@@ -874,6 +962,18 @@ export const todayLogic = kea<todayLogicType>([
                 actions.loadTopReports()
                 actions.loadFrequentObjects()
             },
+            setForYouView: ({ view }) => {
+                posthog.capture('today for you view changed', { view })
+            },
+            setFeedSource: ({ source }) => {
+                posthog.capture('today feed filtered', { source })
+            },
+            feedCardHovered: ({ card }) => {
+                posthog.capture('today feed card hovered', { ...card, filter: values.activeFeedSource })
+            },
+            feedCardClicked: ({ card, target }) => {
+                posthog.capture('today feed card clicked', { ...card, target, filter: values.activeFeedSource })
+            },
             exploreOpened: ({ product, position }) => {
                 posthog.capture('today explore opened', { product, position })
             },
@@ -908,7 +1008,9 @@ export const todayLogic = kea<todayLogicType>([
                 }
             },
             showMoreForYou: () => {
-                actions.setListExpanded('for_you', true)
+                if (values.forYouView === 'list') {
+                    actions.setListExpanded('for_you', true)
+                }
                 if (values.canLoadMoreReports) {
                     actions.loadMoreReports()
                 }
