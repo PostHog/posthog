@@ -400,6 +400,7 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.j
 COPY --chown=posthog:posthog ./bin ./bin/
 # Persons SQL migration files (read by apply_persons_migrations management command for hobby deploys)
 COPY --chown=posthog:posthog ./rust/persons_migrations ./rust/persons_migrations/
+COPY --chown=posthog:posthog ./rust/persons_migrations_hobby ./rust/persons_migrations_hobby/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
