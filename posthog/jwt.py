@@ -45,6 +45,7 @@ class PosthogJwtAudience(Enum):
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
     SECURITY_HUB_RULES = "posthog:security_hub:rules"
     SECURITY_HUB_INTERNAL = "posthog:security_hub:internal"
+    AI_GATEWAY_RELOAD = "posthog:ai_gateway:reload"
 
 
 def signing_key_fingerprint(key: str) -> str:
