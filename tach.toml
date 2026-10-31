@@ -1824,6 +1824,7 @@ path = "products.commands"
 depends_on = [
     "posthog",
     "products.error_tracking",
+    "products.knowledge_writer",
     "products.review_hog",
     "products.security",
     "products.stamphog",
@@ -1897,4 +1898,17 @@ expose = [
 ]
 from = [
     "products.authorization",
+]
+
+[[modules]]
+path = "products.knowledge_writer"
+depends_on = ["posthog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.knowledge_writer",
 ]

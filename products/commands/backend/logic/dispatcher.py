@@ -128,10 +128,10 @@ class CommandDispatcher:
         if request.ambiguous:
             return Answer(outcome="ambiguous", message="Send one command at a time, so it is clear which one to run.")
         if request.verb == HELP_VERB:
-            return Answer(outcome="help", message=help_text(request.subject.kind))
+            return Answer(outcome="help", message=help_text(request.subject))
         if spec is None:
             return Answer(
-                outcome="unknown_command", message="I don't know that command.\n\n" + help_text(request.subject.kind)
+                outcome="unknown_command", message="I don't know that command.\n\n" + help_text(request.subject)
             )
         if request.subject.kind not in spec.declaration.subject_kinds:
             return Answer(
