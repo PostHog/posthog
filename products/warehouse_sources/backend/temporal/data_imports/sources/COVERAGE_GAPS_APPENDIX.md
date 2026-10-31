@@ -9715,10 +9715,10 @@ Today (14): `categories`, `checkin_lists`, `customers`, `events`, `gift_cards`, 
 
 Diffed against: <https://docs.pretix.eu/dev/api/resources/index.html>
 
-- [ ] `/organizers/{org}/transactions/` — pretix's financial ledger — the canonical per-line revenue record and the intended basis for revenue reporting (high)
-- [ ] `/organizers/{org}/events/{event}/orders/{code}/payments/` — payment records with provider, amount and state; not embedded in the order JSON (high)
-- [ ] `/organizers/{org}/events/{event}/orders/{code}/refunds/` — refund records, the other half of the money story and also not embedded in orders (high)
-- [ ] `/organizers/{org}/events/{event}/items/{id}/variations/` — lookup resolving the variation IDs carried on order positions and quotas (high)
+- [x] `/organizers/{org}/transactions/` — pretix's financial ledger — the canonical per-line revenue record and the intended basis for revenue reporting (high)
+- [ ] `/organizers/{org}/events/{event}/orders/{code}/payments/` — payment records with provider, amount and state; not embedded in the order JSON (high). Skipped: the order resource embeds a `payments` array with the same fields, so the `orders` table already carries them, and this per-order endpoint would cost one request per order
+- [ ] `/organizers/{org}/events/{event}/orders/{code}/refunds/` — refund records, the other half of the money story and also not embedded in orders (high). Skipped: the order resource embeds a `refunds` array with the same fields, so the `orders` table already carries them, and this per-order endpoint would cost one request per order
+- [ ] `/organizers/{org}/events/{event}/items/{id}/variations/` — lookup resolving the variation IDs carried on order positions and quotas (high). Skipped: the item resource embeds a `variations` array with the same fields, so the `items` table already carries them, and this per-item endpoint would need a second fan-out level
 - [ ] `/organizers/{org}/events/{event}/checkins/` — check-in history — the attendance event stream behind the checkin_lists already synced (high)
 - [ ] `/organizers/ (list)` — top-level lookup; every other table is keyed by organizer slug and there is no organizer table (high)
 - [ ] `/organizers/{org}/orderpositions/` — flat ticket-level line items across all events, far cheaper to query than unnesting the positions array embedded in orders (medium)
