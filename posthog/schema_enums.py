@@ -1985,6 +1985,7 @@ class IntegrationKind(StrEnum):
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
     AWS_REDSHIFT = "aws-redshift"
+    AWS_KINESIS = "aws-kinesis"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"

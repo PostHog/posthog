@@ -27,6 +27,8 @@ from .auth_types import (
 )
 from .aws import (
     AWSCredentialsIntegration,
+    AWSKinesisIntegration,
+    AWSKinesisRoleBasedIntegration,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
     AWSRoleBasedIntegration,
@@ -277,9 +279,11 @@ __all__ = [
     "AWSRoleBasedIntegration",
     "AWSS3RoleBasedIntegration",
     "AWSRedshiftRoleBasedIntegration",
+    "AWSKinesisRoleBasedIntegration",
     "AWSCredentialsIntegration",
     "AWSS3Integration",
     "AWSRedshiftIntegration",
+    "AWSKinesisIntegration",
     "S3CompatibleIntegration",
     "STRIPE_POSTHOG_SECRET_NAMES",
     "StripeIntegration",

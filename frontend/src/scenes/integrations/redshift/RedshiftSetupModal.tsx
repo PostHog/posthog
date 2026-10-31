@@ -166,6 +166,7 @@ export const RedshiftSetupModal = (props: RedshiftSetupModalLogicProps): JSX.Ele
                                     />
                                 </LemonField>
                                 <AwsRoleRequirements
+                                    posthogRole="batch-exports"
                                     permissions={
                                         <>
                                             Grant the role <code>redshift:GetClusterCredentials</code> on the cluster,
