@@ -982,7 +982,7 @@ export const AutoresearchTrainCreateParams = () => zod.object({
         ),
 })
 
-export const autoresearchTrainCreateBodyIterationBudgetMax = 500
+export const autoresearchTrainCreateBodyIterationBudgetMax = 50
 
 export const AutoresearchTrainCreateBody = () => zod.object({
     iteration_budget: zod
@@ -990,7 +990,9 @@ export const AutoresearchTrainCreateBody = () => zod.object({
         .min(1)
         .max(autoresearchTrainCreateBodyIterationBudgetMax)
         .optional()
-        .describe("Iterations for this training run. Defaults to the pipeline's iterations_per_run."),
+        .describe(
+            "Iterations for this training run. Defaults to the pipeline's iterations_per_run. The project's iteration limit per run can lower it."
+        ),
 })
 
 /**

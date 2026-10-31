@@ -40,6 +40,7 @@ from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
 from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
+from products.autoresearch.backend.limits import TeamLimits, limits_for_team
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
@@ -943,6 +944,7 @@ def run_training(
     user_id: int | None,
     rescue: bool = False,
     kickoff_reason: str = AutoresearchTrainingRun.KickoffReason.MANUAL,
+    limits: TeamLimits | None = None,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -950,6 +952,10 @@ def run_training(
     Creates an AutoresearchTrainingRun (status=RUNNING) and fires Task.create_and_run()
     to start the autoresearch agent. Returns the training run immediately; recipe
     ingestion happens asynchronously when the TaskRun completes.
+
+    The run takes at most the project's ``max_iterations_per_run`` (``../limits.py``), whatever
+    the caller asked for. A caller that holds a lock passes the ``limits`` it read before taking
+    it, because the flag read can call out.
 
     Raises if Temporal is unreachable or the task cannot be created.
     """
@@ -969,6 +975,8 @@ def run_training(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
     )
     agent_config = agent_run_config_for(pipeline)
+    limits = limits or limits_for_team(pipeline.team_id)
+    iteration_budget = min(iteration_budget, limits.max_iterations_per_run)
 
     now = django_timezone.now()
     with transaction.atomic():
