@@ -11,6 +11,7 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -240,6 +241,72 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
         result[field] = workflow[field]
     }
     return result as Partial<HogFlow>
+}
+
+/** What the user changed wins over the server copy; everything they left alone follows the server. */
+function rebaseWorkflowEdits(base: HogFlow, local: HogFlow, remote: HogFlow): Partial<HogFlow> {
+    const result: Record<string, unknown> = rebaseGraph(base, local, remote)
+    for (const field of WORKFLOW_EDITABLE_FIELDS) {
+        if (field === 'actions' || field === 'edges' || objectsEqual(local[field], base[field])) {
+            continue
+        }
+        result[field] = local[field]
+    }
+    return result as Partial<HogFlow>
+}
+
+// Steps and edges reference each other, so they rebase together to keep the saved graph valid.
+function rebaseGraph(base: HogFlow, local: HogFlow, remote: HogFlow): Pick<Partial<HogFlow>, 'actions' | 'edges'> {
+    const editedById = editedStepsById(base, local)
+    const remoteById = new Map(remote.actions.map((action) => [action.id, action]))
+    const reshapedLocally = !hasSameShape(base, local)
+    if (!reshapedLocally && editedById.size === 0) {
+        return {}
+    }
+    if (!reshapedLocally && [...editedById.keys()].every((id) => remoteById.has(id))) {
+        return { actions: remote.actions.map((action) => editedById.get(action.id) ?? action) }
+    }
+    return {
+        actions: local.actions.map((action) =>
+            editedById.has(action.id) ? action : serverCopyFittingLocalEdges(action, local, remote, remoteById)
+        ),
+        edges: local.edges,
+    }
+}
+
+// A branch config indexes its outgoing edges, so a server copy of a branching step only fits matching local edges.
+function serverCopyFittingLocalEdges(
+    action: HogFlowAction,
+    local: HogFlow,
+    remote: HogFlow,
+    remoteById: Map<string, HogFlowAction>
+): HogFlowAction {
+    const remoteAction = remoteById.get(action.id)
+    const localEdges = outgoingEdges(local, action.id)
+    const remoteEdges = outgoingEdges(remote, action.id)
+    const branches = [...localEdges, ...remoteEdges].some((edge) => edge.type === 'branch')
+    return remoteAction && (!branches || objectsEqual(localEdges, remoteEdges)) ? remoteAction : action
+}
+
+function outgoingEdges(workflow: HogFlow, actionId: string): HogFlow['edges'] {
+    return workflow.edges.filter((edge) => edge.from === actionId)
+}
+
+function editedStepsById(base: HogFlow, local: HogFlow): Map<string, HogFlowAction> {
+    const baseById = new Map(base.actions.map((action) => [action.id, action]))
+    return new Map(
+        local.actions
+            .filter((action) => !objectsEqual(action, baseById.get(action.id)))
+            .map((action) => [action.id, action])
+    )
+}
+
+function hasSameShape(base: HogFlow, local: HogFlow): boolean {
+    return objectsEqual(base.actions.map(stepId), local.actions.map(stepId)) && objectsEqual(base.edges, local.edges)
+}
+
+function stepId(action: HogFlowAction): string {
+    return action.id
 }
 
 /** What a save was dispatched with, kept per save because a later save moves the shared state. */
@@ -4336,11 +4403,10 @@ export const workflowLogic = kea<workflowLogicType>([
             if (getSaveQueue(cache, values, props).classify(event) !== 'external') {
                 return
             }
-            // Server wins while auto-save can flush the local buffer: unsaved edits are then at most
-            // a few seconds old, so reconcile silently instead of interrupting with a conflict
-            // banner. When auto-save can't flush (toggled off, no name to save under, or a pending
-            // schedule change, which only a manual save persists), the buffer can hold real work,
-            // so the banner lets the user choose.
+            // While auto-save can flush the local buffer, reconcile silently instead of interrupting
+            // with a conflict banner. When auto-save can't flush (toggled off, no name to save under,
+            // or a pending schedule change, which only a manual save persists), the buffer can hold
+            // real work, so the banner lets the user choose.
             const autoSaveCanFlush =
                 values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
             if (values.hasUnsavedChanges && !autoSaveCanFlush) {
@@ -4514,7 +4580,16 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.loadAiEmailDraft(draftSource)
             }
             // The form edits the staged draft when one exists; the live config keeps running underneath.
-            actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            const loaded = withStagedDraft(originalWorkflow)
+            const unsavedEdits = cache.unsavedEditsBase
+                ? rebaseWorkflowEdits(cache.unsavedEditsBase as HogFlow, values.workflow, loaded)
+                : {}
+            cache.unsavedEditsBase = null
+            actions.resetWorkflow(loaded)
+            if (Object.keys(unsavedEdits).length > 0) {
+                actions.setWorkflowValues(unsavedEdits)
+                actions.autoSaveWorkflow()
+            }
             actions.replayDeferredResourceEdited()
             const triggerType = originalWorkflow.trigger?.type
             if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
@@ -4527,7 +4602,18 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         loadWorkflowFailure: () => {
+            cache.unsavedEditsBase = null
             actions.replayDeferredResourceEdited()
+        },
+        setSyncingExternalEdit: ({ syncing }) => {
+            if (
+                syncing &&
+                values.featureFlags[FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS] &&
+                values.workflowChanged &&
+                values.originalWorkflow
+            ) {
+                cache.unsavedEditsBase = withStagedDraft(values.originalWorkflow)
+            }
         },
         saveWorkflow: () => {
             cache.saveEditVersion = values.workflowEditVersion
