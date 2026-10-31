@@ -130,7 +130,7 @@ function buildProperties(changedFiles, impactedTargets, universe, crossLane = nu
     }
 }
 
-function summarizeLane(changedFiles, impactedTargets, context) {
+function summarizeLane(changedFiles, impactedTargets, context, deletedFiles = null) {
     let universe = null
     try {
         universe = context ? allKnownTargets(context) : null
@@ -140,7 +140,10 @@ function summarizeLane(changedFiles, impactedTargets, context) {
     let crossLane = null
     if (context) {
         try {
-            crossLane = crossLaneFiles(changedFiles, { ...context, deletedFiles: findDeletedFiles(changedFiles) })
+            crossLane = crossLaneFiles(changedFiles, {
+                ...context,
+                deletedFiles: deletedFiles ?? findDeletedFiles(changedFiles),
+            })
         } catch (error) {
             console.error(
                 `Could not classify the change set by lane side (${error.message}); cross_lane reports unknown`

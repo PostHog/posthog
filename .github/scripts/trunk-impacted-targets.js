@@ -3008,6 +3008,7 @@ if (require.main === module) {
     let result
     let context = null
     let changedFiles = []
+    let deletedFiles = null
     try {
         changedFiles = fs
             .readFileSync(0, 'utf8')
@@ -3019,9 +3020,10 @@ if (require.main === module) {
             result = ALL
         } else {
             context = buildContext(REPO_ROOT)
+            deletedFiles = findDeletedFiles(changedFiles)
             result = computeTargets(changedFiles, {
                 ...context,
-                deletedFiles: findDeletedFiles(changedFiles),
+                deletedFiles,
             })
         }
     } catch (error) {
@@ -3040,7 +3042,7 @@ if (require.main === module) {
             context = context || buildContext(REPO_ROOT)
             fs.writeFileSync(
                 process.env.LANE_TELEMETRY_FILE,
-                JSON.stringify(summarizeLane(changedFiles, result, context))
+                JSON.stringify(summarizeLane(changedFiles, result, context, deletedFiles))
             )
         } catch (error) {
             console.error(`Could not write lane telemetry (${error.message}); keeping computed targets`)
