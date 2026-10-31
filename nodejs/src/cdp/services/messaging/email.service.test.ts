@@ -1749,13 +1749,25 @@ describe('EmailService', () => {
                 name: 'a workflow send',
                 fromHogFlow: true,
                 parentRunId: null,
-                expectedSource: { app_source_id: 'function-1', instance_id: 'action-email' },
+                expectedSource: {
+                    app_source_id: 'function-1',
+                    instance_id: 'action-email',
+                    workflow_id: 'function-1',
+                    invocation_id: 'invocation-1',
+                    workflow_version: 4,
+                },
             },
             {
                 name: 'a broadcast send',
                 fromHogFlow: true,
                 parentRunId: 'batch-run-1',
-                expectedSource: { app_source_id: 'batch-run-1', instance_id: 'action-email' },
+                expectedSource: {
+                    app_source_id: 'batch-run-1',
+                    instance_id: 'action-email',
+                    workflow_id: 'function-1',
+                    invocation_id: 'invocation-1',
+                    workflow_version: 4,
+                },
             },
         ])(
             'includes unsubscribe headers for $name, attributed to the email it came from',
@@ -1765,6 +1777,7 @@ describe('EmailService', () => {
                 if (fromHogFlow) {
                     Object.assign(invocation, { hogFlow: { id: 'function-1', version: 1 }, parentRunId })
                     invocation.state.actionId = 'action-email'
+                    invocation.state.renderedWorkflowVersion = 4
                 }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()

@@ -366,6 +366,44 @@ describe('HogFunctionHandler', () => {
         expect(mockFetch.mock.calls[0][1].body).toContain(`"name":"Hog Flow|${invocation.hogFlow.id}"`)
     })
 
+    it('ties the unsubscribe link in a workflow email to the step, run and version that send it', async () => {
+        const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: `template-test-hogflow-email-${team.id}`,
+            name: 'Test Email Template',
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
+            inputs_schema: [{ key: 'email', type: 'native_email', required: true }],
+        })
+        action.config.template_id = emailTemplate.template_id
+        action.config.inputs = {
+            email: {
+                templating: 'liquid',
+                value: { to: { email: 'person@example.com' }, html: '<a href="{{unsubscribe_url}}">Unsubscribe</a>' },
+            },
+        }
+        invocation.hogFlow.version = 7
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.error).toBeUndefined()
+        const html: string = parseJSON(mockFetch.mock.calls[0][1].body).email.html
+        const token = html.match(/messaging-preferences\/([^/]+)\//)![1]
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        expect(recipientTokensService.validatePreferencesToken(token)).toEqual({
+            valid: true,
+            team_id: team.id,
+            identifier: 'person@example.com',
+            app_source_id: invocation.hogFlow.id,
+            instance_id: action.id,
+            workflow_id: invocation.hogFlow.id,
+            invocation_id: invocation.id,
+            workflow_version: 7,
+        })
+    })
+
     it('should throw an error if template is not found', async () => {
         const action = findActionByType(invocation.hogFlow, 'function')!
         action.config.template_id = 'template_123'
