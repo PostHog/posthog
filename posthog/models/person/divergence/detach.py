@@ -3,6 +3,7 @@ distinct ids off a live person onto persons of their own."""
 
 from __future__ import annotations
 
+import shlex
 from collections.abc import Callable, Sequence
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,7 @@ from posthog.personhog_client.proto import (
 )
 
 from . import cleanup_queue, lookups, observe, repairs
+from .datatypes import RepairAction
 from .flavors import PgMapping, classify_mapping
 
 if TYPE_CHECKING:
@@ -29,6 +31,9 @@ if TYPE_CHECKING:
 
 # How long the split waits for its ClickHouse messages before it reports them undelivered.
 _SPLIT_FLUSH_SECONDS = 60.0
+
+# Republish outcomes that leave ClickHouse agreeing with Postgres for the key.
+_RESENT = frozenset({"repaired", "skipped_not_divergent"})
 
 
 class SplitError(Exception):
@@ -136,8 +141,8 @@ def _release_drained_owners(
     if not owner_ids:
         return
     live = _live_distinct_ids(team_id, sorted(owner_ids), limit=1)
-    uuids = {reported[key].person_id: reported[key].person_uuid for key in by_key if reported[key].person_uuid}
-    released = sorted(uuids[owner] for owner in owner_ids if not live.get(owner))
+    uuids = {mapping.person_id: mapping.person_uuid for key in by_key if (mapping := reported[key]).person_uuid}
+    released = sorted(uuid for owner in owner_ids if not live.get(owner) and (uuid := uuids[owner]) is not None)
     cleanup_queue.set_blocked(team_id, released, blocked=False)
 
 
@@ -161,7 +166,8 @@ def split_distinct_ids(
 
     `Person.split_person` does the split through personhog and refuses one that would leave the person without a
     distinct id; the dry run applies the same check. A distinct id that is not live on this person stops the whole
-    split, so a mistyped id never splits the rest alone.
+    split, so a mistyped id never splits the rest alone. If Kafka does not confirm the split's ClickHouse messages,
+    the moved persons are republished from Postgres once more.
     """
     ids = list(dict.fromkeys(distinct_ids))
     if not ids:
@@ -187,20 +193,50 @@ def split_distinct_ids(
     if not apply:
         log(f"split: would move {len(ids)} distinct ids off person {person_uuid}")
         return []
+    failure: SplitError | None = None
     try:
         person.split_person(None, None, distinct_ids_to_split=ids)
     except ValueError as exc:
-        raise SplitError(str(exc)) from exc
+        failure = SplitError(str(exc))
     finally:
         # The split publishes to ClickHouse without waiting, also for the batches done before a failure, and a
         # command that exits first can lose those messages.
         undelivered = flush_all_producers(_SPLIT_FLUSH_SECONDS)
         if undelivered:
-            log(f"split: {undelivered} ClickHouse messages were not delivered; rescan the team to republish them")
-    if undelivered:
+            log(
+                f"split: {undelivered} ClickHouse messages were not delivered; to send them again, run: "
+                f"{_republish_command(team_id, ids)}"
+            )
+    if undelivered and not _resend_split(team_id, person_uuid, ids, log=log):
         raise SplitError(
-            f"split person {person_uuid} in Postgres, but {undelivered} ClickHouse messages were not delivered; "
-            "rescan the team to find and republish them"
-        )
+            f"split person {person_uuid} in Postgres, but ClickHouse did not get all of it, and sending it again "
+            f"failed. Do not run a merge a scan suggests for these distinct ids. Run: {_republish_command(team_id, ids)}"
+        ) from failure
+    if failure is not None:
+        raise failure
     log(f"split: moved {len(ids)} distinct ids off person {person_uuid}")
     return ids
+
+
+def _resend_split(team_id: int, person_uuid: str, distinct_ids: list[str], *, log: Callable[[str], None]) -> bool:
+    """Republish the persons the split moved distinct ids to, and return whether ClickHouse got every one.
+
+    Without this, ClickHouse keeps the moved ids on the old person, and a scan suggests merging the two persons
+    back together.
+    """
+    rows = get_distinct_id_rows(team_id, distinct_ids, strong=True)
+    moved = [r.distinct_id for r in rows if not r.is_deleted and r.person_uuid and r.person_uuid != person_uuid]
+    if not moved:
+        return True
+    actions: list[RepairAction] = []
+    summary = repairs.republish_named(team_id, distinct_ids=moved, apply=True, on_action=actions.append, log=log)
+    confirmed = {a.distinct_id for a in actions if a.distinct_id is not None and a.outcome in _RESENT}
+    owners_resent = all(a.outcome in _RESENT for a in actions if a.distinct_id is None)
+    resent = summary.undelivered == 0 and owners_resent and confirmed.issuperset(moved)
+    log(f"split: sent {len(moved)} moved distinct ids and their persons again: {'done' if resent else 'FAILED'}")
+    return resent
+
+
+def _republish_command(team_id: int, distinct_ids: Sequence[str]) -> str:
+    flags = " ".join(f"--distinct-id {shlex.quote(d)}" for d in distinct_ids)
+    return f"python manage.py person_consistency republish --team-id {team_id} {flags} --apply"
