@@ -9963,7 +9963,6 @@ export namespace Schemas {
      * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
@@ -9989,7 +9988,6 @@ export namespace Schemas {
         | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
         | "exposure_filter_on_dynamic_cohort"
-        | "exposure_filter_excludes_events"
         | "srm"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
@@ -10045,7 +10043,6 @@ export namespace Schemas {
          * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
-         * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
