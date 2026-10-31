@@ -854,7 +854,11 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             let newLogicErrored = false
-            if (exportedScene?.logic) {
+            // A person with no project renders ErrorProjectUnavailable in place of this scene. The scene
+            // logic is not mounted, because many scene logics read the team id while they build and throw
+            // without one. That throw would replace the explanation with the generic load error.
+            const sceneReplacedByProjectUnavailable = values.activeSceneId === Scene.ErrorProjectUnavailable
+            if (exportedScene?.logic && !sceneReplacedByProjectUnavailable) {
                 try {
                     const builtLogicProps = { ...exportedScene?.paramsToProps?.(params) }
                     const mountedLogic = cache.mountedSceneLogic
