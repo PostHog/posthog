@@ -92,7 +92,7 @@ json
     "date_from": "<date_from>",
     "date_to": "<date_to>",
     "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
-    "filter_test_accounts": "<boolean>",
+    "filter_test_accounts": <boolean>,
     "filter_group": {
         "type": FilterLogicalOperator.AND,
         "values": [
@@ -143,11 +143,11 @@ json
     "data":
     {
             "order": "start_time",
-            "date_to": "null",
+            "date_to": null,
             "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
             "date_from": "-3d",
             "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
-            "filter_test_accounts": "true",
+            "filter_test_accounts": true,
         }
 }
 </examples_and_rules>
