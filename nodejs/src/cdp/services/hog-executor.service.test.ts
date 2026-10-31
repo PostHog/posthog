@@ -1708,6 +1708,84 @@ describe('Hog Executor', () => {
             })
         })
 
+        describe('hmac_sha256', () => {
+            const SECRET = 'a-shared-secret'
+            const BODY = '{"test": 2432232314}'
+            const SIGNING_REFS = {
+                secret_input: 'signing_secret',
+                webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
+            }
+
+            const BODY_SIGNATURE = 'sha256=5cab16ccc366a42e4b49eff91105aa48fafac08a4ee1ffa945fc0a8fed768342'
+            const EMPTY_BODY_SIGNATURE = 'sha256=720474031dc9df8ead6276881ad787e5ee041cf4c6566b066f2a47cade245dca'
+
+            type ReceivedRequest = { id: unknown; signature: unknown; body: string }
+
+            const receiveRequests = (statusCodes: number[] = [200]): ReceivedRequest[] => {
+                const received: ReceivedRequest[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received.push({
+                            id: req.headers['webhook-id'],
+                            signature: req.headers['x-hub-signature-256'],
+                            body,
+                        })
+                        res.writeHead(statusCodes[received.length - 1] ?? 200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+                return received
+            }
+
+            const createSignedInvocation = async (method = 'POST'): Promise<CyclotronJobInvocationHogFunction> => {
+                const invocation = await createFetchInvocation({
+                    url: `${baseUrl}/`,
+                    method,
+                    body: BODY,
+                    headers: { 'Content-Type': 'application/json', 'X-Hub-Signature-256': 'sha256=stale' },
+                    hmac_sha256: SIGNING_REFS,
+                })
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                return invocation
+            }
+
+            it.each([
+                ['POST', BODY, BODY_SIGNATURE],
+                ['GET', '', EMPTY_BODY_SIGNATURE],
+            ])('signs the bytes a %s request sends', async (method, sentBody, signature) => {
+                const received = receiveRequests()
+
+                const result = await executor.executeFetch(await createSignedInvocation(method))
+
+                expect(result.error).toBeUndefined()
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: sentBody }])
+            })
+
+            it('signs every attempt of one delivery with the same delivery id', async () => {
+                const received = receiveRequests([500, 200])
+
+                const firstAttempt = await executor.executeFetch(await createSignedInvocation())
+                const retry = await executor.executeFetch(firstAttempt.invocation)
+
+                expect(retry.error).toBeUndefined()
+                expect(received.map(({ id }) => id)).toEqual([SIGNING_REFS.webhook_id, SIGNING_REFS.webhook_id])
+                expect(received.map(({ signature }) => signature)).toEqual([BODY_SIGNATURE, BODY_SIGNATURE])
+            })
+
+            it('refuses to send an unsigned request when the secret input is missing', async () => {
+                const invocation = await createSignedInvocation()
+                invocation.hogFunction.encrypted_inputs = {} as any
+
+                const result = await executor.executeFetch(invocation)
+
+                expect(mockRequest).not.toHaveBeenCalled()
+                expect(result.error.message).toContain('HMAC-SHA256 signing failed')
+                expect(result.error.message).toContain('signing_secret')
+            })
+        })
+
         describe('secret_headers_input', () => {
             const seedSecretHeadersInput = (invocation: CyclotronJobInvocationHogFunction) => {
                 invocation.hogFunction.encrypted_inputs = {
