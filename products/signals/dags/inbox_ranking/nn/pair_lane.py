@@ -15,6 +15,13 @@ user columns and zero offsets, whatever the pair rows hold. The user vectors are
 dt=D interactions and embeddings snapshots through `pair_user_vectors`, on the history of teams with
 training consent only, as the pair examples asset builds them.
 
+A broadcast head (`fixed`) takes the report's own label and holdout flag from the report's examples
+row, on every pair of the report, with a loss weight of 1/pairs so each report weighs one. A family
+with `pair_training` fits through a `PairFit`, and its seed networks also score every pair with each
+user input at zero, including `is_suggested_reviewer`, as a caller without a user would. That cold
+score is one per report, and is graded within user against the personal score and at report grain
+against the reference.
+
 The reference is a report-grain serving family. For each seed it is fit on the report rows of the
 pair train days, at report grain with every `nn` head, and each holdout pair takes its report's
 score. That answers "better than a report-level score" on the same days without loading the served
@@ -40,6 +47,8 @@ from posthog.dataclasses import frozen
 from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
     PAIR_STATE_COLUMNS,
+    SUGGESTED_REVIEWER_COLUMN,
+    USER_HISTORY_FEATURE_NAMES,
     USER_HISTORY_KINDS,
     USER_REPORTS_COLUMNS,
     Extras,
@@ -63,7 +72,7 @@ from products.signals.dags.inbox_ranking.nn.dag import (
 )
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS, examples_from_arrow, network_inputs
 from products.signals.dags.inbox_ranking.nn.model import family_heads, family_user_kinds, network_recipe
-from products.signals.dags.inbox_ranking.nn.pair_grade import pair_vs_baseline_block
+from products.signals.dags.inbox_ranking.nn.pair_grade import cold_path_block, pair_vs_baseline_block
 from products.signals.dags.inbox_ranking.nn.pairs import (
     NN_PAIR_EXAMPLES_TABLE,
     PAIR_EXAMPLES_SCHEMA_VERSION,
@@ -72,7 +81,7 @@ from products.signals.dags.inbox_ranking.nn.pairs import (
     team_organizations,
 )
 from products.signals.dags.inbox_ranking.training.dag import check_recipe
-from products.signals.dags.inbox_ranking.training.families import MODEL_FAMILIES, ModelFamily
+from products.signals.dags.inbox_ranking.training.families import MODEL_FAMILIES, PAIR_BROADCAST_HEAD_NAMES, ModelFamily
 from products.signals.dags.inbox_ranking.training.side_inputs import load_side_inputs
 
 # The pair labels' horizon and the pair object's schema, in a pair family's recipe.
@@ -103,20 +112,61 @@ class UserHistory:
     organizations: Mapping[int, str]
 
 
-def pair_example_table(pairs: pd.DataFrame, report_rows: pd.DataFrame, heads: Sequence[str]) -> ExampleTable:
+def report_head_frame(report_table: ExampleTable, heads: Sequence[str]) -> pd.DataFrame:
+    """The report key, then each of `heads`' report-level label and holdout flag, one row per report
+    row of `report_table` (labels in `NN_HEAD_NAMES` order)."""
+    frame = report_table.rows[_REPORT_KEY].copy()
+    for head in heads:
+        index = NN_HEAD_NAMES.index(head)
+        frame[f"{head}_label"] = report_table.labels[:, index]
+        frame[f"{head}_holdout"] = report_table.holdout[:, index]
+    return frame
+
+
+def pair_example_table(
+    pairs: pd.DataFrame,
+    report_rows: pd.DataFrame,
+    heads: Sequence[str],
+    report_heads: pd.DataFrame | None = None,
+) -> ExampleTable:
     """One row per pair, with labels and holdout flags in `heads` order.
 
     A pair takes the state columns of its report's examples row (such as `priority`), so a feature
     set builds its report input as the report lane does. A pair whose report has no examples row is
-    dropped. Every head of a pair shares the report's holdout flag.
+    dropped. A per-viewer head reads the pair's own label and the report's `open` holdout flag.
+
+    A broadcast head reads its report's own label and holdout flag from `report_heads`
+    (`report_head_frame`), and weighs 1/pairs of the report in the loss, so the report weighs one.
+    The table carries weights only when it has a broadcast head.
     """
+    broadcast = [head for head in heads if head in PAIR_BROADCAST_HEAD_NAMES]
+    if broadcast and report_heads is None:
+        raise ValueError(f"the broadcast heads {broadcast} need the report heads frame")
     state = report_rows.drop(columns=["report_team_id"])
     merged = pairs.merge(state, on=_REPORT_KEY, how="inner", validate="many_to_one")
+    if broadcast and report_heads is not None:
+        columns = [*_REPORT_KEY, *(f"{head}_{part}" for head in broadcast for part in ("label", "holdout"))]
+        merged = merged.merge(report_heads[columns], on=_REPORT_KEY, how="left", validate="many_to_one")
     rows = merged[[*_PAIR_COLUMNS, *(c for c in state.columns if c not in _REPORT_KEY)]].reset_index(drop=True)
     labels = np.column_stack([merged[f"{head}_label"].to_numpy(dtype=np.float32) for head in heads])
-    holdout = np.repeat(merged["holdout"].to_numpy(dtype=bool)[:, None], len(heads), axis=1)
+    holdout = np.column_stack(
+        [
+            merged[f"{head}_holdout" if head in broadcast else "holdout"].fillna(False).to_numpy(dtype=bool)
+            for head in heads
+        ]
+    )
+    weights = None
+    if broadcast:
+        pairs_of_report = merged.groupby(_REPORT_KEY)["report_id"].transform("size").to_numpy(dtype=np.float32)
+        weights = np.column_stack(
+            [1.0 / pairs_of_report if head in broadcast else np.ones(len(merged), dtype=np.float32) for head in heads]
+        ).astype(np.float32)
+        weights = weights.reshape(len(rows), len(heads))
     return ExampleTable(
-        rows=rows, labels=labels.reshape(len(rows), len(heads)), holdout=holdout.reshape(len(rows), len(heads))
+        rows=rows,
+        labels=labels.reshape(len(rows), len(heads)),
+        holdout=holdout.reshape(len(rows), len(heads)),
+        weights=weights,
     )
 
 
@@ -216,6 +266,25 @@ def pair_network_inputs(
     return NetworkInputs(reports=pair_report_matrix(table.rows, extras, feature_set), context=project, users=users)
 
 
+def user_input_columns(feature_set: FeatureSet) -> tuple[int, ...]:
+    """The report-input columns of a pair set that hold user history, `is_suggested_reviewer` not
+    among them; empty for any other set."""
+    if not isinstance(feature_set, PairUserHistoryFeatureSet):
+        return ()
+    return tuple(feature_set.feature_names.index(name) for name in USER_HISTORY_FEATURE_NAMES)
+
+
+def cold_network_inputs(inputs: NetworkInputs, feature_set: FeatureSet) -> NetworkInputs:
+    """`inputs` as a caller without a user gives them: every user-history column, the reviewer flag
+    and the user offsets at zero. The report and project inputs stay, so every pair of a report gets
+    one cold score."""
+    if not isinstance(feature_set, PairUserHistoryFeatureSet):
+        raise ValueError(f"the {feature_set.name} feature set has no user inputs to zero")
+    reports = inputs.reports.copy()
+    reports[:, [*user_input_columns(feature_set), feature_set.feature_names.index(SUGGESTED_REVIEWER_COLUMN)]] = 0.0
+    return NetworkInputs(reports=reports, context=inputs.context, users=zero_user_context(len(reports)))
+
+
 def load_user_history(client, bucket: str, prefix: str, partition_key: str) -> UserHistory | None:
     """The dt=D interactions snapshot of the teams with training consent, and their organizations;
     None when the snapshot is missing."""
@@ -258,17 +327,15 @@ def reference_scores(
     reference: ModelFamily,
     extras: Extras,
     day: DayInputs,
-    heads: Sequence[str],
 ) -> list[np.ndarray]:
-    """Per seed, the reference fit on the report rows of the pair train days, its report scores
-    broadcast to every pair."""
+    """Per seed, the reference fit on the report rows of the pair train days, scoring every report
+    row with a column per `nn` head."""
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
         seed_scores,
     )
 
     inputs = network_inputs(report_table, extras, day.labels, day.embeddings, reference.feature_set)
-    positions = report_positions(report_table.rows, pair_table.rows)
-    scores = seed_scores(
+    return seed_scores(
         report_table,
         inputs,
         NN_HEADS,
@@ -276,7 +343,6 @@ def reference_scores(
         EXPERIMENT_SEEDS,
         train_rows=reference_train_rows(report_table, pair_table),
     )
-    return [broadcast_report_scores(seed, positions, NN_HEAD_NAMES, heads) for seed in scores]
 
 
 def train_pair_candidate(
@@ -304,7 +370,9 @@ def train_pair_candidate(
     del report_arrow
     pair_frame = pairs.to_pandas()
     del pairs
-    table = pair_example_table(pair_frame, examples.table.rows, family.heads)
+    table = pair_example_table(
+        pair_frame, examples.table.rows, family.heads, report_head_frame(examples.table, family.heads)
+    )
     without_report = len(pair_frame) - len(table.rows)
     del pair_frame
     if without_report:
@@ -357,15 +425,23 @@ def train_pair_candidate(
     )
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
+        PairFit,
+        seed_networks,
         seed_scores,
         train_network,
     )
 
     heads = family_heads(family)
+    pair = (
+        PairFit(config=family.pair_training, user_columns=user_input_columns(family.feature_set))
+        if family.pair_training is not None
+        else None
+    )
     has_train_pairs = len(table.network_train_rows()) > 0
-    reference_seed_scores = None
+    positions = report_positions(examples.table.rows, table.rows)
+    reference_report_scores = None
     if reference is not None and has_train_pairs:
-        reference_seed_scores = reference_scores(examples.table, table, reference, extras, day, family.heads)
+        reference_report_scores = reference_scores(examples.table, table, reference, extras, day)
     project = project_context(table.rows, day.labels, day.embeddings)
     inputs = pair_network_inputs(table, extras, family.feature_set, project, history, day.embeddings)
     baseline_inputs = (
@@ -375,23 +451,50 @@ def train_pair_candidate(
     )
     del day, history
 
-    trained = train_network(table, inputs, heads, NETWORK_CONFIG)
+    trained = train_network(table, inputs, heads, NETWORK_CONFIG, pair)
     vs_baseline = None
     if has_train_pairs:
+        baseline_scores = (
+            seed_scores(table, baseline_inputs, heads, NETWORK_CONFIG, EXPERIMENT_SEEDS, pair=pair)
+            if baseline_inputs is not None
+            else None
+        )
+        # The cold inputs copy the pair report matrix, so the baseline's is gone before they exist.
+        del baseline_inputs
+        all_rows = np.arange(len(table.rows))
+        networks = seed_networks(table, inputs, heads, NETWORK_CONFIG, EXPERIMENT_SEEDS, pair=pair)
+        experiment_scores = [network.predict(inputs, all_rows) for network in networks]
+        cold_scores = None
+        if pair is not None:
+            cold_inputs = cold_network_inputs(inputs, family.feature_set)
+            cold_scores = [network.predict(cold_inputs, all_rows) for network in networks]
+            del cold_inputs
         vs_baseline = pair_vs_baseline_block(
             table,
             family.heads,
             baseline=family.baseline,
             reference=family.reference,
             seeds=EXPERIMENT_SEEDS,
-            experiment_scores=seed_scores(table, inputs, heads, NETWORK_CONFIG, EXPERIMENT_SEEDS),
-            baseline_scores=(
-                seed_scores(table, baseline_inputs, heads, NETWORK_CONFIG, EXPERIMENT_SEEDS)
-                if baseline_inputs is not None
+            experiment_scores=experiment_scores,
+            baseline_scores=baseline_scores,
+            reference_scores=(
+                [broadcast_report_scores(s, positions, NN_HEAD_NAMES, family.heads) for s in reference_report_scores]
+                if reference_report_scores is not None
                 else None
             ),
-            reference_scores=reference_seed_scores,
+            cold_scores=cold_scores,
         )
+        if cold_scores is not None:
+            vs_baseline["cold_path"] = cold_path_block(
+                examples.table,
+                NN_HEAD_NAMES,
+                positions,
+                family.heads,
+                reference=family.reference,
+                cold_scores=cold_scores,
+                reference_scores=reference_report_scores,
+            )
+        del networks
     metadata = write_candidate(
         context,
         client,
