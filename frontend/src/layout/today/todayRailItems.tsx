@@ -1,4 +1,12 @@
-import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import {
+    IconApps,
+    IconChat,
+    IconGear,
+    IconHome,
+    IconNewspaper,
+    IconSidebarClose,
+    IconSidebarOpen,
+} from '@posthog/icons'
 
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
@@ -17,6 +25,7 @@ export interface TodayPane {
 
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     home: { label: 'Home', title: 'Today', icon: <IconHome /> },
+    feed: { label: 'Feed', title: 'Feed', icon: <IconNewspaper /> },
     spaces: {
         label: 'Chats',
         title: 'Chats',
@@ -28,7 +37,12 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
 
-export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products']
+const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products']
+const TODAY_RAIL_PANES_WITH_FEED: TodayRailPane[] = ['home', 'feed', 'spaces', 'analytics', 'products']
+
+export function todayRailPanes(feedEnabled: boolean): TodayRailPane[] {
+    return feedEnabled ? TODAY_RAIL_PANES_WITH_FEED : TODAY_RAIL_PANES
+}
 export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
 
 export function todaySidebarShortcutLabel(): string {

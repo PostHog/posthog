@@ -85,6 +85,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.AnalyticsSpaces]: () => import('./analytics/AnalyticsSpaces'),
     [Scene.AnalyticsProductHome]: () => import('./analytics/AnalyticsProductHome'),
     [Scene.Tools]: () => import('./tools/Tools'),
+    [Scene.TodayFeed]: () => import('./project-homepage/today/feed/TodayFeedScene'),
     [Scene.PropertyDefinitionEdit]: () => import('./data-management/definition/DefinitionEdit'),
     [Scene.PropertyDefinition]: () => import('./data-management/definition/DefinitionView'),
     [Scene.SqlVariableEdit]: () => import('./data-management/variables/SqlVariableEditScene'),

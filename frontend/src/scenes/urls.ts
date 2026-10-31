@@ -203,6 +203,7 @@ export const urls = {
     analyticsSpaces: (): string => '/analytics/spaces',
     analyticsProductHome: (): string => '/analytics/product-analytics',
     tools: (): string => '/tools',
+    todayFeed: (): string => '/feed',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
