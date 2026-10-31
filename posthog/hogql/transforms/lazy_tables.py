@@ -684,7 +684,9 @@ class LazyTableResolver(TraversingVisitor):
                     setTimeZones=False,
                 ).visit(subquery)
             old_table_type = select_type.tables[table_name]
-            select_type.tables[table_name] = ast.SelectQueryAliasType(alias=table_name, select_query_type=subquery.type)
+            select_type.tables[table_name] = ast.SelectQueryAliasType(
+                alias=table_name, select_query_type=subquery.type, lazy_table=table_to_add.lazy_table
+            )
 
             join_ptr = node.select_from
             while join_ptr:

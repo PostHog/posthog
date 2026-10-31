@@ -389,10 +389,11 @@ def prepare_ast_for_printing(
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
                 group_properties=context.property_swapper.group_properties,
-                event_properties={},
-                person_properties={},
+                event_properties=context.property_swapper.event_properties,
+                person_properties=context.property_swapper.person_properties,
                 context=context,
                 setTimeZones=False,
+                before_lazy_tables=True,
             ).visit(node)
 
         with context.timings.measure("resolve_lazy_tables"):
