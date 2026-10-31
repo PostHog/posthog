@@ -14,7 +14,10 @@ from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import (
+    DataWarehouseSavedQuery,
+    SchedulingUnavailableError,
+)
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import warehouse_source_node
@@ -99,24 +102,30 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         assert self.saved_query.is_materialized is False
         assert self.saved_query.sync_frequency_interval is None
 
-    def test_a_cadence_refused_while_scheduling_restores_the_previous_materialization(self) -> None:
+    @parameterized.expand(
+        [
+            ("cadence_refused", UnsatisfiableFrequencyError("lineage moved"), api.MaterializationRefusedError),
+            ("temporal_unavailable", SchedulingUnavailableError("temporal down"), api.MaterializationFailedError),
+        ]
+    )
+    def test_a_scheduling_error_restores_the_previous_materialization(
+        self, _name: str, error: Exception, expected: type[Exception]
+    ) -> None:
         self.saved_query.is_materialized = True
         self.saved_query.sync_frequency_interval = timedelta(hours=12)
-        self.saved_query.save(update_fields=["is_materialized", "sync_frequency_interval"])
+        self.saved_query.incremental_config = STORED_DAY_KEY
+        self.saved_query.save(update_fields=["is_materialized", "sync_frequency_interval", "incremental_config"])
 
         with (
-            patch.object(
-                DataWarehouseSavedQuery,
-                "schedule_materialization",
-                side_effect=UnsatisfiableFrequencyError("lineage moved"),
-            ),
-            self.assertRaises(api.MaterializationRefusedError),
+            patch.object(DataWarehouseSavedQuery, "schedule_materialization", side_effect=error),
+            self.assertRaises(expected),
         ):
             self._enable(timedelta(hours=1))
 
         self.saved_query.refresh_from_db()
         assert self.saved_query.is_materialized is True
         assert self.saved_query.sync_frequency_interval == timedelta(hours=12)
+        assert self.saved_query.incremental_config == STORED_DAY_KEY
 
     def test_a_schedule_that_disables_materialization_fails_without_logging_an_enable(self) -> None:
         def disable_materialization(saved_query: DataWarehouseSavedQuery, **_kwargs: object) -> None:

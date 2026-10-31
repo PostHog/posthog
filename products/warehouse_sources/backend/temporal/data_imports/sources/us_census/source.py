@@ -160,6 +160,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_dataset",
+                        sync_setting=True,
                         label="Custom query: dataset path",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -168,6 +169,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_variables",
+                        sync_setting=True,
                         label="Custom query: variables (get)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -176,6 +178,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_geography",
+                        sync_setting=True,
                         label="Custom query: geography (for)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -184,6 +187,7 @@ class USCensusSource(SimpleSource[USCensusSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_geography_filter",
+                        sync_setting=True,
                         label="Custom query: parent geography (in)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

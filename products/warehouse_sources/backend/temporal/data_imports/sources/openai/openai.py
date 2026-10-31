@@ -13,7 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -210,8 +213,19 @@ _KEY_REJECTED_MESSAGE = (
 # when OpenAI never answered sends them off to mint a replacement that fails the same way.
 _PROBE_FAILED_MESSAGE = "PostHog couldn't check your Admin API key with OpenAI. Wait a few minutes and try again."
 
+_PROJECT_KEY_REJECTED_MESSAGE = (
+    "OpenAI rejected your project API key. Check it's a project API key (not an Admin API key) and hasn't been revoked."
+)
+_PROJECT_KEY_PROBE_FAILED_MESSAGE = (
+    "PostHog couldn't check your project API key with OpenAI. Wait a few minutes and try again."
+)
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+PROJECT_KEY_MISSING_MESSAGE = (
+    "This OpenAI table needs a project API key. Add one to the source settings, or stop syncing this table."
+)
+
+
+def validate_credentials(api_key: str, project_api_key: Optional[str] = None) -> tuple[bool, str | None]:
     # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
     # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
     # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
@@ -221,11 +235,21 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         headers={"Authorization": f"Bearer {api_key}", **_headers()},
         ok_statuses=(200, 403),
     )
+    if not ok:
+        return False, _KEY_REJECTED_MESSAGE if status == 401 else _PROBE_FAILED_MESSAGE
+    if not project_api_key:
+        return True, None
+    # Platform endpoints reject Admin API keys, so the project key gets its own probe. A 403 is a
+    # real key restricted away from models; the tables it can read still sync.
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(project_api_key,)),
+        f"{OPENAI_BASE_URL}/v1/models",
+        headers={"Authorization": f"Bearer {project_api_key}", **_headers()},
+        ok_statuses=(200, 403),
+    )
     if ok:
         return True, None
-    if status == 401:
-        return False, _KEY_REJECTED_MESSAGE
-    return False, _PROBE_FAILED_MESSAGE
+    return False, _PROJECT_KEY_REJECTED_MESSAGE if status == 401 else _PROJECT_KEY_PROBE_FAILED_MESSAGE
 
 
 def _row_id(*parts: Any) -> str:
@@ -330,6 +354,52 @@ def _make_fanout_data_map(endpoint: str, parent: str, parent_key: str) -> Callab
     return _stamp
 
 
+def _fan_out_chain(endpoint: str) -> list[str]:
+    """Endpoint names from the root parent down to `endpoint`, e.g. evals -> eval_runs -> output items."""
+    chain = [endpoint]
+    while (parent := OPENAI_ENDPOINTS[chain[0]].fan_out_parent) is not None:
+        chain.insert(0, parent)
+    return chain
+
+
+def _fan_out_resources(chain: list[str]) -> list[str | EndpointResource]:
+    # The root parent sends no extra params: archived projects are left out of project fan-outs
+    # (see openai_source).
+    root = chain[0]
+    resources: list[str | EndpointResource] = [
+        {
+            "name": root,
+            "endpoint": {
+                "path": OPENAI_ENDPOINTS[root].path,
+                "params": {"limit": ENTITY_PAGE_SIZE},
+                "data_selector": "data",
+                "paginator": _EntityPaginator(),
+            },
+        }
+    ]
+    for name in chain[1:]:
+        config = OPENAI_ENDPOINTS[name]
+        parent, parent_key = config.fan_out_parent, config.fan_out_parent_key
+        assert parent is not None and parent_key is not None
+        resolved: dict[str, Any] = {parent_key: {"type": "resolve", "resource": parent, "field": "id"}}
+        for placeholder, parent_field in config.fan_out_extra_path_fields.items():
+            resolved[placeholder] = {"type": "resolve", "resource": parent, "field": parent_field}
+        resources.append(
+            {
+                "name": name,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": ENTITY_PAGE_SIZE, **config.extra_params, **resolved},
+                    "data_selector": "data",
+                    "paginator": _EntityPaginator(),
+                },
+                "include_from_parent": ["id"],
+                "data_map": _make_fanout_data_map(name, parent, parent_key),
+            }
+        )
+    return resources
+
+
 def _is_lookback_exceeded(error: HTTPError) -> bool:
     response = error.response
     if response is None or response.status_code != 400:
@@ -404,13 +474,18 @@ def openai_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[OpenAIResumeConfig],
     db_incremental_field_last_value: Optional[Any] = None,
+    project_api_key: Optional[str] = None,
 ) -> SourceResponse:
     config = OPENAI_ENDPOINTS[endpoint]
+
+    if config.requires_project_key and not project_api_key:
+        raise ValueError(PROJECT_KEY_MISSING_MESSAGE)
+    token = project_api_key if config.requires_project_key and project_api_key else api_key
 
     client_config: ClientConfig = {
         "base_url": OPENAI_BASE_URL,
         "headers": _headers(),
-        "auth": {"type": "bearer", "token": api_key},
+        "auth": {"type": "bearer", "token": token},
     }
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -418,40 +493,16 @@ def openai_source(
 
     if config.fan_out_parent is not None and config.fan_out_parent_key is not None:
         # Parent-scoped resources have no org-wide list endpoint; enumerate the parent and fetch
-        # the resource per parent row. Archived projects are left out: OpenAI rejects every
-        # project-scoped read under an archived project, which would fail the whole schema on the
-        # first one. The `projects` table keeps them (see its `extra_params`) so historical
-        # usage/cost rows still resolve their project.
+        # the resource per parent row. Nested resources chain the fan-out through each level, and
+        # the framework keeps no resume state for a chain. Archived projects are left out: OpenAI
+        # rejects every project-scoped read under an archived project, which would fail the whole
+        # schema on the first one. The `projects` table keeps them (see its `extra_params`) so
+        # historical usage/cost rows still resolve their project.
         parent = config.fan_out_parent
-        parent_config = OPENAI_ENDPOINTS[parent]
         rest_config: RESTAPIConfig = {
             "client": client_config,
             "resource_defaults": None,
-            "resources": [
-                {
-                    "name": parent,
-                    "endpoint": {
-                        "path": parent_config.path,
-                        "params": {"limit": ENTITY_PAGE_SIZE},
-                        "data_selector": "data",
-                        "paginator": _EntityPaginator(),
-                    },
-                },
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        "path": config.path,
-                        "params": {
-                            "limit": ENTITY_PAGE_SIZE,
-                            config.fan_out_parent_key: {"type": "resolve", "resource": parent, "field": "id"},
-                        },
-                        "data_selector": "data",
-                        "paginator": _EntityPaginator(),
-                    },
-                    "include_from_parent": ["id"],
-                    "data_map": _make_fanout_data_map(endpoint, parent, config.fan_out_parent_key),
-                },
-            ],
+            "resources": _fan_out_resources(_fan_out_chain(endpoint)),
         }
 
         # Only a framework-shaped checkpoint can seed the fan-out; a legacy (cursor, project_id)
@@ -497,6 +548,10 @@ def openai_source(
                 params["group_by"] = config.group_by
             paginator: BasePaginator = _BucketPaginator()
             data_map = _make_bucket_data_map(config)
+        elif config.pagination == PaginationType.SINGLE:
+            params = {**config.extra_params}
+            paginator = SinglePagePaginator()
+            data_map = None
         else:
             params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
             paginator = _EntityPaginator()

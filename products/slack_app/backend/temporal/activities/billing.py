@@ -3,6 +3,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.temporal.helpers import block_if_team_over_quota
 from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 
@@ -24,13 +25,9 @@ def enforce_posthog_code_billing_quota_activity(
     Slack roundtrips, thread fetches, or billable LLM calls (the classifier,
     notably) for an over-quota team.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
-    integration = Integration.objects.select_related("team").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     # An untagged reply or an untagged channel question has asked PostHog for nothing
     # yet, because both the classifier and the confirmation prompt run after this gate.

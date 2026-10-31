@@ -271,6 +271,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
                     {
                         properties: cohortAudienceProperties(audienceCohort),
                         source: values.source,
+                        sourceRecord: `error_tracking:${props.issueId}`,
                         broadcastName: truncate(`We fixed ${props.issueName || 'an error'}`, MAX_NAME_LENGTH),
                         broadcastEmail: draftMessage({ kind: 'issue_fixed' }),
                         draftSource: { source: 'error_tracking', source_id: props.issueId },

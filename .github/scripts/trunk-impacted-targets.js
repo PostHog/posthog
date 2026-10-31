@@ -182,6 +182,9 @@ const DESKTOP = 'desktop'
 // from services/mcp sources. The same pair STANDALONE_TREES gives cli/ itself.
 const CLI_ARTIFACTS = 'cli-artifacts'
 
+// The hogbox preview-environment workflows, which read the hogbox tooling.
+const HOGBOX_PREVIEW = 'hogbox-preview'
+
 // Bot, report, sync, and canary workflows plus the scripts they run. None of
 // them is a required check, so a break costs a bot action rather than a merge
 // gate, and one shared lane keeps a script and the workflow that runs it
@@ -276,7 +279,7 @@ const TRIPWIRE_RULES = [
     // the cd-*-image rule below.
     ['.github/workflows/ci-e2e-playwright.yml', FULLSTACK],
     ['.github/workflows/ci-e2e-playwright-audit.yml', FULLSTACK],
-    ['.github/workflows/ci-hog.yml', FULLSTACK],
+    ['.github/workflows/ci-hoglang.yml', FULLSTACK],
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
@@ -319,6 +322,10 @@ const TRIPWIRE_RULES = [
     // the rust lanes on top of deploy: those PR checks parse it, even though
     // only the image builds act on what it maps.
     ['.github/rust-images.yml', [RUST, DEPLOY]],
+    // The hogbox preview environment gates no check, and its deploys read the
+    // hogbox tooling, which owns a lane already.
+    ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
+    ['.github/workflows/hogbox-preview-cleanup.yml', HOGBOX_PREVIEW],
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
@@ -711,12 +718,11 @@ const TRIPWIRE_RULES = [
     ['bin/lint-feature-flag-sorting.mjs', JAVASCRIPT],
     ['bin/fix-rdkafka-paths', JAVASCRIPT],
     ['bin/create-notebook-node.sh', JAVASCRIPT],
-    // The Hog CLI backs the Hog suite, the jest-timing helpers feed
+    // bin/hoglang backs the HogLang suite, the jest-timing helpers feed
     // report_test_timings, the dockerignore check runs in container-images-ci,
     // and the sandbox scripts are baked into the sandbox image; all of those
     // sit on the fullstack lanes already.
-    ['bin/hog', FULLSTACK],
-    ['bin/hoge', FULLSTACK],
+    ['bin/hoglang', FULLSTACK],
     ['bin/report-jest-timings', FULLSTACK],
     ['bin/render-jest-timings-example', FULLSTACK],
     ['bin/dockerignore-drop-check', FULLSTACK],
@@ -835,8 +841,10 @@ const STANDALONE_TREES = new Map([
     // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
     // so the two trees have to share a lane.
     ['cli', ['cli', 'svc:mcp']],
-    // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
-    // so its Hog implementation is not covered by the shared hog suite either.
+    // The TypeScript successor to cli/. Nothing outside it builds or imports it.
+    ['hog', ['hog']],
+    // Go service with its own CI. ci-hoglang.yml ignores livestream/** explicitly,
+    // so its Hog implementation is not covered by the shared HogLang suite either.
     ['livestream', ['livestream']],
     // Another standalone cargo workspace, and nothing in the dev or CI stack
     // builds it: the UDF binary reaches ClickHouse through its image.
@@ -1728,6 +1736,11 @@ function addHobbyLane(targets) {
     return true
 }
 
+function addHogboxPreviewLane(targets) {
+    targets.add('tools:hogbox-preview')
+    return true
+}
+
 function addCliArtifactLanes(targets) {
     targets.add('cli')
     targets.add('svc:mcp')
@@ -1857,6 +1870,7 @@ const DOMAIN_LANES = new Map([
     [FULLSTACK, addFullstackLanes],
     [DEPLOY, addDeployLane],
     [HOBBY, addHobbyLane],
+    [HOGBOX_PREVIEW, addHogboxPreviewLane],
     [CLI_ARTIFACTS, addCliArtifactLanes],
     [DESKTOP, addDesktopLanes],
     [REPO_AUTOMATION, laneOf('repo-automation')],
@@ -2979,6 +2993,7 @@ module.exports = {
     DESKTOP,
     FULLSTACK,
     HOBBY,
+    HOGBOX_PREVIEW,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,

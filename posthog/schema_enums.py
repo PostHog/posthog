@@ -64,6 +64,18 @@ class AccountsTableAggregation(StrEnum):
     MEDIAN = "median"
 
 
+class AccountsTableCustomPropertyDisplayType(StrEnum):
+    TEXT = "text"
+    LINK = "link"
+    NUMBER = "number"
+    CURRENCY = "currency"
+    PERCENT = "percent"
+    DATE = "date"
+    DATETIME = "datetime"
+    BOOLEAN = "boolean"
+    SELECT = "select"
+
+
 class WindowDays(float, Enum):
     NUMBER_7 = 7
     NUMBER_14 = 14
@@ -172,6 +184,11 @@ class AmazonAdsDefaultSources(StrEnum):
     AMAZON_ADS = "amazon_ads"
 
 
+class DefaultSort(StrEnum):
+    FIELD_LAST_VIEWED_AT = "-last_viewed_at"
+    FIELD_CREATED_AT = "-created_at"
+
+
 class AnnotationScope(StrEnum):
     DASHBOARD_ITEM = "dashboard_item"
     DASHBOARD = "dashboard"
@@ -232,6 +249,12 @@ class DisplayType(StrEnum):
     LINE = "line"
     BAR = "bar"
     AREA = "area"
+
+
+class ValueLabels(StrEnum):
+    AUTO = "auto"
+    SHOW = "show"
+    HIDE = "hide"
 
 
 class YAxisPosition(StrEnum):
@@ -572,7 +595,6 @@ class AssistantTool(StrEnum):
     ESTIMATE_REPLAY_VISION_SCANNER = "estimate_replay_vision_scanner"
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
-    SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -655,6 +677,11 @@ class BIAggregation(StrEnum):
     MINIMUM = "minimum"
     MAXIMUM = "maximum"
     CUSTOM = "custom"
+
+
+class BICatalogMetricStatus(StrEnum):
+    APPROVED = "approved"
+    PROPOSED = "proposed"
 
 
 class Operator1(StrEnum):
@@ -1445,6 +1472,7 @@ class ExperimentExposureHealthCheckKey(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthCheckStatus(StrEnum):
@@ -1466,6 +1494,7 @@ class ExperimentExposureHealthFindingCode(StrEnum):
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
 
 
 class ExperimentExposureHealthFindingSeverity(StrEnum):
@@ -1510,14 +1539,6 @@ class PrecomputationMode(StrEnum):
     DIRECT = "direct"
 
 
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
 class ExperimentStatsMethod(StrEnum):
     BAYESIAN = "bayesian"
     FREQUENTIST = "frequentist"
@@ -1527,6 +1548,11 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
+
+
+class ExperimentWarehouseNativeMathType(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1582,6 +1608,7 @@ class FileSystemIconType(StrEnum):
     UPTIME_MONITORING = "uptime_monitoring"
     WORKFLOWS = "workflows"
     BROADCASTS = "broadcasts"
+    TRANSACTIONAL = "transactional"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
@@ -2122,6 +2149,41 @@ class MarketingAnalyticsOrderByEnum(StrEnum):
     DESC = "DESC"
 
 
+class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
+    SAVE = "save"
+    GAIN = "gain"
+    INVEST = "invest"
+    KEEP = "keep"
+
+
+class MarketingAnalyticsRecommendationImpactType(StrEnum):
+    MEASURED = "measured"
+    ESTIMATED = "estimated"
+
+
+class MarketingAnalyticsRecommendationLevel(StrEnum):
+    CAMPAIGN = "campaign"
+    SEARCH_TERM = "search_term"
+
+
+class MarketingAnalyticsRecommendationRule(StrEnum):
+    BUDGET_CONSTRAINED = "budget_constrained"
+    BRAND_LEAK = "brand_leak"
+    SCALE_CAMPAIGN = "scale_campaign"
+    REVIEW_CAMPAIGN = "review_campaign"
+    POLICY_LIMITED = "policy_limited"
+    BRAND_OVERLAP = "brand_overlap"
+    CONTENT_GAP = "content_gap"
+    KEYWORD_GAP = "keyword_gap"
+    SPEND_WITHOUT_CONVERSIONS = "spend_without_conversions"
+    STRIKING_DISTANCE = "striking_distance"
+
+
+class MarketingAnalyticsRecommendationsSourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
 class MarketingAnalyticsRetentionInterval(StrEnum):
     DAY = "day"
     WEEK = "week"
@@ -2141,6 +2203,7 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
 class Breakdown1(StrEnum):
     KEYWORD = "keyword"
     PAGE = "page"
+    SEARCH_TERM = "search_term"
 
 
 class Platform(StrEnum):
@@ -2376,6 +2439,7 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
+    ERROR_TRACKING_ISSUE_EVENTS_QUERY = "ErrorTrackingIssueEventsQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
@@ -2421,14 +2485,17 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
     MARKETING_ANALYTICS_SEARCH_QUERY = "MarketingAnalyticsSearchQuery"
+    MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY = "MarketingAnalyticsRecommendationsQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG = "ExperimentWarehouseNativeExposureConfig"
     EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_WAREHOUSE_NATIVE_NODE = "ExperimentWarehouseNativeNode"
     EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
@@ -3012,6 +3079,16 @@ class SnapchatAdsConversionValueFields(StrEnum):
 
 class SnapchatAdsDefaultSources(StrEnum):
     SNAPCHAT = "snapchat"
+
+
+class SpanHealthStatus(StrEnum):
+    SILENT = "silent"
+    REGRESSED = "regressed"
+    DEGRADED = "degraded"
+    NEW = "new"
+    RECOVERED = "recovered"
+    IMPROVED = "improved"
+    OK = "ok"
 
 
 class SpanPropertyFilterType(StrEnum):

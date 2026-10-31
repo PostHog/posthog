@@ -122,6 +122,21 @@ def _flatten_tag_category(category: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _flatten_card_verifiers(card: dict[str, Any]) -> list[dict[str, Any]]:
+    # A verifier is a user or a user group. Fall back to that entity's id when the verifier omits
+    # its own, and use direct access so a verifier with neither fails loudly instead of a null key.
+    rows = []
+    for verifier in card.get("verifiers") or []:
+        verifier_id = verifier.get("id") or (verifier.get("user") or verifier.get("userGroup") or {})["id"]
+        rows.append({"cardId": card["id"], **verifier, "id": verifier_id})
+    return rows
+
+
+def _flatten_team_stats(body: dict[str, Any]) -> list[dict[str, Any]]:
+    # Team stats come back as one object that maps a stat key to its counters.
+    return [{"statKey": key, **stat} for key, stat in body["stats"].items()]
+
+
 def _client_config(username: str, api_token: str) -> ClientConfig:
     return {
         "base_url": GURU_BASE_URL,
@@ -221,7 +236,7 @@ def guru_source(
         "params": params,
         # Guru returns a bare JSON array; a non-list 200 body means the response shape
         # changed — fail loud instead of wrapping the stray object as a single row.
-        "data_selector_required": True,
+        "data_selector_required": not config.single_object,
     }
     resource_config: EndpointResource = {
         "name": endpoint,
@@ -233,6 +248,10 @@ def guru_source(
         resource_config["data_map"] = _flatten_tag_category
     elif endpoint == "analytics_events":
         resource_config["data_map"] = _ensure_event_id
+    elif endpoint == "card_verifiers":
+        resource_config["data_map"] = _flatten_card_verifiers
+    elif endpoint == "team_stats":
+        resource_config["data_map"] = _flatten_team_stats
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(username, api_token),
@@ -271,8 +290,8 @@ def guru_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Guru documents no order for the analytics export, so "desc" defers the watermark
-        # commit to the end of the run instead of checkpointing it after each batch.
+        # Guru documents no order for the analytics export or the comment list, so "desc" defers
+        # the watermark commit to the end of the run instead of checkpointing it after each batch.
         sort_mode="desc" if config.date_filter_param else "asc",
         column_hints=resource.column_hints,
     )

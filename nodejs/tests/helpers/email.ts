@@ -145,6 +145,7 @@ export class EmailServiceFixture {
             ),
             emailSuppressionService: this.suppression,
             recipientsManager: this.recipients,
+            emailStatusService: null,
             ...overrides,
             sesConfig: overrides.sesConfig ? { ...this.sesConfig, ...overrides.sesConfig } : this.sesConfig,
         })

@@ -54,6 +54,18 @@ def validate_data_freshness(data_freshness_seconds: int | None) -> None:
         )
 
 
+def _is_current_data_freshness(
+    data_freshness_seconds: int | None, endpoint: Endpoint | None, version_number: int | None
+) -> bool:
+    """True when the value equals what the API already reports for the version being updated."""
+    if data_freshness_seconds is None or endpoint is None:
+        return False
+    try:
+        return endpoint.get_version(version_number).data_freshness_seconds == data_freshness_seconds
+    except EndpointVersion.DoesNotExist:
+        return False
+
+
 def validate_bucket_overrides(bucket_overrides: dict[str, str] | None) -> None:
     """Raise ValidationError if any bucket override value is not in SUPPORTED_BUCKET_FUNCTIONS."""
     if not bucket_overrides:
@@ -68,9 +80,6 @@ def validate_bucket_overrides(bucket_overrides: dict[str, str] | None) -> None:
 DIRECT_CONNECTION_UNSUPPORTED = (
     "Endpoints can't query a direct connection. "
     "Switch the connection to PostHog (ClickHouse) and query a synced table instead."
-)
-NATIVE_CLUSTER_UNSUPPORTED = (
-    "Endpoints do not support native events cluster opt-ins. Use the query API for comparisons."
 )
 
 
@@ -281,9 +290,6 @@ def validate_optional_breakdown_properties(
 def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, strict: bool = True) -> None:
     """Validate a create/update payload. With strict=True, name and query are required."""
     query = data.query
-    modifiers = getattr(query, "modifiers", None)
-    if modifiers and modifiers.useNewEventsCluster:
-        raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
     if not query and strict:
         raise ValidationError({"query": "This field is required."})
 
@@ -316,10 +322,8 @@ def validate_update_request(
     version_number: int | None = None,
 ) -> None:
     """Validate an update payload against the endpoint's resulting state."""
-    modifiers = getattr(data.query, "modifiers", None)
-    if modifiers and modifiers.useNewEventsCluster:
-        raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
-    validate_data_freshness(data.data_freshness_seconds)
+    if not _is_current_data_freshness(data.data_freshness_seconds, endpoint, version_number):
+        validate_data_freshness(data.data_freshness_seconds)
 
     # Determine final states after this request (for validation)
     will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { LemonButton, LemonCard, LemonDivider, Link } from '@posthog/lemon-ui'
 
@@ -11,6 +12,8 @@ import { BrowserNotificationsSection } from './BrowserNotificationsSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 interface WorkflowTemplate {
+    // Matches the global template ID in products/workflows/backend/templates/
+    id: string
     title: string
     description: string
     trigger: string
@@ -18,40 +21,17 @@ interface WorkflowTemplate {
 
 const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     {
-        title: 'New ticket → Slack channel',
-        description: 'Post a message to a chosen Slack channel whenever a customer opens a new ticket.',
-        trigger: '$conversation_ticket_created',
-    },
-    {
-        title: 'Team reply → email customer',
+        id: '019ce1f1-5d12-0000-e318-4b3ebd4b2aea',
+        title: 'New ticket → Slack or email',
         description:
-            'When a team member replies on a ticket, email the customer so they receive the response in their inbox.',
-        trigger: '$conversation_message_sent',
-    },
-    {
-        title: 'Customer message → notify team',
-        description: 'When a customer sends a message on a ticket, notify the assigned teammate by email or Slack.',
-        trigger: '$conversation_message_received',
-    },
-    {
-        title: 'SLA: no response in 4h → escalate',
-        description: 'If a ticket sits without a team reply for 4 hours, reassign to a lead and email the team.',
+            'Post a message to a chosen Slack channel or email your support team whenever a customer opens a new ticket.',
         trigger: '$conversation_ticket_created',
     },
     {
-        title: 'First team reply → mark Pending',
-        description: 'When a team member sends the first reply, automatically move the ticket to Pending.',
+        id: 'a638999a-bf53-4fde-af36-c85ad9827076',
+        title: 'Team reply → email customer',
+        description: 'When a team member replies on a ticket, email the customer to let them know a reply is waiting.',
         trigger: '$conversation_message_sent',
-    },
-    {
-        title: 'Resolved → CSAT email',
-        description: 'When a ticket is resolved, wait an hour and email the customer a 1-question CSAT survey.',
-        trigger: '$conversation_ticket_status_changed',
-    },
-    {
-        title: 'VIP cohort → high priority + auto-assign',
-        description: 'Tickets from your VIP cohort get bumped to high priority and routed to the on-call lead.',
-        trigger: '$conversation_ticket_created',
     },
 ]
 
@@ -94,12 +74,16 @@ export function NotificationsSection(): JSX.Element {
             >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-[800px]">
                     {WORKFLOW_TEMPLATES.map((template) => (
-                        <LemonCard key={template.title} hoverEffect={false} className="flex flex-col gap-2 px-4 py-3">
+                        <LemonCard key={template.id} hoverEffect={false} className="flex flex-col gap-2 px-4 py-3">
                             <h4 className="font-semibold mb-0">{template.title}</h4>
                             <p className="text-xs text-muted-alt mb-1 flex-1">{template.description}</p>
                             <div className="flex items-center justify-between gap-2 mt-1">
                                 <code className="text-xs text-muted-alt truncate">{template.trigger}</code>
-                                <LemonButton type="secondary" size="small" to={urls.workflowNew()}>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    to={combineUrl(urls.workflowNew(), { templateId: template.id }).url}
+                                >
                                     Create workflow
                                 </LemonButton>
                             </div>

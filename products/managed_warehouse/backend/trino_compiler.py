@@ -423,11 +423,21 @@ def compile_hogql_to_trino_sql(
             ]
         return prepared
 
+    needs_row_type_probe = True
+
+    def prepare_output(prepared: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        nonlocal needs_row_type_probe
+        output = prepared
+        while isinstance(output, ast.SelectSetQuery):
+            output = output.initial_select_query
+        needs_row_type_probe = any(_may_hold_anonymous_row(column, trino_context) for column in output.select)
+        return preserve_output_names(prepared) if preserve_clickhouse_output_names else prepared
+
     trino_sql, _ = prepare_and_print_ast(
         parsed,
         trino_context,
         dialect="trino",
-        prepared_ast_transform=preserve_output_names if preserve_clickhouse_output_names else None,
+        prepared_ast_transform=prepare_output,
     )
 
     hogql_pretty: str | None = None
@@ -449,4 +459,32 @@ def compile_hogql_to_trino_sql(
         resolved_hogql = resolve_types(hogql_ast, hogql_context, dialect="trino")
         hogql_pretty = TrinoHogQLPrinter(context=hogql_context).visit(resolved_hogql)
 
-    return TrinoCompiledQuery(sql=trino_sql, values=dict(trino_context.values), hogql=hogql_pretty)
+    return TrinoCompiledQuery(
+        sql=trino_sql,
+        values=dict(trino_context.values),
+        hogql=hogql_pretty,
+        needs_row_type_probe=needs_row_type_probe,
+    )
+
+
+def _may_hold_anonymous_row(column: Any, context: Any) -> bool:
+    """Whether the resolved type of an output column is, or contains, a tuple or an unknown type."""
+    from posthog.hogql import ast  # noqa: PLC0415 -- keeps compiler imports off Django startup
+
+    def check(constant_type: ast.ConstantType) -> bool:
+        if isinstance(constant_type, ast.TupleType | ast.UnknownType):
+            return True
+        if isinstance(constant_type, ast.ArrayType):
+            return check(constant_type.item_type)
+        if isinstance(constant_type, ast.MapType):
+            return check(constant_type.key_type) or check(constant_type.value_type)
+        if isinstance(constant_type, ast.AggregateStateType):
+            return check(constant_type.wrapped_type)
+        return False
+
+    if column.type is None:
+        return True
+    try:
+        return check(column.type.resolve_constant_type(context))
+    except Exception:  # noqa: BLE001 -- a type that cannot be resolved is probed, which is always safe
+        return True

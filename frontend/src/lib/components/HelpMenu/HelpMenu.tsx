@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 import { IconCopy, IconDatabase, IconOpenSidebar, IconServer, IconShieldLock, IconSparkles } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -22,7 +22,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { RenderKeybind } from '../Shortcuts/RenderKeybind'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { healthSummaryLabel } from './healthSummaryLabel'

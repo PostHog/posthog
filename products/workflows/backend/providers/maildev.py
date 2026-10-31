@@ -1,4 +1,8 @@
-from products.workflows.backend.facade.contracts import EmailDomainDnsRecord
+from dataclasses import replace
+
+from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainDnsRecord
+from products.workflows.backend.facade.enums import EmailDomainSetupRecordStatus, EmailDomainSetupStatus
+from products.workflows.backend.services.email_domain_status import build_email_domain_check, build_email_domain_records
 
 MAILDEV_MOCK_DNS_RECORDS: list[EmailDomainDnsRecord] = [
     # Mock DNS records for email domain setup when using local maildev
@@ -53,3 +57,17 @@ MAILDEV_MOCK_DNS_RECORDS: list[EmailDomainDnsRecord] = [
         "status": "success",
     },
 ]
+
+
+def maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) -> EmailDomainCheck:
+    records = build_email_domain_records(
+        domain=domain,
+        mail_from_subdomain=mail_from_subdomain,
+        verification_token="mock-verification-token",
+        dkim_tokens=["mock1", "mock2", "mock3"],
+        ses_region="us-east-1",
+    )
+    return build_email_domain_check(
+        provider_status=EmailDomainSetupStatus.VERIFIED,
+        records=[replace(record, status=EmailDomainSetupRecordStatus.VERIFIED) for record in records],
+    )

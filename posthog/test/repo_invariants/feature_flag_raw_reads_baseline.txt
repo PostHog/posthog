@@ -39,9 +39,6 @@ products/feature_flags/backend/api/feature_flag.py::apply_encrypted_payload_resp
 products/feature_flags/backend/api/feature_flag.py::find_dependent_flags::extra(sql on filters)
 products/feature_flags/backend/api/feature_flag.py::find_dependent_flags_batch::dep_flag.filters.get('groups')
 products/feature_flags/backend/api/feature_flag.py::find_dependent_flags_batch::extra(sql on filters)
-products/feature_flags/backend/api/flag_value.py::FlagValueViewSet.values::flag.filters.get('multivariate')
-products/feature_flags/backend/api/flag_value.py::FlagValueViewSet.values::flag.filters['multivariate']
-products/feature_flags/backend/api/flag_value.py::FlagValueViewSet.values::flag.filters['multivariate']
 products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._copy_feature_flag_to_target::source_flag.get_filters()
 products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._get_direct_flag_dependencies::flag.get_filters()
 products/feature_flags/backend/api/organization_feature_flag.py::OrganizationFeatureFlagView._get_source_dependency_context::source_flag.get_filters()

@@ -73,6 +73,7 @@ The search tables (`gifs_search`, `stickers_search`) only appear once you set a 
                     ),
                     SourceFieldInputConfig(
                         name="search_query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

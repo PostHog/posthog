@@ -207,6 +207,13 @@ devbox:
     devbox:sync:
         click: hogli_commands.devbox.sync:cmd_sync
         description: Mirror your local PostHog checkout to a devbox
+    devbox:worktree:
+        click: hogli_commands.devbox.worktree:devbox_worktree
+        description: Give this worktree its own devbox and sync mirror
+    devbox:worktree:auto:
+        click: hogli_commands.devbox.worktree:devbox_worktree_auto
+        description: Start devbox:worktree in the background for a new worktree, if auto-provisioning is on
+        hidden: true
     devbox:secret:list:
         click: hogli_commands.devbox.cli:devbox_secret_list
         description: List your Coder user secrets
@@ -891,6 +898,12 @@ quality:
     lint:api-ratchet:
         click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
         description: Block new frontend/src/lib/api.ts path methods that a generated client already covers
+    lint:frontend-layers:
+        cmd: node frontend/bin/check-layers.mjs "$@"
+        description: Block new static imports from a lower frontend layer into a higher one
+    lint:frontend-css-coupling:
+        cmd: node frontend/bin/check-css-coupling.mjs "$@"
+        description: Block new components that use a stylesheet's class without importing the stylesheet
     lint:workflows:
         click: hogli_commands.workflow_lint.cli:cmd_lint_workflows
         description: Lint .github/workflows/** for repo conventions
@@ -994,12 +1007,9 @@ tools:
             development
         services:
             - temporal
-    tool:hog:
-        bin_script: hog
-        description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
-    tool:hoge:
-        bin_script: hoge
-        description: Compile HogQL source to bytecode or JavaScript
+    tool:hoglang:
+        bin_script: hoglang
+        description: Run HogLang source or bytecode, or compile source to bytecode or JavaScript
     tool:ruff:
         bin_script: ruff.sh
         description: Python linter and formatter with virtualenv auto-activation
@@ -1139,6 +1149,9 @@ devex:
     devex:feedback:
         click: hogli_commands.feedback:devex_feedback
         description: Send feedback about the dev experience to the devex team (humans and agents)
+    agent:usage:
+        click: hogli_commands.agent_usage:cmd_agent_usage
+        description: Show agent LLM token spend per pull request, from engineering analytics
 utilities:
     nuke:
         steps:
@@ -1302,4 +1315,8 @@ environment:
     rasterize:recording:file:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
+        hidden: true
+    lint:semgrep-ratchet:
+        bin_script: semgrep_ratchet.py
+        description: 'Compare semgrep findings per file with a checked-in baseline'
         hidden: true

@@ -622,3 +622,53 @@ def test_patch_cdc_table_mode_drop_target_allowed_when_team_over_billing_limit(t
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
     assert schema.cdc_table_mode == "consolidated"
+
+
+@pytest.mark.parametrize(
+    ("old_mode", "patch", "expected_event", "expected_table_mode"),
+    [
+        ("consolidated", {"cdc_table_mode": "both"}, "data warehouse history enabled", "both"),
+        ("both", {"cdc_table_mode": "consolidated"}, "data warehouse history disabled", "both"),
+        ("cdc_only", {"sync_type": "full_refresh"}, "data warehouse history disabled", "cdc_only"),
+        ("cdc_only", {"cdc_table_mode": "both"}, None, None),
+        ("consolidated", {"cdc_table_mode": "consolidated"}, None, None),
+    ],
+)
+def test_patch_reports_history_enabled_and_disabled(
+    team, user, client: HttpClient, old_mode, patch, expected_event, expected_table_mode
+):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode=old_mode)
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["facade_sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["pause_external_data_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=False),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data=patch,
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    history_events = [
+        call.kwargs
+        for call in mock_capture.call_args_list
+        if str(call.kwargs.get("event", "")).startswith("data warehouse history")
+    ]
+    assert [event["event"] for event in history_events] == ([expected_event] if expected_event else [])
+    if expected_event:
+        assert history_events[0]["properties"]["schema_id"] == str(schema.id)
+        assert history_events[0]["properties"]["source_id"] == str(source.id)
+        assert history_events[0]["properties"]["table_mode"] == expected_table_mode

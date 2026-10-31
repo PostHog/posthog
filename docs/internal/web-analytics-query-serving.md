@@ -19,6 +19,9 @@ A request walks down this ladder and stops at the first tier whose conditions it
 | 3. Live fast paths                       | Session-id-set (filtered) and no-join (unfiltered) shapes that avoid the full events↔sessions join                                                 | ~1–20s          |
 | 4. Full join                             | The original events↔sessions join; always works, slowest                                                                                           | ~5–60s          |
 
+The preaggregated all-time range includes the hourly bucket containing the first event.
+Explicit date ranges keep their requested lower bounds.
+
 ## Request flow
 
 ```text
@@ -65,6 +68,10 @@ request
 **The one-way rule (#72959):** user-facing reads never build precompute buckets inline — `run_inserts` is true only for background-warming requests.
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
 The dashboard "enqueues precompute" as a side effect; it never waits on it.
+
+Requests that select native JSON events keep that table choice in precompute job identities and queued revalidation payloads.
+Native and legacy revalidations use separate debounce keys, so a trial cannot suppress the project's normal rebuild.
+Builders inherit the running query's table choice; an explicit query modifier takes precedence over the staff cookie.
 
 ## Marketing search performance
 

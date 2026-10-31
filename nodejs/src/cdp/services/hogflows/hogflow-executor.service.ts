@@ -30,6 +30,7 @@ import {
     StoredCohortMembership,
 } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
+import { EmailStatusService } from '../messaging/email-status.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
@@ -44,7 +45,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { buildConversionWatcher } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { hasSensitiveEmailStep } from './hogflow-sensitivity'
+import { hasSensitiveMessageStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
     actionIdForLogging,
@@ -105,7 +106,7 @@ export function createHogFlowInvocation(
             // manager may be serving a newer version. A message step re-pins this to the version
             // that actually sent (see HogFunctionHandler); until then this is the best answer.
             flowVersion: hogFlow.version,
-            ...(hasSensitiveEmailStep(hogFlow) ? { sensitive: true } : {}),
+            ...(hasSensitiveMessageStep(hogFlow) ? { sensitive: true } : {}),
         },
         teamId: hogFlow.team_id,
         // The version lives on `state.flowVersion` rather than here — functionId is the cyclotron
@@ -132,6 +133,9 @@ export class HogFlowExecutorService {
         emailValidationService: EmailValidationService,
         cohortMembershipRepository: CohortMembershipRepository,
         integrationManager: SlackAppLookup,
+        // Required, so that a caller which builds the executor without it fails to compile. Pass null
+        // only where no email status is recorded.
+        emailStatusService: EmailStatusService | null,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
         options: { awaitedStepsEnabled?: boolean } = {}
@@ -144,6 +148,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'fetch',
+            null,
             usageReporter,
             options
         )
@@ -152,6 +157,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'email',
+            emailStatusService,
             usageReporter
         )
         const hogFunctionSmsHandler = new HogFunctionHandler(
@@ -159,6 +165,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'sms',
+            null,
             usageReporter,
             options
         )
@@ -167,6 +174,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'push',
+            null,
             usageReporter
         )
 
@@ -290,6 +298,12 @@ export class HogFlowExecutorService {
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
         const messageAssets: MessageAssetRow[] = []
         const conversionWatchers: ConversionWatcherRow[] = []
+
+        // A run that started before a step was protected must keep it out of its snapshot too, even when
+        // a recovery path later holds only the workflow id.
+        if (hasSensitiveMessageStep(invocation.hogFlow)) {
+            invocation.state.sensitive = true
+        }
 
         // A run enrolls on its first execution, before any exit check: a run that exits immediately
         // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
@@ -1027,9 +1041,15 @@ export class HogFlowExecutorService {
             )
         }
 
-        const storedSummary = allStoredKeys
-            .map((key) => `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`)
-            .join(', ')
+        // A protected run keeps its variables out of every stored copy, so the log names them without their values.
+        const storedSummary = result.invocation.state.sensitive
+            ? allStoredKeys.join(', ')
+            : allStoredKeys
+                  .map(
+                      (key) =>
+                          `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`
+                  )
+                  .join(', ')
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
     }
 

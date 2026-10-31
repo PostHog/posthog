@@ -15,7 +15,7 @@ from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import AuthType, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
     is_temporary_resolution_failure,
@@ -1004,7 +1004,7 @@ def _integration_fetch_backoff_sleep(attempt: int) -> None:
 class OAuthMixin:
     """Mixin for OAuth-based sources"""
 
-    def get_oauth_integration(self, integration_id: int, team_id: int) -> Integration:
+    def get_oauth_integration(self, integration_id: int, team_id: int) -> IntegrationRecord:
         """Get OAuth integration from integration ID.
 
         Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -1015,7 +1015,7 @@ class OAuthMixin:
         marks its connection unusable, so ``close_old_connections()`` evicts it between attempts and
         the next attempt runs on a fresh one; the sleep lets a saturated pool drain. A genuinely
         missing integration is surfaced as the stable, non-retryable ``ValueError`` and is not
-        retried.
+        retried. A row that is not an OAuth row counts as missing.
         """
         if not integration_id:
             raise ValueError(f"Missing integration ID")
@@ -1023,8 +1023,8 @@ class OAuthMixin:
         attempt = 0
         while True:
             try:
-                return Integration.objects.get(id=integration_id, team_id=team_id)
-            except Integration.DoesNotExist:
+                integration = IntegrationManager.any.get(team_id, integration_id)
+            except IntegrationNotFound:
                 raise ValueError(f"Integration not found: {integration_id}") from None
             except OperationalError:
                 attempt += 1
@@ -1032,6 +1032,12 @@ class OAuthMixin:
                     raise
                 close_old_connections()
                 _integration_fetch_backoff_sleep(attempt)
+                continue
+            # The reference does not name its kind here, so the read covers every kind. A row of another
+            # auth type (for example a token row of an OAuth kind) has no OAuth tokens to read or refresh.
+            if integration.auth_type != AuthType.OAUTH:
+                raise ValueError(f"Integration not found: {integration_id}")
+            return integration
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None

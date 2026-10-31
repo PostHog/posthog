@@ -76,6 +76,10 @@ class TestOauthIntegrationModel(BaseTest):
         "LINEAR_APP_CLIENT_SECRET": "linear-client-secret",
         "HELPSCOUT_APP_CLIENT_ID": "helpscout-client-id",
         "HELPSCOUT_APP_CLIENT_SECRET": "helpscout-client-secret",
+        "STRIPE_APP_CLIENT_ID": "stripe-client-id",
+        "STRIPE_APP_SECRET_KEY": "stripe-secret-key",
+        "INSTAGRAM_APP_CLIENT_ID": "instagram-client-id",
+        "INSTAGRAM_APP_CLIENT_SECRET": "instagram-client-secret",
     }
 
     def create_integration(
@@ -260,6 +264,7 @@ class TestOauthIntegrationModel(BaseTest):
         [
             (
                 "json_error_body",
+                "salesforce",
                 400,
                 {
                     "error": "invalid_grant",
@@ -267,21 +272,110 @@ class TestOauthIntegrationModel(BaseTest):
                 },
                 None,
                 '{"error":"invalid_grant","error_description":"Authorization code does not exist or has expired."}',
-                ["invalid_grant", "Authorization code does not exist"],
+                ["Start the connection again"],
+                ["invalid_grant", "Authorization code"],
+            ),
+            (
+                "json_error_body_other_code",
+                "salesforce",
+                400,
+                {"error": "invalid_request", "error_description": "Missing redirect_uri."},
+                None,
+                '{"error":"invalid_request","error_description":"Missing redirect_uri."}',
+                ["invalid_request", "Missing redirect_uri"],
+                [],
+            ),
+            (
+                "client_credentials_rejected",
+                "salesforce",
+                401,
+                {"error": "invalid_client", "error_description": "Client authentication failed."},
+                None,
+                '{"error":"invalid_client","error_description":"Client authentication failed."}',
+                ["Contact support"],
+                ["invalid_client", "Start the connection again"],
+            ),
+            (
+                "meta_client_secret_rejected",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Error validating client secret.",
+                        "type": "OAuthException",
+                        "code": 1,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Error validating client secret.","type":"OAuthException","code":1,"fbtrace_id":"fake-trace-id"}}',
+                ["Contact support"],
+                ["OAuthException", "fake-trace-id"],
+            ),
+            (
+                "meta_nested_error_object",
+                "instagram",
+                400,
+                {
+                    "error": {
+                        "message": "Invalid verification code format.",
+                        "type": "OAuthException",
+                        "code": 100,
+                        "fbtrace_id": "fake-trace-id",
+                    }
+                },
+                None,
+                '{"error":{"message":"Invalid verification code format.","type":"OAuthException","code":100,"fbtrace_id":"fake-trace-id"}}',
+                ["Invalid verification code format"],
+                ["OAuthException", "fake-trace-id", "Contact support"],
             ),
             (
                 "non_json_error_body",
+                "salesforce",
                 502,
                 None,
                 ValueError("not json"),
                 "<html>Bad Gateway</html>",
                 ["salesforce"],
+                [],
+            ),
+            (
+                "stripe_expired_code",
+                "stripe",
+                400,
+                {"error": "invalid_grant", "error_description": "Authorization code expired: ac_fake_code"},
+                None,
+                '{"error":"invalid_grant","error_description":"Authorization code expired: ac_fake_code"}',
+                ["Start the connection again"],
+                ["ac_fake_code", "Restricted API key"],
+            ),
+            (
+                "stripe_test_mode_code_with_live_key",
+                "stripe",
+                400,
+                {
+                    "error": "invalid_grant",
+                    "error_description": "Passed in livemode API key but authorization code only supports returning test keys",
+                },
+                None,
+                '{"error":"invalid_grant","error_description":"Passed in livemode API key but authorization code only supports returning test keys"}',
+                ["test mode", "Restricted API key"],
+                ["Start the connection again", "livemode API key"],
             ),
         ]
     )
     @patch("posthog.models.integration.oauth.requests.post")
     def test_oauth_token_exchange_failure_raises_validation_error(
-        self, _name, status_code, json_return, json_side_effect, body_text, expected_in_message, mock_post
+        self,
+        _name,
+        kind,
+        status_code,
+        json_return,
+        json_side_effect,
+        body_text,
+        expected_in_message,
+        unexpected_in_message,
+        mock_post,
     ):
         """A failed token exchange must surface a ValidationError (→ DRF 400 with `detail`) so the
         frontend toast renders something useful. Covers both well-formed JSON error bodies (where
@@ -297,7 +391,7 @@ class TestOauthIntegrationModel(BaseTest):
 
             with pytest.raises(ValidationError) as e:
                 OauthIntegration.integration_from_oauth_response(
-                    "salesforce",
+                    kind,
                     self.team.id,
                     self.user,
                     {"code": "code", "state": "next=/projects/test"},
@@ -306,6 +400,8 @@ class TestOauthIntegrationModel(BaseTest):
             message = str(e.value).lower()
             for fragment in expected_in_message:
                 assert fragment.lower() in message
+            for fragment in unexpected_in_message:
+                assert fragment.lower() not in message
 
     @patch("posthog.models.integration.oauth.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):

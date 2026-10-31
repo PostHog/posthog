@@ -215,6 +215,7 @@ export class TemplateTester {
             trackingCodeSigner: new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             emailSuppressionService: undefined as any,
             recipientsManager: undefined as any,
+            emailStatusService: null,
         })
         return new HogExecutorAsyncService(
             new HogExecutorService(

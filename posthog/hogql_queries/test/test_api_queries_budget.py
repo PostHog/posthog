@@ -9,16 +9,17 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery
+from posthog.schema import EventsQuery, HogQLQuery
 
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, budget_spec_for, debit, refill_and_read
-from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.exceptions import APIQueriesBudgetExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
     API_QUERIES_BUDGET_BALANCE_HISTOGRAM,
     API_QUERIES_BUDGET_LIMITED_COUNTER,
     get_api_queries_budget_status,
+    get_query_runner,
 )
 from posthog.models.team.team_event_volume import TeamEventVolume
 
@@ -103,6 +104,27 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
         assert properties["retry_after_seconds"] >= 1
         assert properties["access_method"] == "personal_api_key"
         assert properties["product"] == "api"
+
+    @parameterized.expand(
+        [
+            ("explicit_product", HogQLQuery(query="SELECT 1"), Product.ENDPOINTS, "endpoints"),
+            ("current_query", EventsQuery(select=["event"]), None, "product_analytics"),
+            ("unattributed_query", HogQLQuery(query="SELECT 1"), None, None),
+        ]
+    )
+    def test_over_budget_event_resolves_product_from_current_query(self, _name, query, product, expected_product):
+        self._drain()
+        tag_queries(access_method="personal_api_key", product=product)
+        try:
+            with (
+                patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=False),
+                patch("posthog.hogql_queries.query_runner.report_team_action") as report,
+            ):
+                get_query_runner(query, self.team)._enforce_api_queries_budget()
+            assert get_query_tag_value("product") == product
+        finally:
+            reset_query_tags()
+        assert report.call_args.args[2]["product"] == expected_product
 
     def test_event_reporting_failure_does_not_affect_admission(self):
         self._drain()

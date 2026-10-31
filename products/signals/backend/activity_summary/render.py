@@ -24,7 +24,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 7
+RENDER_VERSION = 8
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -51,9 +51,11 @@ TASK_GOAL_CHARS = 180
 TASK_TITLE_CHARS = 100
 MAX_TAGS = 5
 MAX_TAG_CHARS = 30
-ACTIVITY_LINE_CHARS = 220
+ACTIVITY_LINE_CHARS = 300
 ACTIVITY_NAME_CHARS = 70
-ACTIVITY_INTENT_CHARS = 100
+ACTIVITY_INTENT_CHARS = 160
+# Distinct agent intents one collapsed line keeps, newest first. They share ACTIVITY_INTENT_CHARS.
+ACTIVITY_MAX_INTENTS = 2
 VIEW_LINE_CHARS = 160
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
@@ -237,6 +239,7 @@ class RenderLimits:
     task_goal_chars: int = _limit(TASK_GOAL_CHARS, max_value=800)
     activity_line_chars: int = _limit(ACTIVITY_LINE_CHARS, max_value=1000)
     activity_intent_chars: int = _limit(ACTIVITY_INTENT_CHARS, max_value=500)
+    activity_max_intents: int = _limit(ACTIVITY_MAX_INTENTS, max_value=10)
     profile_max_chars: int = _limit(PROFILE_MAX_CHARS, max_value=20000)
     max_completion_tokens: int = _limit(MAX_COMPLETION_TOKENS, max_value=16000)
 
@@ -267,6 +270,7 @@ class Drop(StrEnum):
     BURST_CAP = "burst_cap"
     SAMPLE_CAP = "sample_cap"
     SECTIONS_BUDGET = "sections_budget"
+    EXCLUDED_PRODUCT = "excluded_product"
 
 
 @frozen
@@ -329,6 +333,8 @@ class Unit:
 
     at: datetime.datetime
     text: str
+    # Characters of agent intent on the line.
+    intent_chars: int = 0
 
 
 @frozen
@@ -339,6 +345,7 @@ class _ActivityLine:
     text: str
     created: bool
     rows: int
+    intent_chars: int = 0
 
 
 @frozen
@@ -356,6 +363,9 @@ class RenderedInput:
     # Units of each source before its line cap, so a caller can tell when the cap binds.
     task_pool: int
     activity_pool: int
+    # Activity lines that carry at least one agent intent, and the intent characters on them.
+    intent_lines: int = 0
+    intent_chars: int = 0
 
     @property
     def units(self) -> int:
@@ -491,13 +501,33 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLim
 ObjectKey = tuple[str, str, str]
 
 
-def _intent_suffix(rows: Iterable[ActivityItem], max_chars: int) -> str:
-    intents = [row for row in rows if row.intent and row.intent.strip()]
-    if not intents:
-        return ""
-    intent = max(intents, key=lambda row: row.at).intent or ""
-    intent_text = cap_line(clean_text(intent, max_chars * 2), max_chars)
-    return f" (agent: {intent_text})" if intent_text else ""
+def _intent_text(rows: Iterable[ActivityItem], limits: RenderLimits) -> str:
+    """Up to `limits.activity_max_intents` distinct intents of the rows, newest first, in one shared budget.
+
+    The budget is at most half the line, so the head of the line always keeps some room."""
+    max_chars = min(limits.activity_intent_chars, limits.activity_line_chars // 2)
+    distinct: dict[str, str] = {}
+    for row in sorted(rows, key=lambda row: row.at, reverse=True):
+        if len(distinct) >= limits.activity_max_intents:
+            break
+        text = clean_text(row.intent or "", max_chars * 2)
+        if text:
+            distinct.setdefault(text.casefold(), text)
+    return cap_line("; ".join(distinct.values()), max_chars)
+
+
+def _activity_line(head: str, rows: Sequence[ActivityItem], limits: RenderLimits, *, created: bool) -> _ActivityLine:
+    """The head cut to the room that the agent intents leave, so a long name cannot push the intents out."""
+    intent = _intent_text(rows, limits)
+    suffix = f" (agent: {intent})" if intent else ""
+    head = cap_line(head, max(limits.activity_line_chars - len(suffix), 1))
+    return _ActivityLine(
+        at=max(row.at for row in rows),
+        text=cap_line(head + suffix, limits.activity_line_chars),
+        created=created,
+        rows=len(rows),
+        intent_chars=len(intent),
+    )
 
 
 def _display_name(name: str) -> str:
@@ -534,12 +564,7 @@ def _object_line(
     latest = max(row.at for row in rows)
     count = f" (x{len(rows)})" if len(rows) > 1 else ""
     line = f'- {_day(latest).isoformat()} {activity} {scope} "{_display_name(name)}"{context}{count}'
-    return _ActivityLine(
-        at=latest,
-        text=cap_line(line + _intent_suffix(rows, limits.activity_intent_chars), limits.activity_line_chars),
-        created=activity == "created",
-        rows=len(rows),
-    )
+    return _activity_line(line, rows, limits, created=activity == "created")
 
 
 def _group_line(
@@ -571,14 +596,10 @@ def _group_line(
         activities = sorted({key[1] for key in children}, key=lambda activity: (activity != "created", activity))
         head = f"{' and '.join(activities)} {child_text} on {parent_text}: "
     head = f"- {_day(latest).isoformat()} {head}"
-    intent = _intent_suffix(rows, limits.activity_intent_chars)
-    line = head + _quoted_names(names, limits.activity_line_chars - len(head) - len(intent)) + intent
-    return _ActivityLine(
-        at=latest,
-        text=cap_line(line, limits.activity_line_chars),
-        created=any(row.activity == "created" for row in rows),
-        rows=len(rows),
-    )
+    intent = _intent_text(rows, limits)
+    suffix_chars = len(f" (agent: {intent})") if intent else 0
+    line = head + _quoted_names(names, limits.activity_line_chars - len(head) - suffix_chars)
+    return _activity_line(line, rows, limits, created=any(row.activity == "created" for row in rows))
 
 
 def _lines_with_parents(
@@ -693,8 +714,7 @@ def _object_id(item: ActivityItem) -> str:
 
 def _count_line(rows: Sequence[ActivityItem], text: str, limits: RenderLimits) -> _ActivityLine:
     latest = max(row.at for row in rows)
-    line = f"- {_day(latest).isoformat()} {text}" + _intent_suffix(rows, limits.activity_intent_chars)
-    return _ActivityLine(at=latest, text=cap_line(line, limits.activity_line_chars), created=False, rows=len(rows))
+    return _activity_line(f"- {_day(latest).isoformat()} {text}", rows, limits, created=False)
 
 
 @frozen
@@ -808,7 +828,7 @@ def activity_units(
 ) -> list[Unit]:
     """Changes collapsed to one line per object, or per parent, creates first, then the most changed, then the newest.
 
-    A line carries the newest agent intent of its rows. A day keeps at most `limits.max_activity_lines_per_day`
+    A line carries the newest distinct agent intents of its rows, up to `limits.activity_max_intents`. A day keeps at most `limits.max_activity_lines_per_day`
     lines while other days have lines left, not the `MAX_UNITS_PER_DAY` of tasks: lines are already
     collapsed per object, and a busy day of changes to different objects is more than three things."""
     kept, count_lines = person_activity(items, drops, limits)
@@ -818,7 +838,10 @@ def activity_units(
     lines = _lines_with_parents(collapsed, parents or {}, drops, limits) + count_lines
     ranked = sorted(lines, key=lambda line: (not line.created, -line.rows, -line.at.timestamp(), line.text))
     kept_lines = _spread_across_days(ranked, drops, limits)
-    return sorted((Unit(at=line.at, text=line.text) for line in kept_lines), key=lambda unit: (unit.at, unit.text))
+    return sorted(
+        (Unit(at=line.at, text=line.text, intent_chars=line.intent_chars) for line in kept_lines),
+        key=lambda unit: (unit.at, unit.text),
+    )
 
 
 def _match_product(patterns: Sequence[tuple[re.Pattern[str], Product]], name: str) -> Product | None:
@@ -840,6 +863,34 @@ def scope_product(scope: str) -> Product | None:
 def scope_of(view_type: str) -> str:
     """The activity log scope of a file system type, such as "FeatureFlag" for "feature_flag"."""
     return "".join(word.capitalize() for word in view_type.split("/")[0].split("_"))
+
+
+def view_product(view: ViewItem) -> Product | None:
+    if view.type == SCENE_VIEW_TYPE:
+        return scene_product(view.ref)
+    return scope_product(scope_of(view.type))
+
+
+def without_products(
+    activity: Iterable[ActivityItem],
+    views: Iterable[ViewItem],
+    products: frozenset[Product],
+    drops: Counter[str],
+) -> tuple[list[ActivityItem], list[ViewItem]]:
+    """The activity rows and views whose product is not in `products`. Tasks have no product, so they stay."""
+    kept_activity: list[ActivityItem] = []
+    for item in activity:
+        if scope_product(item.scope) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_activity.append(item)
+    kept_views: list[ViewItem] = []
+    for view in views:
+        if view_product(view) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_views.append(view)
+    return kept_activity, kept_views
 
 
 def _days(count: int) -> str:
@@ -1016,4 +1067,6 @@ def build_input(
         drops={str(reason): count for reason, count in sorted(drops.items()) if count},
         task_pool=len(task_pool),
         activity_pool=activity_pool,
+        intent_lines=sum(1 for unit in sections[1][1] if unit.intent_chars),
+        intent_chars=sum(unit.intent_chars for unit in sections[1][1]),
     )

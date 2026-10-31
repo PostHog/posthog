@@ -9,6 +9,7 @@ import type { CommandKRow, CommandKSection } from './commandKSections'
 const BEST_MATCHES_LIMIT = 3
 const GROUP_LIMIT = 3
 const FLAT_LIST_LIMIT = 8
+const LOCAL_GROUPS = ['products', 'persons', 'settings', 'accounts']
 
 interface RankedItem {
     item: SearchItem
@@ -23,11 +24,36 @@ function groupLabel(groupKey: string): string {
     if (groupKey === 'products') {
         return 'Products'
     }
+    if (groupKey === 'settings') {
+        return 'Settings'
+    }
     return capitalizeFirstLetter(pluralTypeName(getItemTypeDisplayName(groupKey) ?? groupKey.replace(/_/g, ' ')))
 }
 
-function rankProducts(products: SearchItem[], query: string): RankedItem[] {
-    return products.flatMap((item) => {
+const RANKED_LOCAL_CACHE_SIZE = 50
+const rankedLocalCache = new WeakMap<SearchItem[], Map<string, RankedItem[]>>()
+
+function rankLocalItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
+    const key = `${groupKey}:${query}`
+    let byQuery = rankedLocalCache.get(items)
+    if (!byQuery) {
+        byQuery = new Map()
+        rankedLocalCache.set(items, byQuery)
+    }
+    const cached = byQuery.get(key)
+    if (cached) {
+        return cached
+    }
+    const ranked = rankItems(items, query, groupKey)
+    if (byQuery.size >= RANKED_LOCAL_CACHE_SIZE) {
+        byQuery.delete(byQuery.keys().next().value!)
+    }
+    byQuery.set(key, ranked)
+    return ranked
+}
+
+function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
+    return items.flatMap((item) => {
         const ranked = rankLocalItem(
             query,
             String(item.displayName || item.name),
@@ -39,10 +65,24 @@ function rankProducts(products: SearchItem[], query: string): RankedItem[] {
                   {
                       item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
                       rank: ranked.rank,
-                      groupKey: 'products',
+                      groupKey,
                   },
               ]
             : []
+    })
+}
+
+function rankAccounts(accounts: SearchItem[], query: string): RankedItem[] {
+    const queryMatch = rankLocalItem(query, query)
+    if (!queryMatch) {
+        return []
+    }
+    return accounts.map((item) => {
+        const nameMatch = rankLocalItem(query, String(item.displayName || item.name))
+        // The Accounts API matches the full query, including identities that the display name does not contain.
+        const rank =
+            nameMatch?.rank[0] === queryMatch.rank[0] && nameMatch.rank[1] === 0 ? nameMatch.rank : queryMatch.rank
+        return { item, rank, groupKey: 'accounts' }
     })
 }
 
@@ -57,7 +97,13 @@ const itemRow = (
     kind: 'item',
     key: `${section}/${item.id}`,
     item,
-    section: item.category === 'results' ? 'results' : 'products',
+    section:
+        item.category === 'results' ||
+        item.category === 'persons' ||
+        item.category === 'settings' ||
+        item.category === 'accounts'
+            ? item.category
+            : 'products',
     highlightWords,
     ranked: true,
     showType,
@@ -80,7 +126,10 @@ function collapseSameName(entries: RankedItem[]): CollapsedItem[] {
     const byName = new Map<string, CollapsedItem>()
     const collapsed: CollapsedItem[] = []
     for (const entry of entries) {
-        const key = `${entry.groupKey}|${entry.item.parentName ?? ''}|${normalizedName(entry.item)}`
+        const key =
+            entry.groupKey === 'accounts'
+                ? `${entry.groupKey}|${entry.item.id}`
+                : `${entry.groupKey}|${entry.item.parentName ?? ''}|${normalizedName(entry.item)}`
         const existing = byName.get(key)
         if (existing) {
             existing.duplicates++
@@ -135,6 +184,9 @@ interface RankedResultsInput {
     highlightWords: string[]
     results: SearchItem[]
     products: SearchItem[]
+    persons?: SearchItem[]
+    settings?: SearchItem[]
+    accounts?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
 }
@@ -144,12 +196,18 @@ export function buildRankedResults({
     highlightWords,
     results,
     products,
+    persons = [],
+    settings = [],
+    accounts = [],
     state,
     scoped,
 }: RankedResultsInput): CommandKSection[] {
     const candidates: RankedItem[] = [
         ...results.map((item) => ({ item, rank: item.rankKey ?? [], groupKey: groupKeyFor(item) })),
-        ...rankProducts(products, query),
+        ...rankLocalItems(products, query, 'products'),
+        ...rankLocalItems(persons, query, 'persons'),
+        ...rankLocalItems(settings, query, 'settings'),
+        ...rankAccounts(accounts, query),
     ].sort((a, b) => compareRanks(a.rank, b.rank))
     if (!candidates.length) {
         return []
@@ -256,7 +314,7 @@ export function buildRankedResults({
             itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
         )
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
-        if (groupKey !== 'products' && total > covered) {
+        if (!LOCAL_GROUPS.includes(groupKey) && total > covered) {
             rows.push({
                 kind: 'scope',
                 key: `group-${groupKey}/see-all`,
@@ -273,7 +331,7 @@ export function buildRankedResults({
             key: `group-${groupKey}`,
             label: groupLabel(groupKey),
             count: total,
-            countIsLowerBound: capped && groupKey !== 'products',
+            countIsLowerBound: capped && !LOCAL_GROUPS.includes(groupKey),
             rows,
             state,
         })

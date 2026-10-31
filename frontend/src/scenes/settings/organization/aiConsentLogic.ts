@@ -24,7 +24,7 @@ const AI_ACCESS_REQUESTED_STORAGE_KEY = 'posthog_ai_access_requested_by_org'
 // request is sent, so the confirmed intent can be replayed on return.
 const AI_CONSENT_PENDING_REDIRECT_STORAGE_KEY = 'posthog_ai_consent_pending_redirect'
 
-const AI_CONSENT_PENDING_REDIRECT_TTL_MS = 15 * 60 * 1000
+export const AI_CONSENT_PENDING_REDIRECT_TTL_MS = 15 * 60 * 1000
 
 export interface PendingApprovalRedirect {
     url: string

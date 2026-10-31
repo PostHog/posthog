@@ -65,6 +65,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
 from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -253,6 +254,8 @@ def create_scout_report(
     # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).
     if run is not None and run.team_id != team_id:
         raise RuntimeError(f"create_scout_report: team {team_id} does not own run {run.id} (team {run.team_id})")
+    if run is not None and run.skill_name == FIRST_REPORT_SCOUT:
+        idempotency_key = first_report_idempotency_key(team_id)
 
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
@@ -1314,7 +1317,9 @@ def set_scout_report_repository(
         # The whole selection is compared rather than the repository alone: a selection inferred from
         # the report's own text names the same repository with `autostart_eligible=False`, and a scout
         # naming it is the decision that lifts it, so that correction must still land.
-        if persisted_repo_selection(report_id) == selection:
+        previous = persisted_repo_selection(report_id)
+        selection.research_context = previous.research_context if previous is not None else None
+        if previous == selection:
             logger.info(
                 "signals_scout.edit_report: repository unchanged",
                 extra={"team_id": team_id, "report_id": report_id, "repository": repository},
@@ -1429,6 +1434,7 @@ def set_scout_report_inferred_repository(
     with transaction.atomic():
         if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        previous = persisted_repo_selection(report_id)
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
@@ -1436,6 +1442,7 @@ def set_scout_report_inferred_repository(
                 repository=repository,
                 reason=INFERRED_REPOSITORY_REASON,
                 autostart_eligible=False,
+                research_context=previous.research_context if previous is not None else None,
             ),
             attribution=attribution,
             reevaluate_autostart=False,

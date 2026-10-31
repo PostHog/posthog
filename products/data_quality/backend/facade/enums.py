@@ -74,7 +74,7 @@ class SuiteRunTrigger(StrEnum):
     SCHEDULED = "scheduled"
 
 
-class SubjectType(StrEnum):
+class SubjectType(LabeledStrEnum):
     """Kind of catalog object a check targets.
 
     On the check itself the subject is a foreign key (``saved_query``, ``table``, or ``metric``), or
@@ -82,10 +82,10 @@ class SubjectType(StrEnum):
     ``(subject_type, subject_uuid, name)`` tuples so it outlives hard deletes.
     """
 
-    TABLE = "table"
-    VIEW = "view"
-    METRIC = "metric"
-    POSTHOG_TABLE = "posthog_table"
+    TABLE = "table", "table"
+    VIEW = "view", "view"
+    METRIC = "metric", "metric"
+    POSTHOG_TABLE = "posthog_table", "posthog_table"
 
 
 # The labels repeat the values because the published OpenAPI enum lists these exact pairs.

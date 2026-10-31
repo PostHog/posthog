@@ -160,6 +160,7 @@ from .basecamp.source import BasecampSource
 from .baserow.source import BaserowSource
 from .baseten.source import BasetenSource
 from .bcms.source import BCMSSource
+from .beacons.source import BeaconsSource
 from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
@@ -442,6 +443,7 @@ from .faire.source import FaireSource
 from .faros_ai.source import FarosAiSource
 from .fastbill.source import FastbillSource
 from .fastly.source import FastlySource
+from .fathom.source import FathomSource
 from .fauna.source import FaunaSource
 from .featurebase.source import FeaturebaseSource
 from .feishu.source import FeishuSource
@@ -837,6 +839,7 @@ from .mycase.source import MycaseSource
 from .mysql.source import MySQLSource
 from .n8n.source import N8nSource
 from .nager_date.source import NagerDateSource
+from .nango.source import NangoSource
 from .nasa.source import NasaSource
 from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource
@@ -1171,6 +1174,7 @@ from .solarwinds_service_desk.source import SolarwindsServiceDeskSource
 from .sonar_cloud.source import SonarCloudSource
 from .sonarqube.source import SonarqubeSource
 from .sonatype_nexus.source import SonatypeNexusSource
+from .soniox.source import SonioxSource
 from .sourcegraph.source import SourcegraphSource
 from .spacelift.source import SpaceliftSource
 from .sparkpost.source import SparkPostSource
@@ -1360,6 +1364,7 @@ from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource
+from .woopayments.source import WooPaymentsSource
 from .wordpress.source import WordpressSource
 from .workable.source import WorkableSource
 from .workato.source import WorkatoSource
