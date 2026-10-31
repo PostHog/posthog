@@ -685,6 +685,23 @@ describe('hog-charts scales', () => {
         })
     })
 
+    // A 0 band would drop the line to the axis and invert the area, so a gap stays NaN and breaks
+    // them. The series above sits on the band below the gap.
+    it.each([
+        ['computeStackData', computeStackData],
+        ['computePercentStackData', computePercentStackData],
+        ['computeDivergingStackData', computeDivergingStackData],
+    ])('%s keeps a NaN gap as a NaN band and stacks the next series on the one below', (_, compute) => {
+        const s1 = makeSeries({ key: 's1', data: [10, 20, 30] })
+        const s2 = makeSeries({ key: 's2', data: [5, NaN, 5] })
+        const s3 = makeSeries({ key: 's3', data: [1, 1, 1] })
+        const result = compute([s1, s2, s3], ['a', 'b', 'c'])
+        const gap = result.get('s2')!
+        expect([gap.top[1], gap.bottom[1]]).toEqual([NaN, NaN])
+        expect([...gap.top, ...gap.bottom].filter(Number.isFinite)).toHaveLength(4)
+        expect(result.get('s3')!.bottom[1]).toBe(result.get('s1')!.top[1])
+    })
+
     describe('computeStackData', () => {
         it('returns an empty map when there are no series', () => {
             const result = computeStackData([], ['a', 'b'])
