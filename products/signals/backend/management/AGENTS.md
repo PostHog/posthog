@@ -269,6 +269,8 @@ Idempotent. A reactivated check no longer matches.
 
 `run_personal_inbox_ranking` builds one person's ranked inbox list with one LLM call (`../personal_ranking/`) and prints it, with each report's rank, tier and reason.
 It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
+It prints the effective config first: the model, `reasoning_effort`, `rank_top`, `max_candidates`, `timeout_seconds` and `max_completion_tokens`.
+The model ranks only the best `rank_top` candidates. The other candidates follow in model order, with `ranked_by: model`.
 
 ```bash
 # Call the model, but store no PersonalInboxRanking row and capture no event
@@ -300,7 +302,9 @@ A person with no ready activity summary still gets a list, marked `personalized:
 When the model call fails or answers outside the schema, the list is in model order and `fallback_reason` says why.
 
 `GET /api/projects/:id/signals/reports/for_me/` (`../personal_ranking/serve.py`) serves the same list to the user it describes, when the flag is on for that user.
-It reuses the latest row for `freshness_minutes` while the input hash matches, and limits builds per person with `build_burst`, `builds_per_hour` and `builds_per_day` from the same payload.
+It reuses the latest row for `freshness_minutes` while the input hash matches.
+Otherwise it queues one `build_personal_inbox_ranking` Celery task per person behind a cache lock, and serves the latest row as stale, or the candidates in inbox order with `fallback_reason: building`.
+It limits builds per person with `build_burst`, `builds_per_hour` and `builds_per_day` from the same payload.
 
 ## Tips
 

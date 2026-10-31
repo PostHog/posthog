@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Q
 
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UpdatedMetaFields, UUIDModel
 
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
@@ -342,3 +343,26 @@ class EnrichmentSignupSnapshot(UUIDModel):
         related_name="enrichment_signup_snapshot",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class SdkVersionsDaily(models.Model):
+    """Events per SDK version for one environment and one UTC day.
+
+    The daily rollup job replaces a whole day at a time, so readers sum days instead of
+    scanning raw events. `team_id` is the environment id from events, and has no foreign key
+    because team deletion removes the rows explicitly.
+    """
+
+    pk = models.CompositePrimaryKey("team_id", "day", "lib", "lib_version")
+    team_id = models.BigIntegerField()
+    day = models.DateField()
+    lib = models.CharField(max_length=64)
+    lib_version = models.CharField(max_length=64)
+    event_count = models.BigIntegerField()
+    max_timestamp = models.DateTimeField()
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "growth_sdk_versions_daily"
+        indexes = [models.Index(fields=["day"], name="growth_sdk_ver_daily_day_idx")]

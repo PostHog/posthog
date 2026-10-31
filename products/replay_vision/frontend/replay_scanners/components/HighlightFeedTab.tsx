@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
@@ -42,9 +42,28 @@ function FeedSkeleton(): JSX.Element {
     )
 }
 
+/** Reads the column count the grid's container queries chose. */
+function useGridColumns(element: HTMLElement | null): number {
+    const [columns, setColumns] = useState(1)
+    // Measured before paint, so the first frame already shows the right number of placeholders.
+    useLayoutEffect(() => {
+        if (!element) {
+            return
+        }
+        const measure = (): void =>
+            setColumns(Math.max(1, getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length))
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [element])
+    return columns
+}
+
 /** Loads the next page as the reader nears the end, and closes the feed once the ranking runs out. */
-function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
+function FeedEnd({ itemCount, grid }: { itemCount: number; grid: HTMLElement | null }): JSX.Element | null {
     const { feedHasMore, feedItemsLoading, feedMoreFailed } = useValues(highlightFeedLogic)
+    const columns = useGridColumns(grid)
     const { loadMoreFeed } = useActions(highlightFeedLogic)
     // Starts the request a little before the end is on screen, so a steady scroll rarely waits.
     const { ref, inView } = useInView({ rootMargin: '600px 0px' })
@@ -66,10 +85,16 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
         )
     }
     if (feedHasMore) {
+        // Fills the rest of the last row, or a whole new row when it is full, where the next cards will land.
+        const placeholders = columns - (itemCount % columns)
         return (
-            <div ref={ref} aria-busy>
-                <CardSkeleton />
-            </div>
+            <>
+                {Array.from({ length: placeholders }, (_, index) => (
+                    <div key={index} ref={index === 0 ? ref : undefined} aria-busy>
+                        <CardSkeleton />
+                    </div>
+                ))}
+            </>
         )
     }
     return itemCount > 3 ? (
@@ -83,6 +108,8 @@ export function HighlightFeedTab(): JSX.Element {
     const { feedItems, feedItemsLoading, feedReloading, feedFailed, dateFrom, emptyReason } =
         useValues(highlightFeedLogic)
     const { loadFeed } = useActions(highlightFeedLogic)
+    // A callback ref, because a child's layout effect runs before React attaches the parent's object ref.
+    const [grid, setGrid] = useState<HTMLDivElement | null>(null)
 
     const items = feedItems ?? []
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
@@ -129,6 +156,7 @@ export function HighlightFeedTab(): JSX.Element {
                     )}
                     {items.length > 0 ? (
                         <div
+                            ref={setGrid}
                             className={clsx(FEED_GRID, 'transition-opacity', feedReloading && 'opacity-40')}
                             aria-busy={feedReloading}
                             // `inert` keeps the stale cards out of keyboard reach; React 18 types lack the attribute.
@@ -145,7 +173,7 @@ export function HighlightFeedTab(): JSX.Element {
                                 // Keyed by the observation alone, so a card that stays across a reload keeps its loaded poster.
                                 <HighlightFeedRow key={item.observation.id} item={item} position={index} />
                             ))}
-                            <FeedEnd itemCount={items.length} />
+                            <FeedEnd itemCount={items.length} grid={grid} />
                         </div>
                     ) : feedFailed ? null : emptyReason ? (
                         <div className="mx-auto w-full max-w-xl">

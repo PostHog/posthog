@@ -155,7 +155,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
-from products.signals.backend.personal_ranking.serve import BuildThrottledError, serve_personal_ranking
+from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.pull_requests import import_report_pull_requests
@@ -1735,14 +1735,15 @@ class SignalReportViewSet(
         responses={
             200: OpenApiResponse(response=PersonalRankingSerializer),
             404: OpenApiResponse(description="Personal ranking is not available to the caller."),
-            429: OpenApiResponse(description="The build limit is reached and no stored list exists yet."),
         },
         summary="Get your personal ranked inbox",
         description=(
             "Your open inbox reports, ranked for you by one language model call over your activity summary, the "
             "reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. "
-            "A current stored list returns at once. Otherwise the request builds a new list, which can take 30 "
-            "seconds or more. Only the user the list is about can read it."
+            "The request never waits on the model. A current stored list returns at once. Otherwise the request "
+            "starts a background build and returns the last stored list with `stale: true`, or your reports in inbox "
+            "order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time "
+            "for the new list. Only the user the list is about can read it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["task:read"], pagination_class=None)
@@ -1758,12 +1759,14 @@ class SignalReportViewSet(
             raise NotFound()
         query = request.validated_query_data
         started = time.monotonic()
-        try:
-            served = serve_personal_ranking(
-                self.team, user, limit=query.get("limit"), refresh=query["refresh"], focus=query.get("focus")
-            )
-        except BuildThrottledError as error:
-            raise exceptions.Throttled(wait=error.retry_after)
+        served = serve_personal_ranking(
+            self.team,
+            user,
+            limit=query.get("limit"),
+            refresh=query["refresh"],
+            focus=query.get("focus"),
+            wait_seconds=query["wait_seconds"],
+        )
         report_user_action(
             user,
             "personal inbox ranking read",
@@ -1772,10 +1775,12 @@ class SignalReportViewSet(
                 "status": served.status,
                 "cached": served.cached,
                 "stale": served.stale,
+                "building": served.building,
                 "personalized": served.personalized,
                 "fallback_reason": served.fallback_reason,
                 "refresh": query["refresh"],
                 "has_focus": bool(query.get("focus")),
+                "wait_seconds": query["wait_seconds"],
                 "result_count": len(served.results),
                 "duration_ms": round((time.monotonic() - started) * 1000),
             },

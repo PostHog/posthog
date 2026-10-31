@@ -54,6 +54,7 @@ BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 SOURCE_ID = uuid.UUID("5ab01f4d-5b1e-4990-9802-4f8792a76759")
 FLOW_SOURCE = TaskSource(kind=SourceKind.HOG_FLOW, id=str(SOURCE_ID))
 REPORT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
+POSTHOG_AI_BOT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.posthog_ai_bot", origin_product="posthog_ai")
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the
 # clock did *not* move.
@@ -989,13 +990,14 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("connected_creator", True, "user"),
-            ("creator_without_personal_github", False, "bot"),
+            ("connected_creator", True, None, "user"),
+            ("creator_without_personal_github", False, None, "bot"),
+            ("profile_without_user_authorable_prs", True, POSTHOG_AI_BOT_PROFILE, None),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_posthog_ai_authorship_follows_the_creators_personal_github(
-        self, _name, connected, expected_mode, mock_execute_workflow
+        self, _name, connected, profile, expected_mode, mock_execute_workflow
     ):
         user = User.objects.create(email="phai@test.com")
         OrganizationMembership.objects.create(user=user, organization=self.organization)
@@ -1011,19 +1013,23 @@ class TestTask(TestCase):
             else None
         )
 
-        with self.captureOnCommitCallbacks(execute=True):
+        registered = {profile.key: profile} if profile else {}
+        with (
+            patch.dict("products.tasks.backend.facade.profiles._profiles", registered),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             task = Task.create_and_run(
                 team=self.team,
                 title="PostHog AI",
                 description="Repo-less",
-                origin_product=Task.OriginProduct.POSTHOG_AI,
+                **({"profile": profile} if profile else {"origin_product": Task.OriginProduct.POSTHOG_AI}),
                 user_id=user.id,
             )
 
         self.assertIsNone(task.github_integration)
         self.assertEqual(task.github_user_integration, user_integration)
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
-        self.assertEqual(state["pr_authorship_mode"], expected_mode)
+        self.assertEqual(state.get("pr_authorship_mode"), expected_mode)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_signal_report_raises_when_no_integration_anywhere(self, mock_execute_workflow):

@@ -16,6 +16,7 @@ const HEALTHY: ScannerStatusFields = {
     sweep_throttle_factor: 1,
     created_at: '2026-05-01T00:00:00Z',
     last_swept_at: NOW.subtract(40, 'minute').toISOString(),
+    filter_error: null,
 }
 
 const DROUGHT = { everScanned: true, samplingRate: 1 }
@@ -38,6 +39,12 @@ describe('scannerStatus', () => {
             'limit_reached',
         ],
         ['stopped when the org quota is used up', {}, { quotaExhausted: true }, 'quota_exhausted'],
+        [
+            'filter error ahead of the delay it causes',
+            { filter_error: 'Unable to resolve field: event', last_swept_at: NOW.subtract(3, 'hour').toISOString() },
+            {},
+            'filter_error',
+        ],
         ['starting while the first sweep has not finished', createdMinutesAgo(10), {}, 'starting'],
         ['delayed once a first sweep is over an hour late', createdMinutesAgo(70), {}, 'delayed'],
         [

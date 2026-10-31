@@ -137,6 +137,7 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.logic.services.space_setup import (
     SPACE_SETUP_FEED_EVENT,
     SPACE_SETUP_MODEL,
@@ -275,6 +276,7 @@ __all__ = [
     "uses_own_subscription",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "MAX_SANDBOX_TTL_SECONDS",
     "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
     "is_public_sandbox_repo",

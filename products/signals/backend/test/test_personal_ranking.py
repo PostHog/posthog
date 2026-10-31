@@ -9,12 +9,13 @@ import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 import httpx
-from openai import APITimeoutError
+from openai import APITimeoutError, BadRequestError, omit
 from parameterized import parameterized
 
 from posthog.models import User
@@ -43,6 +44,7 @@ from products.signals.backend.personal_ranking.config import (
 from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
 from products.signals.backend.personal_ranking.prompt import render_person, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
+from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
 REFS = ["c1", "c2", "c3", "c4"]
@@ -58,9 +60,15 @@ def _answer(ranked: list[dict], folded: list[dict] | None = None) -> str:
     return json.dumps({"ranked": ranked, "folded": folded or []})
 
 
-def _validate(content: str | None, limit: int = 2):
+def _validate(content: str | None, limit: int = 2, rank_top: int = 10):
     return validate_ranking(
-        content, refs=REFS, model_reasons=MODEL_REASONS, limit=limit, reason_limits=LIMITS, next_step_max_chars=12
+        content,
+        refs=REFS,
+        model_reasons=MODEL_REASONS,
+        limit=limit,
+        rank_top=rank_top,
+        reason_limits=LIMITS,
+        next_step_max_chars=12,
     )
 
 
@@ -114,12 +122,34 @@ class TestValidateRanking(SimpleTestCase):
                 ["c1", "c3", "c4"],
                 {"invalid_folds": 3, "renumbered": 2},
             ),
+            (
+                "entries_past_rank_top_follow_in_model_order",
+                [_entry("c4", 1), _entry("c3", 2), _entry("c2", 3), _entry("c1", 4)],
+                [],
+                ["c4", "c3", "c1", "c2"],
+                {"beyond_rank_top": 2},
+                2,
+            ),
+            (
+                "folds_apply_past_rank_top",
+                [_entry("c4", 1), _entry("c3", 2)],
+                [{"ref": "c1", "into": "c4", "reason": "same digest"}],
+                ["c4", "c2", "c3"],
+                {"beyond_rank_top": 1, "missing_refs": 1},
+                1,
+            ),
         ]
     )
     def test_order_covers_every_unfolded_candidate(
-        self, _name: str, ranked: list[dict], folded: list[dict], expected_refs: list[str], expected_counts: dict
+        self,
+        _name: str,
+        ranked: list[dict],
+        folded: list[dict],
+        expected_refs: list[str],
+        expected_counts: dict,
+        rank_top: int = 10,
     ) -> None:
-        result = _validate(_answer(ranked, folded))
+        result = _validate(_answer(ranked, folded), rank_top=rank_top)
 
         assert [entry.ref for entry in result.entries] == expected_refs
         assert [entry.rank for entry in result.entries] == list(range(1, len(expected_refs) + 1))
@@ -205,7 +235,9 @@ class TestPrompt(SimpleTestCase):
         )
         config = PersonalRankingConfig(profile_max_chars=100)
 
-        message = user_message(render_person(summary, config), candidates, focus=None, now=timezone.now(), limit=25)
+        message = user_message(
+            render_person(summary, config), candidates, focus=None, now=timezone.now(), limit=25, rank_top=10
+        )
 
         assert not any(report_id in message for report_id in ids)
         assert "\nc1 | P2 | ready | PR open" in message
@@ -227,9 +259,9 @@ class TestConfig(SimpleTestCase):
                 PersonalRankingConfig(max_candidates=100),
             ),
             (
-                "default_limit_within_max_limit",
-                {"default_limit": 40, "max_limit": 30},
-                PersonalRankingConfig(default_limit=30, max_limit=30),
+                "default_limit_and_rank_top_within_max_limit",
+                {"default_limit": 40, "rank_top": 40, "max_limit": 30},
+                PersonalRankingConfig(default_limit=30, rank_top=30, max_limit=30),
             ),
             (
                 "pools_in_order_with_default_names_and_large_values_capped",
@@ -282,6 +314,8 @@ class TestConfig(SimpleTestCase):
                     pools=tuple(CandidatePool(name=f"p{index}", source="assigned", size=1) for index in range(10))
                 ),
             ),
+            ("reasoning_effort", {"reasoning_effort": "high"}, PersonalRankingConfig(reasoning_effort="high")),
+            ("invalid_reasoning_effort", {"reasoning_effort": "max"}, PersonalRankingConfig()),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
@@ -299,10 +333,11 @@ class TestBuildPersonalRanking(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.llm = MagicMock()
-        self.capture = MagicMock()
+        scoped_capture = MagicMock()
+        self.capture = scoped_capture.return_value.__enter__.return_value
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
-            ("products.signals.backend.personal_ranking.logic.posthoganalytics.capture", self.capture),
+            ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
                 MagicMock(return_value={}),
@@ -429,6 +464,7 @@ class TestBuildPersonalRanking(BaseTest):
             str(reports["claimed"].id): ("claimed",),
         }
         assert "# Focus\ncheckout bugs" in self.create.call_args.kwargs["messages"][1]["content"]
+        assert self.create.call_args.kwargs["reasoning_effort"] == "low"
 
         self.capture.assert_called_once()
         event = self.capture.call_args.kwargs
@@ -469,6 +505,23 @@ class TestBuildPersonalRanking(BaseTest):
         assert len(row.result["ranked"]) == 3
         if outcome is None:
             self.create.assert_not_called()
+
+    def test_a_model_that_rejects_reasoning_effort_gets_calls_without_it(self) -> None:
+        self._setup_reports()
+        rejection = BadRequestError(
+            "Unsupported parameter: 'reasoning_effort'",
+            response=httpx.Response(400, request=httpx.Request("POST", "https://example.com")),
+            body=None,
+        )
+        answer = _response(_answer([_entry("c1", 1)]))
+        self.create.side_effect = [rejection, answer, answer]
+
+        with patch("products.signals.backend.personal_ranking.logic._REJECTED_REASONING_EFFORTS", set()):
+            first = self._build(dry_run=True)
+            second = self._build(dry_run=True)
+
+        assert (first.status, second.status) == ("ok", "ok")
+        assert [call.kwargs["reasoning_effort"] for call in self.create.call_args_list] == ["low", omit, omit]
 
     @parameterized.expand(
         [
@@ -533,7 +586,10 @@ class TestBuildPersonalRanking(BaseTest):
         self.create.return_value = _response(_answer([_entry("c1", 1, tier="top", next_step="Review the PR")]))
         out = StringIO()
 
-        with patch("products.signals.backend.personal_ranking.logic.read_config", return_value=PersonalRankingConfig()):
+        with patch(
+            "products.signals.backend.management.commands.run_personal_inbox_ranking.read_config",
+            return_value=PersonalRankingConfig(),
+        ):
             call_command(
                 "run_personal_inbox_ranking",
                 "--team-id",
@@ -548,6 +604,7 @@ class TestBuildPersonalRanking(BaseTest):
         assert self.capture.call_count == expected_rows
         output = out.getvalue()
         assert "status: ok" in output
+        assert "model: gpt-6.1-terra, reasoning_effort: low, rank_top: 10" in output
         assert "next: Review the PR" in output
         assert all(f"] {report.title} (" in output for report in reports.values())
 
@@ -557,10 +614,13 @@ class TestForMeEndpoint(APIBaseTest):
         super().setUp()
         TEST_clear_clients()
         TEST_reset_scripts()
+        cache.delete(build_lock_key(self.team.id, self.user.id))
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         self.payload: dict[str, Any] = {"build_burst": 10}
         self.flag_enabled = True
+        self.queued: list[tuple[Any, ...]] = []
+        self.delay = MagicMock(side_effect=lambda *args: self.queued.append(args))
         for target, value in (
             (
                 "products.signals.backend.personal_ranking.config.read_flag_payload",
@@ -574,7 +634,8 @@ class TestForMeEndpoint(APIBaseTest):
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
                 MagicMock(return_value={}),
             ),
-            ("products.signals.backend.personal_ranking.logic.posthoganalytics.capture", MagicMock()),
+            ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", MagicMock()),
+            ("products.signals.backend.personal_ranking.serve.build_personal_inbox_ranking.delay", self.delay),
         ):
             patcher = patch(target, value)
             patcher.start()
@@ -599,63 +660,108 @@ class TestForMeEndpoint(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response.json()
 
-    def test_reuses_a_current_list_and_builds_when_inputs_change(self) -> None:
+    def _run_builds(self) -> None:
+        queued, self.queued = self.queued, []
+        for args in queued:
+            build_personal_inbox_ranking(*args)
+
+    def _state(self, body: dict[str, Any]) -> tuple[bool, bool, bool]:
+        return body["cached"], body["stale"], body["building"]
+
+    def test_serves_without_building_and_queues_one_build_per_user(self) -> None:
         first = self._claimed_report("First")
         body = self._get()
-        assert (body["cached"], body["fallback_reason"], self._rows()) == (False, "ai_not_approved", 1)
+        assert (body["fallback_reason"], self._state(body), self._rows()) == ("building", (False, False, True), 0)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
         assert body["results"][0]["matched"]["needs_you"] == ["claimed"]
+        assert self._get()["building"] is True
+        assert len(self.queued) == 1
 
-        assert (self._get()["cached"], self._rows()) == (True, 1)
-        assert (self._get(refresh="true")["cached"], self._rows()) == (False, 2)
+        self._run_builds()
+        body = self._get()
+        assert (body["fallback_reason"], self._state(body), self._rows()) == (
+            "ai_not_approved",
+            (True, False, False),
+            1,
+        )
+        assert self.queued == []
+
+        assert self._state(self._get(refresh="true")) == (True, False, True)
+        self._run_builds()
+        assert self._rows() == 2
 
         first.title = "First, edited"
         first.save()
-        assert (self._get()["cached"], self._rows()) == (False, 3)
+        assert self._state(self._get()) == (True, True, True)
+        self._run_builds()
+        assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
 
         second = self._claimed_report("Second")
+        assert self._state(self._get()) == (True, True, True)
+        self._run_builds()
         body = self._get()
-        assert (body["cached"], self._rows()) == (False, 4)
         assert {entry["report"]["id"] for entry in body["results"]} == {str(first.id), str(second.id)}
 
-        assert (self._get(focus="checkout")["cached"], self._rows()) == (False, 5)
-        assert (self._get()["cached"], self._rows()) == (False, 6)
+        assert self._state(self._get(focus="checkout")) == (True, True, True)
+        self._run_builds()
+        assert (self._state(self._get()), self._rows()) == ((True, True, True), 5)
+        self._run_builds()
 
-    def test_throttled_build_returns_the_stored_list_or_429(self) -> None:
+        self.delay.side_effect = build_personal_inbox_ranking
+        body = self._get(refresh="true", wait_seconds=5)
+        assert (self._state(body), self._rows()) == ((False, False, False), 7)
+
+    def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}
         first = self._claimed_report("First")
         self._get()
+        self._run_builds()
 
-        assert (self._get(refresh="true")["cached"], self._rows()) == (True, 1)
+        assert (self._state(self._get(refresh="true")), self.queued) == ((True, False, False), [])
         self._claimed_report("Second")
         body = self._get()
-        assert (body["cached"], body["stale"], self._rows()) == (True, True, 1)
+        assert (self._state(body), self._rows()) == ((True, True, False), 1)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
 
         PersonalInboxRanking.objects.for_team(self.team.id).all().delete()
-        assert self.client.get(self._url()).status_code == 429
+        body = self._get()
+        assert (body["fallback_reason"], body["building"], len(body["results"])) == ("rate_limited", False, 2)
+
+    def test_failed_enqueue_serves_the_inbox_order_and_frees_the_lock(self) -> None:
+        self._claimed_report("First")
+        self.delay.side_effect = RuntimeError("broker down")
+
+        body = self._get()
+
+        assert (body["fallback_reason"], body["building"], len(body["results"])) == ("build_failed", False, 1)
+        self.delay.side_effect = lambda *args: self.queued.append(args)
+        assert self._get()["building"] is True
 
     def test_daily_cap_holds_across_hours(self) -> None:
         self.payload = {"build_burst": 10, "builds_per_hour": 120, "builds_per_day": 2}
         self._claimed_report("First")
         with time_machine.travel(timezone.now(), tick=False) as traveller:
             self._get()
+            self._run_builds()
             self._get(refresh="true")
+            self._run_builds()
 
             traveller.shift(datetime.timedelta(hours=3))
-            assert (self._get(refresh="true")["cached"], self._rows()) == (True, 2)
+            assert (self._get(refresh="true")["building"], self._rows()) == (False, 2)
 
             traveller.shift(datetime.timedelta(hours=9))
-            assert (self._get(refresh="true")["cached"], self._rows()) == (False, 3)
+            assert self._get(refresh="true")["building"] is True
 
     def test_another_user_never_reads_your_list(self) -> None:
         self._get()
+        self._run_builds()
         other = User.objects.create_and_join(self.organization, "other@example.com", "password")
         self.client.force_login(other)
 
         body = self._get()
+        self._run_builds()
 
-        assert body["cached"] is False
+        assert (body["cached"], body["fallback_reason"]) == (False, "building")
         assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
 
     @parameterized.expand([("flag_off", {"enabled": True}, False), ("kill_switch", {"enabled": False}, True)])
@@ -667,4 +773,4 @@ class TestForMeEndpoint(APIBaseTest):
             assert (response.json()["status"], response.json()["results"]) == ("unavailable", [])
         else:
             assert response.status_code == 404
-        assert self._rows() == 0
+        assert (self._rows(), self.queued) == (0, [])

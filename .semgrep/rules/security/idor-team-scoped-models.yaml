@@ -208,6 +208,7 @@ rules:
                               |ErrorTrackingSymbolSet
                               |Evaluation
                               |EvaluationDirectory
+                              |EventsHealthDaily
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
@@ -388,7 +389,9 @@ rules:
                               |HeatmapCaptureConfigVersion
                               |HeatmapCaptureRequest
                               |HeatmapScreenshotHistory
+                              |HostProxyDaily
                               |ScheduledChange
+                              |SdkVersionsDaily
                               |SessionGroupSummary
                               |SessionRecording
                               |SessionRecordingPlaylist
@@ -710,6 +713,7 @@ rules:
                         |ErrorTrackingSymbolSet
                         |Evaluation
                         |EvaluationDirectory
+                        |EventsHealthDaily
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
@@ -880,7 +884,9 @@ rules:
                         |HeatmapCaptureConfigVersion
                         |HeatmapCaptureRequest
                         |HeatmapScreenshotHistory
+                        |HostProxyDaily
                         |ScheduledChange
+                        |SdkVersionsDaily
                         |SessionGroupSummary
                         |SessionRecording
                         |SessionRecordingPlaylist
@@ -1140,6 +1146,7 @@ rules:
                         |Event
                         |EventFilterConfig
                         |EventFilterPipelineOverride
+                        |EventsHealthDaily
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1163,6 +1170,7 @@ rules:
                         |HogFlowTemplate
                         |HogFunction
                         |Hook
+                        |HostProxyDaily
                         |InsightViewed
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -1236,6 +1244,7 @@ rules:
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScoreDefinition
+                        |SdkVersionsDaily
                         |SessionRecording
                         |SessionRecordingEvent
                         |SessionRecordingPlaylist

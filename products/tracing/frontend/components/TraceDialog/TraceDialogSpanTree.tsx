@@ -4,6 +4,7 @@ import { List, useListRef } from 'react-window'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
+import type { TraceDialogSource } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 
 import { getTimelineTicks } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
@@ -16,7 +17,6 @@ import {
     type TraceViewTimeline,
 } from '../TraceView/traceViewLogic'
 import { TraceDialogMoreSpansRow } from './TraceDialogMoreSpansRow'
-import type { TraceDialogSource } from './traceDialogOpenLogic'
 import { rowSpanNode, type TraceDialogRow } from './traceDialogRows'
 import { TraceDialogSpanRow } from './TraceDialogSpanRow'
 
