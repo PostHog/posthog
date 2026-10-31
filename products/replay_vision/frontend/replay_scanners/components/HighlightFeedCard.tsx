@@ -1,7 +1,10 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useInView } from 'react-intersection-observer'
 
-import { IconFlag, IconPlayFilled } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconFlag, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
@@ -9,10 +12,15 @@ import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { readResult } from '../../components/ObservationCard'
-import { ObservationThumbnail } from '../../components/ObservationThumbnail'
+import {
+    ObservationThumbnail,
+    observationThumbnailSrc,
+    preloadObservationThumbnail,
+} from '../../components/ObservationThumbnail'
 import { scannerTypeIcon } from '../../components/ScannerTypeBadge'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type {
@@ -24,6 +32,7 @@ import type {
 import { OBSERVATION_ORIGIN_PARAM, HIGHLIGHT_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
 import { hasScannerPage, scannerLabel } from '../../utils/observation'
+import { TimelineChapter, readChapters } from '../../utils/recordingTimeline'
 import { feedCategoriesParam, highlightFeedLogic } from '../highlightFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../highlightFeedTelemetry'
 import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
@@ -91,9 +100,12 @@ export function highlightStartSeconds(keyMomentMs: number | null): number {
 }
 
 /** The observation page. `t` is always set, so the player opens expanded, and `from` makes the back button return to the feed. */
-export function highlightFeedObservationUrl(observation: ReplayObservationApi): string {
+export function highlightFeedObservationUrl(observation: ReplayObservationApi, startMs?: number): string {
     return combineUrl(urls.replayVisionObservation(observation.id), {
-        t: highlightStartSeconds(observationKeyMomentMs(observation)),
+        t:
+            startMs === undefined
+                ? highlightStartSeconds(observationKeyMomentMs(observation))
+                : Math.floor(startMs / 1000),
         [OBSERVATION_ORIGIN_PARAM]: HIGHLIGHT_FEED_ORIGIN,
     }).url
 }
@@ -142,10 +154,131 @@ export function highlightCardHeadline(
     return { title, body: rest ? { text: rest } : null }
 }
 
+const CAROUSEL_ARROW =
+    'pointer-events-auto absolute top-1/2 z-10 flex size-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-black/60 text-lg text-white opacity-0 transition-opacity hover:bg-black/80 focus-visible:opacity-100 group-hover:opacity-100'
+
+/** Slide 0 is the key-moment poster, so `slide - 1` indexes `chapters`. */
+function ChapterCarousel({
+    observation,
+    chapters,
+    slide,
+    onSlide,
+    retryKey,
+}: {
+    observation: ReplayObservationApi
+    chapters: TimelineChapter[]
+    slide: number
+    onSlide: (slide: number) => void
+    retryKey: unknown
+}): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const [reached, setReached] = useState(1)
+    useEffect(() => {
+        setReached((previous) => Math.max(previous, slide + 1))
+        const next = chapters[slide]
+        const src = next && observationThumbnailSrc(currentTeamId, observation, { chapter: next.position })
+        if (src) {
+            void preloadObservationThumbnail(src)
+        }
+    }, [slide, chapters, currentTeamId, observation])
+    const current = slide === 0 ? null : chapters[slide - 1]
+    const go = (event: React.MouseEvent, target: number): void => {
+        // The arrows sit over the card's link, so a press must not open the observation.
+        event.preventDefault()
+        event.stopPropagation()
+        onSlide(target)
+    }
+    return (
+        <>
+            <div
+                className="flex motion-safe:transition-transform motion-safe:duration-300 ease-out"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ transform: `translateX(-${slide * 100}%)` }}
+            >
+                <div className="w-full shrink-0">
+                    <ObservationThumbnail
+                        observation={observation}
+                        className="rounded-none border-0"
+                        retryKey={retryKey}
+                    />
+                </div>
+                {chapters.map((chapter, index) => (
+                    <div key={chapter.position} className="w-full shrink-0">
+                        {index < reached ? (
+                            <ObservationThumbnail
+                                observation={observation}
+                                chapter={chapter.position}
+                                className="rounded-none border-0"
+                            />
+                        ) : (
+                            <div className="aspect-video bg-surface-secondary" />
+                        )}
+                    </div>
+                ))}
+            </div>
+            {/* Disabled rather than removed at the ends, so a focused arrow keeps focus. */}
+            <button
+                type="button"
+                className={clsx(CAROUSEL_ARROW, 'left-2', slide === 0 && 'invisible')}
+                aria-label="Previous chapter"
+                disabled={slide === 0}
+                onClick={(event) => go(event, slide - 1)}
+            >
+                <IconChevronLeft />
+            </button>
+            <button
+                type="button"
+                className={clsx(CAROUSEL_ARROW, 'right-2', slide === chapters.length && 'invisible')}
+                aria-label="Next chapter"
+                disabled={slide === chapters.length}
+                onClick={(event) => go(event, slide + 1)}
+            >
+                <IconChevronRight />
+            </button>
+            <div className="absolute inset-x-0 bottom-0 z-[5] flex flex-col gap-1.5 bg-gradient-to-t from-black/75 via-black/40 to-transparent px-2.5 pt-8 pb-2">
+                <div className="flex min-w-0 items-baseline gap-1.5 text-xs text-white" aria-live="polite">
+                    {current ? (
+                        <>
+                            <span className="shrink-0 font-semibold tabular-nums">
+                                {colonDelimitedDuration(Math.floor(current.startMs / 1000), null)}
+                            </span>
+                            <span className="min-w-0 truncate">{current.title}</span>
+                        </>
+                    ) : (
+                        <span className="min-w-0 truncate">{pluralize(chapters.length, 'chapter')}</span>
+                    )}
+                    {slide > 0 && (
+                        <span className="ml-auto shrink-0 tabular-nums opacity-75">
+                            {slide}/{chapters.length}
+                        </span>
+                    )}
+                </div>
+                <div className="flex gap-1" aria-hidden>
+                    {chapters.map((chapter, index) => (
+                        <span
+                            key={chapter.position}
+                            className={clsx(
+                                'h-1 flex-1 rounded-full transition-colors',
+                                index + 1 === slide ? 'bg-white' : 'bg-white/35'
+                            )}
+                        />
+                    ))}
+                </div>
+            </div>
+        </>
+    )
+}
+
+/** Entrance delays across a row, one per grid column, written out so Tailwind generates each class. */
+const ROW_STAGGER = ['delay-0', 'delay-80', 'delay-160', 'delay-240']
+
 interface HighlightFeedRowProps {
     item: HighlightFeedItemApi
     /** Zero-based place in the feed, captured so we can see how deep people read. */
     position: number
+    columnIndex?: number
+    /** The card belongs to the last result, kept on screen while a new one loads, so it must not count as seen. */
+    stale?: boolean
 }
 
 function HighlightCardPerson({
@@ -263,16 +396,29 @@ export function highlightFeedRowTitle(observation: ReplayObservationApi): string
  * picked, then the key-moment poster and a button that starts the player there. The whole card
  * opens the observation page.
  */
-export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX.Element {
+export function HighlightFeedRow({
+    item,
+    position,
+    columnIndex = 0,
+    stale = false,
+}: HighlightFeedRowProps): JSX.Element {
     const { observation, reason } = item
     const { feedLoad, feedReloading, dateFrom, categories } = useValues(highlightFeedLogic)
     const { cardSeen, dismissItem } = useActions(highlightFeedLogic)
     // Re-armed per feed load, so a card kept across a reload counts toward the new load.
     const rowRef = useAutoMarkRead(
-        !feedReloading,
+        !feedReloading && !stale,
         () => cardSeen(item, position),
         CARD_SEEN_DWELL_MS,
         feedLoad?.feedLoadId
+    )
+    const { ref: inViewRef, inView } = useInView({ triggerOnce: true, fallbackInView: true })
+    const setRowRef = useCallback(
+        (node: HTMLElement | null): void => {
+            rowRef(node)
+            inViewRef(node)
+        },
+        [rowRef, inViewRef]
     )
     const result = readResult(observation)
     // Fall back to the result's own scanner_type when the snapshot is absent, like highlightCardHeadline.
@@ -296,19 +442,30 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
         affectedPeople: reason.kind === 'embedding_pick' ? (reason.affected_people ?? null) : null,
         cardContext: cardProperties(feedLoad, item, position, 'feed_tab'),
     }
+    const chapters = useMemo(() => readChapters(observation).filter((chapter) => chapter.hasFrame), [observation])
+    const [slide, setSlide] = useState(0)
+    const currentChapter = slide === 0 ? null : (chapters[slide - 1] ?? null)
+    const watchFromMs = currentChapter ? currentChapter.startMs : keyMomentMs
+    const openUrl = currentChapter ? highlightFeedObservationUrl(observation, currentChapter.startMs) : observationUrl
     const captureOpened = (): void => {
         posthog.capture('replay_vision_highlight_clip_clicked', {
             ...cardProperties(feedLoad, item, position, 'feed_tab'),
             scanner_type: scannerType,
             has_key_moment: keyMomentMs !== null,
             target: 'observation',
+            chapter_count: chapters.length,
+            chapter_slide: slide,
         })
     }
     return (
-        // Fades in from part opacity at the poster's pace, so the slot never goes blank between placeholder and card.
         <article
-            ref={rowRef}
-            className="group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent ease-out starting:opacity-30 motion-safe:transition-opacity motion-safe:duration-300"
+            ref={setRowRef}
+            className={clsx(
+                'group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent',
+                'ease-out motion-safe:transition-[opacity,translate] motion-safe:duration-500',
+                ROW_STAGGER[Math.min(columnIndex, ROW_STAGGER.length - 1)],
+                !inView && 'motion-safe:translate-y-4 motion-safe:opacity-0'
+            )}
             data-attr="vision-highlight-feed-row"
         >
             <header className="flex min-w-0 items-center gap-2">
@@ -333,7 +490,7 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
             </header>
             <div className="flex min-w-0 flex-col gap-1">
                 <Link
-                    to={observationUrl}
+                    to={openUrl}
                     onClick={captureOpened}
                     className="text-default after:absolute after:inset-0 after:content-['']"
                     data-attr="vision-highlight-feed-row-open"
@@ -363,13 +520,31 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
                 </p>
             </div>
             {/* Clicks pass through the poster to the card's link, which sits beneath it. */}
-            <div className="pointer-events-none relative overflow-hidden rounded-md border">
+            <div className="pointer-events-none relative overflow-hidden rounded-md border bg-surface-primary">
                 {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
-                <ObservationThumbnail
-                    observation={observation}
-                    className="rounded-none border-0"
-                    retryKey={feedLoad?.feedLoadId}
-                />
+                {chapters.length > 0 ? (
+                    <ChapterCarousel
+                        observation={observation}
+                        chapters={chapters}
+                        slide={slide}
+                        onSlide={(next) => {
+                            posthog.capture('replay_vision_highlight_chapter_slid', {
+                                ...cardProperties(feedLoad, item, position, 'feed_tab'),
+                                chapter_count: chapters.length,
+                                from_slide: slide,
+                                to_slide: next,
+                            })
+                            setSlide(next)
+                        }}
+                        retryKey={feedLoad?.feedLoadId}
+                    />
+                ) : (
+                    <ObservationThumbnail
+                        observation={observation}
+                        className="rounded-none border-0"
+                        retryKey={feedLoad?.feedLoadId}
+                    />
+                )}
                 {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
             </div>
             <footer className="flex items-center gap-2">
@@ -377,13 +552,13 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
                     type="secondary"
                     size="small"
                     icon={<IconPlayFilled />}
-                    to={observationUrl}
+                    to={openUrl}
                     onClick={captureOpened}
                     className="relative z-10"
                     data-attr="vision-highlight-feed-row-watch"
                 >
-                    {keyMomentMs !== null
-                        ? `Watch from ${colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}`
+                    {watchFromMs !== null
+                        ? `Watch from ${colonDelimitedDuration(Math.floor(watchFromMs / 1000), null)}`
                         : 'Watch session'}
                 </LemonButton>
                 {similarCount > 0 && <HighlightFeedGroupToggle {...groupProps} />}

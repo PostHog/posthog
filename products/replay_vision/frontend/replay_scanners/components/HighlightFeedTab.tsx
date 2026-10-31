@@ -1,12 +1,16 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
+import { teamLogic } from 'scenes/teamLogic'
+
+import { observationThumbnailSrc, preloadObservationThumbnail } from '../../components/ObservationThumbnail'
+import { HighlightFeedItemApi } from '../../generated/api.schemas'
 import { isHighlightFeedBlock } from '../highlightFeedEmptyState'
-import { feedWindowPhrase, highlightFeedLogic } from '../highlightFeedLogic'
+import { FEED_PAGE_SIZE, feedWindowPhrase, highlightFeedLogic } from '../highlightFeedLogic'
 import { HighlightFeedBlockedBanner } from './HighlightFeedBlockedBanner'
 import { FILLER_REASON_KINDS, HighlightFeedRow } from './HighlightFeedCard'
 import { HighlightFeedEmptyState } from './HighlightFeedEmptyState'
@@ -17,35 +21,78 @@ const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120
 /** A single column stays card-sized rather than stretching one poster across the whole scene. */
 const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
 
-function CardSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-3 rounded-lg border bg-surface-primary p-4">
-            <LemonSkeleton className="h-5 w-1/2" />
-            <div className="flex flex-col gap-1.5">
-                <LemonSkeleton className="h-4 w-full" />
-                <LemonSkeleton className="h-4 w-3/4" />
-            </div>
-            <LemonSkeleton className="h-3 w-2/3" />
-            <LemonSkeleton className="aspect-video w-full rounded-md" />
-            <LemonSkeleton className="h-4 w-1/3" />
-        </div>
-    )
-}
+const POSTER_WAIT_CAP_MS = 10000
 
-function FeedSkeleton(): JSX.Element {
-    return (
-        <div className={clsx(FEED_WIDTH, FEED_GRID)} aria-busy>
-            {[0, 1, 2, 3].map((i) => (
-                <CardSkeleton key={i} />
-            ))}
-        </div>
-    )
+/** The cards whose posters are ready, so a card never shows an empty poster frame. */
+function useRevealedItems(
+    items: HighlightFeedItemApi[],
+    feedLoadId: string | undefined
+): { visible: HighlightFeedItemApi[]; pendingCount: number; holding: boolean } {
+    const { currentTeamId } = useValues(teamLogic)
+    const [revealed, setRevealed] = useState<Set<string>>(() => new Set())
+    const [revealedLoadId, setRevealedLoadId] = useState<string | undefined>(undefined)
+    const lastShown = useRef<HighlightFeedItemApi[]>([])
+    // Each card's cap runs from when it first waited, so a re-run of the effect doesn't restart it.
+    const deadlines = useRef(new Map<string, number>())
+    const pendingItems = items.filter((item) => !revealed.has(item.observation.id))
+    const pendingKey = pendingItems.map((item) => item.observation.id).join(',')
+    // A filter change keeps the last result on screen until the new result's posters are ready.
+    const holding = revealedLoadId !== undefined && feedLoadId !== revealedLoadId
+
+    useEffect(() => {
+        const reveal = (batch: HighlightFeedItemApi[]): void => {
+            setRevealed((previous) => new Set([...previous, ...batch.map((item) => item.observation.id)]))
+            setRevealedLoadId(feedLoadId)
+        }
+        if (pendingItems.length === 0) {
+            reveal(pendingItems)
+            return
+        }
+        // Each card shows once its own poster is ready, in feed order, so no gap opens above a slow poster.
+        let cancelled = false
+        let revealedUpTo = 0
+        const ready = pendingItems.map(() => false)
+        const timers: ReturnType<typeof setTimeout>[] = []
+        pendingItems.forEach((item, index) => {
+            const src = observationThumbnailSrc(currentTeamId, item.observation)
+            const id = item.observation.id
+            if (!deadlines.current.has(id)) {
+                deadlines.current.set(id, Date.now() + POSTER_WAIT_CAP_MS)
+            }
+            const waitMs = Math.max(0, (deadlines.current.get(id) ?? 0) - Date.now())
+            void Promise.race([
+                src ? preloadObservationThumbnail(src) : Promise.resolve(),
+                new Promise((resolve) => timers.push(setTimeout(resolve, waitMs))),
+            ]).then(() => {
+                ready[index] = true
+                let end = revealedUpTo
+                while (end < ready.length && ready[end]) {
+                    end++
+                }
+                if (!cancelled && end > revealedUpTo) {
+                    reveal(pendingItems.slice(revealedUpTo, end))
+                    revealedUpTo = end
+                }
+            })
+        })
+        return () => {
+            cancelled = true
+            timers.forEach(clearTimeout)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pendingKey, feedLoadId])
+
+    // Cut at the first card still waiting, so a card kept from the last result can't show above a new one and shift later.
+    const firstPending = items.findIndex((item) => !revealed.has(item.observation.id))
+    const visible = holding ? lastShown.current : firstPending === -1 ? items : items.slice(0, firstPending)
+    lastShown.current = visible
+    return { visible, pendingCount: pendingItems.length, holding }
 }
 
 /** Reads the column count the grid's container queries chose. */
 function useGridColumns(element: HTMLElement | null): number {
     const [columns, setColumns] = useState(1)
-    // Measured before paint, so the first frame already shows the right number of placeholders.
+    // Measured before paint, so the first frame already staggers each row correctly.
     useLayoutEffect(() => {
         if (!element) {
             return
@@ -61,18 +108,18 @@ function useGridColumns(element: HTMLElement | null): number {
 }
 
 /** Loads the next page as the reader nears the end, and closes the feed once the ranking runs out. */
-function FeedEnd({ itemCount, grid }: { itemCount: number; grid: HTMLElement | null }): JSX.Element | null {
+function FeedEnd({ itemCount, pendingCount }: { itemCount: number; pendingCount: number }): JSX.Element | null {
     const { feedHasMore, feedItemsLoading, feedMoreFailed } = useValues(highlightFeedLogic)
-    const columns = useGridColumns(grid)
     const { loadMoreFeed } = useActions(highlightFeedLogic)
-    // Starts the request a little before the end is on screen, so a steady scroll rarely waits.
-    const { ref, inView } = useInView({ rootMargin: '600px 0px' })
+    // Starts the request well before the end is on screen, so a steady scroll rarely reaches the spinner.
+    const { ref, inView } = useInView({ rootMargin: '4000px 0px' })
 
     useEffect(() => {
-        if (inView && feedHasMore && !feedItemsLoading && !feedMoreFailed) {
+        // Cards waiting on posters keep the end in place, so stop at one page ahead rather than chain requests.
+        if (inView && feedHasMore && !feedItemsLoading && !feedMoreFailed && pendingCount < FEED_PAGE_SIZE) {
             loadMoreFeed({})
         }
-    }, [inView, feedHasMore, feedItemsLoading, feedMoreFailed, loadMoreFeed])
+    }, [inView, feedHasMore, feedItemsLoading, feedMoreFailed, pendingCount, loadMoreFeed])
 
     if (feedMoreFailed) {
         return (
@@ -84,17 +131,11 @@ function FeedEnd({ itemCount, grid }: { itemCount: number; grid: HTMLElement | n
             </div>
         )
     }
-    if (feedHasMore) {
-        // Fills the rest of the last row, or a whole new row when it is full, where the next cards will land.
-        const placeholders = columns - (itemCount % columns)
+    if (feedHasMore || pendingCount > 0) {
         return (
-            <>
-                {Array.from({ length: placeholders }, (_, index) => (
-                    <div key={index} ref={index === 0 ? ref : undefined} aria-busy>
-                        <CardSkeleton />
-                    </div>
-                ))}
-            </>
+            <div ref={ref} className="col-span-full flex h-16 items-center justify-center" aria-busy>
+                <Spinner className="text-2xl text-secondary" />
+            </div>
         )
     }
     return itemCount > 3 ? (
@@ -105,13 +146,17 @@ function FeedEnd({ itemCount, grid }: { itemCount: number; grid: HTMLElement | n
 }
 
 export function HighlightFeedTab(): JSX.Element {
-    const { feedItems, feedItemsLoading, feedReloading, feedFailed, dateFrom, emptyReason } =
+    const { feedItems, feedItemsLoading, feedReloading, feedFailed, dateFrom, emptyReason, feedLoad } =
         useValues(highlightFeedLogic)
     const { loadFeed } = useActions(highlightFeedLogic)
     // A callback ref, because a child's layout effect runs before React attaches the parent's object ref.
     const [grid, setGrid] = useState<HTMLDivElement | null>(null)
 
-    const items = feedItems ?? []
+    const allItems = feedItems ?? []
+    const { visible: items, pendingCount, holding } = useRevealedItems(allItems, feedLoad?.feedLoadId)
+    const dimmed = feedReloading || holding
+    const columns = useGridColumns(grid)
+    const firstReveal = items.length === 0 && allItems.length > 0
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
@@ -122,12 +167,14 @@ export function HighlightFeedTab(): JSX.Element {
             {!(emptyReason === 'no-scanners' && items.length === 0) && <HighlightFeedHeader className={FEED_WIDTH} />}
             {/* The first render comes before the mount starts the load, and a filter change keeps the last
                 result until the new one lands, so an empty screen is only drawn from a finished load. */}
-            {(feedItems === null && !feedFailed) || (feedItemsLoading && items.length === 0) ? (
-                <FeedSkeleton />
+            {(feedItems === null && !feedFailed) || (feedItemsLoading && items.length === 0) || firstReveal ? (
+                <div className="flex justify-center py-32" role="status" aria-label="Loading the feed">
+                    <Spinner className="text-4xl text-secondary" />
+                </div>
             ) : (
                 <div className={clsx(FEED_WIDTH, 'relative flex flex-col gap-4')}>
                     {/* The last result stays while a filter change loads, dimmed so it doesn't read as the new one. */}
-                    {feedReloading && (
+                    {dimmed && (
                         <div
                             className="pointer-events-none absolute inset-0 z-10 flex justify-center pt-32"
                             data-attr="vision-highlight-feed-reloading"
@@ -157,10 +204,10 @@ export function HighlightFeedTab(): JSX.Element {
                     {items.length > 0 ? (
                         <div
                             ref={setGrid}
-                            className={clsx(FEED_GRID, 'transition-opacity', feedReloading && 'opacity-40')}
-                            aria-busy={feedReloading}
+                            className={clsx(FEED_GRID, 'transition-opacity', dimmed && 'opacity-40')}
+                            aria-busy={dimmed}
                             // `inert` keeps the stale cards out of keyboard reach; React 18 types lack the attribute.
-                            {...(feedReloading ? { inert: '' } : {})}
+                            {...(dimmed ? { inert: '' } : {})}
                         >
                             {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
                             rather than leaving the reader to infer it from three identical reason lines. */}
@@ -171,9 +218,15 @@ export function HighlightFeedTab(): JSX.Element {
                             )}
                             {items.map((item, index) => (
                                 // Keyed by the observation alone, so a card that stays across a reload keeps its loaded poster.
-                                <HighlightFeedRow key={item.observation.id} item={item} position={index} />
+                                <HighlightFeedRow
+                                    key={item.observation.id}
+                                    item={item}
+                                    position={index}
+                                    columnIndex={index % columns}
+                                    stale={dimmed}
+                                />
                             ))}
-                            <FeedEnd itemCount={items.length} grid={grid} />
+                            <FeedEnd itemCount={items.length} pendingCount={pendingCount} />
                         </div>
                     ) : feedFailed ? null : emptyReason ? (
                         <div className="mx-auto w-full max-w-xl">
