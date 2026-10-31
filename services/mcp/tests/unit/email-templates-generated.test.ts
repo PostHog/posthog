@@ -37,6 +37,16 @@ describe('Generated email template tools', () => {
             'a misspelled field in content.email',
             createWithEmail({ preview_text: 'Hi' }),
         ],
+        [
+            'workflows-patch-email-template',
+            'a misspelled operation field',
+            { id: templateId, operations: [{ op: 'move_content', id: 'block', column_id: 'column', indx: 0 }] },
+        ],
+        [
+            'workflows-patch-email-template',
+            'an unknown top-level field',
+            { id: templateId, operations: [{ op: 'remove_content', id: 'block' }], dry_run: true },
+        ],
     ])('%s refuses an input with %s', (tool, _case, input) => {
         expect(toolSchema(tool).safeParse(input).success).toBe(false)
     })
