@@ -196,12 +196,6 @@ def _handle_uniq_if(args: list[str]) -> str:
     return f"COUNT(DISTINCT {', '.join(agg_args)}) FILTER (WHERE {condition})"
 
 
-def _handle_date_diff(args: list[str]) -> str:
-    # DATE_PART extracts from an INTERVAL, so both operands must be TIMESTAMP
-    # (TIMESTAMP - TIMESTAMP → INTERVAL, whereas DATE - DATE → INTEGER which DATE_PART rejects)
-    return f"DATE_PART({args[0]}, CAST({args[2]} AS TIMESTAMP) - CAST({args[1]} AS TIMESTAMP))"
-
-
 def _handle_ends_with(args: list[str]) -> str:
     return f"(RIGHT({args[0]}, LENGTH({args[1]})) = {args[1]})"
 
@@ -216,8 +210,8 @@ def _handle_log2(args: list[str]) -> str:
 
 # Complex handlers: ClickHouse function name → callable(list[rendered_arg_strings]) → SQL string
 #
-# NOTE: toStartOf* functions are NOT here — they are handled by
-# PostgresPrinter._visit_to_start_of_call() and inline sub-hour code
+# NOTE: toStartOf* functions and dateDiff are NOT here — they are handled by
+# PostgresPrinter._visit_to_start_of_call(), _visit_date_diff() and inline sub-hour code
 # in visit_call(), which intercept before this dict is consulted.
 POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "positionCaseInsensitiveUTF8": _handle_position_case_insensitive_utf8,
@@ -276,8 +270,6 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "subtractMonths": _make_date_add_handler("1 month", op="-"),
     "subtractQuarters": _make_date_add_handler("3 month", op="-"),
     "subtractYears": _make_date_add_handler("1 year", op="-"),
-    # Date diff
-    "dateDiff": _handle_date_diff,
     # Conditional
     "_caseWithExpression": _handle_case_with_expression,
     "if": _handle_if,
