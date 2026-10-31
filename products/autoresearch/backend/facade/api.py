@@ -1489,7 +1489,8 @@ def start_training(
     from ..training.stale import fail_stale_training_runs  # noqa: PLC0415
 
     # A run whose sandbox died would otherwise refuse this start for good.
-    fail_stale_training_runs(team_id=team_id, pipeline_id=pipeline_id)
+    if (pipeline_uuid := _as_uuid(pipeline_id)) is not None:
+        fail_stale_training_runs(team_id=team_id, pipeline_id=pipeline_uuid)
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
