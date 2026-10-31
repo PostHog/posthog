@@ -36,7 +36,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.utils import generate_cache_key, get_safe_cache, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
@@ -401,10 +401,15 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _exposed_without_test_account_filter(self, exposure_params: ExposureQueryParams) -> int | None:
-        identity = self.query.model_dump_json(include={"experiment_id", "exposure_criteria", "start_date", "end_date"})
-        cache_key = generate_cache_key(
-            self.team.pk,
-            f"experiment_exposed_without_filter_{identity}_{self.variants}_{self.group_type_index}",
+        # A cache hit skips the masking of the query, so the key needs the reader's property access from the payload.
+        cache_key = self._cache_key_for(
+            {
+                **self.get_cache_payload(),
+                "exposed_without_test_account_filter": {
+                    "variants": self.variants,
+                    "group_type_index": self.group_type_index,
+                },
+            }
         )
         cached = get_safe_cache(cache_key)
         if cached is not None:

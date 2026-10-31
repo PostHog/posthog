@@ -30,11 +30,14 @@ from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_journeys import journeys_for
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
@@ -1511,7 +1514,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
     def _expose_users_behind_a_test_account_filter(
-        self, users: int, test_accounts: int, test_account_filter: dict[str, Any]
+        self,
+        users: int,
+        test_accounts: int,
+        test_account_filter: dict[str, Any],
+        event_properties: dict[str, Any] | None = None,
     ) -> None:
         self.feature_flag.last_called_at = datetime(2024, 1, 1, 12, tzinfo=UTC)
         self.feature_flag.save()
@@ -1525,7 +1532,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 distinct_id=f"person_{i}",
                 event="$feature_flag_called",
                 timestamp="2024-01-01T10:00:00Z",
-                properties={"$feature_flag_response": "test", "$feature_flag": self.feature_flag.key},
+                properties={
+                    "$feature_flag_response": "test",
+                    "$feature_flag": self.feature_flag.key,
+                    **(event_properties or {}),
+                },
                 team=self.team,
             )
         flush_persons_and_events()
@@ -2195,6 +2206,45 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).calculate()
 
         self.assertEqual(len(counts), 1)
+
+    @time_machine.travel(LATER, tick=False)
+    def test_a_reader_denied_a_property_gets_their_own_count_without_the_filter(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self._expose_users_behind_a_test_account_filter(0, 100, KEEPS_MATCHING_USERS, {"plan": "paid"})
+        exposure_config = ExperimentEventExposureConfig(
+            event="$feature_flag_called",
+            properties=[{"key": "plan", "operator": "exact", "value": "paid", "type": "event"}],
+        )
+        self.experiment.exposure_criteria = {
+            "filterTestAccounts": True,
+            "exposure_config": exposure_config.model_dump(mode="json"),
+        }
+        query = self._running_exposure_query()
+
+        def exposed_without_the_filter() -> list[int | None]:
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).calculate()
+            return [
+                finding.evidence.get("exposed_without_test_account_filter")
+                for finding in response.health_findings or []
+            ]
+
+        self.assertEqual(exposed_without_the_filter(), [100])
+
+        plan = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.EVENT)
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(plan.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
+
+        self.assertEqual(exposed_without_the_filter(), [0])
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
