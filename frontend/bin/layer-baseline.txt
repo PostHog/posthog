@@ -246,16 +246,6 @@ frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_anal
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions.ts
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputs.tsx -> frontend/src/scenes/hog-functions/email-templater/EmailTemplater.tsx
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputsValidation.ts -> frontend/src/scenes/hog-functions/email-templater/types.ts
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/aws-s3/AwsS3SetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/azure-blob/AzureBlobSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/databricks/DatabricksSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/gitlab/GitLabSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/postgresql/PostgreSQLSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/redshift/RedshiftSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/s3-compatible/S3CompatibleSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> frontend/src/scenes/integrations/snowflake/SnowflakeSetupModal.tsx
-frontend/src/lib/components/CyclotronJob/integrations/integrationSetups.tsx -> products/workflows/frontend/Channels/ChannelSetupModal.tsx
 frontend/src/lib/components/DateFilter/openJumpToTimestampModal.tsx -> frontend/src/scenes/activity/explore/defaults.ts
 frontend/src/lib/components/DefinitionPopover/CohortPopoverInfo.tsx -> frontend/src/scenes/cohorts/CohortFilters/constants.tsx
 frontend/src/lib/components/DefinitionPopover/CohortPopoverInfo.tsx -> frontend/src/scenes/cohorts/cohortUtils.tsx
