@@ -1,5 +1,6 @@
 // These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
+import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
@@ -562,6 +563,48 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
+        const filters = (file: string): Record<string, string[]> =>
+            load(
+                String(workflow(file).jobs.changes?.steps?.find((step) => step.id === 'filter')?.with?.filters)
+            ) as Record<string, string[]>
+        const shared = filters('desktop-ci.yml')
+        const fallback = filters(`desktop-${name}.yml`)
+        expect(shared[name === 'quality' ? 'quality_code' : 'code']).toEqual(fallback.code)
+        expect(shared.agent).toEqual(fallback.agent)
+        expect(shared[name]).toEqual(fallback.workflow)
+        if (name === 'test') {
+            expect(shared.packages).toEqual(fallback.packages)
+        }
+    })
+
+    it.each(['success', 'failure', 'cancelled', 'skipped'] as const)(
+        'Desktop callers pass shared decisions only after a successful detector (%s)',
+        (result) => {
+            const functions = planFunctions({
+                dependenciesSucceeded: result === 'success' || result === 'skipped',
+                dependenciesFailed: result === 'failure',
+                cancelled: false,
+            })
+            for (const selected of ['true', 'false']) {
+                const needs = {
+                    changes: {
+                        result,
+                        outputs: Object.fromEntries(
+                            ['build', 'quality', 'typecheck', 'test', 'test_e2e'].map((name) => [name, selected])
+                        ),
+                    },
+                }
+                for (const name of ['build', 'quality', 'typecheck', 'test']) {
+                    const caller = workflow('desktop-ci.yml').jobs[name] as { with: Record<string, string> }
+                    for (const input of Object.values(caller.with)) {
+                        expect(evaluateValue(input, { needs }, functions)).toBe(result === 'success' ? selected : '')
+                    }
+                }
+            }
+        }
+    )
+
     it.each([
         {
             name: 'mobile PR',
