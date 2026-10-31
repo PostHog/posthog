@@ -832,12 +832,14 @@ jobs:
                   - name: Validate SetupTaskId completions
                     run: node bin/validate-setup-tasks.mjs
 
-            # Warn-only until the baseline has settled on master; then drop continue-on-error.
+            # continue-on-error keeps the cached schema check below running; the last step of this job
+            # turns a failure here into the job's verdict.
             - name: Check frontend stylesheet imports
+              id: css-coupling
               continue-on-error: true
               run: |
-                  if [ ! -f frontend/bin/check-css-coupling.mjs ]; then
-                      echo "Skipping frontend stylesheet import check, script not present on this checkout"
+                  if [ ! -f frontend/bin/check-css-coupling.mjs ] || [ ! -f frontend/bin/css-coupling-baseline.txt ]; then
+                      echo "Skipping frontend stylesheet import check, script or baseline not present on this checkout"
                       exit 0
                   fi
                   node frontend/bin/check-css-coupling.mjs
@@ -880,6 +882,12 @@ jobs:
               run: |
                   printf '%s\n' "$BODY" >> "$GITHUB_STEP_SUMMARY"
                   echo "::error::This PR removes fields that cached query responses can still hold. Apply the cache-impact-deprecated, cache-impact-accepted or cache-impact-bumped label, then re-run this job. The job summary lists the cost of each option."
+                  exit 1
+
+            - name: Fail on frontend stylesheet import check
+              if: ${{ !cancelled() && steps.css-coupling.outcome == 'failure' }}
+              run: |
+                  echo "::error::The frontend stylesheet import check failed. Read the log of the 'Check frontend stylesheet imports' step for each new coupling or fixed baseline entry, and the command that fixes it."
                   exit 1
 
     jest:
