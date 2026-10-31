@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pre
     INVALID_ORGANIZER_ERROR,
     PretixHostNotAllowedError,
     PretixResumeConfig,
-    _format_modified_since,
+    _format_since,
     _quote_organizer,
     normalize_base_url,
     validate_credentials,
@@ -54,7 +54,7 @@ class TestNormalizeBaseUrl:
         assert normalize_base_url(raw) == expected
 
 
-class TestFormatModifiedSince:
+class TestFormatSince:
     @parameterized.expand(
         [
             (datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
@@ -63,8 +63,8 @@ class TestFormatModifiedSince:
             ("2026-03-04T02:58:14Z", "2026-03-04T02:58:14Z"),
         ]
     )
-    def test_format_modified_since(self, value: object, expected: str) -> None:
-        assert _format_modified_since(value) == expected
+    def test_format_since(self, value: object, expected: str) -> None:
+        assert _format_since(value) == expected
 
 
 class TestQuoteOrganizer:

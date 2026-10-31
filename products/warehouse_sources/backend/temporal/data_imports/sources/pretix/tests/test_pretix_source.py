@@ -22,6 +22,14 @@ class TestPretixSource:
         # full-refresh under an incremental label.
         assert set(INCREMENTAL_ENDPOINTS) == {"orders", "transactions"}
 
+    def test_transactions_does_not_offer_append_sync(self):
+        # `created_since` is inclusive, so append sync would duplicate ledger rows at the watermark.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+
+        assert schemas["transactions"].supports_incremental is True
+        assert schemas["transactions"].supports_append is False
+        assert schemas["orders"].supports_append is True
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.pretix_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_pretix_source):
         manager = mock.MagicMock()

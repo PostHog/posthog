@@ -132,8 +132,8 @@ def _get_headers(api_token: str) -> dict[str, str]:
     return {"Authorization": f"Token {api_token}", "Accept": "application/json"}
 
 
-def _format_modified_since(value: Any) -> str:
-    """Format an incremental value for pretix's ``modified_since`` filter (ISO 8601 UTC, Z suffix)."""
+def _format_since(value: Any) -> str:
+    """Format an incremental value for pretix's ``*_since`` filters (ISO 8601 UTC, Z suffix)."""
     if isinstance(value, datetime):
         utc_dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
         return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -177,7 +177,7 @@ def _since_incremental(since_field: str, since_param: str) -> IncrementalConfig:
     return {
         "cursor_path": since_field,
         "start_param": since_param,
-        "convert": _format_modified_since,
+        "convert": _format_since,
     }
 
 

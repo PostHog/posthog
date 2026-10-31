@@ -17,7 +17,7 @@ class EndpointScope(Enum):
     EVENT = "event"
 
 
-@dataclass
+@dataclass(frozen=True)
 class PretixEndpointConfig:
     name: str
     path: str
@@ -30,6 +30,9 @@ class PretixEndpointConfig:
     # field (true incremental sync); otherwise the stream is full refresh only.
     since_field: Optional[str] = None
     since_param: str = "modified_since"
+    # Append sync re-appends the rows at the watermark, because pretix's `*_since` filters are
+    # inclusive. Turn it off where those duplicates would be wrong.
+    supports_append: bool = True
     # Explicit `ordering` value to request. Only set where the docs list it as a valid
     # ordering field for that endpoint — pretix rejects unknown ordering values.
     ordering: Optional[str] = None
@@ -99,6 +102,8 @@ PRETIX_ENDPOINTS: dict[str, PretixEndpointConfig] = {
         partition_key="created",
         since_field="created",
         since_param="created_since",
+        # Duplicate ledger rows would inflate revenue sums, so only merge (deduped on `id`) is offered.
+        supports_append=False,
         # `id` is unique, so page boundaries stay stable when many rows share a `created` value.
         ordering="id",
     ),
@@ -180,3 +185,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 }
 
 INCREMENTAL_ENDPOINTS = tuple(name for name, config in PRETIX_ENDPOINTS.items() if config.since_field)
+
+APPEND_ENDPOINTS = tuple(
+    name for name, config in PRETIX_ENDPOINTS.items() if config.since_field and config.supports_append
+)
