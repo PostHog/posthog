@@ -41,6 +41,18 @@ export function trainingScheduleStatus(pipeline: AutoresearchPipelineApi, now: d
     return `Next research run on ${next.format('MMM D')}.`
 }
 
+/** Why the model has no live version after its best model failed the final check, or null. */
+export function notLiveExplanation(pipeline: AutoresearchPipelineApi): string | null {
+    if (!pipeline.not_promoted_reason || pipeline.live_training_run) {
+        return null
+    }
+    const next =
+        pipeline.research_interval_days === null
+            ? 'Start a training run to try again.'
+            : 'The next research run tries again.'
+    return `The best model from the last training run couldn't go live, so nothing is scored yet. ${next}`
+}
+
 export interface trainingScheduleLogicValues {
     currentTeamId: number | null
     pipeline: AutoresearchPipelineApi | null

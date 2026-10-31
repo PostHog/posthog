@@ -431,6 +431,36 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.json()["id"] == str(pipeline.id)
         assert resp.json()["target_definition"] == {"type": "event"}
 
+    @parameterized.expand(
+        [
+            ("first_champion_rolled_back", AutoresearchPipeline.Status.BOOTSTRAPPING, False, "The champion fit failed"),
+            ("champion_live", AutoresearchPipeline.Status.RUNNING, True, None),
+        ]
+    )
+    def test_retrieve_explains_why_no_model_is_live(
+        self, _name: str, pipeline_status: str, has_champion: bool, expected_reason: str | None
+    ) -> None:
+        pipeline = self._make_pipeline(status=pipeline_status)
+        run = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline, status=AutoresearchTrainingRun.Status.COMPLETED, iteration_budget=5
+        )
+        AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            source_training_run=run,
+            role=AutoresearchModel.Role.CHALLENGER,
+            model_recipe={"stub": True},
+            recipe_hash="rolled-back",
+            metrics={"not_promoted_reason": "The champion fit failed"},
+        )
+        if has_champion:
+            AutoresearchModel.objects.create(
+                pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="live"
+            )
+
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/")
+
+        assert resp.json()["not_promoted_reason"] == expected_reason
+
     def test_other_team_cannot_access_pipeline(self):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")

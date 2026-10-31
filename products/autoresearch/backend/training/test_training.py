@@ -96,6 +96,9 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
         # Step 3 is the sandbox fit/eval loop.
         assert "fit and evaluate" in prompt
         assert "roc_auc_score" in prompt
+        # A first champion that breaks either fit limit rolls back.
+        assert "60 s interactive query limit" in prompt
+        assert "must stay under 10 MiB" in prompt
 
     @parameterized.expand(
         [

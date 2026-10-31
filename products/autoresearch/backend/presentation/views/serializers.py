@@ -728,6 +728,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "Null when research_interval_days is null."
         ),
     )
+    not_promoted_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the best model of the newest completed training run did not go live, for example a failed fit "
+            "or a failed scorability check. Set only while the pipeline is bootstrapping with no champion."
+        ),
+    )
     success_auc = serializers.FloatField(
         required=False,
         allow_null=True,
@@ -864,6 +872,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "effective_agent_reasoning_effort",
             "training_phase",
             "next_research_at",
+            "not_promoted_reason",
             "success_auc",
             "plateau_iterations",
             "output_person_property",

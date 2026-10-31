@@ -46,7 +46,9 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.query import INTERACTIVE_QUERY_TIME_LIMIT_S
 from products.autoresearch.backend.training.agent_model import agent_run_config_for
+from products.autoresearch.backend.training.artifacts import MAX_ARTIFACT_BYTES
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
 from products.autoresearch.backend.training.realized_context import (
     RealizedContext,
@@ -473,6 +475,16 @@ def build_agent_description(
           the scoring limits. If it fails, or takes more than half of the scoring time limit, the model
           is not promoted and the previous champion keeps serving.
         - Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
+
+        **Fit limits at completion.** When you complete the run, the backend fits the winning bundle
+        once more. Two limits apply to that fit, and a model that fails either one is not promoted:
+        - `features.sql` runs against the full training population, and must finish inside the
+          {INTERACTIVE_QUERY_TIME_LIMIT_S} s interactive query limit. Check `elapsed_s` in the materialize
+          response, and keep the query well under that limit. Use the pre-filtered, rolled-up shapes above.
+        - The fitted `model.pkl` must stay under {MAX_ARTIFACT_BYTES // (1024 * 1024)} MiB
+          ({MAX_ARTIFACT_BYTES} bytes). Tree ensembles grow fast: bound `n_estimators` (for example 200 or
+          fewer) and `max_depth` (for example 8 or less), or set `min_samples_leaf`, and check the pickle size
+          in your sandbox before you upload.
 
         ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
 

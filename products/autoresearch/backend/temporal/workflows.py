@@ -27,7 +27,7 @@ with workflow.unsafe.imports_passed_through():
     import asyncio as _asyncio
 
     from django.db import transaction
-    from django.db.models import QuerySet
+    from django.db.models import Q, QuerySet
     from django.utils import timezone as django_timezone
 
     from posthog.models.team.team import Team
@@ -61,7 +61,11 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY
     from products.autoresearch.backend.training.runner import run_training
-    from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
+    from products.autoresearch.backend.training.schedule import (
+        awaiting_first_champion,
+        research_schedule,
+        schedule_runs_for,
+    )
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
 
@@ -669,6 +673,8 @@ class ActivePipeline:
     team_id: int
     # Validation runs on every sweep; scoring and training kickoff only on a cadence day.
     score_due: bool
+    # A bootstrapping pipeline whose first champion rolled back. The sweep only kicks off its training.
+    kickoff_only: bool = False
 
 
 @frozen
@@ -766,6 +772,10 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     A catch-up lists nothing while the daily sweep of that date still runs (``activity_mark_daily_sweep``),
     including its kickoff, validation and shadow phases, so the two sweeps never exceed one bound
     together. The next catch-up tick tries again.
+
+    The daily sweep also lists each ``bootstrapping`` pipeline whose first champion rolled back
+    (``awaiting_first_champion()``), last and with ``kickoff_only``, so its research schedule
+    continues. It has no champion, so the sweep does not score or validate it.
     """
     fail_stale_inference_runs()
     if inp.catch_up_date is not None and cache.get(daily_sweep_key(inp.catch_up_date)) == DAILY_SWEEP_RUNNING:
@@ -775,9 +785,12 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     yesterday = today - timedelta(days=1)
     # unscoped() because the coordinator's job is exactly to sweep every team. The
     # pipelines it returns carry their team so the downstream activities can scope.
+    sweep_filter = Q(status__in=_LIVE_STATUSES)
+    if inp.catch_up_date is None:
+        sweep_filter |= awaiting_first_champion()
     candidates = (
         AutoresearchPipeline.objects.unscoped()
-        .filter(status__in=_LIVE_STATUSES)
+        .filter(sweep_filter)
         # A null is_active counts as deactivated, as ActiveOrganizationPermission reads it.
         .filter(team__organization__is_active=True)
         .exclude(team__organization__is_pending_deletion=True)
@@ -794,6 +807,18 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         if not has_autoresearch_access(
             creator, team_id=pipeline.team_id, organization_id=str(pipeline.team.organization_id)
         ):
+            continue
+        if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:
+            # score_due stays True for a coordinator that started before the kickoff-only patch: it
+            # kicks off training, and the scoring and validation activities skip a pipeline that is not live.
+            pipelines.append(
+                (
+                    True,
+                    ActivePipeline(
+                        pipeline_id=str(pipeline.pk), team_id=pipeline.team_id, score_due=True, kickoff_only=True
+                    ),
+                )
+            )
             continue
         # By calendar day, because a run finishes some time after the 02:00 UTC tick and an
         # elapsed-time comparison would skip the next day's tick.
@@ -863,6 +888,9 @@ def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> 
 def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResult:
     """Start a scheduled agent training run, if the pipeline's research schedule says one is due.
 
+    The pipeline must be ``running``, or ``bootstrapping`` after its first champion rolled back
+    (``awaiting_first_champion()``).
+
     The run row and its task binding commit together under the pipeline row lock, as in the
     facade's ``start_training``, so a manual start cannot interleave. A launch failure raises,
     so the activity retry applies.
@@ -876,7 +904,9 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     with team_scope(inp.team_id), transaction.atomic():
         pipeline = AutoresearchPipeline.objects.select_for_update().get(pk=inp.pipeline_id)
 
-        if pipeline.status != AutoresearchPipeline.Status.RUNNING:
+        if pipeline.status != AutoresearchPipeline.Status.RUNNING and not (
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).filter(awaiting_first_champion()).exists()
+        ):
             return KickoffTrainingResult(kicked_off=False, reason="not_eligible")
 
         if AutoresearchTrainingRun.objects.filter(
@@ -1012,6 +1042,8 @@ _BOUNDED_SWEEP_PATCH = "autoresearch-bounded-sweep-2026-10"
 _CLOSE_LOST_RUNS_PATCH = "autoresearch-close-lost-runs-2026-10"
 # Histories that started before this marker do not tell a catch-up that the daily sweep is running.
 _DAILY_SWEEP_MARKER_PATCH = "autoresearch-daily-sweep-marker-2026-10"
+# Histories that started before this marker also start scoring and validation for a kickoff-only pipeline.
+_KICKOFF_ONLY_PATCH = "autoresearch-kickoff-only-2026-10"
 
 
 @workflow.defn(name="autoresearch-coordinator")
@@ -1142,12 +1174,19 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
     ) -> _PipelineSweep:
         """On a cadence day score, then kick off training. Then validate. One step at a time, so a pipeline holds one slot.
 
-        A catch-up sweep only scores.
+        A catch-up sweep only scores. A kickoff-only pipeline only kicks off training.
         """
         pipeline_id = pipeline.pipeline_id
         inference_result: InferenceWorkflowResult | BaseException | None = None
         validation_result: ValidationWorkflowResult | BaseException | None = None
         kickoff_result: KickoffTrainingResult | BaseException | None = None
+        if workflow.patched(_KICKOFF_ONLY_PATCH) and pipeline.kickoff_only:
+            if not catch_up:
+                kickoff_result = await _settle(self._kickoff(pipeline))
+            return _PipelineSweep(
+                outcome=self._evaluate(pipeline_id, inference_result, validation_result, kickoff_result),
+                inference=None,
+            )
         if pipeline.score_due:
             inference_result = await _settle(
                 workflow.execute_child_workflow(
