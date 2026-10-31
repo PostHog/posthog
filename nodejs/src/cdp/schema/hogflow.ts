@@ -124,6 +124,26 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
 ])
 
+export const HogFlowTimeWindowConfigSchema = z.object({
+    timezone: z.string().nullable().optional(),
+    // When true, use the person's $geoip_time_zone property for timezone
+    use_person_timezone: z.boolean().optional(),
+    // Fallback timezone when use_person_timezone is true but person has no timezone set
+    fallback_timezone: z.string().nullable().optional(),
+    // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+    day: z.union([
+        z.literal('any'),
+        z.literal('weekday'),
+        z.literal('weekend'),
+        z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])).min(1),
+    ]),
+    // time can be "any", or a time range [start, end]
+    time: z.union([
+        z.literal('any'),
+        z.tuple([z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/), z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)]), // e.g. ['10:00', '11:00']
+    ]),
+})
+
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
@@ -212,25 +232,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('wait_until_time_window'),
-        config: z.object({
-            timezone: z.string().nullable(),
-            // When true, use the person's $geoip_time_zone property for timezone
-            use_person_timezone: z.boolean().optional(),
-            // Fallback timezone when use_person_timezone is true but person has no timezone set
-            fallback_timezone: z.string().nullable().optional(),
-            // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
-            day: z.union([
-                z.literal('any'),
-                z.literal('weekday'),
-                z.literal('weekend'),
-                z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])),
-            ]),
-            // time can be "any", or a time range [start, end]
-            time: z.union([
-                z.literal('any'),
-                z.tuple([z.string(), z.string()]), // e.g. ['10:00', '11:00']
-            ]),
-        }),
+        config: HogFlowTimeWindowConfigSchema,
     }),
 
     // Native messages
