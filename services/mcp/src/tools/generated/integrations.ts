@@ -81,6 +81,33 @@ const integrationsChannelsRetrieve = (): ToolBase<
     },
 })
 
+const IntegrationsEmailCreateSchema = () => {
+    const IntegrationsCreateBody = orvalSchemas.IntegrationsCreateBody()
+    return IntegrationsCreateBody
+}
+
+const integrationsEmailCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailCreateSchema>,
+    Schemas.IntegrationConfig
+> => ({
+    name: 'integrations-email-create',
+    schema: IntegrationsEmailCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        body['kind'] = 'email'
+        const result = await context.api.request<Schemas.IntegrationConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/`,
+            body,
+        })
+        return result
+    },
+})
+
 const IntegrationsEmailStatusRetrieveSchema = () => {
     const IntegrationsEmailStatusRetrieveParams = orvalSchemas.IntegrationsEmailStatusRetrieveParams()
     const IntegrationsEmailStatusRetrieveQueryParams = orvalSchemas.IntegrationsEmailStatusRetrieveQueryParams()
@@ -304,6 +331,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-email-create': integrationsEmailCreate,
     'integrations-email-status-retrieve': integrationsEmailStatusRetrieve,
     'integrations-email-verify-create': integrationsEmailVerifyCreate,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
