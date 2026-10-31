@@ -35,6 +35,8 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import HighlightFeedQuerySerializer, ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
@@ -755,7 +757,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201, resp.json())
         self.assertEqual(resp.json()["query"], {"filter_test_accounts": True})
 
-    def test_create_strips_date_fields_from_query(self) -> None:
+    def test_create_strips_date_and_result_fields_from_query(self) -> None:
         # The schedule controls time, not the user.
         resp = self.client.post(
             self.scanners_url,
@@ -764,12 +766,18 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "scanner_type": ScannerType.MONITOR,
                 "scanner_config": {"prompt": "p"},
                 "model": ScannerModel.GEMINI_3_8_FLASH,
-                "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
+                "query": {
+                    "date_from": "-7d",
+                    "date_to": "-1d",
+                    "filter_test_accounts": True,
+                    "response": {"results": [], "has_next": False},
+                },
             },
             format="json",
         )
         self.assertEqual(resp.status_code, 201, resp.json())
         body_query = resp.json()["query"]
+        self.assertNotIn("response", body_query)
         self.assertNotIn("date_from", body_query)
         self.assertNotIn("date_to", body_query)
         self.assertEqual(body_query["filter_test_accounts"], True)
@@ -790,6 +798,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "experiment_exposure",
                 {"experiment_exposure": {"experiment_id": 1}},
                 "Recording filter can't set experiment exposure directly. Set experiment_targeting instead.",
+            ),
+            (
+                "replay_list_only",
+                {
+                    "kind": "RecordingsQuery",
+                    "comment_text": {
+                        "type": "recording",
+                        "key": "comment_text",
+                        "value": "refund",
+                        "operator": "icontains",
+                    },
+                },
+                "A scanner can't apply these recording filters: comment_text. Remove them and try again.",
+            ),
+            (
+                "missing_action",
+                {"kind": "RecordingsQuery", "actions": [{"id": 999999, "type": "actions"}]},
+                "This recording filter uses action 999999, which this project doesn't have.",
             ),
         ]
     )
@@ -4207,11 +4233,75 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
             ("query_oversized", {"query": {"distinct_ids": ["x" * 1_000 for _ in range(100)]}}),
             ("query_experiment_exposure", {"query": {"experiment_exposure": {"experiment_id": 1}}}),
             ("query_not_an_object", {"query": ["kind", "RecordingsQuery"]}),
+            ("query_missing_cohort", {"query": {"properties": [{"type": "cohort", "key": "id", "value": 999999}]}}),
+            ("query_malformed_entity", {"query": {"events": [{"id": "$pageview", "properties": 1}]}}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
+
+    def test_an_action_the_caller_cannot_read_is_refused_inside_hogql(self) -> None:
+        # The HogQL action resolver loads any action in the project, so the object-level check has to
+        # reach the ids an expression names, or a member could count a restricted action's sessions.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        action = Action.objects.create(team=self.team, name="Restricted", created_by=self.user)
+        AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        self.client.force_login(member)
+        query = {"kind": "RecordingsQuery", "properties": [{"type": "hogql", "key": f"matchesAction({action.id})"}]}
+
+        resp = self.client.post(self.estimate_url, data={"query": query}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(
+            resp.json()["detail"], f"This recording filter uses action {action.id}, which this project doesn't have."
+        )
+
+    @parameterized.expand(
+        [
+            ("estimate", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
+            ("create", "cohort", "This recording filter uses cohorts, which your access doesn't cover."),
+            ("estimate", "hogql", "This recording filter uses cohorts, which your access doesn't cover."),
+        ]
+    )
+    def test_a_token_without_cohort_read_cannot_filter_by_cohort(self, endpoint: str, form: str, detail: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Paying customers")
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="cohort-scope-test",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["replay_scanner:write", "session_recording:read"],
+        )
+        cohort_filter = (
+            {"type": "cohort", "key": "id", "value": cohort.id}
+            if form == "cohort"
+            else {"type": "hogql", "key": f"person_id IN COHORT {cohort.id}"}
+        )
+        query = {"kind": "RecordingsQuery", "properties": [cohort_filter]}
+        url, data = (
+            (self.estimate_url, {"query": query})
+            if endpoint == "estimate"
+            else (
+                self.scanners_url,
+                {
+                    "name": "cohort-scoped",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                    "query": query,
+                },
+            )
+        )
+
+        resp = self.client.post(url, data=data, format="json", HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["detail"], detail)
 
     def test_estimate_scopes_to_an_experiment_scanners_experiment(self) -> None:
         # An experiment scanner keeps its experiment in its config, so the estimate has to take that
