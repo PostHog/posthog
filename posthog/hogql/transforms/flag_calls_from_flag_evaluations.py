@@ -127,7 +127,9 @@ def can_read_flag_evaluations(
 
     It holds when all of these hold:
 
-    1. A top-level conjunct pins the scan's `event` to `$feature_flag_called`.
+    1. A top-level conjunct pins the scan's `event` to `$feature_flag_called`. A name without a table prefix reads
+       the scan unless a select alias shadows it or, in a chain of two or more parts, its head names another
+       source in FROM.
     2. A top-level conjunct bounds the scan's `timestamp` from below at or after the coverage start. A time with no
        zone reads in `timezone`, the team's zone, wherever the printer reads it that way.
     3. The scan is not sampled, because `flag_evaluations` has no sampling key. Insight runners attach `SAMPLE 1`
@@ -352,12 +354,14 @@ class EventsScan:
         self,
         join: ast.JoinExpr,
         alias: str,
-        has_other_sources: bool,
+        other_tables: frozenset[str],
         flag_key_compares_as_string: Callable[[], bool],
+        qualified_only: bool = False,
     ):
         self.join = join
         self.alias = alias
-        self.has_other_sources = has_other_sources
+        self.other_tables = other_tables
+        self.qualified_only = qualified_only
         self.flag_key_compares_as_string = flag_key_compares_as_string
         self.shadowed: frozenset[str] = frozenset()
         self.qualifier_shadows: frozenset[str] = frozenset()
@@ -378,8 +382,9 @@ class EventsScan:
         scan = cls(
             join=join,
             alias=join.alias or "__".join(parts),
-            # A field without a table prefix can bind to a joined table or an ARRAY JOIN alias instead.
-            has_other_sources=join.next_join is not None or bool(node.array_join_list),
+            # The resolver reads the head of a chain of two or more parts as one of these tables first. Some warehouse
+            # tables match a name in any case.
+            other_tables=frozenset(name.lower() for name in ctes.union(_join_names(join.next_join))),
             flag_key_compares_as_string=flag_key_compares_as_string,
         )
         collector = _AliasCollector(node)
@@ -405,7 +410,14 @@ class EventsScan:
         unqualified = self._without_dotted_qualifier(expr.chain)
         if unqualified is not None:
             return unqualified
-        if self.has_other_sources or expr.chain[0] in self.shadowed:
+        if self.qualified_only:
+            return None
+        head = str(expr.chain[0])
+        if len(expr.chain) > 1 and head.lower() in self.other_tables:
+            return None
+        # The resolver rejects a name that two sources in FROM have as ambiguous. Events has every scan column, so a
+        # name that no select alias shadows reads the scan in any query that resolves.
+        if head in self.shadowed:
             return None
         return expr.chain
 
@@ -971,7 +983,8 @@ class _EventsScanSwapper(ScanVisitor):
             join=clone.join,
             alias=clone.join.alias or "events",
             # The clone is unresolved, so only a name qualified with this scan's alias can count as a read of it.
-            has_other_sources=True,
+            other_tables=frozenset(),
+            qualified_only=True,
             flag_key_compares_as_string=self.flag_key_compares_as_string,
         )
         refusal = events_scan.shape_refusal(clone.select)
