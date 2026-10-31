@@ -1182,10 +1182,12 @@ tools:
             about how reports get researched, judged, and routed ('route billing-adjacent reports to the billing
             folks'), so it reaches that stage and no scout. `pipeline:report-research` is the only pipeline audience
             today; any other `pipeline:*` value is rejected. Optionally set `expires_at` so a time-boxed note retires
-            itself. Notes are advisory: scouts weigh them seriously as prior context but still apply their own evidence
-            bar. Because scouts read notes verbatim, writing one requires the same authorization as editing a scout's
-            skill: the `llm_skill:write` scope plus skill editor access. Each call creates a new note (NOT idempotent —
-            a retry leaves a duplicate); use `scout-notes-delete` to retire one that's been acted on.
+            itself. Pass `report_id` when the note is about one inbox report: the note then names that report, and the
+            report's activity log records the note. Notes are advisory: scouts weigh them seriously as prior context but
+            still apply their own evidence bar. Because scouts read notes verbatim, writing one requires the same
+            authorization as editing a scout's skill: the `llm_skill:write` scope plus skill editor access. Each call
+            creates a new note (NOT idempotent — a retry leaves a duplicate); use `scout-notes-delete` to retire one
+            that's been acted on.
     scout-notes-delete:
         operation: signals_scout_notes_destroy
         enabled: true
