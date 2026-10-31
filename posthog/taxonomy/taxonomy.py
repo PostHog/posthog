@@ -2043,6 +2043,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The deep link URL that the app was opened from.",
             "examples": ["https://open.my.app"],
         },
+        "title": {
+            "label": "Page title",
+            "description": "The title of the page where the event was captured (document.title).",
+            "examples": ["Home - My App", "Pricing | ACME Inc"],
+        },
+        "navigation_type": {
+            "label": "Navigation type",
+            "description": "The type of navigation that triggered the history-change pageview (pushState, replaceState, popstate, or hashchange).",
+            "examples": ["pushState", "replaceState", "popstate", "hashchange"],
+        },
         "referring_application": {
             "label": "Referrer application",
             "description": "The namespace of the app that made the request.",
