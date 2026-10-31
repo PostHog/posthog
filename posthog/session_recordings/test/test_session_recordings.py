@@ -32,7 +32,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
-from posthog.models import Organization, PersonalAPIKey, SessionRecording, User
+from posthog.models import ActivityLog, Organization, PersonalAPIKey, SessionRecording, User
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
@@ -1231,6 +1231,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert len(deleted) == 1
         assert deleted[0].kwargs["properties"]["recording_id"] == "1"
         assert deleted[0].kwargs["properties"]["source"] == expected_source
+        activity = ActivityLog.objects.get(team_id=self.team.id, scope="Replay", activity="deleted")
+        assert (activity.user_id, activity.item_id, activity.detail["name"]) == (self.user.id, "1", "1")
         # Deleting again is idempotent (recording-api returns already_deleted)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1", **headers)
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
