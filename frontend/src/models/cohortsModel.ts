@@ -96,7 +96,10 @@ export const DEFAULT_COHORT_FILTERS: CohortFilters = {
 }
 
 async function loadAllCohortPages<T>(
-    loadPage: (params: { limit: number; offset: number }) => Promise<CountedPaginatedResponse<T>>
+    loadPage: (params: {
+        limit: number
+        offset: number
+    }) => Promise<{ count: number; next?: string | null; results: T[] }>
 ): Promise<CountedPaginatedResponse<T>> {
     const results: T[] = []
     let count = 0
@@ -347,11 +350,16 @@ export const cohortsModel = kea<cohortsModelType>([
         cohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohorts: async () => {
-                const response = await loadAllCohortPages((params) => api.cohorts.listPaginated(params))
+                if (!isAuthenticatedTeam(values.currentTeam)) {
+                    return values.cohorts
+                }
+                const projectId = String(values.currentTeam.project_id)
+                const response = await loadAllCohortPages((params) => cohortsApi.cohortsList(projectId, params))
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
                 return {
                     count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
+                    // The shared cache still exposes the legacy shape to its consumers.
+                    results: response.results.map((cohort) => processCohort(cohort as unknown as CohortType)),
                 }
             },
         },
@@ -404,14 +412,20 @@ export const cohortsModel = kea<cohortsModelType>([
                 // the feature-flag intent warning reads it off `cohortsById` (see
                 // featureFlagIntentWarningLogic.hasBehavioralCriteria), and its raw shape is
                 // what that check expects, so no `processCohort` normalization is needed here.
-                const response = await loadAllCohortPages((params) => api.cohorts.listBasic(params))
+                if (!isAuthenticatedTeam(values.currentTeam)) {
+                    return values.allCohorts
+                }
+                const projectId = String(values.currentTeam.project_id)
+                const response = await loadAllCohortPages((params) =>
+                    cohortsApi.cohortsList(projectId, { ...params, basic: true })
+                )
                 const listedIds = new Set(response.results.map(({ id }) => id))
                 return {
                     count: response.count,
                     // `groups` is dropped from the basic payload but required on CohortType, so
                     // add the empty default back — nothing reading `cohortsById` uses `groups`.
                     results: [
-                        ...response.results.map((cohort): CohortType => ({ ...cohort, groups: [] })),
+                        ...response.results.map((cohort) => ({ ...(cohort as unknown as CohortType), groups: [] })),
                         ...values.allCohorts.results.filter(
                             ({ id }) => !listedIds.has(id) && cache.referencedCohortIds?.has(id)
                         ),
