@@ -21932,6 +21932,72 @@ export namespace Schemas {
         role: Record<string, string> | null;
     };
     /**
+     * * `dashboard` - Dashboard
+     * * `experiment` - Experiment
+     * * `feature_flag` - Feature flag
+     * * `insight` - Insight
+     * * `project` - Project
+     * * `replay` - Replay
+     * * `survey` - Survey
+     * * `external` - External link
+     * * `other` - Other
+     */
+    export type TicketBriefItemKindEnum =
+        | "dashboard"
+        | "experiment"
+        | "feature_flag"
+        | "insight"
+        | "project"
+        | "replay"
+        | "survey"
+        | "external"
+        | "other";
+    export type TicketBriefAffectedItem = {
+        /**
+         * What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
+         *
+         * * `dashboard` - Dashboard
+         * * `experiment` - Experiment
+         * * `feature_flag` - Feature flag
+         * * `insight` - Insight
+         * * `project` - Project
+         * * `replay` - Replay
+         * * `survey` - Survey
+         * * `external` - External link
+         * * `other` - Other
+         */
+        kind: TicketBriefItemKindEnum;
+        /**
+         * Link to the item in PostHog, so the engineer can open it without a search.
+         */
+        url: string;
+        /**
+         * Name of the item as the customer would recognize it.
+         */
+        label: string;
+    };
+    export type TicketBrief = {
+        /**
+         * What the customer needs from PostHog, in one or two sentences. The line to read first.
+         */
+        ask: string;
+        purpose?: (string | null) | undefined;
+        /**
+         * Product area the ticket is about, such as 'Feature flags' or 'Session replay'.
+         */
+        area: string;
+        /**
+         * Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.
+         */
+        questions: Array<string>;
+        tried?: Array<string> | undefined;
+        error_message?: (string | null) | undefined;
+        affected_items?: Array<TicketBriefAffectedItem> | undefined;
+        screenshot_urls?: Array<string> | undefined;
+        replay_url?: (string | null) | undefined;
+        facts?: Array<string> | undefined;
+    };
+    /**
      * Minimal person serializer for embedding in ticket responses.
      */
     export type TicketPerson = {
@@ -21980,6 +22046,10 @@ export namespace Schemas {
          * AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations.
          */
         ai_triage: unknown;
+        /**
+         * Structured summary of the ticket for the support engineer. Null until support triage writes it.
+         */
+        ticket_brief: TicketBrief | null;
         created_at: string;
         updated_at: string;
         message_count: number;

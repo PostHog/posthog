@@ -8,7 +8,21 @@ from pydantic import BaseModel
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from products.conversations.backend.temporal.ai_reply.constants import LLM_REQUEST_TIMEOUT_SECONDS
+# The LLM plumbing the support product shares. It lives outside `temporal/` because
+# `temporal/__init__.py` imports every workflow and activity, so any module under it drags the
+# whole worker in. A caller outside Temporal, such as the ticket brief, needs these helpers
+# without that.
+
+# UTILITY_MODEL (haiku) is cheap and fast for query refinement. Validation grounds correct
+# replies against sources, so it uses a stronger sonnet-class model to avoid under-scoring good
+# answers.
+UTILITY_MODEL = "claude-haiku-4-5"
+
+# Bounds one SDK request so a stuck call surfaces as a retryable error and the caller's own
+# retries take over, instead of the SDK hanging on its long default timeout. Kept under the
+# activities' 2-minute start_to_close so the SDK error wins (a retryable ApplicationError)
+# rather than a Temporal ActivityTaskTimeout.
+LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 
 
 def anthropic_text(message: Any) -> str:

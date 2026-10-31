@@ -39,6 +39,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.slack.identity import resolve_posthog_user_for_slack, resolve_slack_user
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.conversations.backend.ai.llms import UTILITY_MODEL
 
 from .cache import (
     NUDGE_COOLDOWN_TTL,
@@ -891,10 +892,9 @@ def _is_trivial_message(text: str, files: list[dict] | None) -> bool:
 
 
 # Cheap/fast model for the nudge classifier: the same tier the AI-reply pipeline picked for
-# utility calls (UTILITY_MODEL in temporal/ai_reply/constants.py; not imported here because that
-# package's __init__ pulls in the whole Temporal workflow surface). Must stay in the gateway's
-# `conversations` product allowlist (services/llm-gateway/src/llm_gateway/products/config.py).
-NUDGE_CLASSIFIER_MODEL = "claude-haiku-4-5"
+# utility calls. Must stay in the gateway's `conversations` product allowlist
+# (services/llm-gateway/src/llm_gateway/products/config.py).
+NUDGE_CLASSIFIER_MODEL = UTILITY_MODEL
 # Both the feature tag and the $ai_span_name on captured generations — they must stay equal.
 NUDGE_CLASSIFIER_FEATURE = "slack_nudge_classifier"
 # Bound the call so a slow gateway can't stall Slack event processing on the Celery worker.

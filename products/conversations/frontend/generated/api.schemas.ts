@@ -159,6 +159,116 @@ export interface TicketAssignmentApi {
     readonly role: TicketAssignmentApiRole
 }
 
+/**
+ * * `dashboard` - Dashboard
+ * * `experiment` - Experiment
+ * * `feature_flag` - Feature flag
+ * * `insight` - Insight
+ * * `project` - Project
+ * * `replay` - Replay
+ * * `survey` - Survey
+ * * `external` - External link
+ * * `other` - Other
+ */
+export type TicketBriefItemKindEnumApi = (typeof TicketBriefItemKindEnumApi)[keyof typeof TicketBriefItemKindEnumApi]
+
+export const TicketBriefItemKindEnumApi = {
+    Dashboard: 'dashboard',
+    Experiment: 'experiment',
+    FeatureFlag: 'feature_flag',
+    Insight: 'insight',
+    Project: 'project',
+    Replay: 'replay',
+    Survey: 'survey',
+    External: 'external',
+    Other: 'other',
+} as const
+
+export interface TicketBriefAffectedItemApi {
+    /** What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
+     *
+     * * `dashboard` - Dashboard
+     * * `experiment` - Experiment
+     * * `feature_flag` - Feature flag
+     * * `insight` - Insight
+     * * `project` - Project
+     * * `replay` - Replay
+     * * `survey` - Survey
+     * * `external` - External link
+     * * `other` - Other */
+    kind: TicketBriefItemKindEnumApi
+    /**
+     * Link to the item in PostHog, so the engineer can open it without a search.
+     * @maxLength 2000
+     */
+    url: string
+    /**
+     * Name of the item as the customer would recognize it.
+     * @maxLength 120
+     */
+    label: string
+}
+
+export interface TicketBriefApi {
+    /**
+     * What the customer needs from PostHog, in one or two sentences. The line to read first.
+     * @maxLength 400
+     */
+    ask: string
+    /**
+     * What the customer is trying to achieve behind the ask, in their own terms. Omitted when they did not say, because a guessed purpose sends the reply to the wrong problem.
+     * @maxLength 300
+     * @nullable
+     */
+    purpose?: string | null
+    /**
+     * Product area the ticket is about, such as 'Feature flags' or 'Session replay'.
+     * @maxLength 80
+     */
+    area: string
+    /**
+     * Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.
+     * @maxItems 6
+     * @items.maxLength 200
+     */
+    questions: string[]
+    /**
+     * The steps the customer says they already took to fix or diagnose the problem.
+     * @maxItems 5
+     * @items.maxLength 160
+     */
+    tried?: string[]
+    /**
+     * The error the customer reported, copied exactly. Omitted when the ticket reports no error.
+     * @maxLength 600
+     * @nullable
+     */
+    error_message?: string | null
+    /**
+     * The items the ticket is about, with a link to each one.
+     * @maxItems 5
+     */
+    affected_items?: TicketBriefAffectedItemApi[]
+    /**
+     * Images the customer attached, in the order they sent them.
+     * @maxItems 5
+     * @items.maxLength 2000
+     */
+    screenshot_urls?: string[]
+    /**
+     * Replay of the session the ticket came from. Null when the ticket has no session.
+     * @maxLength 2000
+     * @nullable
+     */
+    replay_url?: string | null
+    /**
+     * Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.
+     * @maxItems 5
+     * @items.maxLength 160
+     */
+    facts?: string[]
+}
+
 export type TicketPersonApiProperties = { [key: string]: unknown }
 
 /**
@@ -221,6 +331,8 @@ export interface TicketApi {
     escalation_reason?: string | null
     /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, verdict, blocker, sources). Retrieve hydrates sources from citations. */
     readonly ai_triage: unknown
+    /** Structured summary of the ticket for the support engineer. Null until support triage writes it. */
+    readonly ticket_brief: TicketBriefApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly message_count: number
@@ -581,6 +693,16 @@ export interface TicketReplyRequestApi {
     is_private?: boolean
     /** Optional TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
+}
+
+/**
+ * Outcome of writing a ticket brief on demand.
+ */
+export interface WriteTicketBriefResponseApi {
+    /** Whether a brief was stored on the ticket. */
+    written: boolean
+    /** Why no brief was stored. Empty when one was. One of: gate_failed, llm_failed, not_an_object, invalid, store_failed, ticket_gone. */
+    reason: string
 }
 
 export interface BulkUpdateStatusRequestApi {

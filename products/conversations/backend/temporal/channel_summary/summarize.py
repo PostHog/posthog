@@ -20,8 +20,8 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
+    from products.conversations.backend.ai.llms import anthropic_text, create_message, tracing_kwargs
     from products.conversations.backend.slack import get_slack_client
-    from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, tracing_kwargs
     from products.conversations.backend.temporal.channel_summary.constants import (
         CHANNEL_SUMMARY_TRACE_NAMESPACE,
         MAX_HISTORY_PAGES,

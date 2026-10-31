@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
 from threading import Barrier, Event
+from typing import Any
 from uuid import UUID
 
 import time_machine
@@ -65,6 +66,8 @@ from products.conversations.backend.reply_dedupe import (
     ReplyFingerprint,
     reserve,
 )
+from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
+from products.conversations.backend.ticket_brief.writer import BriefOutcome
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
@@ -89,6 +92,108 @@ class TestComposeTicketSerializer(SimpleTestCase):
 
     def test_accepts_up_to_100_tags(self):
         serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
+        assert serializer.is_valid(), serializer.errors
+
+
+class TestTicketBriefSerializer(SimpleTestCase):
+    def _brief(self, **overrides: Any) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "ask": "Explain why the flag returns false at 100% rollout.",
+            "area": "Feature flags",
+            "questions": ["Why does it return false?"],
+        }
+        data.update(overrides)
+        return data
+
+    @parameterized.expand(
+        [
+            ("ask_missing", {"ask": None}, "ask"),
+            ("ask_over_cap", {"ask": "x" * 401}, "ask"),
+            ("area_over_cap", {"area": "x" * 81}, "area"),
+            ("too_many_questions", {"questions": [f"q{i}?" for i in range(7)]}, "questions"),
+            ("question_over_cap", {"questions": ["x" * 201]}, "questions"),
+            (
+                "unknown_item_kind",
+                {"affected_items": [{"kind": "notebook", "url": "https://e.com", "label": "N"}]},
+                "affected_items",
+            ),
+            ("item_without_url", {"affected_items": [{"kind": "insight", "label": "Conversion"}]}, "affected_items"),
+            (
+                "too_many_affected_items",
+                {"affected_items": [{"kind": "insight", "url": f"https://e.com/{i}", "label": "I"} for i in range(6)]},
+                "affected_items",
+            ),
+            (
+                "item_label_over_cap",
+                {"affected_items": [{"kind": "insight", "url": "https://e.com", "label": "x" * 121}]},
+                "affected_items",
+            ),
+            ("replay_url_not_a_url", {"replay_url": "not-a-url"}, "replay_url"),
+            ("purpose_over_cap", {"purpose": "x" * 301}, "purpose"),
+            ("error_message_over_cap", {"error_message": "x" * 601}, "error_message"),
+            ("too_many_tried", {"tried": [f"t{i}" for i in range(6)]}, "tried"),
+            ("too_many_facts", {"facts": [f"f{i}" for i in range(6)]}, "facts"),
+            (
+                "too_many_screenshots",
+                {"screenshot_urls": [f"https://e.com/{i}.png" for i in range(6)]},
+                "screenshot_urls",
+            ),
+        ]
+    )
+    def test_rejects_brief_the_panel_cannot_render(
+        self, _name: str, overrides: dict[str, Any], expected_error_field: str
+    ) -> None:
+        # The writer is an agent, so an uncapped or unknown-shaped field reaches the sidebar as
+        # a wall of text or an undefined label. Every cap here is what keeps the brief readable.
+        brief = self._brief(**overrides)
+        if brief.get("ask") is None:
+            del brief["ask"]
+        serializer = TicketBriefSerializer(data=brief)
+        assert not serializer.is_valid()
+        assert expected_error_field in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("ask_only", {"ask": "Just the ask."}, ["area", "questions"]),
+            ("area_only", {"area": "Billing"}, ["ask", "questions"]),
+            ("empty_object", {}, ["area", "ask", "questions"]),
+        ]
+    )
+    def test_rejects_a_brief_missing_a_required_field(
+        self, _name: str, brief: dict[str, Any], expected_missing: list[str]
+    ) -> None:
+        # The writer validates what the model produced, so an incomplete brief has to be
+        # rejected before it is stored. A brief with no ask reaches the sidebar otherwise,
+        # where rendering it throws and takes the whole ticket scene down.
+        serializer = TicketBriefSerializer(data=brief)
+        assert not serializer.is_valid()
+        assert sorted(serializer.errors) == expected_missing
+
+    def test_accepts_a_brief_with_no_purpose(self) -> None:
+        # The common shape: the customer said what they want, not why. Requiring purpose
+        # would make the agent invent one, and the engineer would answer that instead.
+        serializer = TicketBriefSerializer(data=self._brief())
+        assert serializer.is_valid(), serializer.errors
+        assert "purpose" not in serializer.validated_data
+
+    def test_accepts_a_full_brief(self) -> None:
+        serializer = TicketBriefSerializer(
+            data=self._brief(
+                affected_items=[
+                    {
+                        "kind": "feature_flag",
+                        "url": "https://us.posthog.com/project/1/feature_flags/123",
+                        "label": "checkout-redesign",
+                    }
+                ],
+                replay_url="https://us.posthog.com/project/1/replay/00000000-0000-4000-8000-000000000000",
+                screenshot_urls=["https://example.com/uploaded_media/panel.png"],
+                purpose="Launch the new checkout before the Black Friday freeze.",
+                error_message='{"detail":"flag evaluation failed"}',
+                facts=["Web SDK 1.240.0"],
+                tried=["Reset the rollout to 100%"],
+            )
+        )
         assert serializer.is_valid(), serializer.errors
 
 
@@ -283,6 +388,9 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
+        # The column defaults to {}, and a client that cannot tell an unrouted ticket from one
+        # with an empty ask reads the panel wrong, so the read path has to report null.
+        self.assertIsNone(response.json()["ticket_brief"])
 
     def test_retrieve_ticket_by_ticket_number(self, mock_on_commit):
         """Test retrieving a ticket by ticket_number instead of UUID."""
@@ -414,6 +522,23 @@ class TestTicketAPI(APIBaseTest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(getattr(self.ticket, field_name), expected_response_value)
+
+    def test_a_patch_cannot_write_the_ticket_brief(self, mock_on_commit):
+        # The brief is written by the reply pipeline and the staff endpoint, never by the
+        # customer-facing PATCH. Accepting it there reopened a defect twice: DRF makes a nested
+        # serializer partial along with its parent, so an incomplete brief passed validation and
+        # reached the sidebar, where rendering it threw and took the ticket scene down.
+        self.ticket.ticket_brief = {"ask": "Written by the pipeline.", "area": "Billing", "questions": []}
+        self.ticket.save(update_fields=["ticket_brief"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"ticket_brief": {"ask": "Injected by a client.", "area": "Billing", "questions": []}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.ticket_brief["ask"], "Written by the pipeline.")
 
     @parameterized.expand(
         [
@@ -986,6 +1111,39 @@ class TestTicketAPI(APIBaseTest):
                     self.assertIn("last_message_text", ticket_data)
                     self.assertIn("assignee", ticket_data)
                     self.assertIn("person", ticket_data)
+
+
+class TestWriteBriefEndpoint(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team, widget_session_id="s", distinct_id="d", channel_source="widget", status="new"
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/write_brief/"
+
+    def test_a_non_staff_user_cannot_write_a_brief(self):
+        # The button spends tokens on demand, so it stays with the people trialling the brief
+        # rather than with everyone who can open a ticket.
+        with patch("products.conversations.backend.api.tickets.write_brief_for_ticket") as helper:
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(helper.call_count, 0)
+
+    def test_a_staff_user_writes_a_brief_even_when_the_flag_is_off(self):
+        # Reading a brief on a real ticket is the whole point of the button, so it must not
+        # wait on the flag that governs automatic writes.
+        self.user.is_staff = True
+        self.user.save()
+        with patch(
+            "products.conversations.backend.api.tickets.write_brief_for_ticket",
+            return_value=BriefOutcome(written=True),
+        ) as helper:
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"written": True, "reason": ""})
+        # The whole call, because passing respect_gate=True here would reinstate the wait the
+        # button exists to skip, and a wrong team_id would brief someone else's ticket.
+        self.assertEqual(helper.call_args.kwargs, {"team_id": self.team.id, "ticket_id": str(self.ticket.id)})
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

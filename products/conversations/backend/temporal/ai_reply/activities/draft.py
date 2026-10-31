@@ -17,6 +17,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.business_knowledge.backend.constants import MAX_ALWAYS_ON_CONTEXT_CHARS
 from products.business_knowledge.backend.logic import get_chunks_by_ids
+from products.conversations.backend.ai.llms import llm_attempts
 from products.conversations.backend.playbook import compose_support_playbook, is_posthog_docs_source
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
@@ -39,7 +40,6 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     PUBLISHABLE_DRAFT_SCOPES,
     TICKET_TYPE_HINTS,
 )
-from products.conversations.backend.temporal.ai_reply.llms import llm_attempts
 from products.conversations.backend.temporal.ai_reply.schemas import DraftInput, DraftOutput, SupportReplyDraft
 from products.conversations.backend.temporal.helpers import (
     get_or_create_support_sandbox_env,

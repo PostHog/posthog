@@ -104,6 +104,8 @@ from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
+from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
+from products.conversations.backend.ticket_brief.writer import write_brief_for_ticket
 
 from .. import reply_dedupe
 
@@ -267,6 +269,19 @@ class AiFeedbackRequestSerializer(serializers.Serializer):
     )
 
 
+class WriteTicketBriefResponseSerializer(serializers.Serializer):
+    """Outcome of writing a ticket brief on demand."""
+
+    written = serializers.BooleanField(help_text="Whether a brief was stored on the ticket.")
+    reason = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Why no brief was stored. Empty when one was. One of: gate_failed, llm_failed, "
+            "not_an_object, invalid, store_failed, ticket_gone."
+        ),
+    )
+
+
 class AiHumanOutcomeRequestSerializer(serializers.Serializer):
     """Payload for recording whether a human adopted an AI draft."""
 
@@ -413,6 +428,9 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
     session_context = TicketSessionContextField(read_only=True)
+    ticket_brief = serializers.SerializerMethodField(
+        help_text="Structured summary of the ticket for the support engineer. Null until support triage writes it."
+    )
 
     class Meta:
         model = Ticket
@@ -430,6 +448,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "ai_resolved",
             "escalation_reason",
             "ai_triage",
+            "ticket_brief",
             "created_at",
             "updated_at",
             "message_count",
@@ -536,6 +555,12 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
         if config is not None:
             return config.from_email
         return None
+
+    @extend_schema_field(TicketBriefSerializer(allow_null=True))
+    def get_ticket_brief(self, obj: Ticket) -> dict[str, Any] | None:
+        # An empty brief reads as null rather than {}, so a client cannot mistake a ticket
+        # support triage never routed for one with an empty ask.
+        return obj.ticket_brief or None
 
 
 class UserTicketAssigneeRequestSerializer(serializers.Serializer):
@@ -1982,6 +2007,31 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             posthoganalytics.capture(distinct_id=distinct_id, event="$ai_metric", properties=properties)
 
         return Response(status=drf_status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=None,
+        responses={
+            200: OpenApiResponse(response=WriteTicketBriefResponseSerializer),
+            403: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="write_brief")
+    def write_brief(self, request, *args, **kwargs):
+        """Write this ticket's brief now, replacing any brief already stored.
+
+        Staff only, and deliberately separate from the rollout flag: this is how the brief is
+        read on a real ticket before automatic briefs reach every new one.
+        """
+        if not request.user.is_staff:
+            return Response(
+                {"detail": "Staff only."},
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = self.get_object()
+        output = write_brief_for_ticket(team_id=self.team_id, ticket_id=str(ticket.id))
+        return Response(WriteTicketBriefResponseSerializer({"written": output.written, "reason": output.reason}).data)
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],
