@@ -12,7 +12,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Comment, SessionRecordingPlaylist
+from posthog.models import Comment, PropertyDefinition, SessionRecordingPlaylist
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
@@ -365,6 +365,25 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         source = FrustrationSignalsPlaylistSource()
         session_ids = source.get_session_ids(self.team, self.user)
         assert session_id in session_ids
+
+    def test_frustrated_sessions_detected_with_numeric_session_id_property_definition(self) -> None:
+        cache.clear()
+        PropertyDefinition.objects.create(
+            team=self.team, name="$session_id", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+        )
+
+        session_id = str(uuid7())
+        for _ in range(2):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": session_id},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
+        flush_persons_and_events()
+
+        assert FrustrationSignalsPlaylistSource().get_session_ids(self.team, self.user) == [session_id]
 
     def test_frustrated_sessions_ordered_by_score(self) -> None:
         cache.clear()
