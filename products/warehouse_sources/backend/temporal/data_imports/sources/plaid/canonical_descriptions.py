@@ -136,7 +136,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "balances": {
         "description": "A financial account of the linked Plaid Item with balances that Plaid refreshed in real time from the institution.",
-        "docs_url": "https://plaid.com/docs/api/products/balance/#accountsbalanceget",
+        "docs_url": "https://plaid.com/docs/api/products/signal/#accountsbalanceget",
         "columns": {
             "account_id": "Unique identifier for the account.",
             "balances": "Real-time balance information for the account (available, current, limit, currency).",

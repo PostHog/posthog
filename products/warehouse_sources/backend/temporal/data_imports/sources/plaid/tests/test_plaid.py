@@ -94,6 +94,14 @@ class TestGetRowsAccounts:
         assert result.items == [[{"account_id": "a1"}]]
         assert result.paths == [*(["/item/get"] if preamble else []), path]
 
+    @mock.patch(f"{_MODULE}._now")
+    def test_balances_send_min_last_updated_datetime(self, mock_now: mock.MagicMock) -> None:
+        mock_now.return_value = datetime(2024, 6, 8, 12, 0, 0, tzinfo=UTC)
+        result = _driver().run("balances", [ScriptedResponse(json={"accounts": []})])
+
+        assert result.raised is None
+        assert result.requests[0].json()["options"] == {"min_last_updated_datetime": "2024-06-01T12:00:00Z"}
+
 
 class TestGetRowsTransactions:
     @pytest.mark.parametrize(
