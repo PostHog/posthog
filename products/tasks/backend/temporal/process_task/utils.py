@@ -1624,12 +1624,15 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
     ai_stage = (ctx.state or {}).get("ai_stage")
+    profile = task.stored_profile
+    profile_billing_product = profile.billing_product if profile else None
     requires_go = (
         resolve_sandbox_ai_product(
             ctx.origin_product,
             ai_stage,
             internal=task.internal,
             billing_product=(ctx.state or {}).get("billing_product"),
+            profile_billing_product=profile_billing_product,
         )
         == POSTHOG_CODE_PRODUCT
     )
@@ -1639,6 +1642,7 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             origin_product=ctx.origin_product,
             ai_stage=ai_stage,
             internal=task.internal,
+            profile_billing_product=profile_billing_product,
             prior_slack_run=_task_has_stamped_slack_run(task, ctx.origin_product, ctx.state),
             distinct_id=ctx.distinct_id,
             state=ctx.state,
@@ -1747,6 +1751,7 @@ def ai_gateway_env_vars(
     model: str | None = None,
     runtime: str | None = None,
     prior_slack_run: bool = False,
+    profile_billing_product: str | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1766,7 +1771,11 @@ def ai_gateway_env_vars(
     """
     ai_product = (
         resolve_sandbox_ai_product(
-            origin_product, ai_stage, internal=internal, billing_product=(state or {}).get("billing_product")
+            origin_product,
+            ai_stage,
+            internal=internal,
+            billing_product=(state or {}).get("billing_product"),
+            profile_billing_product=profile_billing_product,
         )
         if team_id is not None
         else None
