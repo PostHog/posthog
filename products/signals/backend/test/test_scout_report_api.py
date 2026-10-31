@@ -221,10 +221,24 @@ class TestScoutReportAPI(APIBaseTest):
         assert artefact is not None
         return [entry["github_login"] for entry in json.loads(artefact.content)]
 
-    def test_emit_report_authors_ready_report(self) -> None:
+    @parameterized.expand([(False, None), (True, False), (True, True)])
+    def test_emit_report_authors_ready_report(self, pilot: bool, code_access: bool | None) -> None:
         run = _make_run(self.team)
+        if code_access is not None:
+            run.metadata = {**(run.metadata or {}), "github_guidance": True, "github_optional": pilot}
+            run.save(update_fields=["metadata"])
+            TaskRun.objects.filter(pk=run.task_run_id, team_id=self.team.id).update(
+                state={"github_read_access_available": code_access}
+            )
         metric = self._affected_users_metric()
-        with _safe_judge(), patch(EMBED_PATH) as embed_mock:
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH) as embed_mock,
+            patch(
+                "products.signals.backend.github_optional.ResearchAccessPolicy.enabled",
+                side_effect=AssertionError("Use dispatch snapshot"),
+            ),
+        ):
             response = self.client.post(
                 self._emit_url(str(run.id)), data=self._payload(metrics=[metric]), format="json"
             )
@@ -237,6 +251,10 @@ class TestScoutReportAPI(APIBaseTest):
         assert len(report.metrics) == 1
         assert report.metrics[0]["metric_id"] == "affected-users"
         assert report.metrics[0]["query"] == metric["query"]
+        selection = self._latest_artefact(str(report.id), SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        if pilot:
+            assert selection is not None
+            assert json.loads(selection.content)["research_context"]["mode"] == ("code" if code_access else "data_only")
         embed_mock.assert_called_once()
 
     @parameterized.expand([(False, False), (True, False), (True, True)])

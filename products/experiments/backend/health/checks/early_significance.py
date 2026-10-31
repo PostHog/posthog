@@ -27,7 +27,7 @@ from products.experiments.backend.logic.result_stats import MetricResultStats, V
 from products.experiments.backend.running_time_calculator import calculate_detectable_effect
 from products.experiments.backend.running_time_target import RunningTimeTarget
 
-# pinned: sent as `finding_variant` on the health finding events.
+# pinned: sent as `finding_subcode` on the health finding events.
 BELOW_DETECTABLE_EFFECT = "below_detectable_effect"
 
 # The results page shows results from 50 exposures (`EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS` in

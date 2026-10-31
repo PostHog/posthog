@@ -67,7 +67,7 @@ describe('dataTableLogic', () => {
 
         expect(performQuery).toHaveBeenCalledWith(
             setLatestVersionsOnQuery({ kind: 'EventsQuery', select: ['*', 'event', 'timestamp'] }),
-            { signal: expect.any(Object) },
+            { signal: expect.any(Object), onRequestTiming: expect.any(Function) },
             'blocking',
             expect.any(String),
             expect.any(Function),

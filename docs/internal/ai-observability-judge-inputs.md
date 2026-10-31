@@ -12,6 +12,11 @@ They do not change with the selected judge model.
 
 ## Trace and session formatting
 
+Online trace and session evaluations run as project workflows. Their event reads include all
+properties regardless of default, role, or member property access rules and AI observability
+product access. Evaluation previews and interactive trace/session queries continue to apply
+the requesting user's permissions.
+
 Trace evaluations skip the LLM judge when a trace has no child events and no readable trace-level input or output.
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
@@ -37,6 +42,12 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 Generation evaluations extract message text without the per-message character cutoff.
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
+An exception applies when the judge sees images (the `llm-analytics-judge-images` flag is on and the evaluation does not turn attachments off).
+Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
+The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line for the rest.
+PDFs reach only OpenAI, Anthropic and Gemini judges, up to 10 MB each.
+WAV and MP3 audio becomes an `[audio N]` marker and reaches Gemini judges and OpenAI audio models, always inline.
+Attachments a judge can't read take none of its 20 slots, and one summary line counts them.
 
 Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
 Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
@@ -175,6 +186,18 @@ Invalid probabilities, missing answers, and mismatched answer types skip the ite
 Inputs rejected for exceeding the model's context window are skipped.
 See OpenAI's [Decisions guide](https://developers.openai.com/api/docs/guides/decisions), OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request), and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their question and answer formats.
 
+## Reasoning level
+
+LLM judges on Anthropic and OpenAI reasoning models can set a reasoning level with the brain button next to the model selector.
+The level is stored as `evaluation_config.reasoning_level` (`minimal`, `low`, `medium` or `high`). Without it, the judge uses the model's default.
+Decision models and other providers do not support it, and the API rejects a level for them.
+Prompt-only `evaluation_config` PATCH requests preserve the saved level; an explicit `reasoning_level: null` restores the model default.
+Selecting a model without reasoning support clears the level in the editor.
+
+Anthropic models before Claude 4.6 get a thinking budget of 1,024, 2,048, 4,096 or 8,192 tokens. Newer models get adaptive thinking with that effort, and `minimal` becomes `low`.
+OpenAI models get `reasoning_effort`. Only the original GPT-5 models accept `minimal`; other models get `low` instead.
+For Anthropic, the token limit of the reply grows by the thinking budget of the level, so the verdict still fits after the thinking.
+
 ## Model output limits
 
 When the judge reply reaches the model's output limit, the evaluation skips that item with `output_limit_exceeded`.
@@ -253,7 +276,7 @@ The editor updates the untouched Hog example when its category key changes, is r
 Custom code is preserved.
 The LLM judge returns `categories` and `reasoning`.
 Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
-Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
+Categorical events always set `$ai_evaluation_applicable`.
 `null` means N/A only when `allows_na` is enabled.
 Unknown or duplicate keys are invalid results.
 Invalid model responses and Hog results with unknown keys, duplicate keys, or the wrong number of selections skip the run without disabling the evaluation.
@@ -274,6 +297,28 @@ Deploy all evaluation workers before enabling the flag.
 
 ## Run history and reports
 
+Online evaluations and report result queries run as project workflows with complete event properties. Evaluation editors
+are trusted to configure workflows that read properties hidden from ordinary users. Grant Evaluations editor access only
+to people authorized to process the full inputs. AI Observability and Evaluations have separate RBAC settings.
+
+Source-property rules do not automatically apply to evaluation outputs. To keep message content private:
+
+- Keep the source-property rules and separately restrict `$ai_evaluation_reasoning`.
+- Restrict `$ai_clusters` when evaluation cluster titles and descriptions may contain private content.
+- For report events, restrict `$ai_report_content`, `$ai_report_title`, and `$ai_report_citations`.
+- If outcomes are also sensitive, restrict `$ai_evaluation_result`, `$ai_evaluation_numeric_result`, and
+  `$ai_evaluation_categorical_result`. Apply separate rules to sentiment properties when using sentiment evaluations.
+- Restrict Evaluations viewer access to the intended report audience. Stored report API responses follow evaluation RBAC;
+  property rules on report events protect the event copy, not the stored report narrative.
+- Choose report email recipients and Slack channels with the same audience in mind. Deliveries contain report text and do
+  not check each recipient's PostHog property permissions.
+- Evaluation-report Inbox summaries are suppressed when the project has any event-property denial or a denial of access
+  to the evaluation, including default, member, and role rules. Inbox copies cannot enforce those source permissions.
+
+User-facing event queries continue to apply the configured property rules. Background report queries can read evaluation
+results even when the project's default rules hide those result properties from users.
+Report agents also read complete source conversations when inspecting trace or session evaluation results.
+
 The evaluation's Runs tab defaults to the last seven days.
 Its date filter applies to both the run list and summary statistics, supports custom ranges and All time, and is preserved in the URL.
 Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
@@ -287,8 +332,12 @@ Large results reduce the number of examples returned; each returned example keep
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
 
 The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Each sample includes `input_length`, the stored input's character count before shortening the preview.
 Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
-The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken. Previews and low input token counts alone are insufficient evidence.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken, and report a limitation only when those details confirm it.
+Shortened previews and low input token counts alongside high cache-read or cache-creation token counts are expected and alone do not justify an auditability caveat.
+A trace can contain many generations by design; use generation IDs to distinguish individual calls.
+The agent must recheck these caveats from prior reports against current full generation details and omit caveats that the data does not support.
 
 ## Browser compatibility
 

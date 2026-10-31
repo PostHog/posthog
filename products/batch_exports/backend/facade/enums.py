@@ -109,6 +109,18 @@ OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset(
     }
 )
 
+# The integration kinds that a batch export destination can use for credentials.
+BATCH_EXPORT_INTEGRATION_KINDS: tuple[str, ...] = (
+    "aws-redshift",
+    "aws-s3",
+    "azure-blob",
+    "databricks",
+    "google-cloud-service-account",
+    "postgresql",
+    "s3-compatible",
+    "snowflake",
+)
+
 S3_SUPPORTED_COMPRESSIONS: dict[str, list[str]] = {
     "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
     "JSONLines": ["gzip", "brotli"],

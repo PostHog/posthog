@@ -17,7 +17,13 @@ import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/gen
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
-import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
+import {
+    DEFAULT_BROADCAST_EMAIL,
+    DEFAULT_BROADCAST_PUSH,
+    DELETED_SENDER_ERROR,
+    broadcastWizardLogic,
+    getBroadcastTemplatingErrors,
+} from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
     { key: 'plan', value: ['pro'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
@@ -624,7 +630,20 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
     })
 
-    it('creates the draft and stores its send time when the workflow editor opens before any Continue', async () => {
+    it.each([
+        {
+            firstSave: 'the workflow editor opens',
+            step: 'review' as const,
+            save: (): void => logic.actions.openInWorkflowEditorConfirmed(),
+            path: '/workflows/broadcast-1/workflow',
+        },
+        {
+            firstSave: 'Continue saves the schedule step',
+            step: 'schedule' as const,
+            save: (): void => logic.actions.continueStep(),
+            path: '/broadcasts/broadcast-1',
+        },
+    ])('creates the draft and stores its send time when $firstSave before any other save', async (testCase) => {
         const createdSchedules: Record<string, any>[] = []
         useMocks({
             post: {
@@ -639,17 +658,13 @@ describe('broadcastWizardLogic', () => {
         router.actions.push('/broadcasts/new')
         logic.actions.setScheduleMode('later')
         logic.actions.setSendAt(sendAt)
-        logic.actions.setStep('review')
+        logic.actions.setStep(testCase.step)
         releaseCreate()
 
-        await expectLogic(logic, () => {
-            logic.actions.openInWorkflowEditorConfirmed()
-        })
-            .toDispatchActions(['saveBroadcastFinished'])
-            .toFinishAllListeners()
+        await expectLogic(logic, testCase.save).toDispatchActions(['saveBroadcastFinished']).toFinishAllListeners()
 
         expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt, rrule: expect.any(String) })])
-        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+        expect(router.values.location.pathname).toContain(testCase.path)
     })
 
     it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {
@@ -848,6 +863,63 @@ describe('broadcastWizardLogic', () => {
 
         expect(logic.values.stepValidationErrors.content).toEqual(expected)
         expect(logic.values.stepValidationErrors.review).toEqual(expected)
+    })
+
+    it.each([
+        {
+            field: 'link in the body',
+            email: { html: '<a href="https://example.com/?n={{%20person.name%20}}">Hi</a>' },
+            error: /^A link has a variable with spaces inside/,
+        },
+        { field: 'subject', email: { subject: 'Hi {{ person.name }' }, error: /^Liquid template error: / },
+    ])('blocks the content step on Liquid that cannot parse in the $field', ({ email, error }) => {
+        const valid = {
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { integrationId: 1 },
+            subject: 'Spring sale',
+            html: '<p>Hi {{ person.properties.name }}</p>',
+        }
+        logic.actions.setEmail({ ...valid, ...email })
+        expect(logic.values.stepValidationErrors.content).toEqual([expect.stringMatching(error)])
+
+        logic.actions.setEmail(valid)
+        expect(logic.values.stepValidationErrors.content).toEqual([])
+    })
+
+    it('puts a preheader error on the preheader, and parses a tag that spans lines', () => {
+        const email = {
+            ...DEFAULT_BROADCAST_EMAIL,
+            subject: 'Spring sale',
+            preheader: 'Hi {{ person.name }',
+            html: '<p>{{\n person.properties.name | default: &quot;friend&quot;\n}}</p>',
+        }
+
+        expect(getBroadcastTemplatingErrors('email', email, DEFAULT_BROADCAST_PUSH, null)).toEqual({
+            subject: undefined,
+            preheader: expect.stringMatching(/^Liquid template error: /),
+            body: undefined,
+            to: undefined,
+        })
+    })
+
+    it('leaves push text saved as Hog unparsed', () => {
+        const broadcast = {
+            actions: [
+                {
+                    type: 'function_push',
+                    config: { inputs: { title: { value: '', templating: 'hog' }, body: { value: '' } } },
+                },
+            ],
+        } as unknown as HogFlowApi
+        const push = { ...DEFAULT_BROADCAST_PUSH, title: 'Hi {person.name}', body: 'Sale {{ ends' }
+
+        expect(getBroadcastTemplatingErrors('push', DEFAULT_BROADCAST_EMAIL, push, broadcast)).toEqual({
+            title: undefined,
+            message: undefined,
+        })
+        expect(getBroadcastTemplatingErrors('push', DEFAULT_BROADCAST_EMAIL, push, null).message).toMatch(
+            /^Liquid template error: /
+        )
     })
 
     it('counts the audience missing the To field property on the review step only, and never for an unfiltered audience', async () => {

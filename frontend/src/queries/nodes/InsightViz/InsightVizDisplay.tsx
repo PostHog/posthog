@@ -25,11 +25,8 @@ import {
     SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
     isPropertyValueMath,
 } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
-import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_GRAPH_DATA_ATTR } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
@@ -56,10 +53,13 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsTable/FunnelStepsTable'
 import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
 import { FunnelTrendsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTrendsTable/FunnelTrendsTable'
+import { insightNavLogic } from 'products/product_analytics/frontend/insights/InsightNav/insightNavLogic'
 import { Journeys } from 'products/product_analytics/frontend/insights/journeys/Journeys'
 import { Paths } from 'products/product_analytics/frontend/insights/paths/Paths'
 import { PathCanvasLabel } from 'products/product_analytics/frontend/insights/paths/PathsLabel'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
+import { InsightAIAnalysis } from 'products/product_analytics/frontend/insights/shared/InsightAIAnalysis'
+import { INSIGHT_GRAPH_DATA_ATTR } from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
 import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
@@ -217,7 +217,8 @@ export function InsightVizDisplay({
         validationError,
         validationErrorCode,
         theme,
-        showsFlagCallsRetentionNotice,
+        flagCallsRetentionGap,
+        flagCallsRetentionStartDate,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId, insightDataError } = useValues(insightDataLogic(insightProps))
@@ -603,7 +604,12 @@ export function InsightVizDisplay({
                                 </div>
                             )}
 
-                        {!embedded && showsFlagCallsRetentionNotice && <FlagCallsRetentionNotice />}
+                        {!embedded && flagCallsRetentionGap && (
+                            <FlagCallsRetentionNotice
+                                gap={flagCallsRetentionGap}
+                                retentionStartDate={flagCallsRetentionStartDate}
+                            />
+                        )}
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',

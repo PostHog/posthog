@@ -41,7 +41,7 @@ canonical reference.
 import dataclasses
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.db.models import Count
 
@@ -73,6 +73,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
+    get_teams_with_mcp_event_count_in_period,
     get_teams_with_metrics_usage_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
@@ -87,6 +88,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
+    get_teams_with_workflow_transactional_emails_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService
@@ -107,7 +109,9 @@ def _group_types_total() -> list[dict[str, int]]:
 
 
 def _dashboard_count() -> list[dict[str, int]]:
-    return list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]], list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    )
 
 
 def _dashboard_template_count() -> list[dict[str, int]]:
@@ -138,7 +142,10 @@ def _dashboard_tagged_count() -> list[dict[str, int]]:
 
 
 def _ff_count() -> list[dict[str, int]]:
-    return list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _ff_active_count() -> list[dict[str, int]]:
@@ -148,16 +155,24 @@ def _ff_active_count() -> list[dict[str, int]]:
 
 
 def _survey_count() -> list[dict[str, int]]:
-    return list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]], list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    )
 
 
 def _replay_vision_scanner_count() -> list[dict[str, int]]:
-    return list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _replay_vision_scanner_active_count() -> list[dict[str, int]]:
-    return list(
-        ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+    return cast(
+        list[dict[str, int]],
+        list(
+            ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
     )
 
 
@@ -260,6 +275,11 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_event_count_with_groups_in_period",
         fn=lambda b, e: get_teams_with_event_count_with_groups_in_period(b, e, count_distinct=True),
+        timeout_minutes=30,
+    ),
+    QuerySpec(
+        name="teams_with_mcp_event_count_in_period",
+        fn=get_teams_with_mcp_event_count_in_period,
         timeout_minutes=30,
     ),
     QuerySpec(
@@ -529,6 +549,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_EMAILS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_workflow_transactional_emails_sent_in_period",
+        fn=get_teams_with_workflow_transactional_emails_sent_in_period,
     ),
     QuerySpec(
         name="teams_with_workflow_push_sent_in_period",

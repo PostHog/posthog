@@ -679,7 +679,7 @@ def _as_configured_now(
     platform's, so it is evaluated as stored. It still needs its logs row on the copy's team. A row in
     a child environment has its logs there, and the query would read the project's instead.
     """
-    legacy_ids = [check.legacy_configuration_id for check in checks]
+    legacy_ids = [check.legacy_configuration_id for check in checks if check.legacy_configuration_id is not None]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
     current: list[PlatformAlertCheckInput] = []
     stopped: list[Decision] = []

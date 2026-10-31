@@ -43,7 +43,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -68,6 +68,7 @@ jobs:
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
+            mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -103,6 +104,12 @@ jobs:
                           - 'posthog/**/*.py'
                           - 'ee/**/*.py'
                           - 'products/**/*.py'
+                      # The files the mypy cache key hashes. A change to them can leave the
+                      # restored cache stale for most modules, for example a django-stubs bump.
+                      mypy_cache_key:
+                          - 'uv.lock'
+                          - '**/pyproject.toml'
+                          - '**/mypy.ini'
                       python:
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
@@ -133,12 +140,16 @@ jobs:
                         - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts'
                         - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/mobile/src/features/chat/objectKinds.generated.ts'
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
+                        # Formatter inputs can change the generated mobile projection.
+                        - 'products/mobile/biome.json'
+                        - 'products/mobile/pnpm-lock.yaml'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -246,8 +257,9 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        # Master runs mypy cold after a dependency change, which needs more than 8 GB.
-        runs-on: ${{ github.event_name == 'pull_request' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        # Master and the merge queue run mypy cold after a dependency change, which needs more than 8 GB. A pull
+        # request that changes the cache key can also run nearly cold, so it gets the big runner too.
+        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
@@ -500,6 +512,12 @@ jobs:
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+
+                  - name: Run semgrep ratchet script tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_semgrep_ratchet.py -v
 
                   - name: Run granian shared socket tests
                     shell: bash

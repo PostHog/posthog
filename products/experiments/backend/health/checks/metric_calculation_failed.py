@@ -156,7 +156,7 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
     if not calculation.failures:
         return None
     compiles = ctx.metric_compiles
-    # A metric whose query doesn't compile fails every calculation, and the metric queries check words that better.
+    # A metric whose query doesn't compile fails every calculation, and `metric_cannot_compile` words that better.
     not_compiling = {failure.metric_id for failure in compiles.failures} if compiles else set()
     exposure_query_fails = compiles is not None and compiles.exposure_query_fails
     worded = [
@@ -165,7 +165,7 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
         if failure.metric_id not in not_compiling
     ]
     if not worded:
-        return not_applicable("The metric queries check reports the metric that failed")
+        return not_applicable('Reported under "Invalid metric definitions"')
     worded.sort(key=lambda item: (item[0].role != "primary", item[1].kind not in _NEEDS_A_FIX))
     count = len(worded)
     return ExperimentHealthFinding(
@@ -313,7 +313,7 @@ def _settings(failure: MetricCalculationFailure) -> _Wording | None:
     if not failure.can_quote_evaluation_rules:
         wording = word_compile_error(ExperimentHealthMetricCompileErrorKind.QUERY, message, failure.definition)
         if wording.error != MetricCompileError.OTHER:
-            # Unlike the metric queries check, which compiles as the reader, the evidence leaves out HogQL's text.
+            # Unlike `metric_cannot_compile`, which compiles as the reader, the evidence leaves out HogQL's text.
             return _setting(wording.error.value, wording.explanation)
     if failure.error_type == "validation_error":
         return _setting(

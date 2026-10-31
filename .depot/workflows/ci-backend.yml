@@ -38,8 +38,13 @@
 #   Without those plans, shards use the combined .test_durations file.
 # - actions/cache uses Depot Cache, which Depot CI and Depot GitHub Actions runners share.
 #   GitHub-hosted runners use a separate GitHub Actions cache.
-# - Only master matrix runs save the hypothesis constants cache. PR shards rebuild the pool
-#   until the hourly run saves it.
+# - A stalled actions/cache request holds a restore for about 15 minutes and then misses. The
+#   client tries each request 5 times with a 3-minute socket timeout, and no input or env var
+#   shortens either. SEGMENT_DOWNLOAD_TIMEOUT_MINS covers only the blob download. Restores here
+#   and in the Depot composite mirrors set timeout-minutes and continue-on-error, so a stall
+#   becomes an early miss. Schema restores get 4 minutes, so one retry runs before a
+#   from-scratch migrate. Saves stay unbounded, because a timeout drops what they write. The uv
+#   cache inside astral-sh/setup-uv stays unbounded, because a timeout there kills the install.
 # - The env block clears GITHUB_TOKEN and OTEL_SERVICE_NAME because Depot provides them by default.
 # - Token steps read vars.* and secrets.* from Depot's store. If a value is missing there,
 #   setup-action steps with continue-on-error fall back to the default GITHUB_TOKEN, a Depot
@@ -119,10 +124,6 @@ env:
     # and HEAD (push) key computations below can't drift.
     # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
-    # Hypothesis constants cache epoch. Bump to abandon every shared entry at once
-    # (key is posthog-hypothesis-constants-<version>-<epoch>-<isoyear>-<isoweek>); used by
-    # the Django test shards below.
-    HYPOTHESIS_CONSTANTS_EPOCH: v1
     # A Depot step timeout leaves the step's processes running. A stalled uv sync then
     # keeps the env lock, and the step's retry blocks on it. Ending uv before the step
     # timeout frees the lock. Keep this under the 5-minute timeout-minutes of every step that uses it.
@@ -694,12 +695,6 @@ jobs:
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
                   git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
 
-            - name: Fetch PR base for schema cache
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-              retry: 2
             - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
@@ -748,6 +743,8 @@ jobs:
                   # postgres image is folded in so a server-version bump invalidates the key.
                   # Non-Django migration frameworks are excluded from this Postgres schema dump.
                   # SCHEMA_CACHE_EPOCH (workflow env) prefixes the key as a manual cache-bust knob.
+                  # SchemaInputs.cache_key in .github/scripts/master_schema_cache.py names the saved
+                  # dumps, so this hash must stay byte-identical to it.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$BASE_SHA" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -790,6 +787,8 @@ jobs:
                   enable-cache: false
               continue-on-error: true
             - name: Restore test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -817,6 +816,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -829,6 +830,8 @@ jobs:
               # The timing workflow rebuilds it from the newest hourly recording. A miss
               # leaves the file absent, and the events_json rows then run every listed test.
               if: github.event_name == 'pull_request'
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: events-schema-prune.json
@@ -952,6 +955,8 @@ jobs:
         steps:
             - name: Look up schema cache
               id: schema-cache
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1161,6 +1166,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -1217,6 +1224,8 @@ jobs:
                   bin/wait-for-docker temporal
                   PYTHONFAULTHANDLER=1 timeout --signal=ABRT --kill-after=30s 3m python manage.py register_temporal_search_attributes
             - name: Restore test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -1399,6 +1408,7 @@ jobs:
                   done
 
             - name: Upload product test results
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() }}
               with:
@@ -1495,7 +1505,8 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'schedule'
         timeout-minutes: 5
-        permissions: {}
+        permissions:
+            contents: read
         name: SDK major-version guard (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         steps:
@@ -1615,6 +1626,11 @@ jobs:
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
+            # New files in `ee/` need a human decision, and a path comparison sees an empty
+            # file that a content scan cannot. Exemptions live in the script.
+            - name: Check for new files under ee/
+              if: github.event_name == 'pull_request'
+              run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
@@ -1790,39 +1806,37 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev --no-install-package pytest-split
             - name: Compute master schema cache key
-              # Must match the migration-set computation in turbo-discover and the
-              # push-side save below (inputs, hash, and key prefix). Keyed off the
-              # master checkout (HEAD here) so a restored dump is exactly the state
+              # Keyed off the master checkout (HEAD here), so an exact hit is the state
               # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
-              working-directory: upstream-master
               run: |
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
-                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
-                      | LC_ALL=C sort) || true
-                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
-                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
-                  if [ -z "$MIG_FILES" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                  else
-                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
-                  fi
+                  KEY=$(upstream-master/.venv-master/bin/python .github/scripts/master_schema_cache.py \
+                      --repository upstream-master --epoch "$SCHEMA_CACHE_EPOCH" key)
+                  echo "key=$KEY" >> "$GITHUB_OUTPUT"
             - name: Restore master schema dump from cache
+              id: master-schema-cache
               if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
-                  # The exact key misses in the minutes between a master migration
-                  # landing and its dump being saved. The PR base commit's dump is
-                  # always older than the checkout, so migrate just tops it up.
+                  # The newest master snapshot is the one most likely to pass the check below.
+                  # A merge queue or stacked base has no saved dump, and an older PR base often
+                  # predates a uv.lock change that the check rejects.
                   restore-keys: |
-                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
+                      posthog-schema-master-
+            - name: Validate fallback master schema
+              id: validate-master-schema
+              if: steps.master-schema-cache.outputs.cache-matched-key != '' && steps.master-schema-cache.outputs.cache-matched-key != steps.master-schema-key.outputs.key
+              env:
+                  CACHED_KEY: ${{ steps.master-schema-cache.outputs.cache-matched-key }}
+              run: >-
+                  upstream-master/.venv-master/bin/python .github/scripts/master_schema_cache.py
+                  --repository upstream-master --epoch "$SCHEMA_CACHE_EPOCH"
+                  validate --dump schema.sql.gz --cache-key "$CACHED_KEY"
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1830,8 +1844,8 @@ jobs:
                   bin/ci-wait-for-docker wait --only db redis7 clickhouse \
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Prime posthog DB from cached schema
-              # Turns "Run migrations up to master" below into a no-op instead
-              # of a full migration run.
+              # Leaves "Run migrations up to master" below to apply only the migrations
+              # the dump lacks, instead of a full migration run.
               if: github.event_name != 'push'
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -2134,6 +2148,11 @@ jobs:
                   GH_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   REPO: ${{ github.repository }}
+              # A repeated POST adds a second identical check run, and GitHub shows the newest one.
+              retry:
+                  retries: 3
+                  backoff: exponential
+                  delay-seconds: 5
               run: |
                   if [ ! -f migration_analysis.json ]; then
                     # Analyzer crashed before writing JSON. Publish a failure
@@ -2201,6 +2220,8 @@ jobs:
 
             - name: Upload migration analysis artifact
               if: ${{ always() && github.event_name == 'pull_request' }}
+              timeout-minutes: 7
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migration-analysis
@@ -2256,30 +2277,19 @@ jobs:
                   gunzip -t schema.sql.gz
 
             - name: Compute migration-set schema key
-              # Must match the PR-base computation in turbo-discover and the
-              # master restore key above (inputs, hash, and key prefix).
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
-                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
-                      | LC_ALL=C sort) || true
-                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
-                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
-                  KEY=""
-                  if [ -z "$MIG_FILES" ]; then
-                      echo "::notice::no migration files matched — skipping migration-set schema save"
-                  else
-                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      KEY="posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}"
+                  KEY=$(python .github/scripts/master_schema_cache.py --repository . --epoch "$SCHEMA_CACHE_EPOCH" key)
+                  if [ -z "$KEY" ]; then
+                      echo "::notice::no migration files matched, so the migration-set schema save is skipped"
                   fi
                   echo "key=$KEY" >> $GITHUB_OUTPUT
                   printf '%s' "$KEY" > schema-cache-key
             - name: Upload migrated schema artifact
               if: ${{ github.event_name == 'push' }}
+              timeout-minutes: 7
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: migrated-schema
@@ -2292,7 +2302,8 @@ jobs:
                   # adds pages to the artifacts listing that db:download-schema walks.
                   retention-days: 7
             - name: Save schema to Actions cache for PR shards
-              # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
+              # Consumers restore this key by their PR base or merge base. check-migrations
+              # also restores the newest one by prefix and validates it first.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -2626,7 +2637,21 @@ jobs:
               run: gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
             - name: Commit OpenAPI types via GitHub API (signed)
+              id: openapi-commit
               if: steps.openapi-check.outputs.needs-commit == 'true'
+              continue-on-error: true
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'chore: update OpenAPI generated types'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: ${{ steps.openapi-check.outputs.drifted-files }}
+              env:
+                  GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
+
+            # Depot rejects retry: on a uses: step, so a failed commit gets one more attempt here.
+            - name: Retry OpenAPI types commit
+              if: steps.openapi-commit.outcome == 'failure'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore: update OpenAPI generated types'
@@ -3138,6 +3163,8 @@ jobs:
             # Restore before setup-python so the tool cache is warm when it starts.
             - name: Restore Python tool cache
               id: python-toolcache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
@@ -3287,6 +3314,8 @@ jobs:
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -3338,6 +3367,8 @@ jobs:
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             - name: Restore test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -3365,6 +3396,8 @@ jobs:
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
                       || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
             - name: Restore per-segment test durations from cache
+              timeout-minutes: 2
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -3373,37 +3406,6 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
-            - name: Compute hypothesis constants cache key
-              # hypothesis builds its constants pool of property-test inputs by
-              # AST-parsing every local module in sys.modules. It caches the result
-              # in .hypothesis/constants under a hash of each source file, so the
-              # pool is content-addressed: restoring a stale copy is safe, because a
-              # changed file reads as a miss and rebuilds. CI otherwise pays the full
-              # parse on every shard's pytest collection (about 10 s per shard).
-              id: hyp-constants-key
-              shell: bash
-              run: |
-                  # The key includes the installed hypothesis version because the
-                  # entry format is an implementation detail, and rotates weekly so
-                  # entries for deleted or rewritten files expire. The restore prefix
-                  # covers the gap until the first master run of a new week saves.
-                  hyp_version=$(python -c "import hypothesis; print(hypothesis.__version__)")
-                  prefix="posthog-hypothesis-constants-${hyp_version}-${HYPOTHESIS_CONSTANTS_EPOCH}-"
-                  {
-                      echo "key=${prefix}$(date -u +%G-%V)"
-                      echo "restore_prefix=${prefix}"
-                  } >> "$GITHUB_OUTPUT"
-            - name: Restore hypothesis constants cache
-              id: hyp-constants
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  # Constants only. Do NOT add .hypothesis/examples: the example
-                  # database decides which inputs property tests replay, so reusing
-                  # one across runs changes what the tests check.
-                  path: .hypothesis/constants
-                  key: ${{ steps.hyp-constants-key.outputs.key }}
-                  restore-keys: |
-                      ${{ steps.hyp-constants-key.outputs.restore_prefix }}
             # Tests
             - name: Set snapshot update flags
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
@@ -3529,8 +3531,13 @@ jobs:
                       # Scope the file-mode plan to Core's clean per-segment durations when the
                       # pinned pytest-split supports it; only persons-on-events-off, non-compat Core
                       # matches the .core run-set (the events_json rows do not), and a missing
-                      # file falls back to the union.
-                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                      # file falls back to the union. A selected run needs a plugin that scopes
+                      # the plan file to its targets.
+                      PLAN_CAPABILITY=SUPPORTS_SPLIT_PLAN_PATH
+                      if [[ "$MODE" == "selected" ]]; then
+                          PLAN_CAPABILITY=SCOPES_SPLIT_PLAN_PATH
+                      fi
+                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import $PLAN_CAPABILITY" 2>/dev/null; then
                           SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
                       fi
                   fi
@@ -3597,14 +3604,10 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
-                      # A selection wide enough to need more than one shard is split like a
-                      # full run. Item granularity on purpose: the target list is already
-                      # narrow, so pre-import file skipping saves nothing, and the per-segment
-                      # plan file describes a different run-set than the selected subset.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
-                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
@@ -3708,14 +3711,10 @@ jobs:
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode uses the same single-retry budget as the full run.
-                      # A selection wide enough to need more than one shard is split like a
-                      # full run. Item granularity on purpose: the target list is already
-                      # narrow, so pre-import file skipping saves nothing, and the per-segment
-                      # plan file describes a different run-set than the selected subset.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
-                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
@@ -3745,27 +3744,6 @@ jobs:
                   else
                       exit $exit_code
                   fi
-            - name: Save hypothesis constants cache
-              # One Core shard per master run writes the weekly entry: a save from
-              # every shard would race on the same key and churn the shared cache
-              # budget. cache-hit != 'true' skips the save once this week's entry
-              # exists, which keeps later master runs cheap.
-              # continue-on-error: overlapping master runs at week rollover fail its
-              # reservation check when an earlier run has saved the same key, and a
-              # cache miss must never red a green run.
-              continue-on-error: true
-              if: |
-                  env.IS_MASTER == 'true' &&
-                  matrix.segment == 'Core' &&
-                  matrix.group == 1 &&
-                  !matrix.person-on-events &&
-                  !matrix.new-events-schema &&
-                  !matrix.compat &&
-                  steps.hyp-constants.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .hypothesis/constants
-                  key: ${{ steps.hyp-constants-key.outputs.key }}
             # Post tests
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
@@ -3773,6 +3751,8 @@ jobs:
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload test results
+              timeout-minutes: 7
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() }}
               with:
@@ -3804,6 +3784,7 @@ jobs:
                   retention-days: 1
 
             - name: Upload core coverage
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: ${{ always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' && !matrix.json-targets }}
               with:
@@ -3824,8 +3805,8 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
-            - name: Verify new snapshots for flakiness
-              # Only in UPDATE mode - CHECK mode doesn't update snapshots
+            - name: Prepare snapshot patch
+              id: snapshot-patch
               if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
               shell: bash
               # The reruns must write the same schema mode's snapshot file as the main
@@ -3833,39 +3814,36 @@ jobs:
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
               run: |
-                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
-                  .github/scripts/verify-new-snapshots.sh
-
-            - name: Generate snapshot patch
-              # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
-              shell: bash
-              env:
-                  NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
-              run: |
-                  mkdir -p /tmp/patches
-                  # Stage any new/modified .ambr files so they appear in git diff
-                  git add -N '*.ambr' || true
                   # Each schema leg may only ship its own snapshot files. A leg still
                   # *claims* the other schema mode's snapshot names without writing them,
                   # so syrupy deletes them from the working tree as unused; scoping the
                   # patch keeps those deletions out of the committed diff.
-                  if [[ "$NEW_EVENTS_SCHEMA" == "true" ]]; then
+                  if [[ "$CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA" == "true" ]]; then
                     ambr_pathspec=('*.new_events_schema.ambr')
                   else
                     ambr_pathspec=('*.ambr' ':(exclude)*.new_events_schema.ambr')
                   fi
+                  if [[ -z "$(git ls-files --others --exclude-standard -- "${ambr_pathspec[@]}")" ]] && git diff --quiet -- "${ambr_pathspec[@]}"; then
+                    echo "No snapshot changes"
+                    exit 0
+                  fi
+
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
+                  .github/scripts/verify-new-snapshots.sh
+                  mkdir -p /tmp/patches
+                  # Stage any new/modified .ambr files so they appear in git diff
+                  git add -N '*.ambr' || true
                   # Generate patch if there are changes
                   if ! git diff --quiet -- "${ambr_pathspec[@]}" 2>/dev/null; then
                     git diff --binary --full-index -- "${ambr_pathspec[@]}" > /tmp/patches/backend-${{ matrix.artifact_key }}.patch
                     echo "Generated patch with $(wc -l < /tmp/patches/backend-${{ matrix.artifact_key }}.patch) lines"
+                    echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
                     echo "No snapshot changes to patch"
                   fi
 
             - name: Upload snapshot patch
-              # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' }}
+              if: ${{ steps.snapshot-patch.outputs.changed == 'true' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.artifact_key }}
@@ -3886,8 +3864,6 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Core' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              env:
-                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
@@ -3905,8 +3881,6 @@ jobs:
               continue-on-error: true
               if: ${{ !cancelled() && matrix.segment == 'Temporal' && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
-              env:
-                  TRUNK_HIDE_TEST_COLLECTION_LINKS: 'true'
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc

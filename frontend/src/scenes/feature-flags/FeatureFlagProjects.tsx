@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonDialog, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonDialog, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -25,6 +25,7 @@ import {
     hasStaticCohortDependency,
 } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
+import { FeatureFlagsTab } from './featureFlagsLogic'
 import { FlagActiveToggleTag } from './FlagActiveToggleTag'
 import { confirmFlagActiveToggleInProject, flagToggleKey } from './updateFlagActiveInProject'
 
@@ -296,6 +297,13 @@ function FeatureFlagCopySection(): JSX.Element {
                             : 'Copy'}
                     </LemonButton>
                 </div>
+            </div>
+            <div className="text-secondary mb-4">
+                To copy multiple flags at once, use{' '}
+                <Link to={urls.featureFlags(FeatureFlagsTab.PROJECTS)} data-attr="feature-flag-bulk-copy-link">
+                    bulk copy in the feature flags list
+                </Link>
+                .
             </div>
         </>
     ) : (

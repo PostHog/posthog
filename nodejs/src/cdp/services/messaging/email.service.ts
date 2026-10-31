@@ -16,11 +16,14 @@ import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { logger } from '~/common/utils/logger'
 
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
+import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -29,7 +32,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { SES_SENSITIVE_TAG } from './helpers/ses'
+import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
@@ -77,6 +80,59 @@ type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
 
 function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
     return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
+}
+
+// Every other error name reads as `other`, so an unexpected SDK error cannot add a series.
+const SES_SEND_ERROR_RESULTS = [
+    'MessageRejected',
+    'MailFromDomainNotVerifiedException',
+    'AccountSuspendedException',
+    'SendingPausedException',
+    'LimitExceededException',
+    'NotFoundException',
+    'BadRequestException',
+    'TimeoutError',
+] as const
+type SesSendResult = 'success' | 'throttled' | (typeof SES_SEND_ERROR_RESULTS)[number] | 'other'
+
+function classifySesSendError(error: unknown): SesSendResult {
+    if (isSesThrottleError(error)) {
+        return 'throttled'
+    }
+    const name = error instanceof Error ? error.name : undefined
+    return SES_SEND_ERROR_RESULTS.find((known) => known === name) ?? 'other'
+}
+
+const sesSendResultsTotal = new Counter({
+    name: 'cdp_ses_send_results_total',
+    help: 'SES SendEmail calls by result: success, throttled (rescheduled, with the error code in cdp_ses_throttle_responses_total), a known SES error name, or other.',
+    labelNames: ['result'],
+})
+
+const sesSendDurationMs = new Histogram({
+    name: 'cdp_ses_send_duration_ms',
+    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
+    labelNames: ['result'],
+    buckets: [25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000],
+})
+
+const emailQueueToSendMs = new Histogram({
+    name: 'cdp_email_queue_to_send_ms',
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane.',
+    labelNames: ['source', 'priority_class'],
+    buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
+})
+
+type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime }
+
+// A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
+// workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
+// Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
+function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
+    const source =
+        invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
+    const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
+    return startedAt ? { source, startedAt } : undefined
 }
 
 /**
@@ -364,6 +420,9 @@ export class EmailService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
+        // Required, so that a caller which builds the service without it fails to compile. Pass null
+        // only where no email status is recorded.
+        private emailStatusService: EmailStatusService | null,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
@@ -400,6 +459,9 @@ export class EmailService {
         )
         const addLog = createAddLogFunction(result.logs)
 
+        // Read from the incoming invocation: result.invocation is a clone, and a clone drops the scheduled time.
+        const queueWait = invocation.queue === 'email' && !isTest ? emailQueueWait(invocation) : undefined
+
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
         const integration = await this.integrationManager.get(integrationId)
@@ -424,6 +486,7 @@ export class EmailService {
                         : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
                 addLog('warn', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'sending_suspended', isTest)
                 logger.warn('Skipping email send for a suspended team', {
                     teamId: invocation.teamId,
                     cause: suspensionCause,
@@ -460,6 +523,7 @@ export class EmailService {
                     : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
                 addLog('error', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'sending_paused', isTest)
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -511,6 +575,7 @@ export class EmailService {
                         count: 1,
                     })
                 }
+                this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
@@ -531,6 +596,7 @@ export class EmailService {
                 const skipReason = `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`
                 addLog('info', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'recipient_suppressed', isTest)
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -676,7 +742,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
                     break
 
                 case 'unsupported':
@@ -752,6 +818,17 @@ export class EmailService {
 
             if (success && assetRow) {
                 result.messageAssets.push(assetRow)
+            }
+
+            // A failure here is final: SES throttling returned above to reschedule, and nothing
+            // retries a failed send.
+            if (this.emailStatusService && isTransactionalEmailSend(invocation)) {
+                this.emailStatusService.queue({
+                    teamId: invocation.teamId,
+                    messageId: invocation.id,
+                    status: success ? 'sent' : 'failed',
+                    reason: success ? undefined : 'provider_error',
+                })
             }
         }
 
@@ -1090,7 +1167,8 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         trackingEnabled: boolean,
-        isTest = false
+        isTest = false,
+        queueWait?: EmailQueueWait
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -1151,6 +1229,9 @@ export class EmailService {
                 ...(result.invocation.hogFunction?.metadata?.sensitive === true
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
+                ...(!isTest && isTransactionalEmailSend(result.invocation)
+                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
+                    : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
         }
@@ -1198,12 +1279,26 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
+        if (queueWait) {
+            emailQueueToSendMs
+                .labels({
+                    source: queueWait.source,
+                    priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
+                })
+                .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
+        }
+
+        const sendStartedAt = performance.now()
         try {
             const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
+            sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
+            sesSendResultsTotal.labels({ result: 'success' }).inc()
         } catch (error: unknown) {
+            sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
+            sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)

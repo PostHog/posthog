@@ -10,7 +10,7 @@
             "type": "boolean"
         },
         "assignee": {
-            "description": "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.",
+            "description": "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.",
             "enum": ["me", "mine"],
             "type": "string"
         },
@@ -30,7 +30,7 @@
             "type": "string"
         },
         "exclude": {
-            "description": "Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.",
+            "description": "Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.",
             "items": {
                 "type": "string"
             },

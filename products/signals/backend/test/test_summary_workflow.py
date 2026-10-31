@@ -25,6 +25,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.startup_failure import RESEARCH_STARTUP_FAILURE, ResearchStartupFailure
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
@@ -40,6 +41,7 @@ from products.signals.backend.temporal.summary import (
     MarkReportInProgressInput,
     MarkReportPendingInput,
     MarkReportReadyInput,
+    NotifyResearchStartupFailureInput,
     PublishReportCompletedInput,
     ReportHasAssignedSignalsInput,
     ResetReportToPotentialInput,
@@ -194,6 +196,7 @@ class _Recorder:
         spend_failures: int = 0,
         spend_owner_available: bool = True,
         research_errors: list[Exception] | None = None,
+        github_optional: bool = False,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
@@ -206,6 +209,9 @@ class _Recorder:
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
         self.failure_error_types: list[str | None] = []
+        self.failure_startups: list[ResearchStartupFailure | None] = []
+        self.startup_notice_attempts = 0
+        self.github_optional = github_optional
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.claimed_before_fetch: list[bool] = []
@@ -258,6 +264,10 @@ def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
 
 
 async def _run_summary_workflow(recorder: _Recorder) -> None:
+    @activity.defn(name="github_optional_pilot_activity")
+    async def fake_pilot(team_id: int) -> bool:
+        return recorder.github_optional
+
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
         recorder.gate_checks.append(input.stage)
@@ -307,7 +317,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             priority=None,
             explanation="e",
             already_addressed=False,
-            repository="owner/repo",
+            repository=recorder.selected_repository,
             metrics=recorder.research_metrics,
             checks_snapshot=recorder.checks_snapshot,
             checks_monitoring_enabled=recorder.checks_monitoring_enabled,
@@ -350,6 +360,15 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         recorder.failures += 1
         recorder.failure_reasons.append(input.failure_reason)
         recorder.failure_error_types.append(input.error_type)
+        recorder.failure_startups.append(input.startup_failure)
+
+    @activity.defn(name="notify_research_startup_failure_activity")
+    async def fake_startup_notification(input: NotifyResearchStartupFailureInput) -> None:
+        assert recorder.failures == 1
+        assert input.failure == recorder.failure_startups[0]
+        recorder.startup_notice_attempts += 1
+        if recorder.startup_notice_attempts == 1:
+            raise OperationalError("Notification temporarily unavailable")
 
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
@@ -361,6 +380,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             workflows=[SignalReportSummaryWorkflow],
             activities=[
                 fake_quota,
+                fake_pilot,
                 fake_fetch,
                 fake_has_assigned_signals,
                 fake_mark_in_progress,
@@ -376,6 +396,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_revert,
                 fake_reset,
                 fake_failed,
+                fake_startup_notification,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -470,6 +491,34 @@ async def test_research_does_not_retry_other_activity_errors(research_error: Exc
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("requires_action,attempts", [(True, 1), (False, 2)])
+async def test_research_startup_retry_policy_and_failure_details_survive_temporal(requires_action: bool, attempts: int):
+    payload = {
+        "failure": {
+            "provider": "claude",
+            "phase": "sdk_initialization",
+            "reason": "proxy_invalid" if requires_action else None,
+            "retryability": "requires_action" if requires_action else "unknown",
+        },
+        "task_id": str(uuid.uuid4()),
+        "run_id": str(uuid.uuid4()),
+        "repository": "example/research",
+    }
+    error = ApplicationError(
+        "Research could not start", payload, type=RESEARCH_STARTUP_FAILURE, non_retryable=requires_action
+    )
+    recorder = _Recorder(research_errors=[error, error])
+    with pytest.raises(WorkflowFailureError):
+        await _run_summary_workflow(recorder)
+    assert recorder.researches == attempts
+    assert recorder.failures == 1
+    assert recorder.failure_startups[0] is not None
+    assert str(recorder.failure_startups[0].run_id) == payload["run_id"]
+    assert recorder.failure_startups[0].failure.retryability == ("requires_action" if requires_action else "unknown")
+    assert recorder.startup_notice_attempts == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "choice,target",
     [
@@ -495,11 +544,22 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
 
 
 @pytest.mark.asyncio
-async def test_no_repository_keeps_report_content_and_logs_the_blocker():
-    recorder = _Recorder(selected_repository=None)
+@pytest.mark.parametrize("github_optional", [False, True])
+async def test_no_repository_researches_only_for_the_pilot(github_optional):
+    recorder = _Recorder(
+        selected_repository=None,
+        github_optional=github_optional,
+        research_choice=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+    )
 
     await _run_summary_workflow(recorder)
 
+    if github_optional:
+        assert recorder.researches == 1
+        assert recorder.pending_inputs == []
+        assert recorder.ready_inputs[0].title == "t"
+        assert recorder.failures == 0
+        return
     assert recorder.researches == 0
     assert len(recorder.pending_inputs) == 1
     pending = recorder.pending_inputs[0]

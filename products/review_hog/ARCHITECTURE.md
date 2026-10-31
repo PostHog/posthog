@@ -5,12 +5,12 @@
 **PostHog Review** is the product name on every outward surface: GitHub comments, MCP tools, API docs, and UI prose.
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
-The `posthog-review` label starts a review.
+An `@posthog review` comment starts a Standard review, and `@posthog review --deep` starts a Deep review. No label starts a review.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 
 - **Standard** (internal name **Flash**, `flash`): the automatic review every push gets. A fixed set of reviewers on a lower-cost model. It never pushes to the branch.
-- **Deep** (internal name **Full**, `full`): the review someone asks for with the Review button, the `posthog-review` label, or an Inbox report. It uses the requester's perspectives, validator, and threshold.
+- **Deep** (internal name **Full**, `full`): the review someone asks for with the Review button, the `@posthog review --deep` comment, or an Inbox report. It uses the requester's perspectives, validator, and threshold.
 - **Resolve**: the stage after a Deep review that fixes review comments on the PR branch, only when the PR owner opted in (`resolve_comments`).
 - **Inbox review**: a Deep review of a PR the PostHog agent opened for an Inbox report. The report's assigned reviewer counts as the PR owner.
 - **Perspective**: one angle a Deep review reads the code from, such as logic and correctness. Each one is a review skill.
@@ -152,8 +152,7 @@ re-opens triage for exactly that thread, standing verdicts ("SAFE TO FIX" / "E2E
 outcome, and everything else skips at zero cost. What's missing is the **trigger**: nothing starts a resolution
 run when the reply lands, so today the conversation only advances when someone runs `run_resolution` / the
 resolve-only action. Build the comment trigger — a `pull_request_review_comment` (created) event → the existing
-trigger API → `start_resolution_workflow` for that PR (debounced; skip when the commenter is ReviewHog itself,
-mirroring the label trigger) — so replying to an escalation gets an actual answer: implement on a go-ahead,
+trigger API → `start_resolution_workflow` for that PR (debounced; skip when the commenter is ReviewHog itself) — so replying to an escalation gets an actual answer: implement on a go-ahead,
 decline-and-say-why on a disagreement, re-escalate with the new context otherwise. Mind the known blind spot: the
 work-list only fetches **unresolved** threads, so replies on already-resolved (FIXED) threads are invisible —
 the trigger should either unresolve-on-human-reply or the fetch must include threads with comments newer than
@@ -384,9 +383,8 @@ time loop, and most of what a late round flags was already there in the first. A
 a clean turn) reads from the events.
 
 The first review that posts findings on a pull request ends with one more note (`first_review_note` in
-`backend/label_reviews.py`). It links the report in the PostHog Review UI (`report_deep_link`). On a Standard review,
-where comment commands run, it also offers `@posthog review --deep`. A label review leaves the command out, because
-its own footer already names it. Later reviews do not repeat the note: the published watermark is set after the first post.
+`backend/review_notes.py`). It links the report in the PostHog Review UI (`report_deep_link`). On a Standard review,
+where comment commands run, it also offers `@posthog review --deep`. Later reviews do not repeat the note: the published watermark is set after the first post.
 
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
@@ -501,7 +499,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     finding — if all are off-diff (no inline comments resolve) the body still posts, carrying them in the
     Other-findings section, so a review is never dropped wholesale. Falls back to a body-only review when
     posting with inline comments fails. Authenticates with the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage
-    when publishing is on); the eval CLI defaults it off, the label trigger sets it on. Both publish-idempotency
+    when publishing is on); the eval CLI defaults it off, the Stamphog handoff sets it on. Both publish-idempotency
     marker scans (`_review_already_posted` here, `_find_marker_comment` on the status comment) trust the marker
     only in **app-bot** comments/reviews — on a public repo anyone can paste it, and a spoofed match would
     suppress the publish or clobber a stranger's comment.
@@ -914,15 +912,18 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   project selected, at most one project per installation) or `selected`. A `ReviewRepository` row is either
   selected into its project or a repository exception (`flash_for`); a repository has one row across all
   projects. Ownership: a selected row (or a row in the project that claims all) → that project; else the `all`
-  claim → that project; else nobody, so no automatic review and the label trigger answers "not set up". The
+  claim → that project; else nobody, so no automatic review and the Stamphog handoff starts nothing. The
   webhook prefilter (`OwnedRepositoryPrefilter`) caches a per-installation summary and fails open. Repository
   lookups match GitHub's repository id first and then the name, and backfill both. The installation id is not part
   of a repository's identity (a reinstall gets a new one), so rows and personal choices are unique by name and id. The repository list in the
   settings comes from the core GitHub integration's cached repository list (`repository_overview`), which the
   core `installation_repositories` webhook keeps fresh. A repository write must match a name and id in that list,
   so a project cannot reserve a repository id the installation does not report.
-- **Label trigger** — the PostHog GitHub App's own `pull_request` `labeled` delivery (`backend/label_reviews.py`).
-  No GitHub Action, shared secret, or environment variable is involved. See the triggers paragraph below.
+- **Stamphog handoff** — Stamphog calls the finished-review callback `receivers.py` registers in its
+  `facade/finished_review_hooks.py`, and the run carries `request_external_review` (`backend/stamphog_handoff.py`).
+  The handoff finds the owning project by repository name and reviews the head Stamphog judged, unless that head
+  already has a pending or completed review. No label, GitHub Action, shared secret, or environment variable is
+  involved. See the triggers paragraph below.
 - **Automatic authored-PR trigger** runs in the owning project and requires that project's GitHub integration for
   the delivery's installation. The rules in `backend/automatic_review_rules.py` decide, highest first: the
   author's choice for the repository (`ReviewUserRepositoryChoice`, flash/off, stored only when it differs from
@@ -931,7 +932,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   opt-in only, the default). Bot authors and authors who map to no active member get automatic Flash only when the
   project sets `bot_prs=run`; the review then runs as the user who connected the installation, with default
   settings and no resolution. No per-deploy team id picks the project for any trigger.
-- **One feature flag.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger,
+- **One feature flag.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the Stamphog handoff,
   resolution, manual Flash, Inbox reviews, the Stamphog Inbox switch, and the tiered review arms are available
   wherever it is on. DECISIONS.md records why the separate `review-hog-internal` gate went away.
 - **`GITHUB_APP_SLUG`** (instance setting) names the app, and `posthog_app_login()` in
@@ -948,7 +949,7 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 4. Set the project rule (automatic Flash for everyone, for listed people, or opt-in only) and the bot rule.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`posthog-review` **label** on a PR in a repository that a project reviews (the GitHub App's own `labeled` delivery), a **UI**
+**Stamphog handoff** of a refused or escalated self-driving PR in a repository that a project reviews, a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
 also carries the review-without-resolving, resolve-only, and **Flash** variants; Flash pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
@@ -961,16 +962,16 @@ It accepts `opened`, `synchronize`, and `ready_for_review` for open PRs whose he
 A draft is skipped (`draft_skipped`) when the PR owner turned `review_drafts` off. Its first automatic review then comes from `ready_for_review`, and `automatic_reviewed_head_sha` keeps a head that was already reviewed as a draft from a second review.
 A draft that is reviewed gets its first automatic review only: the push gate's `draft` rule skips the later pushes, and `ready_for_review` reviews everything since the last reviewed head, also when the author marks it ready without a push.
 A PR with the `skip-agent-review` label gets no automatic review (`label_skipped`). The task checks the payload labels, and the turn checks the labels its fetch reads from GitHub again, because `gh pr create --label` adds labels after the `opened` delivery.
-The turn ends before the status comment, so a skip leaves nothing on the PR. Removing the label does not start a review; apply the `posthog-review` label for one.
-The label, the `@posthog review` comment, and the UI button ignore both the switch and the skip label.
+The turn ends before the status comment, so a skip leaves nothing on the PR. Removing the label does not start a review; comment `@posthog review` for one.
+The `@posthog review` comment, the UI button, and the Stamphog handoff ignore both the switch and the skip label.
 The webhook handler reads only the cached ownership summary, so the task checks ownership again.
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
 The turn rechecks ownership and the rules before starting. Flash publishes every kept finding (it records `consider` as the turn's threshold) and never starts resolution.
 **No Flash after Full:** once a PR has a published Full review, automatic dispatch skips it (`full_review_published`), the turn's recheck refuses it, and a manual Flash request answers 409 `flash_after_full`.
-The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes by action through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`): `labeled` with the `posthog-review` label queues `process_label_event`.
-That task finds the owning project and accepts a person or `stamphog[bot]` (Stamphog's hand-off) as the labeler; another bot's label gets an explaining comment, and the app token removes the label that the event named.
-The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; the workflow removes both labels when the run ends, and a running resolution leaves the label for a later retry.
-Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_label_review_total`, keyed by outcome.
+The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`), and a `labeled` delivery starts nothing.
+The Stamphog handoff queues `process_stamphog_handoff`, which finds the project that owns the repository (it can differ from the Stamphog project).
+The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; a running resolution drops the handoff.
+Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
 retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
@@ -994,13 +995,13 @@ Two per-PR splits run on top of these rules. Their flags are keyed like the coor
 `reviewhog-zero-change-skip` adds the `zero_change` rule after `quiet_small_push`: the gate compares the stored single-agent PR snapshots of the last automatically reviewed head and this head (`ChangedSinceReview`), and a PR whose reviewed files did not change skips in the treatment arm. `merge_only` already skips a push whose whole PR diff is unchanged (a base merge, a rebase, an amend), so this rule catches pushes that change only files the review leaves out, such as generated files and snapshots. The snapshots leave lockfiles out too, so a PR with a lockfile at either head never matches, and neither does a PR with a file whose patch GitHub left out (`PRChange.comparable`). The control arm reviews the push and records the match, so it is the audit. A missing snapshot never matches. A skipped push does not move the baseline, so the next comparison covers it.
 `reviewhog-delta-band` lets a turn that passes every rule review only what changed: from run `DELTA_BAND_FIRST_RUN_INDEX` (3) on, with changed reviewable lines at most `DELTA_BAND_MAX_CHANGE_SHARE` (3%) of the PR's reviewable lines, no dependency file changed, and a comparison the snapshots show in full: no lockfile in the PR, no file without a patch, and no file that left the PR (`plan_delta_review`). The first follow-up always reviews the whole PR. A delta turn passes the baseline head to its sessions (`SandboxStageInput.delta_since_head_sha`), runs one session per lens, and each prompt shows only the changed files with the diff blocks around the changed lines (`delta_files`), plus the earlier findings, the full repository at the head, and the git command for the whole diff since the baseline, which also shows code the PR no longer changes. A gate failure, or a baseline snapshot that is gone when the prompt is built, gives the whole-PR prompt, also in each lens session.
 The gate event carries `pr_changed_lines`, both arms, `coordinator`, `delta_eligible` and `delta_review`; every completed event carries `zero_change_skip_arm`, `delta_band_arm` and `delta_review`, so each split compares by arm over PR lifecycles. A coordinated PR always records the control arm of the delta split, so a delta comparison leaves out gate events with `coordinator` set.
-The `next_push_likely` chance comes from a table fitted offline on closed PRs and refitted by hand. Its key is the follow-up number, capped at 8, and the PR size band (additions plus deletions: up to 200, up to 1000, more). A size cell with fewer than 10 PRs falls back to the chance for the follow-up number alone. The follow-up number is `run_index - 1`, so it also counts label and UI turns, which the fit left out.
+The `next_push_likely` chance comes from a table fitted offline on closed PRs and refitted by hand. Its key is the follow-up number, capped at 8, and the PR size band (additions plus deletions: up to 200, up to 1000, more). A size cell with fewer than 10 PRs falls back to the chance for the follow-up number alone. The follow-up number is `run_index - 1`, so it also counts comment and UI turns, which the fit left out.
 Each rule has a `SKIP_*` switch. `no_new_commits`, `reviewhog_commits_only`, `merge_only`, `draft`, `late_follow_up`, `small_pr`, `quiet_small_push`, and `throttled` skip; the three value rules also take over a shadow match of an earlier rule, but never a gate failure, and they do not run on a retry of a turn that already finalized its head; `docs_only`, `small_change`, System One, and `next_push_likely` (`SKIP_NEXT_PUSH`) only record a shadow decision until production data confirms them.
 A skipped turn posts no status comment and leaves `automatic_reviewed_head_sha` in place, so the next push is judged against the last reviewed head.
 Any gate failure reviews the push. Each decision emits `reviewhog_push_gate_decided` with `skipped`, `would_skip`, the reason, the System One probability and model, `own_code_lines`, the lines the new own commits change in code files (empty when GitHub could not list every file of a commit), `net_code_lines` and `small_change_deferrals` (empty when the gate did not read them), `pr_draft`, the draft state the gate used (null when the snapshot is unavailable), `reviewable_lines` and `previous_findings`, the inputs of the value rules (null when the gate could not read them), and `next_push_probability` (null on a draft and when the snapshot is unavailable; set on every other decision, also when another rule decided); the event key includes it and the reason, so a draft or throttle skip and a later review at the same head stay two events, so skip rules that weigh push size can be calibrated offline.
-The first automatic review and every label, UI, inbox, and manual trigger never reach the gate.
-An automatic review of a draft that posts findings ends with a note: it is the only automatic review while the PR is a draft, `@posthog review` (or the `posthog-review` label when `github-commands` is off) reviews new changes sooner, and marking the PR ready reviews them otherwise. Label and UI reviews leave the note out, because they also run for authors without automatic reviews.
-Reviews start only from a trigger (a push, the label, the UI, the inbox, or a manual run) and run right away.
+The first automatic review and every comment, UI, inbox, Stamphog, and manual trigger never reach the gate.
+An automatic review of a draft that posts findings ends with a note: it is the only automatic review while the PR is a draft, `@posthog review` (or the Code review page when `github-commands` is off) reviews new changes sooner, and marking the PR ready reviews them otherwise. Comment, UI, and Stamphog reviews leave the note out, because they also run for authors without automatic reviews.
+Reviews start only from a trigger (a push, a comment, the UI, the inbox, a Stamphog handoff, or a manual run) and run right away.
 ReviewHog never schedules a review for later, for example on a timer after a skipped push: nobody waits for a review that arrives at an unknown time, and a late review can land while the PR sits in a merge queue or under a stack.
 A change that the gate skips gets reviewed at the next trigger, or not at all.
 

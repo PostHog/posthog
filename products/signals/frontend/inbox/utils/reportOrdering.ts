@@ -22,6 +22,7 @@ const STATUS_RANK: Record<SignalReportStatus, number> = {
     [SignalReportStatus.FAILED]: 6,
     [SignalReportStatus.MONITORING]: 6,
     [SignalReportStatus.RESOLVED]: 7,
+    [SignalReportStatus.CLOSED]: 7,
     [SignalReportStatus.SUPPRESSED]: 8,
     [SignalReportStatus.DELETED]: 9,
 }

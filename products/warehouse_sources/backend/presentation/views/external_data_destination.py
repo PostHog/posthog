@@ -13,9 +13,9 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationKind, IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
@@ -49,21 +49,22 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 # `Type` enum carries the rest so the column and its data do not change as each one lands, but
 # a user cannot select one until its writer ships.
 DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
-    str(ExternalDataDestination.Type.POSTGRES): (str(Integration.IntegrationKind.POSTGRESQL),),
-    str(ExternalDataDestination.Type.REDSHIFT): (str(Integration.IntegrationKind.AWS_REDSHIFT),),
-    str(ExternalDataDestination.Type.SNOWFLAKE): (str(Integration.IntegrationKind.SNOWFLAKE),),
-    str(ExternalDataDestination.Type.DATABRICKS): (str(Integration.IntegrationKind.DATABRICKS),),
+    str(ExternalDataDestination.Type.POSTGRES): (str(IntegrationKind.POSTGRESQL),),
+    str(ExternalDataDestination.Type.REDSHIFT): (str(IntegrationKind.AWS_REDSHIFT),),
+    str(ExternalDataDestination.Type.SNOWFLAKE): (str(IntegrationKind.SNOWFLAKE),),
+    str(ExternalDataDestination.Type.DATABRICKS): (str(IntegrationKind.DATABRICKS),),
     str(ExternalDataDestination.Type.S3): (
-        str(Integration.IntegrationKind.AWS_S3),
-        str(Integration.IntegrationKind.S3_COMPATIBLE),
+        str(IntegrationKind.AWS_S3),
+        str(IntegrationKind.S3_COMPATIBLE),
     ),
-    str(ExternalDataDestination.Type.BIGQUERY): (str(Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
-    str(ExternalDataDestination.Type.AZURE_BLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
+    str(ExternalDataDestination.Type.BIGQUERY): (str(IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT),),
+    str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
 USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
+ALL_DESTINATION_INTEGRATION_KINDS = sorted({kind for kinds in DESTINATION_INTEGRATION_KINDS.values() for kind in kinds})
 
 # Built from `Type`, so the values cannot drift from the model. django-stubs only types the
 # literal form of the functional API.
@@ -218,8 +219,8 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "format. Credentials are not stored here. They live on the linked integration."
         ),
     )
-    integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+    integration = IntegrationReferenceField(
+        kinds=ALL_DESTINATION_INTEGRATION_KINDS,
         required=False,
         allow_null=True,
         help_text="Integration holding this destination's credentials. Required for every type except the PostHog warehouse.",
@@ -357,14 +358,14 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
 
     # Only creation tests the connection. A destination keeps its server, database and schema
     # after that (see `_reject_retargeting`), so there is nothing new to test on update.
-    def _check_postgres_connection(self, integration: Integration, config: dict[str, Any] | None) -> None:
+    def _check_postgres_connection(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
         try:
             check_postgres_destination(integration, config)
         except DestinationConnectionCheckError as error:
             field = "config" if error.failure in CONFIG_FAILURES else "integration"
             raise ValidationError({field: str(error)})
 
-    def _run_connection_test(self, destination_type: str, integration: Integration, config: Any) -> None:
+    def _run_connection_test(self, destination_type: str, integration: IntegrationRecord, config: Any) -> None:
         run = run_connection_test(destination_type, integration, config)
         if run is not None and run.failure is not None:
             raise ValidationError({run.failure.field: str(run.failure)})

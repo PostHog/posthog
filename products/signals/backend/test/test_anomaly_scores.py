@@ -215,7 +215,7 @@ def _insight(series: list[EventsNode], **query: Any) -> Insight:
 
 def _result(order: int, label: str) -> dict[str, Any]:
     days = [f"2026-01-{day:02d}" for day in range(1, 6)]
-    return {"action": {"order": order}, "label": label, "days": days, "data": [1.0] * 5, "breakdown_value": None}
+    return {"order": order, "label": label, "days": days, "data": [1.0] * 5, "breakdown_value": None}
 
 
 class TestScoreInsight(SimpleTestCase):
@@ -297,7 +297,7 @@ class TestScoreInsight(SimpleTestCase):
 
         def result(breakdown: str, first_day: datetime, days: int) -> dict[str, Any]:
             return {
-                "action": {"order": 0},
+                "order": 0,
                 "label": "pageview",
                 "breakdown_value": breakdown,
                 "days": [(first_day + timedelta(days=day)).strftime("%Y-%m-%d") for day in range(days)],
@@ -389,7 +389,7 @@ class TestScoreInsight(SimpleTestCase):
         steps = np.linspace(1, 40, len(buckets)) * (1 + rng.normal(0, 0.3, size=len(buckets)))
         values = list(1000 + np.cumsum(steps))
         result = {
-            "action": {"order": 0},
+            "order": 0,
             "label": "pageview",
             "breakdown_value": None,
             "days": [bucket.strftime("%Y-%m-%d %H:%M:%S") for bucket in buckets],

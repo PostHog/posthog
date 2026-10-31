@@ -2,32 +2,40 @@
 Exposure criteria that no event can match, read from the criteria alone. Pure functions, no I/O.
 
 The zero exposures check reports an experiment that counted nobody. This check names the cause when the criteria show
-it: a custom exposure event that the project never received, or a filter on the flag call events that requires
-another flag than the one the exposure query requires.
+it: a custom exposure event that the project never received, a filter on the flag call events that requires another
+flag than the one the exposure query requires, or a filter that requires a property the project never received.
 """
 
 from posthog.schema import PropertyOperator
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthCheckStatus,
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.checks.events_received import not_received_severity, quoted
-from products.experiments.backend.health.context import FlagKeyFilter, HealthContext
+from products.experiments.backend.health.checks.events_received import joined, not_received_severity, quoted
+from products.experiments.backend.health.context import (
+    ExposureEvents,
+    ExposurePropertyFilter,
+    FlagKeyFilter,
+    HealthContext,
+)
 from products.experiments.backend.health.skips import (
     NO_FLAG,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     CheckOutcome,
+    CheckSkip,
     not_applicable,
     not_checked,
 )
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 EXPOSURE_EVENT_NOT_INGESTED = "exposure_event_not_ingested"
 FILTER_ON_ANOTHER_FLAG = "filter_on_another_flag"
+FILTER_ON_PROPERTY_NOT_INGESTED = "filter_on_property_not_ingested"
 
 
 def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
@@ -36,6 +44,20 @@ def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
     events = ctx.exposure_events
     if events is None:
         return not_checked("Couldn't check because the exposure criteria can't be read")
+    event_outcome = _exposure_event_cannot_match(ctx, events)
+    if isinstance(event_outcome, ExperimentHealthFinding):
+        return event_outcome
+    property_outcome = _property_filter_cannot_match(ctx, events)
+    if isinstance(property_outcome, ExperimentHealthFinding):
+        return property_outcome
+    # A part that couldn't read its input leaves a problem possible, and a part that looked makes the check look.
+    for outcome in (event_outcome, property_outcome):
+        if isinstance(outcome, CheckSkip) and outcome.status == ExperimentHealthCheckStatus.NOT_CHECKED:
+            return outcome
+    return None if event_outcome is None or property_outcome is None else event_outcome
+
+
+def _exposure_event_cannot_match(ctx: HealthContext, events: ExposureEvents) -> CheckOutcome:
     event = events.custom_event
     if event is not None:
         if ctx.has_ended:
@@ -49,6 +71,19 @@ def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
         return not_applicable(NO_FLAG if ctx.flag is None else "Doesn't check exposure criteria that use an action")
     other = next((f for f in events.flag_key_filters if _requires_another_flag(f, flag_key)), None)
     return None if other is None else _filter_on_another_flag(flag_key, other)
+
+
+def _property_filter_cannot_match(ctx: HealthContext, events: ExposureEvents) -> CheckOutcome:
+    filters = events.required_properties
+    if not filters:
+        return not_applicable("The exposure criteria have no filter that needs a property")
+    received = ctx.exposure_properties_received
+    missing = [f for f in filters if f.definition_recorded and received.get((f.type, f.key)) is False]
+    if missing:
+        return _filter_on_property_not_ingested(ctx, missing)
+    if any(not f.definition_recorded or (f.type, f.key) not in received for f in filters):
+        return not_checked("Couldn't check because PostHog can't tell whether the project received a filter's property")
+    return None
 
 
 def _requires_another_flag(flag_filter: FlagKeyFilter, flag_key: str) -> bool:
@@ -93,6 +128,42 @@ def _exposure_event_not_ingested(ctx: HealthContext, event: str) -> ExperimentHe
             f"received yet. Until it arrives, nobody is counted as exposed. {advice}"
         ),
         evidence={"event": event},
+    )
+
+
+def _filter_on_property_not_ingested(
+    ctx: HealthContext, filters: list[ExposurePropertyFilter]
+) -> ExperimentHealthFinding:
+    properties = list(dict.fromkeys(f'the {f.type} property "{f.key}"' for f in filters))
+    one = len(properties) == 1
+    subject = (
+        f"{'A filter' if one else 'Filters'} in the exposure criteria {'needs' if one else 'need'} {joined(properties)}"
+    )
+    the_filters = "the filter" if one else "the filters"
+    if ctx.has_ended:
+        detail = (
+            f"{subject}, which this project hasn't received. No event passed {the_filters}, so nobody was counted as "
+            f"exposed. Correct the {'name' if one else 'names'} or remove {the_filters} to count the exposures up to "
+            "the end."
+        )
+    else:
+        advice = (
+            f"Check the {'name' if one else 'names'} for a typo, or launch the experiment after your code starts "
+            f"sending {'it' if one else 'them'}."
+            if not ctx.is_launched
+            else f"Check that the {'name matches' if one else 'names match'} what your code sends, or remove "
+            f"{the_filters}."
+        )
+        detail = (
+            f"{subject}, which this project hasn't received yet. Until {'it arrives' if one else 'they arrive'}, no "
+            f"event passes {the_filters}, so nobody is counted as exposed. {advice}"
+        )
+    return _finding(
+        subcode=FILTER_ON_PROPERTY_NOT_INGESTED,
+        severity=not_received_severity(ctx, affects_results=True),
+        title="An exposure filter needs a property this project hasn't received",
+        detail=detail,
+        evidence={"properties": ", ".join(dict.fromkeys(f.key for f in filters))},
     )
 
 

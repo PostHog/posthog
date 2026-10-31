@@ -16,7 +16,7 @@ import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 import { getDistinctIdWithKey, getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
-import type { TraceDialogEntryPoint } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
+import type { TraceDialogEntryPoint } from 'products/tracing/frontend/components/TraceDialog/traceDialogOpenLogic'
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 import { type ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 

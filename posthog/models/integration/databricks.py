@@ -2,6 +2,7 @@
 
 import re
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.security.url_validation import is_url_allowed
 
@@ -61,10 +62,10 @@ class DatabricksIntegration:
     client_id: str
     client_secret: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.DATABRICKS.value:
             raise DatabricksIntegrationError("Integration provided is not a Databricks integration")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
         try:
             self.server_hostname = self.integration.config["server_hostname"].lower()

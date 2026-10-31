@@ -292,7 +292,7 @@ pub enum Decline {
     /// Longer than [`MAX_URL_LEN`], before or after normalization.
     TooLong,
     /// Not parseable as an absolute URL. A relative `src` lands here, because the recording does
-    /// not carry the base it would need to resolve against.
+    /// not carry the base it would need to resolve against. A protocol-relative URL does not, because it names its host.
     NotAbsolute,
     /// A scheme we do not fetch. Only `https` passes, so plain `http` lands here too.
     BadScheme,
@@ -340,10 +340,58 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
     try_canonicalize(raw).ok()
 }
 
+/// Whether the URL names a host but no scheme, such as `//cdn.example.com/a.png`. The browser loads it with the page's
+/// scheme, so it is remote. A browser reads a backslash as a slash in an `https` URL, so `\\host` and `/\host` count too.
+pub fn is_protocol_relative(raw: &str) -> bool {
+    matches!(raw.trim().as_bytes(), [b'/' | b'\\', b'/' | b'\\', ..])
+}
+
+/// Whether the browser loads the URL from a host. A URL scheme is not case sensitive, so `HTTPS://` loads as
+/// `https://` does. A browser reads any run of slashes and backslashes after `http:` or `https:` as `//`, and none at
+/// all on a page of another scheme, so `https:\\host` and `https:host` can load from the host too. A
+/// protocol-relative URL does as well.
+pub fn is_remote(url: &str) -> bool {
+    let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|start| start.eq_ignore_ascii_case(scheme))
+            .map(|_| &url[scheme.len()..])
+    });
+    match after_scheme {
+        Some(rest) => !rest.is_empty(),
+        None => is_protocol_relative(url),
+    }
+}
+
+/// The media types the image fetcher stores, the `ALLOWED_CONTENT_TYPES` of `image-fetch-v4/image-fetcher.ts`.
+pub const FETCHED_IMAGE_TYPES: [&str; 5] = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+];
+
+/// Whether a `<source type>` names a type the fetcher stores, ignoring parameters such as `codecs`.
+pub fn is_fetched_image_type(source_type: &str) -> bool {
+    let essence = source_type.split(';').next().unwrap_or_default().trim();
+    FETCHED_IMAGE_TYPES
+        .iter()
+        .any(|fetched| fetched.eq_ignore_ascii_case(essence))
+}
+
 pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if raw.len() > MAX_URL_LEN {
         return Err(Decline::TooLong);
     }
+    // Only `https` passes the scheme check below, so a protocol-relative URL is read as `https`. It then meets every
+    // check that the same URL with a scheme meets.
+    let with_scheme;
+    let raw = if is_protocol_relative(raw) {
+        with_scheme = format!("https:{}", raw.trim());
+        with_scheme.as_str()
+    } else {
+        raw
+    };
     let mut url = Url::parse(raw).map_err(|_| Decline::NotAbsolute)?;
     // The browser blocks a plain `http` image on an HTTPS page as mixed content, so it never
     // rendered for the person we recorded, and a fetch puts the request on the wire in clear text
@@ -556,7 +604,6 @@ mod tests {
             "data:image/png;base64,aGk=",
             "/relative/a.png",
             "not a url",
-            "//protocol-relative.example.com/a.png",
         ] {
             assert!(canonicalize(raw).is_none(), "{raw} should not canonicalize");
         }
@@ -632,6 +679,23 @@ mod tests {
         let c = canonicalize("HTTPS://Example.COM:443/A.png#frag").unwrap();
         assert_eq!(c.fetch, "https://example.com/A.png");
         assert_eq!(c.host, "example.com");
+        // A protocol-relative URL gets the same canonical form, so it shares the reference of its https form.
+        for raw in [
+            "//Example.COM/A.png",
+            " //example.com/A.png ",
+            r"\\example.com/A.png",
+            r"/\example.com/A.png",
+            r"https:\\example.com/A.png",
+            r"https:/\example.com/A.png",
+            "https:/example.com/A.png",
+            "https:example.com/A.png",
+        ] {
+            assert_eq!(canonicalize(raw).unwrap(), c, "{raw}");
+        }
+        assert_eq!(
+            try_canonicalize("//user:secret@example.com/a.png"),
+            Err(Decline::Credential)
+        );
     }
 
     #[test]

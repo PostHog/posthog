@@ -36,6 +36,10 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# "workflows" or "activities" makes the worker poll only that half of its task queue, so that a second
+# deployment on the same queue can serve the other half. Workflow tasks then do not compete with
+# CPU-heavy activities for the GIL. "all", the default, polls both.
+TEMPORAL_WORKER_ROLE: str = get_from_env("TEMPORAL_WORKER_ROLE", "all")
 # Caps the @asyncify pool. An asyncify thread can hold a Django connection for its whole call, so the
 # pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
 # pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
@@ -407,8 +411,8 @@ ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE = _set_isolated_temporal_task_qu
 )
 ALERTS_PLATFORM_EVALUATION_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-evaluation-task-queue")
 ALERTS_PLATFORM_DELIVERY_TASK_QUEUE = _set_isolated_temporal_task_queue("alerts-platform-delivery-task-queue")
-# The platform's parallel insight checks allowed to run at once, across every team. A pool of its
-# own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
+# The platform's insight queries allowed to run in ClickHouse at once, across every team. A pool of
+# its own, so the parallel run never takes a slot from `ALERTS_MAX_INFLIGHT_EVALUATIONS`.
 ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
     "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS", 10, type_cast=int
 )
@@ -416,6 +420,15 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
+# A check holds a worker slot while it waits for a query slot, so keep this inside the evaluation
+# workers' activity slots. A value below the query pool is raised to it rather than refused, because
+# every process loads these settings and a platform value must not stop other workers from starting.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS: int = max(
+    get_from_env(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS", ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS, type_cast=int
+    ),
+    ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
+)
 # Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
 # in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
 # fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
@@ -454,6 +467,15 @@ if ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform logs check starts"
     )
+# The platform's metrics batches allowed to run at once, across every team. A batch runs its Snuffle
+# queries one after another, so this bounds the concurrent metrics alert queries.
+ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform metrics check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
@@ -469,6 +491,10 @@ REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 # no dedicated pod needed (see surfacing_scoring_sweep/README.md).
 SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
+# The digest workflow's webhook in the US project, and the Authorization value it requires. Both regions post
+# there. Without both, every digest goes through Customer.io.
+WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL", "")
+WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET", "")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.

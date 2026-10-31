@@ -149,6 +149,8 @@ export const RecordingsUniversalFiltersEmbedButton = ({
 interface ReplayUniversalFiltersEmbedProps {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    /** Replaces the whole set from a saved filter. Falls back to `setFilters` where no list logic is bound. */
+    applySavedFilter?: (filters: Partial<RecordingUniversalFilters>) => void
     resetFilters?: () => void
     totalFiltersCount?: number
     className?: string
@@ -190,7 +192,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
                     <span>Saved filters</span>
                 </div>
             ),
-            content: <SavedFilters setFilters={props.setFilters} />,
+            content: <SavedFilters applyFilters={props.applySavedFilter ?? props.setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
         {
@@ -561,6 +563,7 @@ const SessionIdsFilterChip = ({
 export const ReplayFiltersTab = ({
     filters,
     setFilters,
+    applySavedFilter,
     resetFilters,
     className,
     totalFiltersCount,
@@ -614,6 +617,7 @@ export const ReplayFiltersTab = ({
         sessionRecordingSavedFiltersLogic
     )
     const { setActiveFilterTab } = useActions(playlistFiltersLogic)
+    const applyFilters = applySavedFilter ?? setFilters
 
     useEffect(() => {
         if (!pendingFilterApplication) {
@@ -621,13 +625,19 @@ export const ReplayFiltersTab = ({
         }
 
         if (pendingFilterApplication.filters) {
-            setFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
+            applyFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
             setAppliedSavedFilter(pendingFilterApplication)
             setActiveFilterTab('filters')
         }
 
         clearPendingFilterApplication()
-    }, [pendingFilterApplication, setFilters, setActiveFilterTab, setAppliedSavedFilter, clearPendingFilterApplication])
+    }, [
+        pendingFilterApplication,
+        applyFilters,
+        setActiveFilterTab,
+        setAppliedSavedFilter,
+        clearPendingFilterApplication,
+    ])
 
     const updateSavedFilter = async (): Promise<void> => {
         if (appliedSavedFilter === null) {
@@ -692,7 +702,7 @@ export const ReplayFiltersTab = ({
                                 size="small"
                                 icon={<IconTrash />}
                                 onClick={() =>
-                                    setFilters(
+                                    applyFilters(
                                         stripSessionIds(
                                             appliedSavedFilter.filters as Partial<RecordingUniversalFilters>
                                         )
@@ -881,11 +891,10 @@ export const ReplayFiltersTab = ({
                                         size="small"
                                         icon={<IconSparkles className="text-ai" />}
                                         data-attr="replay-save-filters-as-scanner"
-                                        tooltip="Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on."
-                                        disabledReason={
+                                        tooltip={
                                             scannerHandoff.narrowsSessions
-                                                ? undefined
-                                                : 'Add an event or property filter. A date range and pinned sessions do not carry over to a scanner.'
+                                                ? 'Create a Replay vision scanner. It watches new session recordings that match these filters for you. The date range does not carry over, so it starts from now.'
+                                                : 'Create a Replay vision scanner. It watches every new session recording for you. Add a filter to watch only some of them. A date range and pinned sessions do not carry over.'
                                         }
                                         onClick={() => {
                                             void addProductIntentForCrossSell({

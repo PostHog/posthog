@@ -26,10 +26,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { toolbarFetch } from '~/toolbar/toolbarFetch'
-import { ToolbarRequestError } from '~/toolbar/toolbarRequestError'
-import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { toolbarFetch } from '~/toolbar/shared/toolbarFetch'
+import { ToolbarRequestError } from '~/toolbar/shared/toolbarRequestError'
+import { HeatmapElement, HeatmapResponseType } from '~/toolbar/shared/types'
 import { FilterType } from '~/types'
 
 export interface HeatmapDateRangeOverride {

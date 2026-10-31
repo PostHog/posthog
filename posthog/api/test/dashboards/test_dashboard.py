@@ -4045,6 +4045,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         },
                     },
                     "resolved_date_range": ANY,
+                    "resolved_compare_date_range": None,
+                    "action_names": None,
                     "query_status": None,
                     "query_scan": None,
                     "warnings": None,

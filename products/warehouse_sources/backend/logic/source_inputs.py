@@ -183,7 +183,7 @@ def _check_runtime_keys(source_type: str, keys: Iterable[str]) -> None:
         return
     try:
         split = _split(source_type, dict.fromkeys(keys))
-        non_runtime = sorted({*split.connection, *split.settings})
+        non_runtime = sorted({*split.connection, *split.references, *split.selectors, *split.settings})
     except ValueError:
         non_runtime = sorted(key for key in keys if not _has_runtime_prefix(key))
     if non_runtime:
