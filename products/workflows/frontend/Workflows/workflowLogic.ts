@@ -274,7 +274,7 @@ function rebaseGraph(base: HogFlow, local: HogFlow, remote: HogFlow): Pick<Parti
     }
 }
 
-// A branch config indexes its outgoing edges, so a server copy only fits where those edges match the local graph.
+// A branch config indexes its outgoing edges, so a server copy of a branching step only fits matching local edges.
 function serverCopyFittingLocalEdges(
     action: HogFlowAction,
     local: HogFlow,
@@ -282,8 +282,10 @@ function serverCopyFittingLocalEdges(
     remoteById: Map<string, HogFlowAction>
 ): HogFlowAction {
     const remoteAction = remoteById.get(action.id)
-    const edgesMatch = objectsEqual(outgoingEdges(local, action.id), outgoingEdges(remote, action.id))
-    return remoteAction && edgesMatch ? remoteAction : action
+    const localEdges = outgoingEdges(local, action.id)
+    const remoteEdges = outgoingEdges(remote, action.id)
+    const branches = [...localEdges, ...remoteEdges].some((edge) => edge.type === 'branch')
+    return remoteAction && (!branches || objectsEqual(localEdges, remoteEdges)) ? remoteAction : action
 }
 
 function outgoingEdges(workflow: HogFlow, actionId: string): HogFlow['edges'] {

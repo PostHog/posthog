@@ -242,6 +242,22 @@ describe('workflowLogic external edits', () => {
             expectedEdges: chain('trigger_node', 'follow_up', 'welcome', 'exit_node'),
             expectedSubjects: { welcome: 'Welcome', followUp: 'Follow-up' },
         },
+        {
+            label: 'the user added a step after an email the server rewrote',
+            editLocally: (l: ReturnType<typeof workflowLogic.build>): void => {
+                l.actions.setWorkflowValues({
+                    actions: [...l.values.workflow.actions, emailStep('reminder', 'Reminder')],
+                    edges: chain('trigger_node', 'welcome', 'reminder', 'follow_up', 'exit_node'),
+                })
+            },
+            server: withChainedSteps(
+                ['welcome', 'follow_up'],
+                (id) => (id === 'welcome' ? 'Welcome rewritten elsewhere' : 'Follow-up'),
+                { updated_at: NEWER }
+            ),
+            expectedEdges: chain('trigger_node', 'welcome', 'reminder', 'follow_up', 'exit_node'),
+            expectedSubjects: { welcome: 'Welcome rewritten elsewhere', followUp: 'Follow-up' },
+        },
     ])('saves a connected graph when $label', async ({ editLocally, server, expectedEdges, expectedSubjects }) => {
         useWorkflowMock(
             withChainedSteps(['welcome', 'follow_up'], (id) => (id === 'welcome' ? 'Welcome' : 'Follow-up'))
