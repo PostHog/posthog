@@ -58,6 +58,13 @@ interface SlopeValueLabelSummary {
     side: 'start' | 'end'
 }
 
+interface GaugeSummary {
+    value: string
+    label: string | null
+    min: string | null
+    max: string | null
+}
+
 interface PieSliceLabelSummary {
     text: string
     /** One entry per rendered line (label and/or value). */
@@ -111,6 +118,13 @@ export interface ChartAccessor<Meta = unknown> {
     pie: {
         /** On-slice labels, in slice order. */
         sliceLabels(): PieSliceLabelSummary[]
+    }
+    gauge: {
+        /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
+         *  hidden, for example when the min and max labels would overlap. */
+        text(): GaugeSummary | null
+        /** The CSS color of the value text, or null for other charts. */
+        valueColor(): string | null
     }
     /** The legend container in this chart's render scope, or null when the legend is hidden. */
     legend(): HTMLElement | null
@@ -228,6 +242,8 @@ export function getChart<Meta = unknown>(
         }
         return count
     }
+    const gaugePart = (part: string): HTMLElement | null =>
+        wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${part}"]`)
 
     return {
         element: wrapper,
@@ -294,6 +310,14 @@ export function getChart<Meta = unknown>(
                         lines: Array.from(el.querySelectorAll('div')).map((line) => line.textContent ?? ''),
                     })
                 ),
+        },
+        gauge: {
+            text: () => {
+                const text = (part: string): string | null => gaugePart(part)?.textContent ?? null
+                const value = text('value')
+                return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
+            },
+            valueColor: () => gaugePart('value')?.style.color ?? null,
         },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),
