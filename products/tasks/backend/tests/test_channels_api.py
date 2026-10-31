@@ -1115,9 +1115,9 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
             set(calls_by_user_id), {self.author.id} if source == "picked_up_web" else {self.author.id, mentioned.id}
         )
         self.assertEqual(calls_by_user_id[self.author.id][3]["messageId"], message["id"])
-        self.assertIn("replied", calls_by_user_id[self.author.id][2])
+        self.assertEqual(calls_by_user_id[self.author.id][1:3], (self.task.title, message["content"]))
         if source != "picked_up_web":
-            self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
+            self.assertEqual(calls_by_user_id[mentioned.id][1:3], (self.task.title, message["content"]))
 
     @patch("products.tasks.backend.push_dispatcher._enqueue_user")
     def test_thread_message_recipient_failures_are_isolated(self, mock_enqueue):
