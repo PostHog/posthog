@@ -4,8 +4,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.signals.backend.models import SignalReport, SignalReportCheck
+from products.signals.backend.models import SignalReport, SignalReportCheck, SignalReportMonitoringAttempt
 from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming
+from products.signals.backend.report_monitoring_attempts import check_definition_version
 from products.signals.backend.serializers import SignalReportCheckSerializer
 
 
@@ -84,12 +85,15 @@ class TestMonitoringCheckTiming(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("agent", "agent", "active", 1440, True, True, "paused"),
+            ("agent", "agent", "active", 1440, True, True, "monitoring"),
             ("legacy_metric", "metric_threshold", "active", 1440, False, True, "paused"),
             ("pending", "metric_threshold", "pending", 1440, True, True, "waiting"),
             ("missing_start", "metric_threshold", "active", 1440, True, False, "unavailable"),
             ("missing_soak", "metric_threshold", "active", None, True, True, "unavailable"),
             ("zero_soak", "metric_threshold", "active", 0, True, True, "window_ended"),
+            ("agent_exact_deadline", "agent", "active", 360, False, True, "window_ended"),
+            ("agent_past_deadline", "agent", "active", 60, False, True, "window_ended"),
+            ("agent_zero_soak", "agent", "active", 0, False, True, "window_ended"),
             ("terminal", "metric_threshold", "errored", 1440, True, True, None),
         ]
     )
@@ -111,7 +115,13 @@ class TestMonitoringCheckTiming(SimpleTestCase):
             expires_at=now + timedelta(days=1),
         )
 
-        timing = MonitoringCheckTiming.for_check(check, now=now)
+        attempt = SignalReportMonitoringAttempt(
+            team_id=1,
+            report=report,
+            monitoring_started_at=start,
+            check_versions={str(check.id): check_definition_version(check)},
+        )
+        timing = MonitoringCheckTiming.for_check(check, now=now, attempt=attempt)
 
         assert (timing.state if timing else None) == state
         assert timing is None or timing.next_measurement_at is None

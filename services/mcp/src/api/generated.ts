@@ -74009,6 +74009,8 @@ export namespace Schemas {
     }
 
     /**
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
      * * `scheduled` - Scheduled
      * * `due` - Due
      * * `window_ended` - Window ended
@@ -74023,6 +74025,8 @@ export namespace Schemas {
 
 
     export const MonitoringCheckTimingStateEnum = {
+      Monitoring: 'monitoring',
+      Verifying: 'verifying',
       Scheduled: 'scheduled',
       Due: 'due',
       WindowEnded: 'window_ended',
@@ -74035,8 +74039,10 @@ export namespace Schemas {
     } as const;
 
     export interface MonitoringCheckTiming {
-      /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+      /** Whether this check is Monitoring, awaiting or running final verification, has an interim measurement due, or is paused. No state implies a final verdict.
        *
+       * * `monitoring` - Monitoring
+       * * `verifying` - Verifying
        * * `scheduled` - Scheduled
        * * `due` - Due
        * * `window_ended` - Window ended

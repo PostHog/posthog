@@ -44,6 +44,7 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
+from products.signals.backend.report_check_final_agents import MonitoringScoutCheck
 from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming, MonitoringCheckTimingState
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
@@ -60,6 +61,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -92,6 +94,7 @@ from .models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportSuppressionSource,
@@ -2855,7 +2858,7 @@ def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccess
 class MonitoringCheckTimingSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=MonitoringCheckTimingState.choices,
-        help_text="Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.",
+        help_text="Whether this check is Monitoring, awaiting or running final verification, has an interim measurement due, or is paused. No state implies a final verdict.",
     )
     started_at = serializers.DateTimeField(
         allow_null=True, help_text="Original Monitoring start for this check's report."
@@ -2898,12 +2901,37 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
         return enabled_by_team[instance.team_id]
 
+    def _agent_timing(self, instance: SignalReportCheck, *, now: datetime) -> MonitoringCheckTiming | None:
+        attempts = cast(
+            dict[uuid.UUID, SignalReportMonitoringAttempt | None],
+            self.context.setdefault("report_check_monitoring_attempts", {}),
+        )
+        if instance.report_id not in attempts:
+            attempts[instance.report_id] = current_monitoring_attempt(instance.report)
+        attempt = attempts[instance.report_id]
+        timing = MonitoringCheckTiming.for_check(instance, now=now, attempt=attempt)
+        if timing is None or timing.state != MonitoringCheckTimingState.WINDOW_ENDED or attempt is None:
+            return timing
+        running_by_report = cast(
+            dict[uuid.UUID, dict[uuid.UUID, MonitoringScoutCheck]],
+            self.context.setdefault("report_check_running_verifications", {}),
+        )
+        if instance.report_id not in running_by_report:
+            running_by_report[instance.report_id] = MonitoringCheckTiming.running_verifications(
+                instance.report, now=now, attempt=attempt
+            )
+        return MonitoringCheckTiming.for_check(
+            instance, now=now, attempt=attempt, verification=running_by_report[instance.report_id].get(instance.id)
+        )
+
     @extend_schema_field(MonitoringCheckTimingSerializer(allow_null=True))
     def get_monitoring_timing(self, instance: SignalReportCheck) -> dict[str, object] | None:
         now = cast(datetime, self.context.setdefault("report_check_timing_now", timezone.now()))
         timing = MonitoringCheckTiming.for_check(instance, now=now)
         if timing is None or not self._monitoring_enabled(instance):
             return None
+        if instance.kind == SignalReportCheck.Kind.AGENT and timing.state == MonitoringCheckTimingState.PAUSED:
+            timing = self._agent_timing(instance, now=now)
         return dict(MonitoringCheckTimingSerializer(timing).data)
 
     def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:
