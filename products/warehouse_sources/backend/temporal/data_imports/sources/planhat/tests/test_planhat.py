@@ -111,6 +111,9 @@ class TestPlanhatSourceResponse:
             ("churn", "/churn"),
             ("opportunities", "/opportunities"),
             ("line_items", "/lineitems"),
+            ("products", "/products"),
+            ("tasks", "/tasks"),
+            ("custom_fields", "/customfields"),
             ("metrics", "/dimensiondata"),
         ]
     )
