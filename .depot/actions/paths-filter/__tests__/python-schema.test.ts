@@ -24,10 +24,6 @@ const inputs = [
   'posthog/ruff.toml',
   'posthog/.ruff.toml',
   'uv.lock',
-  'package.json',
-  'pnpm-lock.yaml',
-  '.npmrc',
-  '.nvmrc',
   '.github/actions/paths-filter/src/filter.ts',
   '.github/workflows/ci-python.yml'
 ]
@@ -43,8 +39,11 @@ test.each([ChangeStatus.Added, ChangeStatus.Modified, ChangeStatus.Deleted])(
 )
 
 test('unrelated Python changes run Python checks without schema generation', () => {
-  const files = [{filename: 'posthog/api/test/test_insight.py', status: ChangeStatus.Modified}]
+  const files = ['posthog/api/test/test_insight.py', 'pnpm-lock.yaml', 'package.json'].map(filename => ({
+    filename,
+    status: ChangeStatus.Modified
+  }))
   const result = filter.match(files)
-  expect(result.python).toEqual(files)
+  expect(result.python).toEqual([files[0]])
   expect(result.schema_python).toEqual([])
 })

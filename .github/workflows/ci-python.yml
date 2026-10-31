@@ -123,10 +123,6 @@ jobs:
                           - '**/ruff.toml'
                           - '**/.ruff.toml'
                           - 'uv.lock'
-                          - 'package.json'
-                          - 'pnpm-lock.yaml'
-                          - '.npmrc'
-                          - '.nvmrc'
                           - '.github/actions/paths-filter/**'
                           - '.github/workflows/ci-python.yml'
                       python:
@@ -392,7 +388,7 @@ jobs:
               if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.schema_python != 'false'
               shell: bash
               run: |
-                  npm run schema:build:python && git diff --exit-code
+                  bash bin/build-schema-python.sh && git diff --exit-code
 
             # Every projection renderer is Python, so this job needs neither pnpm nor
             # node_modules. Keep the step after "Install Python dependencies": the taxonomy
