@@ -17,6 +17,7 @@ from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
+    DeprecatePayload,
     MaterializePayload,
     UnmaterializePayload,
 )
@@ -317,16 +318,82 @@ class TestMaterializeRefreshMode(BaseTest):
         ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
 
 
-class TestDeprecateCandidate(SimpleTestCase):
-    def test_waits_for_a_full_window_of_read_data(self) -> None:
-        materialized = view(VIEW_ID, materializes=True)
+class TestDeprecateCandidate(BaseTest):
+    @parameterized.expand(
+        [
+            ("a_few_missing_days", 29, [VIEW_ID], None),
+            ("too_many_missing_days", 26, [], "needs 27 days of read data, has 26"),
+        ]
+    )
+    def test_waits_for_most_of_a_window_of_read_data(
+        self, _name: str, days_with_data: int, expected_subjects: list, expected_skip: str | None
+    ) -> None:
+        candidate_context = context(
+            team_reads({}, days_with_data=days_with_data),
+            views=[view(VIEW_ID, materializes=True)],
+            team_id=self.team.pk,
+        )
 
-        result = DeprecateCandidate().evaluate(context(team_reads({}, days_with_data=29), views=[materialized]))
+        result = DeprecateCandidate().evaluate(candidate_context)
 
-        assert (result.drafts, result.skipped_reason) == ((), "needs 30 days of read data, has 29")
+        assert ([draft.subject_id for draft in result.drafts], result.skipped_reason) == (
+            expected_subjects,
+            expected_skip,
+        )
 
+    @parameterized.expand(
+        [
+            ("unread", None, None, [(0.0, False)], False),
+            (
+                "unmaterialized_during_the_window",
+                None,
+                SubjectRefreshes(runs=20, duration_ms=20 * 60_000, read_bytes=20 * 10**12),
+                [(0.0, False)],
+                False,
+            ),
+            ("already_deprecated", CertificationStatus.DEPRECATED, None, [], True),
+        ]
+    )
+    def test_an_unread_plain_view(
+        self,
+        _name: str,
+        certification: CertificationStatus | None,
+        past_refreshes: SubjectRefreshes | None,
+        expected_drafts: list,
+        expected_resolved: bool,
+    ) -> None:
+        subject = view_subject(VIEW_ID)
+        candidate_context = context(
+            team_reads({}, refreshes={VIEW_ID: past_refreshes} if past_refreshes else None),
+            views=[view(VIEW_ID)],
+            certifications={subject: certification} if certification else None,
+            team_id=self.team.pk,
+        )
 
-class TestDeprecateBackgroundReads(BaseTest):
+        result = DeprecateCandidate().evaluate(candidate_context)
+
+        assert [
+            (draft.score, draft.payload.materialized)
+            for draft in result.drafts
+            if isinstance(draft.payload, DeprecatePayload)
+        ] == expected_drafts
+        assert DeprecateCandidate().is_resolved(candidate_context, subject) == expected_resolved
+
+    @parameterized.expand(
+        [
+            ("view_deleted", [], WarehouseSuggestionAssetOutcome.LIVE),
+            ("deprecation_removed", [view(VIEW_ID)], WarehouseSuggestionAssetOutcome.DELETED),
+        ]
+    )
+    def test_records_what_became_of_an_accepted_deprecation(
+        self, _name: str, views: list, expected: WarehouseSuggestionAssetOutcome
+    ) -> None:
+        candidate_context = context(team_reads({}), views=views)
+
+        assert (
+            DeprecateCandidate().asset_outcome(candidate_context, view_subject(VIEW_ID), accepted_at=None) == expected
+        )
+
     @parameterized.expand([("background_reads_count", True, []), ("only_people_count", False, [VIEW_ID])])
     def test_a_view_read_only_by_background_traffic(
         self, _name: str, counts_background_reads: bool, expected_subjects: list

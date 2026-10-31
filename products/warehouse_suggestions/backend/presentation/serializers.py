@@ -75,6 +75,10 @@ class DeprecatePayloadSerializer(DataclassSerializer):
             "subject_name": {"help_text": "Name of the unread view to deprecate."},
             "refresh_seconds_per_month": {"help_text": "Time its refreshes take in a month, in seconds."},
             "refresh_bytes_per_month": {"help_text": "Bytes its refreshes read in a month."},
+            "materialized": {
+                "help_text": "Whether the view is materialized. A plain view has no refreshes, so both refresh "
+                "costs are 0."
+            },
         }
 
 
@@ -377,5 +381,11 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
                 "help_text": "Deprecate only: true to keep a materialized view refreshing after it is deprecated. "
                 "By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its "
                 "stored table, unless other views or syncs depend on it.",
+            },
+            "delete_view": {
+                "allow_null": False,
+                "help_text": "Deprecate only: true to delete the view instead of marking it deprecated. Deleting also "
+                "drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when "
+                "it feeds person properties, account properties, a destination or a workflow.",
             },
         }
