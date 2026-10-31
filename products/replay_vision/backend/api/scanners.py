@@ -215,6 +215,11 @@ class ScannerCreationMethod(models.TextChoices):
     SCRATCH = "scratch", "From scratch"
 
 
+def _event_source(context: dict[str, Any]) -> EventSource | None:
+    request = context.get("request")
+    return get_event_source(request) if request is not None else context.get("event_source")
+
+
 def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> str | None:
     """What `creation_method` says on the created event.
 
@@ -245,11 +250,6 @@ def _reported_entry_point(context: dict[str, Any], claimed: str | None) -> str |
     """
     source = _event_source(context)
     return claimed if source is None or source == EventSource.WEB else None
-
-
-def _event_source(context: dict[str, Any]) -> EventSource | None:
-    request = context.get("request")
-    return get_event_source(request) if request is not None else context.get("event_source")
 
 
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
