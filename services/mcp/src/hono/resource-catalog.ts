@@ -9,6 +9,7 @@ import type {
     TextResourceContents,
 } from '@modelcontextprotocol/sdk/types.js'
 
+import { filterResourcesBySelection, isResourceUriIncluded, type McpResourcesSelection } from '@/lib/mcp-resources'
 import { getPromptsFromManifest } from '@/resources'
 import { buildAppStubHtml, buildUiAppResourceMeta } from '@/resources/ui-apps'
 import { UI_APPS } from '@/resources/ui-apps.generated'
@@ -68,12 +69,19 @@ export class ResourceCatalog {
         this.allResources = [...this.resources, ...this.uiAppResources]
     }
 
-    getResourcesList(): ListResourcesResult {
-        return { resources: this.allResources }
+    getResourcesList(selection: McpResourcesSelection): ListResourcesResult {
+        return { resources: filterResourcesBySelection(this.allResources, selection) }
     }
 
-    async readResource(params: Record<string, unknown> | undefined): Promise<ReadResourceResult> {
+    async readResource(
+        params: Record<string, unknown> | undefined,
+        selection: McpResourcesSelection
+    ): Promise<ReadResourceResult> {
         const uri = (params?.uri as string) ?? ''
+        // Same empty shape as an unknown URI (below); clients cannot distinguish filtered vs missing.
+        if (!isResourceUriIncluded(uri, selection)) {
+            return { contents: [] }
+        }
         const uiEntry = this.uiAppReadEntries.get(uri)
         if (uiEntry) {
             return {

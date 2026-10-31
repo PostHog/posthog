@@ -51,7 +51,7 @@ const contextMillManifest = {
         {
             id: 'test-guide',
             name: 'PostHog Getting Started',
-            uri: 'posthog://guide/getting-started',
+            uri: 'posthog://skills/getting-started',
             resource: {
                 mimeType: 'text/plain',
                 description: 'A guide to getting started with PostHog',
