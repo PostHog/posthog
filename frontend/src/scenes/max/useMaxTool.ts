@@ -3,10 +3,12 @@ import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
+import { reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -95,6 +97,9 @@ export function useMaxTool({
     const activeIdentifierRef = useRef<string | null>(null)
     const hookIdRef = useRef<string>(uuid())
     const unmountedRef = useRef(false)
+    // openMax reads this after the chunk loads, so a context edit made meanwhile reaches the chat.
+    const contextRef = useRef(context)
+    contextRef.current = context
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
     useEffect(() => {
@@ -179,12 +184,22 @@ export function useMaxTool({
         openMax: !active
             ? null
             : async (): Promise<void> => {
-                  const { startToolChat, showToolSuggestions } = await loadMaxToolOpener()
+                  let opener: Awaited<ReturnType<typeof loadMaxToolOpener>>
+                  try {
+                      opener = await loadMaxToolOpener()
+                  } catch (error) {
+                      // Click handlers drop a rejected promise, and no error boundary sees it.
+                      lemonToast.error("Couldn't open PostHog AI. Reload the page to try again.", {
+                          button: { label: 'Reload', action: () => reloadAfterChunkLoadError(error) },
+                      })
+                      return
+                  }
+                  const { startToolChat, showToolSuggestions } = opener
                   startToolChat({ todayRailNav: !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV], effectivePhaiView })
                   // The page may have changed while the chunk loaded. Its context would then outlive the hook.
                   if (effectivePhaiView === 'new' && !unmountedRef.current) {
                       toolPageContextOwner = hookIdRef.current
-                      const items = toolPageContextItems(identifier, context, TOOL_PAGE_CONTEXT_PROVIDER_ID)
+                      const items = toolPageContextItems(identifier, contextRef.current, TOOL_PAGE_CONTEXT_PROVIDER_ID)
                       undismissContext(attachedContextItemKey(items[0]), TOOL_PAGE_CONTEXT_PROVIDER_ID)
                       registerContext(TOOL_PAGE_CONTEXT_PROVIDER_ID, items)
                   }

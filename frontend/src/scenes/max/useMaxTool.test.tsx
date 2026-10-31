@@ -4,7 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as retryImportModule from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { MAX_SIDE_PANEL_ID, SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
@@ -97,34 +99,72 @@ describe('useMaxTool', () => {
     })
 
     // The first open waits for the Max chunk. The click must still open the panel with the tool's prompt,
-    // and a page that unmounted meanwhile must not leave its context attached to the chat.
-    it('still opens the panel with the prompt when the scene unmounts before the chunk arrives', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
-        const unmountContextStore = attachedContextLogic.mount()
-        let openMax: UseMaxToolReturn['openMax'] = null
-        const { unmount } = render(
-            <TestMaxTool
-                context={{ query: 'select 1' }}
-                initialMaxPrompt="Why did signups drop?"
-                onRender={(result) => (openMax = result.openMax)}
-            />
+    // and the chat must get the page's context as it is when the chunk arrives, not as it was at the click.
+    it.each([
+        {
+            change: 'the scene unmounts',
+            whileLoading: (view: ReturnType<typeof render>): void => view.unmount(),
+            expectedToolContext: [],
+        },
+        {
+            change: 'the tool context changes',
+            whileLoading: (view: ReturnType<typeof render>): void =>
+                view.rerender(<TestMaxTool context={{ query: 'select 2' }} initialMaxPrompt="Why did signups drop?" />),
+            expectedToolContext: [JSON.stringify({ query: 'select 2' })],
+        },
+    ])(
+        'opens the panel with the prompt and current context when $change before the chunk arrives',
+        async ({ whileLoading, expectedToolContext }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+            const unmountContextStore = attachedContextLogic.mount()
+            let openMax: UseMaxToolReturn['openMax'] = null
+            const view = render(
+                <TestMaxTool
+                    context={{ query: 'select 1' }}
+                    initialMaxPrompt="Why did signups drop?"
+                    onRender={(result) => (openMax = result.openMax)}
+                />
+            )
+
+            let opening: Promise<void> | undefined
+            act(() => {
+                opening = openMax?.()
+            })
+            whileLoading(view)
+            await act(async () => {
+                await opening
+            })
+
+            expect(sidePanelStateLogic.values).toMatchObject({
+                selectedTab: SidePanelTab.Max,
+                selectedTabOptions: 'Why did signups drop?',
+            })
+            expect(
+                attachedContextLogic.values.contextItems
+                    .filter((item) => item.type === 'tool_context')
+                    .map((item) => item.value)
+            ).toEqual(expectedToolContext)
+            unmountContextStore()
+        }
+    )
+
+    it('tells the person to reload when the Max chunk fails to load', async () => {
+        jest.spyOn(retryImportModule, 'retryImport').mockRejectedValue(
+            new Error('Failed to fetch dynamically imported module')
         )
+        const showError = jest.spyOn(lemonToast, 'error')
+        let openMax: UseMaxToolReturn['openMax'] = null
+        render(<TestMaxTool context={{ query: 'select 1' }} onRender={(result) => (openMax = result.openMax)} />)
 
-        let opening: Promise<void> | undefined
-        act(() => {
-            opening = openMax?.()
-        })
-        unmount()
         await act(async () => {
-            await opening
+            await expect(openMax?.()).resolves.toBeUndefined()
         })
 
-        expect(sidePanelStateLogic.values).toMatchObject({
-            selectedTab: SidePanelTab.Max,
-            selectedTabOptions: 'Why did signups drop?',
-        })
-        expect(attachedContextLogic.values.contextItems).toEqual([])
-        unmountContextStore()
+        expect(showError).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Reload' }) })
+        )
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
     it('opens the side panel on a new chat with the tool suggestions', async () => {
