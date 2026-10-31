@@ -969,10 +969,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
 
             # Get failed syncs from ExternalDataSchema
-            # Only show syncs that are actively enabled but failing
             readable_sources = self._readable_sources()
             problem_syncs = list(
-                self._team_schemas().filter(should_sync=True).filter(status__in=FAILING_SCHEMA_STATUSES)
+                self._team_schemas()
+                .filter(Q(should_sync=True) | Q(auto_disabled_at__isnull=False))
+                .filter(status__in=FAILING_SCHEMA_STATUSES)
             )
             visible_schema_ids = self._readable_schema_ids(problem_syncs)
 
@@ -980,8 +981,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 if schema.id not in visible_schema_ids:
                     continue
                 sync_status = "failed"
+                failed_at = schema.last_synced_at
                 if schema.status in BILLING_LIMITED_SCHEMA_STATUSES:
                     sync_status = "billing_limit"
+                elif not schema.should_sync:
+                    sync_status = "disabled"
+                    failed_at = schema.auto_disabled_at
 
                 results.append(
                     {
@@ -995,7 +1000,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         # A webhook table is pushed to, never pulled on a schedule, so a surface
                         # about scheduled imports can drop it rather than call it stopped.
                         "sync_type": schema.sync_type,
-                        "failed_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
+                        "failed_at": failed_at.isoformat() if failed_at else None,
                         # The source scene keys on a prefixed id, so a bare UUID renders a
                         # broken page. Every ExternalDataSource uses the `managed-` prefix,
                         # direct-connect ones included.
