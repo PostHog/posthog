@@ -47757,6 +47757,7 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -47785,6 +47786,7 @@ export namespace Schemas {
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
       EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
     } as const;
 
     /**
@@ -47855,7 +47857,8 @@ export namespace Schemas {
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
        * * `new_flag_no_traffic` - New Flag No Traffic
-       * * `early_significance` - Early Significance */
+       * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -47904,6 +47907,7 @@ export namespace Schemas {
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
@@ -47929,6 +47933,7 @@ export namespace Schemas {
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ExposureFilters: 'exposure_filters',
       EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
       ZeroExposures: 'zero_exposures',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       Srm: 'srm',
@@ -47970,6 +47975,7 @@ export namespace Schemas {
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `exposure_filters` - Exposure Filters
        * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
        * * `zero_exposures` - Zero Exposures
        * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `srm` - Srm

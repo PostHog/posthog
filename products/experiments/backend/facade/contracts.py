@@ -215,6 +215,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
+    METRICS_NOT_MATURED = "metrics_not_matured"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -314,6 +315,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
+    METRICS_NOT_MATURED = "metrics_not_matured"
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     SRM = "srm"
