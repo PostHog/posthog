@@ -41,7 +41,7 @@ export function LemonTableLink({
         />
     ) : null
 
-    if (!props.to) {
+    if (!props.to && !props.onClick) {
         return (
             <div className={clsx('flex flex-col py-1', truncateTitle && 'min-w-0')}>
                 {titleRow}
