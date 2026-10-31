@@ -1453,6 +1453,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     source="scout_edit",
                     outcome=data.get("reviewer_outcome", "selected"),
                     retry_reason=data.get("reviewer_retry_reason"),
+                    outcome_reason=data.get("reviewer_outcome_reason"),
                 )
             result = edit_report_sync(
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.

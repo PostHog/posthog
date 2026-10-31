@@ -1675,6 +1675,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.reviewer_retry_reason !== undefined) {
             body['reviewer_retry_reason'] = params.reviewer_retry_reason
         }
+        if (params.reviewer_outcome_reason !== undefined) {
+            body['reviewer_outcome_reason'] = params.reviewer_outcome_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -3158,6 +3161,9 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.reviewer_retry_reason !== undefined) {
             body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
+        if (params.reviewer_outcome_reason !== undefined) {
+            body['reviewer_outcome_reason'] = params.reviewer_outcome_reason
         }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id

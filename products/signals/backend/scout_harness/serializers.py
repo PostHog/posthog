@@ -1827,6 +1827,15 @@ class EmitReportResponseSerializer(serializers.Serializer):
 class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
+    reviewer_outcome_reason = serializers.CharField(
+        required=False,
+        max_length=500,
+        help_text=(
+            "Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a "
+            "report that already has suggested reviewers: without it the current reviewers stay and the "
+            "response carries a warning. The reason is recorded in the report's work log."
+        ),
+    )
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
     title = serializers.CharField(
         required=False,

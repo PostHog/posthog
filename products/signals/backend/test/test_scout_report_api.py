@@ -1739,6 +1739,58 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
 
+    @parameterized.expand([("without_reason", None), ("with_reason", "Nobody in this project owns the billing export")])
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    @patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False)
+    def test_no_suitable_owner_clears_existing_reviewers_only_with_a_reason(
+        self, _name: str, reason: str | None, _effects, _writer
+    ) -> None:
+        human = APIClient()
+        human.force_login(self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        run = _make_run(self.team)
+        root = f"/api/projects/{self.team.id}/signals/reports/{report.id}"
+        state = human.get(f"{root}/").json()["reviewer_assignment"]["state"]
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            picked = self.client.post(
+                self._edit_url(str(run.id)),
+                {
+                    "report_id": str(report.id),
+                    "suggested_reviewers": [{"user_uuid": str(self.user.uuid), "reason": "Named owner in the skill"}],
+                    "expected_reviewers": state,
+                },
+                format="json",
+            )
+            assert picked.json()["reviewers_set"] is True, picked.json()
+            state = human.get(f"{root}/").json()["reviewer_assignment"]["state"]
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                {
+                    "report_id": str(report.id),
+                    "expected_reviewers": state,
+                    "reviewer_outcome": "no_suitable_owner",
+                    **({"reviewer_outcome_reason": reason} if reason else {}),
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None
+        if reason is None:
+            assert not response.json()["reviewers_set"]
+            assert response.json()["warnings"][0]["field"] == "suggested_reviewers"
+            assert [entry.user_uuid for entry in reviewers.root] == [str(self.user.uuid)]
+        else:
+            assert response.json()["reviewers_set"] is True
+            assert reviewers.root == []
+            notes = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.NOTE).values_list(
+                "content", flat=True
+            )
+            assert any(f"Cleared suggested reviewers: {reason}" in note for note in notes)
+
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,
         # which writes the suggested_reviewers artefact and re-fires autostart (so a report that already

@@ -2685,6 +2685,8 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
  */
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
+export const signalsScoutEditReportBodyReviewerOutcomeReasonMax = 500
+
 export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySummaryMax = 20000
@@ -2766,6 +2768,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .max(signalsScoutEditReportBodyReviewerRetryReasonMax)
             .optional()
             .describe('Reason the reviewer lookup failed.'),
+        reviewer_outcome_reason: zod
+            .string()
+            .max(signalsScoutEditReportBodyReviewerOutcomeReasonMax)
+            .optional()
+            .describe(
+                "Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a report that already has suggested reviewers: without it the current reviewers stay and the response carries a warning. The reason is recorded in the report's work log."
+            ),
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
         title: zod
             .string()

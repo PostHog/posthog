@@ -111,6 +111,7 @@ from products.signals.backend.scout_report import (
     MAX_REPORT_SIGNALS,
     ExistingScoutReport,
     InvalidScoutReportError,
+    ReviewerClearNeedsReason,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
     append_report_evidence,
@@ -1226,6 +1227,14 @@ def _owner_identities(team: Team, skill_name: str) -> ReviewerIdentitySet:
     )
 
 
+def _emit_reviewer_outcome(suggested_reviewers: list[ReviewerInput] | None) -> str:
+    """How the scout answered the reviewer field on emit, for reviewer telemetry. Emit takes no
+    explicit outcome, so an omitted field and an explicit empty list are kept apart."""
+    if suggested_reviewers is None:
+        return "omitted"
+    return "selected" if suggested_reviewers else "empty"
+
+
 def _build_suggested_reviewers(
     team: Team,
     reviewers: list[ReviewerInput] | None,
@@ -1343,14 +1352,16 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     return SuggestedReviewers(root=entries)
 
 
-def _reviewer_reasons(reviewers: SuggestedReviewers | None) -> list[str]:
+def _reviewer_reasons(reviewers: SuggestedReviewers | None, proposal: ReviewerProposal | None = None) -> list[str]:
     """The scout-authored `reason` strings from resolved reviewer picks, for the safety judge.
 
     Reasons persist in the suggested-reviewers artefact, which action-capable report agents read as
-    part of the work log — so they go in front of the judge like a note or a suggested prompt does."""
-    if reviewers is None:
-        return []
-    return [entry.reason for entry in reviewers.root if entry.reason]
+    part of the work log — so they go in front of the judge like a note or a suggested prompt does.
+    A `no_suitable_owner` reason lands in the work log note too, so it goes in front of the judge as well."""
+    reasons = [entry.reason for entry in reviewers.root if entry.reason] if reviewers is not None else []
+    if proposal is not None and proposal.outcome_reason:
+        reasons.append(proposal.outcome_reason)
+    return reasons
 
 
 def _link_reasons(links: Sequence[ReportLink]) -> list[str]:
@@ -2298,6 +2309,8 @@ async def emit_report(
             emit_signals=judgement.safety.choice,
             run=author.scout_run,
             idempotency_key=emit_key,
+            proposed_reviewer_count=len(suggested_reviewers or []),
+            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
         )
     except ScoutReportAlreadyEmittedError as already_emitted:
         # The retry arrived while this call was still judging, so both reached the insert. The winner's
@@ -2495,6 +2508,8 @@ def emit_report_sync(
             emit_signals=judgement.safety.choice,
             run=author.scout_run,
             idempotency_key=emit_key,
+            proposed_reviewer_count=len(suggested_reviewers or []),
+            reviewer_outcome=_emit_reviewer_outcome(suggested_reviewers),
         )
     except ScoutReportAlreadyEmittedError as already_emitted:
         # As in `emit_report`: a concurrent retry won the insert, so hand back its report.
@@ -2657,7 +2672,7 @@ def _do_edit_report(
                 if reviewers is not None
                 else False
             )
-        except StaleReviewerProposal as error:
+        except (StaleReviewerProposal, ReviewerClearNeedsReason) as error:
             reviewers_set = False
             reviewer_warnings = (EditReportWarning(field="suggested_reviewers", message=str(error)),)
         # The other routing fix: a report that surfaced against the wrong codebase is repointed in
@@ -3203,7 +3218,7 @@ async def edit_report(
             charts=built_charts or (),
             metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
-            reviewer_reasons=_reviewer_reasons(built_reviewers),
+            reviewer_reasons=_reviewer_reasons(built_reviewers, reviewer_proposal),
             link_reasons=_link_reasons(built_links),
             decision_explanations=_decision_explanations(built_actionability, built_priority),
             tags=built_tags or (),
@@ -3334,7 +3349,7 @@ def edit_report_sync(
             charts=built_charts or (),
             metrics=built_metrics or (),
             suggested_prompts=built_prompts or (),
-            reviewer_reasons=_reviewer_reasons(built_reviewers),
+            reviewer_reasons=_reviewer_reasons(built_reviewers, reviewer_proposal),
             link_reasons=_link_reasons(built_links),
             decision_explanations=_decision_explanations(built_actionability, built_priority),
             tags=built_tags or (),
