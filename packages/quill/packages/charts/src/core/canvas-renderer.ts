@@ -22,27 +22,41 @@ export interface DrawContext {
     /** Smooth the line/area with monotone-cubic interpolation instead of straight segments. */
     smooth?: boolean
     /** Largest drawable y (px) for line/area strokes. Charts drawing an x-axis line pass the
-     *  baseline minus half their stroke width, so a baseline-hugging stroke rests exactly on the
-     *  axis line instead of straddling it. Pure draw-time clamp — scales and ticks are untouched. */
+     *  baseline minus half the default stroke width, and `drawLineSeriesLayer` raises it per series
+     *  for a wider stroke, so a baseline-hugging stroke rests exactly on the axis line instead of
+     *  straddling it. Pure draw-time clamp — scales and ticks are untouched. */
     yFloor?: number
 }
 
-/** Stroke width of series lines. Half of it is the stroke's overhang past a point, which the
+/** Default stroke width of series lines. Half of it is the stroke's overhang past a point, which the
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
+
+/** The series' stroke width: the default when unset, 0 (no line) for a NaN or negative width. */
+function lineStrokeWidth(series: ResolvedSeries): number {
+    return Math.max(0, series.stroke?.width ?? LINE_STROKE_WIDTH) || 0
+}
+
+/** The incomplete-period dash: `stroke.partial.pattern`, else 10px dashes with an 8px visible gap.
+ *  A round cap adds half the width to each end of a dash, so the gap grows with the width to stay
+ *  open on a wide line. At the default width this is `[10, 10]`. */
+function partialDashPattern(series: ResolvedSeries): number[] {
+    return series.stroke?.partial?.pattern ?? [10, lineStrokeWidth(series) + 8]
+}
 
 /** Dot radius for a point with no line through it, e.g. a series with one value. */
 const ISOLATED_POINT_RADIUS = 3
 
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
-    if (data.length === 0) {
+    const width = lineStrokeWidth(series)
+    if (data.length === 0 || width === 0) {
         return
     }
 
     const { ctx } = drawCtx
     ctx.strokeStyle = series.color
-    ctx.lineWidth = LINE_STROKE_WIDTH
+    ctx.lineWidth = width
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
 
@@ -100,7 +114,7 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
 
     // Dashed: the split pixel out to the final point.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(splitX, splitY)
     ctx.lineTo(x1, y1)
     ctx.stroke()
@@ -182,7 +196,7 @@ function drawSmoothFractionalTail(drawCtx: DrawContext, series: ResolvedSeries, 
 
     // Dashed: the split point out to the final point, along the same curve.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(split.x, split.y)
     const end = tail[tail.length - 1]
     ctx.bezierCurveTo(split.secondCp1x, split.secondCp1y, split.secondCp2x, split.secondCp2y, end.x, end.y)
@@ -203,7 +217,7 @@ interface Stroke {
  */
 function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
-    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
+    const partialPattern = partialDashPattern(series)
     const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
     const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
 
@@ -1047,13 +1061,16 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
     const zOrder = options.zOrder ?? 'per-series'
     const visible = series.filter((s) => !s.visibility?.excluded)
+    // `yFloor` is set for the default stroke; a wider stroke rests higher so it still sits on the axis.
+    const floorFor = (s: ResolvedSeries): number | undefined =>
+        yFloor == null ? undefined : yFloor - (lineStrokeWidth(s) - LINE_STROKE_WIDTH) / 2
 
     const paintArea = (s: ResolvedSeries): void => {
         if (!shouldFill(s)) {
             return
         }
         drawArea(
-            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor },
+            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor: floorFor(s) },
             s,
             yValuesFor(s),
             bottomFor(s)
@@ -1063,7 +1080,15 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
         if (s.fill?.lowerData) {
             return
         }
-        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor }
+        const drawCtx: DrawContext = {
+            ctx,
+            dimensions,
+            labels,
+            xScale,
+            yScale: resolveYScale(s),
+            smooth,
+            yFloor: floorFor(s),
+        }
         drawLine(drawCtx, s, yValuesFor(s))
         drawPoints(drawCtx, s, yValuesFor(s))
     }

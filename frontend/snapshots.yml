@@ -1300,6 +1300,10 @@ snapshots:
         hash: v1.k794b7964.97f334a3fc014fd369a637380f1153670d4d322f07354f8efa8fd2f7d65f58f7.jCo_cDeo6ux668mBVSQCCEDMCD-Iz2q8iEX0crBWA_k
     components-hogcharts-linechart--stacked-area--light:
         hash: v1.k794b7964.5a0eba738430b9fb855d462426eefbfb23f2d367be42dcf0ad15126288fc4eba.wb6FcBkHysbLnPi0dyfor5gIcm_AgBo0lNzvt7Yfkjk
+    components-hogcharts-linechart--stroke-width--dark:
+        hash: v1.k794b7964.3eb02e8738b3a78ccf934aabe2577bcac87040cb7e7e8bcfe6b5f53314f21a2b.LPXAdaC8tgos-hhcV2JfMs9xBv8-CjqR3DZNvQ7ySME
+    components-hogcharts-linechart--stroke-width--light:
+        hash: v1.k794b7964.dc540d26e3f954167c985bfcce9e6d91b8f7640bd9c8c37509796bf1aa4290fa.Ucp2Mtgbra9ytiJIqVReB_Tdhs8_pYHcNmZ0yK5SnbU
     components-hogcharts-linechart--triple-y-axis--dark:
         hash: v1.k794b7964.5c0de8b56170087f74d30f6cd12b5563f647c92982e775bbb44ab7b3a3e7dfb0.ahREKNW7o2ambwyhfjIZBPW7X0cTz3D3MkHr2VeoGoU
     components-hogcharts-linechart--triple-y-axis--light:
