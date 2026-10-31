@@ -1,6 +1,6 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { getDefaultEventsSceneQuery, getDefaultSessionsSceneQuery } from './defaults'
+import { getDefaultEventsSceneQuery, getDefaultSessionsSceneQuery, getDistinctIdEventsSceneQuery } from './defaults'
 
 describe('activity explore defaults', () => {
     test.each([
@@ -10,5 +10,12 @@ describe('activity explore defaults', () => {
         const query = getQuery()
         expect(query.source.kind).toBe(kind)
         expect(query.source).toMatchObject({ after: '-1h' })
+    })
+
+    it('looks back 7 days for events of one distinct ID', () => {
+        expect(getDistinctIdEventsSceneQuery('the-distinct-id').source).toMatchObject({
+            after: '-7d',
+            properties: [{ key: 'distinct_id', value: 'the-distinct-id' }],
+        })
     })
 })
