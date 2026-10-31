@@ -79534,6 +79534,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The in-app surface the creator started from, as a lowercase slug such as `replay_filters` or `error_tracking`. Reported to product analytics at creation, so each entry point can be measured by the scanners it produces, and not stored on the scanner. Only the app can answer this, so a request from anywhere else reports none. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -92431,6 +92437,12 @@ export namespace Schemas {
        * * `template` - Template
        * * `scratch` - From scratch */
       creation_method?: ScannerCreationMethodEnum | null;
+      /**
+         * The in-app surface the creator started from, as a lowercase slug such as `replay_filters` or `error_tracking`. Reported to product analytics at creation, so each entry point can be measured by the scanners it produces, and not stored on the scanner. Only the app can answer this, so a request from anywhere else reports none. Ignored on update.
+         * @nullable
+         * @pattern ^[a-z0-9_]{1,64}$
+         */
+      entry_point?: string | null;
       /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
