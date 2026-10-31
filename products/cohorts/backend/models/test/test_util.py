@@ -994,6 +994,10 @@ class TestCohortUtils(BaseTest):
                 "SELECT p.id, p.created_at AS __cohort_id FROM persons AS p",
             ),
             (
+                "union_of_grouped_and_plain_distinct_id_branches",
+                "SELECT distinct_id FROM events GROUP BY distinct_id UNION ALL SELECT distinct_id FROM events",
+            ),
+            (
                 "events_distinct_id_aggregating_with_having",
                 "SELECT distinct_id, count() AS n FROM events GROUP BY distinct_id HAVING n >= 3",
             ),

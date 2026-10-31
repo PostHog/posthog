@@ -581,6 +581,30 @@ def _wrap_select_query_with_column(
         setattr(select_query, field.name, getattr(wrapper, field.name))
 
 
+def _select_columns(select_query: ast.SelectQuery) -> dict[str, ast.Expr]:
+    columns: dict[str, ast.Expr] = {}
+    for expr in select_query.select:
+        if isinstance(expr, ast.Alias):
+            columns[expr.alias] = expr.expr
+        elif isinstance(expr, ast.Field):
+            columns[str(expr.chain[-1])] = expr
+    return columns
+
+
+def _is_aggregating_or_multi_column(select_query: ast.SelectQuery) -> bool:
+    return bool(
+        select_query.group_by
+        or select_query.having
+        or select_query.group_by_mode == "all"
+        or len(select_query.select) > 1
+    )
+
+
+def _selects_distinct_id_only(select_query: ast.SelectQuery) -> bool:
+    columns = _select_columns(select_query)
+    return "distinct_id" in columns and not any(name in columns for name in ("person_id", "actor_id", "id"))
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -596,6 +620,13 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     queries_under_bounded_set = _select_queries_under_bounded_set(query)
+
+    # Every branch of a UNION must resolve `distinct_id` the same way, so one grouped or multi-column
+    # `distinct_id` branch sends all `distinct_id` branches through the person_distinct_id2 lookup.
+    union_resolves_distinct_ids = any(
+        _selects_distinct_id_only(select_query) and _is_aggregating_or_multi_column(select_query)
+        for select_query in extract_select_queries(query)
+    )
 
     for select_query in extract_select_queries(query):
         # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
@@ -614,23 +645,11 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
         if not _is_bounded(select_query):
             select_query.order_by = None
 
-        columns: dict[str, ast.Expr] = {}
-
-        for expr in select_query.select:
-            if isinstance(expr, ast.Alias):
-                columns[expr.alias] = expr.expr
-            elif isinstance(expr, ast.Field):
-                columns[str(expr.chain[-1])] = expr
-
+        columns = _select_columns(select_query)
         actor_column = next((name for name in ("person_id", "actor_id", "id") if name in columns), None)
         distinct_id_column = columns.get("distinct_id")
         table = select_query.select_from.table if select_query.select_from else None
-        is_aggregating_or_multi_column = bool(
-            select_query.group_by
-            or select_query.having
-            or select_query.group_by_mode == "all"
-            or len(select_query.select) > 1
-        )
+        is_aggregating_or_multi_column = _is_aggregating_or_multi_column(select_query)
         if actor_column is not None:
             if is_aggregating_or_multi_column:
                 _wrap_select_query_with_column(
@@ -639,7 +658,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
             else:
                 select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
             uses_actor_id = True
-        elif distinct_id_column is not None and is_aggregating_or_multi_column:
+        elif distinct_id_column is not None and (is_aggregating_or_multi_column or union_resolves_distinct_ids):
             _wrap_select_query_with_column(
                 select_query, "distinct_id", "distinct_id", keep_distinct=id(select_query) in queries_under_bounded_set
             )
