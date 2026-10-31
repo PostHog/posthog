@@ -15,6 +15,8 @@ import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialog
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { inviteLogic } from 'lib/logic/inviteLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+// Static on purpose: apiStatusLogic opens this modal through twoFactorLogic, which must be mounted before any API call.
+import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 
 import { productGlobalModals } from '~/productGlobalModals'
 
@@ -32,11 +34,6 @@ const CreateProjectModal = lazyWithRetry(() =>
 )
 const PreviewingCustomCssModal = lazyWithRetry(() =>
     import('scenes/themes/PreviewingCustomCssModal').then((m) => ({ default: m.PreviewingCustomCssModal }))
-)
-const TwoFactorSetupModal = lazyWithRetry(() =>
-    import('scenes/authentication/two-factor-setup/TwoFactorSetupModal').then((m) => ({
-        default: m.TwoFactorSetupModal,
-    }))
 )
 const PaymentEntryModal = lazyWithRetry(() =>
     import('scenes/billing/PaymentEntryModal').then((m) => ({ default: m.PaymentEntryModal }))
@@ -75,19 +72,31 @@ export function GlobalModals(): JSX.Element {
         <>
             <Suspense fallback={null}>
                 <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
+            </Suspense>
+            <Suspense fallback={null}>
                 <CreateOrganizationModal
                     isVisible={isCreateOrganizationModalShown}
                     onClose={hideCreateOrganizationModal}
                 />
-                <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
-                <PreviewingCustomCssModal />
-                <TwoFactorSetupModal />
-                <PaymentEntryModal />
-                <MaybeWelcomeDialog />
-                {productModals.map(([key, ProductModal]) => (
-                    <ProductModal key={key} />
-                ))}
             </Suspense>
+            <Suspense fallback={null}>
+                <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
+            </Suspense>
+            <Suspense fallback={null}>
+                <PreviewingCustomCssModal />
+            </Suspense>
+            <TwoFactorSetupModal />
+            <Suspense fallback={null}>
+                <PaymentEntryModal />
+            </Suspense>
+            <Suspense fallback={null}>
+                <MaybeWelcomeDialog />
+            </Suspense>
+            {productModals.map(([key, ProductModal]) => (
+                <Suspense key={key} fallback={null}>
+                    <ProductModal />
+                </Suspense>
+            ))}
             <UpgradeModal />
             <TimeSensitiveAuthenticationModal />
             {shouldRenderTraceDialog ? (

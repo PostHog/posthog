@@ -4,6 +4,7 @@
 # DO NOT EDIT BY HAND. Mechanical output of `hogli lint:frontend-layers --update-baseline`.
 # Fixed one? Run `hogli lint:frontend-layers --prune-baseline` to drop it.
 frontend/src/layout/ErrorProjectUnavailable.tsx -> frontend/src/scenes/organization/CreateOrganizationModal.tsx
+frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/authentication/two-factor-setup/TwoFactorSetupModal.tsx
 frontend/src/layout/InternalFeedback/InternalFeedbackWidget.tsx -> frontend/src/toolbar/shared/product-tours/ElementHighlight.tsx
 frontend/src/layout/InternalFeedback/internalFeedbackLogic.ts -> frontend/src/toolbar/shared/utils.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivitySubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
