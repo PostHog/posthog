@@ -2017,8 +2017,8 @@ class StartTrainingRequestSerializer(serializers.Serializer):
     iteration_budget = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=500,
-        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run.",
+        max_value=50,
+        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run; the project limit may lower it.",
     )
 
 

@@ -9,8 +9,11 @@ The other half is `../inference/`, which consumes what this package produces and
 
 ## What lives here
 
+- `limits.py`
+  Resource constraints and rate limits. Resolves `AutoresearchLimits` (default 3 daily runs per team, max 10 iterations per run) with flag payload overrides (`team_configs` and `default_team_config`), acquires a transaction-scoped PostgreSQL advisory lock (`acquire_team_training_lock`), and evaluates the 24-hour rolling window cap (`enforce_team_training_daily_cap`).
+
 - `runner.py`
-  The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
+  The real path. `run_training()` clamps `iteration_budget` to `limits.max_iterations_per_run`, creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
   The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
   The task runs on the model and reasoning effort that `agent_run_config_for()` in `agent_model.py` resolves, and the run records the runtime adapter, model and effort in `agent_runtime_adapter`, `agent_model` and `agent_reasoning_effort`.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.

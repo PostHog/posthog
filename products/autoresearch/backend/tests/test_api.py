@@ -939,6 +939,46 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert data["iteration_budget"] == 8
         assert data["kickoff_reason"] == "manual"
 
+    def test_start_training_refused_when_team_daily_cap_exceeded(self):
+        pipeline = self._make_pipeline()
+        now = django_timezone.now()
+        for i in range(3):
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.COMPLETED,
+                iteration_budget=5,
+                task_id=f"prior_task_{i}",
+                agent_runtime_adapter="adapter",
+                created_at=now - timedelta(hours=i + 1),
+            )
+
+        with patch("products.autoresearch.backend.training.runner.run_training") as mock_run:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        data = resp.json()
+        assert data["type"] == "rate_limit_error"
+        assert data["code"] == "daily_cap_exceeded"
+        assert data["limit"] == 3
+        assert data["runs_used"] == 3
+        assert "next_slot_opens_at" in data
+        mock_run.assert_not_called()
+
+    def test_start_training_iteration_budget_above_ceiling_capped(self):
+        pipeline = self._make_pipeline(iterations_per_run=8)
+
+        # Calling real run_training clamps iteration_budget to max_iterations_per_run (default 10)
+        with (
+            patch("products.tasks.backend.facade.Task.create_and_run"),
+            patch("products.autoresearch.backend.training.realized_context.context_for_brief"),
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/", {"iteration_budget": 45}, format="json")
+
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        # Clamped to default ceiling of 10
+        assert data["iteration_budget"] == 10
+
     @parameterized.expand(
         [
             ("train", status.HTTP_200_OK),

@@ -35,6 +35,7 @@ with workflow.unsafe.imports_passed_through():
 
     from products.actions.backend.models.action import Action
     from products.autoresearch.backend.access import has_autoresearch_access
+    from products.autoresearch.backend.limits import enforce_team_training_daily_cap
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
     from products.autoresearch.backend.inference.failures import (
@@ -731,6 +732,7 @@ class KickoffTrainingResult:
     kicked_off: bool
     # "explore" | "scheduled" | "not_due" | "manual_only" | "already_running" | "already_ran_today"
     # | "not_eligible" | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
+    # | "team_daily_cap"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -929,6 +931,10 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
                 pipeline_id=inp.pipeline_id,
             )
             return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
+
+        allowed, _, _, _ = enforce_team_training_daily_cap(pipeline.team_id, raise_error=False)
+        if not allowed:
+            return KickoffTrainingResult(kicked_off=False, reason="team_daily_cap")
 
         rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
         try:

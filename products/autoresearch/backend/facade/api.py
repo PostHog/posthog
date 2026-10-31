@@ -1485,10 +1485,12 @@ def start_training(
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
+    from ..limits import DailyTrainingCapExceeded, enforce_team_training_daily_cap  # noqa: PLC0415
     from ..training.runner import run_training  # noqa: PLC0415
 
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
+        enforce_team_training_daily_cap(team_id, raise_error=True)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")
         budget = iteration_budget or pipeline.iterations_per_run
