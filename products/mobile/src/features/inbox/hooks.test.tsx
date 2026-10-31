@@ -382,50 +382,56 @@ describe('inbox hooks', () => {
         }
     })
 
-    test('pages through the ranking, retrying a failed page only when asked, reading states once per page', async () => {
-        const offsets: string[] = []
-        const readStateBatches: string[][] = []
-        const firstPage = Array.from({ length: INBOX_PAGE_SIZE }, (_, index) => reportFixture({ id: `r${index}` }))
-        let secondPageFailures = 1
-        globalThis.fetch = jest.fn(async (url: string, init?: RequestInit) => {
-            const { pathname, searchParams } = new URL(url)
-            if (pathname.endsWith('/read_state/')) {
-                readStateBatches.push(JSON.parse(String(init?.body)).report_ids)
-                return jsonResponse({ states: {} })
-            }
-            const offset = searchParams.get('offset') ?? ''
-            offsets.push(offset)
-            if (offset !== '0' && secondPageFailures > 0) {
-                secondPageFailures -= 1
-                return jsonResponse({ detail: 'Server error' }, 500)
-            }
-            return jsonResponse(
-                offset === '0'
-                    ? { count: INBOX_PAGE_SIZE + 1, next: 'https://app.example.com/next', results: firstPage }
-                    : { count: INBOX_PAGE_SIZE + 1, next: null, results: [reportFixture({ id: 'last' })] }
+    test.each(['server error', 'invalid page'])(
+        'pages through the ranking, retrying after %s only when asked, reading states once per page',
+        async (failure) => {
+            const offsets: string[] = []
+            const readStateBatches: string[][] = []
+            const firstPage = Array.from({ length: INBOX_PAGE_SIZE }, (_, index) => reportFixture({ id: `r${index}` }))
+            let secondPageFailures = 1
+            globalThis.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+                const { pathname, searchParams } = new URL(url)
+                if (pathname.endsWith('/read_state/')) {
+                    readStateBatches.push(JSON.parse(String(init?.body)).report_ids)
+                    return jsonResponse({ states: {} })
+                }
+                const offset = searchParams.get('offset') ?? ''
+                offsets.push(offset)
+                if (offset !== '0' && secondPageFailures > 0) {
+                    secondPageFailures -= 1
+                    return failure === 'server error'
+                        ? jsonResponse({ detail: 'Server error' }, 500)
+                        : jsonResponse({ count: INBOX_PAGE_SIZE + 1, next: null })
+                }
+                return jsonResponse(
+                    offset === '0'
+                        ? { count: INBOX_PAGE_SIZE + 1, next: 'https://app.example.com/next', results: firstPage }
+                        : { count: INBOX_PAGE_SIZE + 1, next: null, results: [reportFixture({ id: 'last' })] }
+                )
+            }) as unknown as typeof fetch
+            const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
+            const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+                <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
             )
-        }) as unknown as typeof fetch
-        const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity, retry: false } } })
-        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
-            <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-        )
-        const { result } = renderHook(() => useInboxItems(), { wrapper })
+            const { result } = renderHook(() => useInboxItems(), { wrapper })
 
-        await waitFor(() => expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE))
-        expect(result.current.hasMore).toBe(true)
-        act(() => result.current.loadMore())
-        await waitFor(() => expect(result.current.loadMoreFailed).toBe(true))
-        // The list calls this again when the error footer replaces the spinner.
-        act(() => result.current.loadMore())
-        expect(result.current.isLoadingMore).toBe(false)
-        act(() => result.current.retryLoadMore())
-        await waitFor(() => expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE + 1))
-        await waitFor(() => expect(readStateBatches).toHaveLength(2))
+            await waitFor(() => expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE))
+            expect(result.current.hasMore).toBe(true)
+            act(() => result.current.loadMore())
+            await waitFor(() => expect(result.current.loadMoreFailed).toBe(true))
+            expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE)
+            // The list calls this again when the error footer replaces the spinner.
+            act(() => result.current.loadMore())
+            expect(result.current.isLoadingMore).toBe(false)
+            act(() => result.current.retryLoadMore())
+            await waitFor(() => expect(result.current.data).toHaveLength(INBOX_PAGE_SIZE + 1))
+            await waitFor(() => expect(readStateBatches).toHaveLength(2))
 
-        expect(result.current.hasMore).toBe(false)
-        expect(offsets).toEqual(['0', String(INBOX_PAGE_SIZE), String(INBOX_PAGE_SIZE)])
-        expect(readStateBatches.map((ids) => ids.length)).toEqual([INBOX_PAGE_SIZE, 1])
-    })
+            expect(result.current.hasMore).toBe(false)
+            expect(offsets).toEqual(['0', String(INBOX_PAGE_SIZE), String(INBOX_PAGE_SIZE)])
+            expect(readStateBatches.map((ids) => ids.length)).toEqual([INBOX_PAGE_SIZE, 1])
+        }
+    )
 
     test('loads every page by itself for a sort and orders the items across pages', async () => {
         const offsets: string[] = []
