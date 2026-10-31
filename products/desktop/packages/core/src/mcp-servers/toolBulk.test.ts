@@ -16,6 +16,7 @@ function tool(
     team_state: null,
     locked: false,
     decided_by: "default",
+    is_read_only: false,
     last_seen_at: "2026-01-01T00:00:00Z",
     removed_at: null,
     created_at: "2026-01-01T00:00:00Z",

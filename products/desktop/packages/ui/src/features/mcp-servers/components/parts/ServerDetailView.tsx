@@ -11,6 +11,8 @@ import {
   X,
 } from "@phosphor-icons/react";
 import type {
+  McpApprovalState,
+  McpInstallationTool,
   McpRecommendedServer,
   McpServerInstallation,
 } from "@posthog/api-client/posthog-client";
@@ -21,6 +23,7 @@ import {
   countRemovedTools,
   countToolsByApproval,
   filterToolsByName,
+  groupToolsByReadOnly,
   sortToolsForDisplay,
 } from "@posthog/core/mcp-servers/toolDerivation";
 import { ServerIcon } from "@posthog/ui/features/mcp-servers/components/parts/icons";
@@ -101,6 +104,11 @@ export function ServerDetailView({
   const filteredTools = useMemo(
     () => filterToolsByName(visibleTools, toolSearch),
     [visibleTools, toolSearch],
+  );
+
+  const groupedTools = useMemo(
+    () => groupToolsByReadOnly(filteredTools),
+    [filteredTools],
   );
 
   const removedCount = countRemovedTools(tools);
@@ -369,19 +377,25 @@ export function ServerDetailView({
                   </Text>
                 </Flex>
               ) : (
-                filteredTools.map((tool) => (
-                  <ToolRow
-                    key={tool.tool_name}
-                    tool={tool}
+                <>
+                  <ToolGroup
+                    label="Server-reported read-only"
+                    // readOnlyHint is an unverified claim from the MCP server itself;
+                    // a malicious server can set it on a destructive tool, so the
+                    // label must not read as a verified guarantee (see get_is_read_only
+                    // in products/mcp_store/backend/presentation/views.py).
+                    labelTooltip="The MCP server reported these tools as read-only via its readOnlyHint annotation. This cannot be verified, so treat it as a hint, not a guarantee."
+                    tools={groupedTools.readOnly}
                     teamScope={installation.scope === "shared"}
-                    onChange={(approval_state) =>
-                      setToolApproval({
-                        toolName: tool.tool_name,
-                        approval_state,
-                      })
-                    }
+                    onToolApproval={setToolApproval}
                   />
-                ))
+                  <ToolGroup
+                    label="Write or delete tools"
+                    tools={groupedTools.writeOrDelete}
+                    teamScope={installation.scope === "shared"}
+                    onToolApproval={setToolApproval}
+                  />
+                </>
               )}
             </Flex>
           )}
@@ -420,6 +434,59 @@ export function ServerDetailView({
           </Text>
         </Flex>
       )}
+    </Flex>
+  );
+}
+
+interface ToolGroupProps {
+  label: string;
+  tools: McpInstallationTool[];
+  teamScope: boolean;
+  onToolApproval: (vars: {
+    toolName: string;
+    approval_state: McpApprovalState;
+  }) => void;
+  /** Optional clarification shown on hover, e.g. to flag an unverified server claim. */
+  labelTooltip?: string;
+}
+
+function ToolGroup({
+  label,
+  tools,
+  teamScope,
+  onToolApproval,
+  labelTooltip,
+}: ToolGroupProps) {
+  if (tools.length === 0) return null;
+
+  return (
+    <Flex direction="column" gap="2">
+      <Flex align="center" gap="2">
+        {labelTooltip ? (
+          <Tooltip content={labelTooltip}>
+            <Text color="gray" className="font-medium text-[13px]">
+              {label}
+            </Text>
+          </Tooltip>
+        ) : (
+          <Text color="gray" className="font-medium text-[13px]">
+            {label}
+          </Text>
+        )}
+        <Badge color="gray" variant="soft" size="1">
+          {tools.length}
+        </Badge>
+      </Flex>
+      {tools.map((tool) => (
+        <ToolRow
+          key={tool.tool_name}
+          tool={tool}
+          teamScope={teamScope}
+          onChange={(approval_state) =>
+            onToolApproval({ toolName: tool.tool_name, approval_state })
+          }
+        />
+      ))}
     </Flex>
   );
 }
