@@ -112,6 +112,12 @@ describe('useMaxTool', () => {
                 view.rerender(<TestMaxTool context={{ query: 'select 2' }} initialMaxPrompt="Why did signups drop?" />),
             expectedToolContext: [JSON.stringify({ query: 'select 2' })],
         },
+        {
+            change: 'the tool turns inactive',
+            whileLoading: (view: ReturnType<typeof render>): void =>
+                view.rerender(<TestMaxTool context={{ query: 'select 1' }} active={false} />),
+            expectedToolContext: [],
+        },
     ])(
         'opens the panel with the prompt and current context when $change before the chunk arrives',
         async ({ whileLoading, expectedToolContext }) => {

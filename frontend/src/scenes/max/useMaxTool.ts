@@ -97,9 +97,9 @@ export function useMaxTool({
     const activeIdentifierRef = useRef<string | null>(null)
     const hookIdRef = useRef<string>(uuid())
     const unmountedRef = useRef(false)
-    // openMax reads this after the chunk loads, so a context edit made meanwhile reaches the chat.
-    const contextRef = useRef(context)
-    contextRef.current = context
+    // openMax reads these after the chunk loads, so a change made meanwhile decides what reaches the chat.
+    const latestRef = useRef({ context, active })
+    latestRef.current = { context, active }
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
     useEffect(() => {
@@ -196,10 +196,14 @@ export function useMaxTool({
                   }
                   const { startToolChat, showToolSuggestions } = opener
                   startToolChat({ todayRailNav: !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV], effectivePhaiView })
-                  // The page may have changed while the chunk loaded. Its context would then outlive the hook.
-                  if (effectivePhaiView === 'new' && !unmountedRef.current) {
+                  // The page may have closed, or the tool turned off, while the chunk loaded. Its context would then outlive the hook.
+                  if (effectivePhaiView === 'new' && !unmountedRef.current && latestRef.current.active) {
                       toolPageContextOwner = hookIdRef.current
-                      const items = toolPageContextItems(identifier, contextRef.current, TOOL_PAGE_CONTEXT_PROVIDER_ID)
+                      const items = toolPageContextItems(
+                          identifier,
+                          latestRef.current.context,
+                          TOOL_PAGE_CONTEXT_PROVIDER_ID
+                      )
                       undismissContext(attachedContextItemKey(items[0]), TOOL_PAGE_CONTEXT_PROVIDER_ID)
                       registerContext(TOOL_PAGE_CONTEXT_PROVIDER_ID, items)
                   }
