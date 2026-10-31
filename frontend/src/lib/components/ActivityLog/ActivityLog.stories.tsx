@@ -1,5 +1,7 @@
 import { Meta } from '@storybook/react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import {
     featureFlagsActivityResponseJson,
     insightsActivityResponseJson,
@@ -95,6 +97,20 @@ export function WithCaption(): JSX.Element {
 
 export function WithNoData(): JSX.Element {
     return <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={6} />
+}
+
+export function WithNoDataAndCustomEmptyState(): JSX.Element {
+    return (
+        <ActivityLog
+            scope={ActivityScope.FEATURE_FLAG}
+            id={6}
+            emptyState={{
+                description:
+                    'History lists changes to the configuration of this batch export. It does not list export runs. To see the runs, open the Runs tab.',
+                action: <LemonButton type="primary">View runs</LemonButton>,
+            }}
+        />
+    )
 }
 
 export function WithoutAuditLogsFeaure(): JSX.Element {
