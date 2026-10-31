@@ -686,8 +686,15 @@ class TestPersonalApiKeyAuthenticator:
         assert authenticator.matches("random_token") is False
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "expires_at",
+        [
+            pytest.param(None, id="never_expires"),
+            pytest.param(datetime.now(UTC) + timedelta(days=1), id="expires_tomorrow"),
+        ],
+    )
     async def test_valid_key_returns_authenticated_user(
-        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock, expires_at: datetime | None
     ) -> None:
         conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
@@ -698,6 +705,7 @@ class TestPersonalApiKeyAuthenticator:
                 "current_team_id": 456,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "expires_at": expires_at,
             }
         )
 
@@ -709,6 +717,7 @@ class TestPersonalApiKeyAuthenticator:
         assert result.team_id == 456
         assert result.auth_method == "personal_api_key"
         assert result.is_staff is False
+        assert result.token_expires_at == expires_at
 
     @pytest.mark.asyncio
     async def test_query_requires_verified_email(
@@ -743,6 +752,16 @@ class TestPersonalApiKeyAuthenticator:
             pytest.param(
                 {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201},
                 id="wildcard_scope_rejected",
+            ),
+            pytest.param(
+                {
+                    "id": "k5",
+                    "user_id": 102,
+                    "scopes": ["llm_gateway:read"],
+                    "current_team_id": 202,
+                    "expires_at": datetime.now(UTC) - timedelta(minutes=1),
+                },
+                id="expired_key",
             ),
         ],
     )
