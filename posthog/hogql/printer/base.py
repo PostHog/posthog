@@ -1058,6 +1058,8 @@ class BasePrinter(Visitor[str]):
                 node.name,
                 function_term="aggregation",
             )
+            if node.distinct and not node.args:
+                raise QueryError(f"Aggregation '{node.name}' with DISTINCT requires at least one argument")
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Aggregation '{node.name}' requires parameters in addition to arguments")
