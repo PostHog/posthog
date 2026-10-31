@@ -16,6 +16,7 @@ from django.db.models import Q
 import structlog
 
 from products.mcp_store.backend.agents import (
+    BuiltInAgentKey,
     built_in_agent_key_for_task_origin,
     create_gateway_agent_token,
     credential_owner_eligible,
@@ -377,6 +378,8 @@ def get_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
+    has_profile: bool = False,
+    profile_agent_key: BuiltInAgentKey | None = None,
     credential_owner_id: int | None = None,
     allowed_installation_ids: list[str] | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
@@ -389,6 +392,8 @@ def get_installations_for_sandbox(
             include_personal=include_personal,
             task_origin=task_origin,
             task_agent_key=task_agent_key,
+            has_profile=has_profile,
+            profile_agent_key=profile_agent_key,
             credential_owner_id=credential_owner_id,
             allowed_installation_ids=allowed_installation_ids,
             allowed_gateway_server_ids=allowed_gateway_server_ids,
@@ -440,6 +445,8 @@ def resolve_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
+    has_profile: bool = False,
+    profile_agent_key: BuiltInAgentKey | None = None,
     credential_owner_id: int | None = None,
     allowed_installation_ids: list[str] | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
@@ -457,7 +464,10 @@ def resolve_installations_for_sandbox(
     on every call, so an offboarded owner's grants stop mounting even though
     the grant rows persist. Origin alone is not
     trusted: the persisted task agent key must match the origin mapping. A
-    mapped origin without that marker gets no MCP Store installations. Built-in agent
+    mapped origin without that marker gets no MCP Store installations.
+    When ``has_profile`` is True, ``profile_agent_key`` replaces the origin
+    mapping: a profiled task resolves as the agent its profile names, or as a
+    member task when the profile names none, whatever its origin. Built-in agent
     handling is gated per team on the `mcp-gateway` rollout flag; teams
     without it resolve mapped origins like unmapped tasks. Unmapped origins
     retain the legacy member behavior and optionally include the user's
@@ -491,7 +501,7 @@ def resolve_installations_for_sandbox(
             "template", "gateway_server"
         )
 
-        mapped_agent_key = built_in_agent_key_for_task_origin(task_origin or "")
+        mapped_agent_key = profile_agent_key if has_profile else built_in_agent_key_for_task_origin(task_origin or "")
         if mapped_agent_key is not None and not is_builtin_agent_enforcement_enabled(team_id):
             # Rollout gate: until the gateway ships for this team, built-in
             # agent origins keep the legacy member resolution below.

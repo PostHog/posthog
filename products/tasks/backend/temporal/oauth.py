@@ -77,13 +77,16 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 
 
 def _oauth_application_for_task(task: Task, state: dict[str, Any] | None) -> SandboxOAuthApplication:
-    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
-    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
-        return "posthog_ai"
     if (
         task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
         and (state or {}).get("billing_product") == "posthog_ai"
     ):
+        return "posthog_ai"
+    profile = task.stored_profile
+    if profile is not None:
+        return cast(SandboxOAuthApplication, profile.oauth_app.value)
+    # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
+    if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"
@@ -212,12 +215,9 @@ def create_oauth_access_token(
         "application": _oauth_application_for_task(task, run_state),
         "sandbox_task_id": task.id,
     }
-    if task.origin_product in {
-        Task.OriginProduct.SIGNALS_SCOUT,
-        Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-        Task.OriginProduct.SUPPORT_REPLY,
-        Task.OriginProduct.WORKFLOW,
-    } and is_builtin_agent_enforcement_enabled(task.team_id):
+    if Task.mcp_agent_key_for(task.origin_product, task.stored_profile) is not None and (
+        is_builtin_agent_enforcement_enabled(task.team_id)
+    ):
         # This scope only removes access to the human MCP Store surface. Add it
         # even when a legacy task lacks trusted provenance so an old spoofed
         # origin fails closed instead of inheriting its creator's connections.
