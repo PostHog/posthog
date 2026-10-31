@@ -57,6 +57,7 @@ from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_mat
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
+    ACTIVITY_LOG_INTENT_HEADER,
     ActivityCredential,
     activity_storage,
     client_from_header,
@@ -75,6 +76,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.mcp_intents import buffer_mcp_intent
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -1448,6 +1450,63 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     return session_activity_credential(request, get_original_user_id_from_session(request))
 
 
+# Credentials a person holds. A server-minted sandbox token is OAuth too, but it binds a task.
+_MCP_INTENT_CREDENTIAL_TYPES = frozenset({"oauth", "personal_api_key"})
+
+
+def _resolved_team_id(response: HttpResponse) -> int | None:
+    """The team that a DRF view resolved for the request, read without a query.
+
+    Reads only the cached values, because a view that never resolved a team has no team to report.
+    """
+    renderer_context = getattr(response, "renderer_context", None) or {}
+    cached = getattr(renderer_context.get("view"), "__dict__", {})
+    team = cached.get("team")
+    if isinstance(team, Team):
+        return team.id
+    team_id = cached.get("team_id")
+    return team_id if isinstance(team_id, int) else None
+
+
+def _buffer_mcp_intent(request: HttpRequest, response: HttpResponse) -> None:
+    """Keep the intent of an MCP read for the activity summary, which sees only the calls that write.
+
+    Runs after the view, because bearer authentication sets the user inside it. The buffer is
+    optional context, so a failure here must not fail the request.
+    """
+    if not settings.ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED:
+        return
+    try:
+        if request.headers.get(ACTIVITY_LOG_CLIENT_HEADER, "").strip().lower() != "mcp" or response.status_code >= 400:
+            return
+        intent = request.headers.get(ACTIVITY_LOG_INTENT_HEADER, "").strip()
+        if not intent:
+            return
+        credential = activity_storage.get_credential()
+        if (
+            credential is None
+            or credential.type not in _MCP_INTENT_CREDENTIAL_TYPES
+            or credential.impersonated_by_id is not None
+            or activity_storage.get_agent_task_id() is not None
+        ):
+            return
+        user = activity_storage.get_user()
+        team_id = _resolved_team_id(response)
+        if user is None or team_id is None:
+            return
+        resolver_match = request.resolver_match
+        buffer_mcp_intent(
+            team_id=team_id,
+            user_id=user.pk,
+            session_id=sanitize_header_value(request.headers.get("X-Posthog-Mcp-Session-Id"))
+            or sanitize_header_value(request.headers.get("X-Posthog-Mcp-Conversation-Id")),
+            route_name=resolver_match.view_name if resolver_match else None,
+            intent=intent,
+        )
+    except Exception:
+        logger.warning("activity_summary.mcp_intent_buffer_failed", exc_info=True)
+
+
 class ActivityLoggingMiddleware:
     """
     Middleware that sets the current user and impersonation status in activity storage
@@ -1478,6 +1537,7 @@ class ActivityLoggingMiddleware:
 
         try:
             response = self.get_response(request)
+            _buffer_mcp_intent(request, response)
         finally:
             # Clean up activity storage after request
             activity_storage.clear_all()

@@ -5,8 +5,10 @@ from posthog.dataclasses import frozen
 from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
 from products.experiments.backend.health.context import HealthContext, load_health_context
+from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.exposure_inputs import ExposureInputs, load_exposure_inputs
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
@@ -74,6 +76,7 @@ def _health_context(
     flag_history = load_flag_history(experiment, reader_access=reader_access)
     context = load_health_context(experiment, flag_history=flag_history)
     traffic = load_condition_set_traffic(experiment, context, reader_access=reader_access)
+    latest_calculation = load_latest_calculation(experiment)
     return replace(
         context,
         condition_set_traffic=traffic,
@@ -81,5 +84,10 @@ def _health_context(
         primary_metric=load_primary_metric(experiment),
         primary_metric_windows=load_primary_metric_windows(experiment),
         metric_compiles=load_metric_compiles(experiment, user=user),
-        latest_calculation=load_latest_calculation(experiment),
+        latest_calculation=latest_calculation,
+        exposure_filters_without_column=load_filters_without_column(experiment)
+        if latest_calculation is not None
+        and not latest_calculation.completed_count
+        and any(failure.exposures_path == ExposuresPath.DIRECT_SCAN for failure in latest_calculation.failures)
+        else None,
     )
