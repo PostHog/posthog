@@ -132,8 +132,14 @@ describe('experimentLogic', () => {
             sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
             bias_risk: { multiple_variant_percentage: 5 },
             health_findings: [
-                { code: 'srm', subcode: 'split_changed', reason: 'library', evidence: { p_value: 0.0001 } },
-                { code: 'bias_risk_multiple_excluded' },
+                {
+                    code: 'srm',
+                    subcode: 'split_changed',
+                    severity: 'warning',
+                    reason: 'library',
+                    evidence: { p_value: 0.0001 },
+                },
+                { code: 'bias_risk_multiple_excluded', subcode: null, severity: 'warning', reason: null, evidence: {} },
             ],
         }
         const noServerVerdicts = {
@@ -144,6 +150,7 @@ describe('experimentLogic', () => {
             zero_exposures_subcode: null,
             zero_exposures_reason: null,
             bias_risk_server: null,
+            exposure_health_findings: null,
         }
 
         it.each([
@@ -188,6 +195,10 @@ describe('experimentLogic', () => {
                     zero_exposures_subcode: null,
                     zero_exposures_reason: null,
                     bias_risk_server: true,
+                    exposure_health_findings: [
+                        'srm:split_changed:warning:library',
+                        'bias_risk_multiple_excluded::warning:',
+                    ],
                 },
             },
             {
@@ -206,6 +217,7 @@ describe('experimentLogic', () => {
                     srm_server: false,
                     zero_exposures_server: false,
                     bias_risk_server: false,
+                    exposure_health_findings: [],
                 },
             },
             {
@@ -217,6 +229,7 @@ describe('experimentLogic', () => {
                         {
                             code: 'zero_exposures',
                             subcode: 'calls_not_counted',
+                            severity: 'warning',
                             reason: 'test_account_filter',
                             evidence: { hours_since_launch: 48 },
                         },
@@ -231,6 +244,7 @@ describe('experimentLogic', () => {
                     zero_exposures_server: true,
                     zero_exposures_subcode: 'calls_not_counted',
                     zero_exposures_reason: 'test_account_filter',
+                    exposure_health_findings: ['zero_exposures:calls_not_counted:warning:test_account_filter'],
                 },
             },
         ])(
