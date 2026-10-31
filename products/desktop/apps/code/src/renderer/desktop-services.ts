@@ -32,8 +32,12 @@ import {
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
+import { GitProviderService } from "@posthog/core/integrations/gitProviderService";
 import {
+  GIT_PROVIDER_CLIENT,
+  GIT_PROVIDER_SERVICE,
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
+  type GitProviderClient,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
   REPOSITORIES_SERVICE,
@@ -89,6 +93,7 @@ import {
 } from "@posthog/ui/features/file-watcher/identifiers";
 import { GIT_CACHE_KEY_PROVIDER } from "@posthog/ui/features/git-interaction/gitCacheProvider";
 import {
+  UiGitProviderClient,
   UiGithubConnectClient,
   UiRepositoriesClient,
 } from "@posthog/ui/features/integrations/integrationsClientImpl";
@@ -204,6 +209,10 @@ container
   .bind<RepositoriesClient>(REPOSITORIES_CLIENT)
   .toConstantValue(new UiRepositoriesClient());
 container.bind(REPOSITORIES_SERVICE).to(RepositoriesService).inSingletonScope();
+container
+  .bind<GitProviderClient>(GIT_PROVIDER_CLIENT)
+  .toConstantValue(new UiGitProviderClient());
+container.bind(GIT_PROVIDER_SERVICE).to(GitProviderService).inSingletonScope();
 
 container
   .bind(HEDGEHOG_MODE_HOST)
