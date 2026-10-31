@@ -148,7 +148,6 @@ class _WindowInputs:
     tasks: list[TaskItem]
     activity: list[ActivityItem]
     views: list[ViewItem]
-    # None when the update does not read the MCP intent buffer.
     mcp: McpRead | None = None
 
     @property

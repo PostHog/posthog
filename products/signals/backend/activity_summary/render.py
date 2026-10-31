@@ -59,7 +59,6 @@ ACTIVITY_MAX_INTENTS = 2
 VIEW_LINE_CHARS = 160
 MCP_LINES = 10
 MCP_LINE_CHARS = 400
-# Intents one MCP session line keeps: the first ones and the last one.
 MCP_CHAIN_MAX_INTENTS = 6
 # The MCP intent buffer cuts an intent to this many characters.
 MCP_INTENT_CHARS = 200
@@ -378,7 +377,6 @@ class Unit:
     text: str
     # Characters of agent intent on the line.
     intent_chars: int = 0
-    # The `intent_key` of each agent intent that the line shows.
     intent_keys: frozenset[str] = frozenset()
 
 
