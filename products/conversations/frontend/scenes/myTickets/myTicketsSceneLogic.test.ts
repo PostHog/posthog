@@ -1,6 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { sidepanelTicketsLogic } from '../../components/SidePanel/sidepanelTicketsLogic'
@@ -43,5 +48,74 @@ describe('myTicketsSceneLogic', () => {
 
         sceneLogic.unmount()
         ticketsLogic.unmount()
+    })
+
+    it('opens an agent draft in the support form and claims it when the person sends it', async () => {
+        ;(posthog as any).conversations.sendMessage = jest
+            .fn()
+            .mockResolvedValue({ ticket_id: 'ticket-9', ticket_status: 'new', created_at: '2026-10-30T00:00:00Z' })
+        const claimed = jest.fn()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/posthog_support/drafts/:draft_id/': {
+                    id: 'draft-1',
+                    message: 'In my words:\nMy funnel is empty',
+                    filing_reason: 'user_asked_for_support',
+                    agent_name: 'Claude Code',
+                    ticket_context: 'Drafted by an AI agent (Claude Code) through the PostHog MCP.',
+                    expires_at: 0,
+                    review_url: '',
+                    sent: false,
+                    next_step: '',
+                },
+            },
+            post: {
+                '/api/projects/:team_id/posthog_support/drafts/:draft_id/claim/': ({ params }) => {
+                    claimed(params.draft_id)
+                    return [204, null]
+                },
+            },
+        })
+        supportLogic.mount()
+        const sceneLogic = myTicketsSceneLogic.build()
+        sceneLogic.mount()
+
+        router.actions.push(urls.myTickets(), { support_draft: 'draft-1' })
+        await expectLogic(sceneLogic).toFinishAllListeners()
+
+        expect(supportLogic.values.sendSupportRequest).toMatchObject({
+            message: 'In my words:\nMy funnel is empty',
+            ai_draft_id: 'draft-1',
+        })
+        expect(supportLogic.values.sendSupportRequest.ticket_context).toContain('Claude Code')
+        expect(router.values.searchParams).not.toHaveProperty('support_draft')
+        expect(sceneLogic.values.isReviewingDraft).toBe(true)
+
+        sceneLogic.unmount()
+        await supportLogic.asyncActions.submitSupportTicket({
+            ...supportLogic.values.sendSupportRequest,
+            email: 'person@example.com',
+        })
+
+        expect(claimed).toHaveBeenCalledWith('draft-1')
+        expect((posthog as any).conversations.sendMessage).toHaveBeenCalled()
+    })
+
+    it('keeps the draft link when the draft fails to load for a reason other than a missing draft', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/posthog_support/drafts/:draft_id/': () => [503, { detail: 'Unavailable' }],
+            },
+        })
+        const sceneLogic = myTicketsSceneLogic.build()
+        sceneLogic.mount()
+
+        router.actions.push(urls.myTickets(), { support_draft: 'draft-1' })
+        await expectLogic(sceneLogic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toHaveProperty('support_draft', 'draft-1')
+        expect(sceneLogic.values.isReviewingDraft).toBe(false)
+
+        sceneLogic.unmount()
     })
 })

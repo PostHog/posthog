@@ -1,7 +1,10 @@
 import hmac
 import time
+import uuid
 import hashlib
 from collections.abc import Callable
+
+from posthog.dataclasses import frozen
 
 # NUL separates claim fields so adjacent values cannot form an ambiguous signed input.
 _CLAIM_SEP = "\x00"
@@ -106,3 +109,40 @@ def verify_identity_claim_hash(
     except ValueError:
         return False
     return hmac.compare_digest(expected, hash_value)
+
+
+@frozen
+class SignedIdentityClaim:
+    value: str
+    expires_at: int
+    hash: str
+
+
+@frozen
+class SignedIdentity:
+    distinct_id: str
+    hash: str
+    email: SignedIdentityClaim | None
+
+
+def sign_identity(distinct_id: str, secret: str, *, verified_email: str | None) -> SignedIdentity:
+    """Sign a PostHog user's identity for PostHog's own support widget.
+
+    The web app and the MCP support tools both send this, so the widget must see the same
+    identity from either surface. Pass an email only when the user has verified it.
+    """
+    email_claim = None
+    if verified_email:
+        canonical_email = canonicalize_claim_value("email", verified_email)
+        expires_at = int(time.time()) + IDENTITY_CLAIM_MAX_AGE_SECONDS
+        email_claim = SignedIdentityClaim(
+            value=canonical_email,
+            expires_at=expires_at,
+            hash=compute_identity_claim_hash(distinct_id, "email", canonical_email, secret, expires_at=expires_at),
+        )
+    return SignedIdentity(distinct_id=distinct_id, hash=compute_identity_hash(distinct_id, secret), email=email_claim)
+
+
+def widget_session_id_for_identity(identity_hash: str) -> str:
+    """The widget session id that a verified identity's tickets are stored under."""
+    return str(uuid.UUID(identity_hash[:32]))
