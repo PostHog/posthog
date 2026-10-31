@@ -2,8 +2,8 @@
 
 Devex / hygiene rules for the PostHog codebase. Run by the `semgrep-devex` job in `ci-security.yaml` in three passes:
 
-1. **Warnings (informational)** — `semgrep --severity=WARNING` runs all `severity: WARNING` rules. Findings appear in the CI run output but the step does not fail. Use this mode when a rule has a non-zero backlog of existing violations — the list shows up in CI without blocking master while the codebase is cleaned up.
-2. **Errors (blocking)** — `semgrep --severity=ERROR --error` runs all `severity: ERROR` rules and fails CI on any finding. Use this mode for hard regression guards: patterns that should never appear, or migration-style rules whose backlog has been cleaned up.
+1. **Warnings (informational)** — `semgrep --severity=WARNING` runs all `severity: WARNING` rules. Findings appear in the CI output of master pushes but the step does not fail. Pull requests skip this pass and get pass 3 instead. Use this mode when a rule has a non-zero backlog of existing violations — the list shows up in CI without blocking master while the codebase is cleaned up.
+2. **Errors (blocking)** — `semgrep --severity=ERROR --error` runs all `severity: ERROR` rules and fails CI on any finding. Pull requests scan only their changed files, unless they change a devex rule or `ci-security.yaml`; master scans the whole tree. Use this mode for hard regression guards: patterns that should never appear, or migration-style rules whose backlog has been cleaned up.
 3. **New warnings (blocking, PRs only)** — the WARNING rules run again with `--baseline-commit` set to the PR base, plus `--error`. Findings that already exist on the base are grandfathered; findings the PR introduces fail the job. This stops the bleeding on backlogged rules while the backlog is worked down. Caveat: moving or renaming a file makes its grandfathered findings look new to the baseline diff — either fix them as part of the move or exempt them with `# nosemgrep: <rule-id>`.
 
 ## Picking a severity
