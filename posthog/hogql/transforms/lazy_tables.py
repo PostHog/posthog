@@ -64,6 +64,14 @@ class FieldChainReplacer(TraversingVisitor):
             if node.chain == constraint.chain_to_replace:
                 node.chain = [constraint.table_name, constraint.alias]
 
+    # A nested select reads its own tables, such as a pushdown subquery that scans the lazy table again, so a chain in
+    # it does not name the outer table's column.
+    def visit_select_query(self, node: ast.SelectQuery):
+        pass
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        pass
+
 
 class FieldFinder(TraversingVisitor):
     field_chains: list[list[str | int]] = []
