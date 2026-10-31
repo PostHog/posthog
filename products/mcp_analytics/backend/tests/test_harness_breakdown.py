@@ -284,7 +284,8 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         assert "Claude.ai" not in by_harness
 
     def test_aggregates_calls_errors_and_sessions(self) -> None:
-        self._emit(properties={"$mcp_client_name": "codex-mcp-client"}, session_id="a", is_error=False)
+        # Session "a" reaches OpenAI Codex under two client names, so it must still count once.
+        self._emit(properties={"$mcp_client_name": "codex"}, session_id="a", is_error=False)
         self._emit(properties={"$mcp_client_name": "codex-mcp-client"}, session_id="a", is_error=True)
         self._emit(properties={"$mcp_client_name": "codex-mcp-client"}, session_id="b", is_error=False)
         flush_persons_and_events()
@@ -350,6 +351,12 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             distinct_id="d1",
             session_id="",
             properties={"$mcp_client_name": "codex-mcp-client", session_key: "a", **new_sdk},
+        )
+        # The same session under another client name of the same harness counts once.
+        self._emit(
+            distinct_id="d1",
+            session_id="",
+            properties={"$mcp_client_name": "codex", session_key: "a", **new_sdk},
         )
         # A different tool, same harness, different session: counts toward harness_sessions
         # but not toward this tool's own `sessions`.
