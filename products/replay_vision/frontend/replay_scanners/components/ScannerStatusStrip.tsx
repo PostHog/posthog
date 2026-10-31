@@ -42,6 +42,8 @@ function statusDetail(status: ScannerStatus, resetsOn: string | null, periodEnds
                 : limitReachedTooltip(status)
         case 'quota_exhausted':
             return `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`
+        case 'filter_error':
+            return `The filters can't run, so no new recordings are scanned. ${status.message}`
         case 'starting':
             return 'The first scan is running. Results usually appear within 15 minutes.'
         case 'delayed':
@@ -133,14 +135,14 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                 Your organization's spend limit is used up too, so raise it in billing as well.
                             </span>
                         )}
-                        {status.kind === 'no_matches' && (
+                        {(status.kind === 'no_matches' || status.kind === 'filter_error') && (
                             <>
                                 {' '}
                                 <Link
                                     to={urls.replayVisionScannerTriggers(scannerId)}
                                     data-attr="vision-scanner-status-review-filters"
                                 >
-                                    Review filters
+                                    {status.kind === 'filter_error' ? 'Edit filters' : 'Review filters'}
                                 </Link>
                             </>
                         )}

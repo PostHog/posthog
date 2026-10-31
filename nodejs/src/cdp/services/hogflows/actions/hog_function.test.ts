@@ -723,7 +723,7 @@ describe('HogFunctionHandler', () => {
             if (isTest && mockFunctions) {
                 expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
             } else {
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(1)
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(billingType === 'push' ? 2 : 1)
                 expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
                     expect.objectContaining({ teamId: team.id, usageKey })
                 )
@@ -767,9 +767,18 @@ describe('HogFunctionHandler', () => {
 
         expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
         if (shouldBill) {
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
-            )
+            const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:push`
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_push_sent',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_billable_invocations',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(2)
         } else {
             expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
         }
@@ -810,6 +819,43 @@ describe('HogFunctionHandler', () => {
             expect(invocationResult.invocation.state.flowVersion).toBe(expected)
         }
     )
+
+    it('keeps a paused protected send protected on its retry after protection is turned off', async () => {
+        const sentWith: any[] = []
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            (hogFunctionInvocation: any) => {
+                sentWith.push(hogFunctionInvocation.hogFunction.metadata)
+                return Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            }
+        )
+        ;(action.config as any).sensitive = true
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+        expect(firstResult.invocation.state.currentAction!.hogFunctionState!.sensitive).toBe(true)
+        ;(action.config as any).sensitive = false
+        await hogFunctionHandler.execute({
+            invocation: firstResult.invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
+    })
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result

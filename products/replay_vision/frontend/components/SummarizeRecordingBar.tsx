@@ -63,7 +63,8 @@ function SummarizeRecordingBarContent({
             />
             <SummarizeExplainer />
             {extraActions}
-            {summarizeBlockedReason && (
+            {/* The inline row has no room for it, and the disabled button already says why on hover. */}
+            {!inline && summarizeBlockedReason && (
                 <Tooltip title={summarizeBlockedReason}>
                     <span className="ml-auto text-muted text-xs truncate" data-attr="vision-dock-skipped">
                         {scanBlock ? `Skipped: ${scanBlock.label.toLowerCase()}` : summarizeBlockedReason}

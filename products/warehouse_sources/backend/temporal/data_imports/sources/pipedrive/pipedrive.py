@@ -44,7 +44,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import (
     DEAL_IDS_PER_REQUEST,
     DEAL_PARENT_PATHS,
+    MAIL_FOLDERS,
+    MAIL_THREADS_PATH,
     PAGE_SIZE,
+    PROJECT_BOARDS_PATH,
     PipedriveEndpointConfig,
     endpoints_for_version,
 )
@@ -121,13 +124,7 @@ def _cursor_paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path="additional_data.next_cursor", cursor_param="cursor")
 
 
-def _build_paginator(config: PipedriveEndpointConfig) -> BasePaginator:
-    if config.pagination == "cursor":
-        # v2 endpoints: opaque cursor in the response body; ``limit`` rides in the endpoint params.
-        return _cursor_paginator()
-    if config.pagination == "none":
-        # Documented as unpaginated: a full page must not send a second request at `start=500`.
-        return SinglePagePaginator()
+def _offset_paginator(maximum_offset: Optional[int] = None) -> OffsetPaginator:
     # v1 endpoints: start/limit offset. No top-level total; termination is a short/empty page.
     return OffsetPaginator(
         limit=PAGE_SIZE,
@@ -135,8 +132,19 @@ def _build_paginator(config: PipedriveEndpointConfig) -> BasePaginator:
         offset_param="start",
         limit_param="limit",
         total_path=None,
+        maximum_offset=maximum_offset,
         stop_after_empty_page=True,
     )
+
+
+def _build_paginator(config: PipedriveEndpointConfig) -> BasePaginator:
+    if config.pagination == "cursor":
+        # v2 endpoints: opaque cursor in the response body; ``limit`` rides in the endpoint params.
+        return _cursor_paginator()
+    if config.pagination == "none":
+        # Documented as unpaginated: a full page must not send a second request at `start=500`.
+        return SinglePagePaginator()
+    return _offset_paginator()
 
 
 def validate_credentials(company_domain: str, api_token: str) -> Optional[int]:
@@ -473,6 +481,145 @@ def _deal_fan_out_rows(
             progress["parent_page"] = next_parent_page.get("state")
 
 
+def _list_thread_ids(client: RESTClient, folder: str, stop_offset: Optional[int] = None) -> set[Any]:
+    """List the thread ids of a folder, or of its pages before `stop_offset` when it is set."""
+    if stop_offset is not None and stop_offset <= 0:
+        return set()
+    ids: set[Any] = set()
+    for threads in client.paginate(
+        path=MAIL_THREADS_PATH,
+        params={"folder": folder},
+        paginator=_offset_paginator(maximum_offset=stop_offset),
+        data_selector="data",
+    ):
+        ids.update(thread.get("id") for thread in threads)
+    return ids
+
+
+def _mail_rows(
+    client: RESTClient,
+    config: PipedriveEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
+    initial_state: Optional[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the threads of every mail folder, or for `mail_messages` the messages of each thread.
+
+    A thread is listed in every folder that holds one of its messages, so a thread already read
+    from an earlier folder is skipped. Threads come newest message first rather than by id, so the
+    resume state is the folder, the page being read, and the ids of the threads of that page that
+    are done. A resume lists the folders and pages before it again to rebuild the skipped threads,
+    which keeps the state from growing with the mailbox.
+    """
+    state = initial_state or {}
+    start_folder = state.get("folder_index", 0)
+    seen: set[Any] = set(state.get("done_ids", []))
+    if initial_state:
+        for folder in MAIL_FOLDERS[:start_folder]:
+            seen |= _list_thread_ids(client, folder)
+        resume_page = state.get("page")
+        if start_folder < len(MAIL_FOLDERS) and resume_page:
+            seen |= _list_thread_ids(client, MAIL_FOLDERS[start_folder], stop_offset=resume_page.get("offset"))
+    # A thread deleted between the folder listing and this fetch has nothing left to read.
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=config.name)
+
+    def stage(progress: dict[str, Any]) -> None:
+        resumable_source_manager.save_state(PipedriveResumeConfig(paginator_state=progress))
+
+    def stage_page_done(folder_index: int, next_page_state: Optional[dict[str, Any]]) -> None:
+        if next_page_state:
+            stage({"folder_index": folder_index, "page": next_page_state})
+        else:
+            stage({"folder_index": folder_index + 1})
+
+    for folder_index, folder in enumerate(MAIL_FOLDERS):
+        if folder_index < start_folder:
+            continue
+        resuming = folder_index == start_folder
+        page: Optional[dict[str, Any]] = state.get("page") if resuming else None
+        done_in_page: list[Any] = list(state.get("done_ids", [])) if resuming else []
+        next_page: dict[str, Any] = {}
+
+        def on_page(
+            paginator_state: Optional[dict[str, Any]], has_next: bool, _next: dict[str, Any] = next_page
+        ) -> None:
+            _next["state"] = paginator_state if has_next else None
+
+        for threads in client.paginate(
+            path=MAIL_THREADS_PATH,
+            params={"folder": folder},
+            paginator=_offset_paginator(),
+            data_selector="data",
+            initial_paginator_state=page,
+            page_state_hook=on_page,
+        ):
+            if config.custom_read == "mail_threads":
+                new_threads = [thread for thread in threads if thread.get("id") not in seen]
+                seen.update(thread.get("id") for thread in new_threads)
+                stage_page_done(folder_index, next_page.get("state"))
+                if new_threads:
+                    yield new_threads
+                else:
+                    resumable_source_manager.safe_point()
+            else:
+                for thread in threads:
+                    thread_id = thread.get("id")
+                    if thread_id in seen:
+                        continue
+                    seen.add(thread_id)
+                    messages: list[dict[str, Any]] = []
+                    for rows in client.paginate(
+                        path=config.path.format(id=thread_id),
+                        paginator=SinglePagePaginator(),
+                        data_selector="data",
+                        hooks=hooks,
+                    ):
+                        messages.extend(rows)
+                    if messages:
+                        done_in_page.append(thread_id)
+                        stage({"folder_index": folder_index, "page": page, "done_ids": list(done_in_page)})
+                        yield messages
+                    else:
+                        resumable_source_manager.safe_point()
+                # Every thread of the page is done, so the next attempt can start at the next page.
+                stage_page_done(folder_index, next_page.get("state"))
+                resumable_source_manager.safe_point()
+
+            page = next_page.get("state")
+            done_in_page = []
+
+
+def _project_phase_rows(
+    client: RESTClient,
+    config: PipedriveEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
+    initial_state: Optional[dict[str, Any]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the phases of every project board. The resume state is the ids of the boards done."""
+    done_boards: list[Any] = list((initial_state or {}).get("done_board_ids", []))
+    # A board deleted between the board listing and this fetch has no phases left to read.
+    hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}], resource_name=config.name)
+
+    for boards in client.paginate(path=PROJECT_BOARDS_PATH, paginator=SinglePagePaginator(), data_selector="data"):
+        for board in boards:
+            if board["id"] in done_boards:
+                continue
+            for phases in client.paginate(
+                path=config.path,
+                params={"board_id": board["id"]},
+                paginator=SinglePagePaginator(),
+                data_selector="data",
+                hooks=hooks,
+            ):
+                if phases:
+                    done_boards.append(board["id"])
+                    resumable_source_manager.save_state(
+                        PipedriveResumeConfig(paginator_state={"done_board_ids": list(done_boards)})
+                    )
+                    yield phases
+                else:
+                    resumable_source_manager.safe_point()
+
+
 def pipedrive_source(
     company_domain: str,
     api_token: str,
@@ -515,14 +662,19 @@ def pipedrive_source(
 
     resource: Any
     column_hints = None
-    if config.deal_fan_out is not None:
+    if config.deal_fan_out is not None or config.custom_read is not None:
         client = RESTClient(
             base_url=base_url(company_domain),
             headers={"Accept": "application/json"},
             auth=APIKeyAuth(api_key=api_token, name="x-api-token", location="header"),
             allowed_hosts=[],
         )
-        resource = _deal_fan_out_rows(client, config, resumable_source_manager, initial_paginator_state)
+        if config.custom_read == "project_phases":
+            resource = _project_phase_rows(client, config, resumable_source_manager, initial_paginator_state)
+        elif config.custom_read is not None:
+            resource = _mail_rows(client, config, resumable_source_manager, initial_paginator_state)
+        else:
+            resource = _deal_fan_out_rows(client, config, resumable_source_manager, initial_paginator_state)
     else:
         params: dict[str, Any] = {}
         if config.pagination == "cursor":

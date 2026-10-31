@@ -135,8 +135,6 @@ Thus four shards used approximately 22 more minutes of CPU in each run, and decr
 
 A shard retry also repeats the 7.5 minutes of setup. Thus a retry of one shard is not much faster than a retry of all the tests.
 
-The workflow contains a comment about this decision. Read the comment near `runs-on` in `.github/workflows/ci-e2e-playwright.yml`.
-
 _Also asked as:_ split the E2E tests across runners, parallelize Playwright, reduce flaky retry scope by sharding
 
 ### Use Bazel to scope product tests

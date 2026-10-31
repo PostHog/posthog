@@ -173,6 +173,7 @@ const quota: VisionQuotaApi = {
     exhausted: false,
     projected_monthly_credits: 5200,
     scanners_monthly_credits: 5200,
+    scanners_period_credits: 3467,
     backfills_committed_credits: 0,
     free_monthly_credits: 2500,
     credits_settled: 2400,
@@ -1296,15 +1297,6 @@ export const SummarizerOverview: StoryObj = {
 
 export const MonitorOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
-    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
-}
-
-// A scanner with legacy experiment targeting points its owner to an experiment scanner.
-export const MonitorOverviewLegacyTargeting: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(monitorOverviewScanner.id),
-        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
-    },
     decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats, activeSelfDrivingStats)],
 }
 
