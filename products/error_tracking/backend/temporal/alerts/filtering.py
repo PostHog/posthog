@@ -164,10 +164,10 @@ def fetch_exception_properties(inputs: AlertDeliveryWorkflowInputs) -> dict[str,
     """The triggering exception's properties, for openers with configured filters.
 
     Ingestion transitions carry the event uuid: the Redis handoff (with a
-    ClickHouse fallback) that the lifecycle activities already use serves those,
-    and a miss raises so the activity retries. Manual transitions (reopen, assign)
-    have no triggering event and get no lookup (a bulk action would turn into one
-    ClickHouse scan per issue): None tells the filter the data is unavailable.
+    ClickHouse fallback) that the lifecycle activities already use serves those.
+    Manual transitions (reopen, assign) have no triggering event and get no lookup
+    (a bulk action would turn into one ClickHouse scan per issue). None tells the
+    filter the data is unavailable, for a manual transition or a lookup miss.
     """
     if not inputs.event_uuid:
         return None

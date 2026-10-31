@@ -199,8 +199,9 @@ def produce_issue_lifecycle_internal_event(
         "severity": inputs.issue.severity,
         "fingerprint": inputs.fingerprint,
         "exception_timestamp": timestamp.isoformat(),
-        "exception_props": event_properties,
     }
+    if event_properties is not None:
+        properties["exception_props"] = event_properties
     status_property = _status_property(inputs, include_status=include_status, humanize_status=humanize_status)
     if status_property is not None:
         properties["status"] = status_property
@@ -251,7 +252,7 @@ async def emit_issue_lifecycle_signal(
     header = f"{preamble}:\n{issue_name}: {issue_description}\n"
     encoding = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
     stacktrace_tokens = max(SIGNAL_MAX_TOKENS - len(encoding.encode(header)), 0)
-    stacktrace = render_stacktrace(event_properties, stacktrace_tokens)
+    stacktrace = render_stacktrace(event_properties or {}, stacktrace_tokens)
     description = f"{header}\n```\n{stacktrace}\n```"
     signal_encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
     signal_tokens = signal_encoding.encode(description)

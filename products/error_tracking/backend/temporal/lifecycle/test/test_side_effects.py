@@ -374,3 +374,31 @@ async def test_signal_is_truncated_and_uses_notification_id_for_idempotency() ->
         "extra": {"fingerprint": inputs.fingerprint},
         "idempotency_key": inputs.notification_id,
     }
+
+
+@pytest.mark.asyncio
+async def test_signal_is_emitted_without_a_stack_trace_when_the_exception_event_is_unavailable() -> None:
+    with (
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.Team.objects.aget",
+            new=AsyncMock(return_value=MagicMock()),
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.fetch_event_properties",
+            return_value=None,
+        ),
+        patch(
+            "products.error_tracking.backend.temporal.lifecycle.side_effects.emit_signal",
+            new=AsyncMock(),
+        ) as emit_signal,
+    ):
+        await emit_issue_lifecycle_signal(
+            _inputs(),
+            source_type="issue_reopened",
+            preamble="Previously resolved issue reappeared",
+        )
+
+    assert emit_signal.await_args is not None
+    assert emit_signal.await_args.kwargs["description"] == (
+        "Previously resolved issue reappeared:\nTypeError: Something failed\n\n```\n\n```"
+    )
