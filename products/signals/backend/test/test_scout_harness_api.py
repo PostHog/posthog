@@ -2884,6 +2884,8 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         note = response.json()
         assert str(report.id) in note["content"]
         assert "Checkout 500s" not in note["content"]
+        # The content quotes a report id, so the row has to ride the derived-origin read gate.
+        assert note["origin"] == SignalScoutNote.Origin.REPORT_NOTE
         listed = self.client.get(self._list_url(), data={"text": str(report.id)})
         assert [row["id"] for row in listed.json()] == [note["id"]]
         artefact = SignalReportArtefact.objects.get(
@@ -2905,6 +2907,12 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
                 "caller_without_report_read",
                 "own",
                 ["signal_scout:write", "llm_skill:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "caller_without_report_write",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "task:read"],
                 status.HTTP_403_FORBIDDEN,
             ),
         ]
@@ -2936,6 +2944,22 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert response.status_code == expected_status, response.content
         assert not SignalScoutNote.objects.filter(team=self.team).exists()
         assert not SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT).exists()
+
+    def test_create_with_report_id_rejects_content_too_long_to_carry_the_reference(self) -> None:
+        from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
+
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "x" * (MAX_REPORT_NOTE_TEXT_LENGTH + 1), "report_id": str(report.id)},
+            format="json",
+        )
+
+        # The request serializer owns the shorter cap, so the caller gets a field error instead of
+        # the note layer's cap firing on prose the schema advertised as acceptable.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
 
     def test_notes_do_not_leak_across_teams(self) -> None:
         # Cross-team rows go through `all_teams`: the fail-closed `objects` manager is pinned

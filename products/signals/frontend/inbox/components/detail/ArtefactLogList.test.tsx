@@ -52,6 +52,29 @@ describe('ArtefactLogList', () => {
         expect(screen.getByText('The root cause moved to the ingestion path.')).toBeInTheDocument()
     })
 
+    it('shows a scout note left from the report, with the scout it was addressed to', () => {
+        render(
+            <ArtefactLogList
+                reportId="report-1"
+                artefacts={[
+                    makeArtefact(
+                        {
+                            note: 'Focus on the new checkout flow.',
+                            skill_name: 'signals-scout-web-analytics',
+                            scout_note_id: 'note-1',
+                        },
+                        'scout_note_left'
+                    ),
+                ]}
+            />
+        )
+
+        expect(screen.getByText('Scout note left')).toBeInTheDocument()
+        expect(screen.queryByText('scout_note_left')).not.toBeInTheDocument()
+        expect(screen.getByText('Focus on the new checkout flow.')).toBeInTheDocument()
+        expect(screen.getByText('For signals-scout-web-analytics')).toBeInTheDocument()
+    })
+
     it('labels an inconclusive check result and explains why', () => {
         render(
             <ArtefactLogList
