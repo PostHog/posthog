@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -7,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Region } from '~/types'
 
-import { STATUS_PAGE_BASE, incidentStatusLogic } from './incidentStatusLogic'
+import { incidentStatusLogic } from './incidentStatusLogic'
 
 describe('incidentStatusLogic', () => {
     let logic: ReturnType<typeof incidentStatusLogic.build>
