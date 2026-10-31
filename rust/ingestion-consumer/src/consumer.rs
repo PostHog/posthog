@@ -714,7 +714,7 @@ impl Drop for Release {
 /// follows waits for every unassign the loop still owes.
 impl Drop for IngestionConsumer {
     fn drop(&mut self) {
-        for unassign in self.rebalance().abandon() {
+        for unassign in self.rebalance().on_dropped() {
             self.unassign(unassign);
         }
     }

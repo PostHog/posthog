@@ -167,7 +167,7 @@ impl RebalanceState {
         }
     }
 
-    pub(crate) fn abandon(&mut self) -> Vec<Unassign> {
+    pub(crate) fn on_dropped(&mut self) -> Vec<Unassign> {
         let mut unassigns: Vec<Unassign> = self
             .on_stopped()
             .map(|drain| drain.unassign)
@@ -352,21 +352,21 @@ mod tests {
         state
     }
 
-    struct AbandonCase {
+    struct DroppedCase {
         state: fn() -> RebalanceState,
         unassigns: usize,
     }
 
     #[rstest::rstest]
-    #[case::nothing_pending(AbandonCase { state: consuming, unassigns: 0 })]
-    #[case::a_revoke_the_loop_never_took(AbandonCase { state: revoked_and_never_taken, unassigns: 1 })]
-    #[case::a_drain_in_progress(AbandonCase { state: draining, unassigns: 1 })]
-    #[case::a_drain_and_a_revoke_the_loop_never_took(AbandonCase { state: draining_then_revoked_and_never_taken, unassigns: 2 })]
-    #[case::after_the_loop_stopped(AbandonCase { state: stopped, unassigns: 0 })]
-    fn abandoning_the_loop_hands_back_every_unapplied_unassign(#[case] case: AbandonCase) {
+    #[case::nothing_pending(DroppedCase { state: consuming, unassigns: 0 })]
+    #[case::a_revoke_the_loop_never_took(DroppedCase { state: revoked_and_never_taken, unassigns: 1 })]
+    #[case::a_drain_in_progress(DroppedCase { state: draining, unassigns: 1 })]
+    #[case::a_drain_and_a_revoke_the_loop_never_took(DroppedCase { state: draining_then_revoked_and_never_taken, unassigns: 2 })]
+    #[case::after_the_loop_stopped(DroppedCase { state: stopped, unassigns: 0 })]
+    fn a_dropped_loop_hands_back_every_unapplied_unassign(#[case] case: DroppedCase) {
         let mut state = (case.state)();
 
-        assert_eq!(state.abandon().len(), case.unassigns);
+        assert_eq!(state.on_dropped().len(), case.unassigns);
 
         assert_eq!(state.take_events(), vec![]);
         assert!(

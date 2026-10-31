@@ -35,8 +35,8 @@ impl RebalanceContext {
         self.rebalance_state().on_stopped()
     }
 
-    pub(crate) fn abandon(&self) -> Vec<Unassign> {
-        self.rebalance_state().abandon()
+    pub(crate) fn on_dropped(&self) -> Vec<Unassign> {
+        self.rebalance_state().on_dropped()
     }
 
     pub(crate) fn on_drained(&self, revoke: RevokeId) -> Option<Drain> {
