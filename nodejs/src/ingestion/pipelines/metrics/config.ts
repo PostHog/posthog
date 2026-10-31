@@ -41,6 +41,7 @@ export type MetricsIngestionConsumerConfig = {
     METRICS_LIMITER_TTL_SECONDS: number
     METRICS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    METRICS_LIMITER_FAIL_OPEN: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -65,6 +66,8 @@ export function getDefaultMetricsIngestionConsumerConfig(): MetricsIngestionCons
         METRICS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         METRICS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        // When Redis is unavailable, allow every message instead of failing the batch.
+        METRICS_LIMITER_FAIL_OPEN: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
