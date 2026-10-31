@@ -31,6 +31,7 @@ HEALTH_CHECK_MODULES = [
     "products.feature_flags.backend.temporal.health_checks.stale_flags",
     "products.experiments.backend.temporal.health_checks.flag_state",
     "products.experiments.backend.temporal.health_checks.forced_variant",
+    "products.experiments.backend.temporal.health_checks.no_metric",
 ]
 
 _registry_loaded = False
