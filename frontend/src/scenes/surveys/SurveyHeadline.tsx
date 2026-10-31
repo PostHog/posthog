@@ -1,15 +1,21 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconRefresh, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-
-import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { surveyLogic } from './surveyLogic'
 
 export function SurveyHeadline(): JSX.Element | null {
     const { survey, surveyHeadlineLoading, dataProcessingAccepted } = useValues(surveyLogic)
     const { loadSurveyHeadline } = useActions(surveyLogic)
+
+    // An organization without AI consent cannot use this feature. A summary that was generated
+    // before the organization turned AI off stays hidden, because the results page must agree
+    // with the organization setting.
+    if (!dataProcessingAccepted) {
+        return null
+    }
 
     if (!surveyHeadlineLoading && !survey.headline_summary) {
         return null
@@ -20,9 +26,11 @@ export function SurveyHeadline(): JSX.Element | null {
             type="tertiary"
             size="xsmall"
             icon={<IconRefresh />}
-            onClick={() => loadSurveyHeadline(true)}
+            onClick={() => {
+                posthog.capture('survey headline summary regenerate clicked', { survey_id: survey.id })
+                loadSurveyHeadline(true)
+            }}
             tooltip={`Regenerate summary (last generated with ${survey.headline_response_count} responses)`}
-            disabledReason={!dataProcessingAccepted ? 'AI data processing must be approved to regenerate' : undefined}
         />
     )
 
@@ -35,14 +43,7 @@ export function SurveyHeadline(): JSX.Element | null {
                         What your responses are saying
                     </span>
                 </div>
-                {!surveyHeadlineLoading &&
-                    (dataProcessingAccepted ? (
-                        refreshButton
-                    ) : (
-                        <AIConsentPopoverWrapper showArrow onApprove={() => loadSurveyHeadline(true)}>
-                            {refreshButton}
-                        </AIConsentPopoverWrapper>
-                    ))}
+                {!surveyHeadlineLoading && refreshButton}
             </div>
             {surveyHeadlineLoading ? (
                 <LemonSkeleton className="h-6 w-full" />
