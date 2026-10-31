@@ -176,3 +176,13 @@ export const traceDialogOpenLogic = kea<traceDialogOpenLogicType>([
         cache.lastPathname = router.values.location.pathname
     }),
 ])
+
+/**
+ * The session player and the full-screen logs viewer are global modals that render below the trace
+ * dialog. Each one calls this when it opens, so it does not open hidden behind the dialog.
+ */
+export function closeTraceDialogUnderModal(): void {
+    if (traceDialogOpenLogic.findMounted()?.values.isOpen) {
+        traceDialogOpenLogic.actions.closeTraceDialog()
+    }
+}

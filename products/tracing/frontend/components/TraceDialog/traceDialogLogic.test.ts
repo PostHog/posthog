@@ -254,9 +254,18 @@ describe('traceDialogLogic', () => {
     })
 
     it.each([
-        ['a recording opens', () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' })],
-        ['the full-screen logs viewer opens', () => logsViewerModalLogic.actions.openLogsViewerModal()],
-    ])('closes when %s, since that modal sits behind the dialog', async (_name, open) => {
+        [
+            'a recording opens',
+            sessionPlayerModalLogic,
+            () => sessionPlayerModalLogic.actions.openSessionPlayer({ id: 'session-1' }),
+        ],
+        [
+            'the full-screen logs viewer opens',
+            logsViewerModalLogic,
+            () => logsViewerModalLogic.actions.openLogsViewerModal(),
+        ],
+    ])('closes when %s, since that modal sits behind the dialog', async (_name, modalLogic, open) => {
+        modalLogic.mount()
         logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
 
         await expectLogic(logic, open).toMatchValues({ isOpen: false })
