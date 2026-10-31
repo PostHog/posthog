@@ -76,6 +76,7 @@ pub struct ResolverConfig {
     pub skip_unchanged_frame_rewrites: bool,
 
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
+    // `ParseLimiter` also uses it for its cache of refused parses.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
     // resolvable the moment a user uploads the missing symbols, so a cached negative result
     // must not outlive that upload by long.
@@ -115,6 +116,7 @@ pub struct ResolverConfig {
     pub symbol_set_max_concurrent_large_parses: NonZeroUsize,
 
     // Set this below the memory limit minus the symbol store cache budget and the steady-state usage.
+    // A parse of a known size with an estimate above this budget is refused.
     #[envconfig(default = "1000000000")]
     pub symbol_set_parse_memory_budget_bytes: NonZeroUsize,
 
