@@ -359,7 +359,7 @@
         "chromium": 12.5,
         "webkit": 3.526
     },
-    "frontend/src/lib/components/ScrollableShadows/ScrollableShadows.stories.tsx": {
+    "frontend/src/lib/lemon-ui/ScrollableShadows/ScrollableShadows.stories.tsx": {
         "chromium": 9.218,
         "webkit": 3.56
     },
