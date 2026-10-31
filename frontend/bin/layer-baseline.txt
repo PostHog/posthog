@@ -17,7 +17,6 @@ frontend/src/layout/GlobalModals.tsx -> products/conversations/frontend/componen
 frontend/src/layout/GlobalModals.tsx -> products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic.ts
 frontend/src/layout/InternalFeedback/InternalFeedbackWidget.tsx -> frontend/src/toolbar/shared/product-tours/ElementHighlight.tsx
 frontend/src/layout/InternalFeedback/internalFeedbackLogic.ts -> frontend/src/toolbar/shared/utils.ts
-frontend/src/layout/navigation-3000/Navigation.tsx -> frontend/src/scenes/max/maxGlobalLogic.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivitySubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx -> products/notifications/frontend/resourceEditedLogic.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
@@ -53,7 +52,6 @@ frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_
 frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_ai/frontend/api/primitives.ts
 frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/data-management/definitionsSceneTabsLogic.tsx
 frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/onboarding/welcome/welcomeNavItem.ts
-frontend/src/layout/panel-layout/navbar/tabs/navProductsTabLogic.ts -> frontend/src/scenes/settings/organization/aiConsentLogic.ts
 frontend/src/layout/scenes/components/SceneTitlePanelButton.tsx -> frontend/src/scenes/max/useMaxTool.ts
 frontend/src/layout/scenes/components/SceneTitleSection.tsx -> frontend/src/scenes/max/components/AnimatedSparkles.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/components/PhaiSidePanelChat.tsx
@@ -239,7 +237,6 @@ frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx 
 frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx -> products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker.tsx
 frontend/src/lib/components/Cards/InsightCard/dashboardWidgetMenusLogic.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/components/Cards/InsightCard/visualizationShape.ts -> frontend/src/queries/utils.ts
-frontend/src/lib/components/Cards/TextCard/TextCardModal.tsx -> frontend/src/scenes/settings/organization/aiConsentLogic.ts
 frontend/src/lib/components/Cards/TextCard/textCardMarkdown.ts -> products/dashboards/frontend/components/ImageTile/imageTileMarkdown.ts
 frontend/src/lib/components/Cards/TextCard/textCardModalLogic.ts -> products/dashboards/frontend/components/ImageTile/imageTileUtils.ts
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
