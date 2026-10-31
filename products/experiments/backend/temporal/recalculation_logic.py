@@ -125,8 +125,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
 def _uses_precompute_queue(
     experiment: Experiment, team_experiments_config: TeamExperimentsConfig, metric_dict: dict[str, Any]
 ) -> bool:
-    # An error must not fail the discovery of the whole run. The calc then goes to the precompute queue without
-    # an override, so the runner checks the same plan again when the calc runs.
+    # An error must not fail discovery. The calc goes to the precompute queue, where the runner checks the plan again.
     try:
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=experiment.id, metric=build_metric(metric_dict)),

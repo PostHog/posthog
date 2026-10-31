@@ -180,8 +180,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
 
         def calc_args(metric: ExperimentMetricToRecalculate) -> list:
             args = [metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.role]
-            # A calc on the activity queue never reads the aux-cluster table, so it must not build it either.
-            # Every other calc keeps the five-argument call that a worker without the new parameter accepts.
+            # DIRECT keeps an activity-queue calc off the aux cluster. Other calcs keep the call older workers accept.
             if on_calc_queues and not on_precompute_queue(metric):
                 args.append(PrecomputationMode.DIRECT)
             return args
