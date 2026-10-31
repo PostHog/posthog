@@ -9,6 +9,7 @@ import math
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
+from itertools import batched
 from typing import Any
 from uuid import UUID
 
@@ -17,6 +18,7 @@ from django.core.validators import URLValidator
 from django.db import IntegrityError, connections, router, transaction
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
@@ -67,11 +69,15 @@ class CustomPropertyValueConflict(Exception):
     """
 
 
+def _value_lock_key(*, canonical_team_id: int, account_id: str | UUID, definition_id: str | UUID) -> str:
+    return f"account-custom-property:{canonical_team_id}:{UUID(str(account_id))}:{UUID(str(definition_id))}"
+
+
 @contextmanager
 def _guard_value(*, team_id: int, account_id: str | UUID, definition_id: str | UUID) -> Iterator[str]:
     using = router.db_for_write(CustomPropertyValue)
     canonical_team_id = resolve_effective_team_id(team_id)
-    key = f"account-custom-property:{canonical_team_id}:{UUID(str(account_id))}:{UUID(str(definition_id))}"
+    key = _value_lock_key(canonical_team_id=canonical_team_id, account_id=account_id, definition_id=definition_id)
     with transaction.atomic(using=using):
         with connections[using].cursor() as cursor:
             # Row locks cannot protect a value that is absent or has been replaced.
@@ -249,6 +255,118 @@ def set_synced_custom_property_value(
     return True
 
 
+_SYNC_WRITE_CHUNK_SIZE = 500
+
+
+@frozen
+class SyncedCustomPropertyValuesResult:
+    written: int
+    accepted_account_ids: frozenset[UUID]
+    rejected_values: dict[UUID, InvalidCustomPropertyValue]
+
+
+def set_synced_custom_property_values(
+    *, team_id: int, definition: CustomPropertyDefinition, values: dict[UUID, Any]
+) -> SyncedCustomPropertyValuesResult:
+    using = router.db_for_write(CustomPropertyValue)
+    canonical_team_id = resolve_effective_team_id(team_id)
+    if definition.team_id != canonical_team_id:
+        raise CustomPropertyDefinitionNotFound(definition.id)
+    written = 0
+    accepted: set[UUID] = set()
+    rejected: dict[UUID, InvalidCustomPropertyValue] = {}
+    for chunk in batched(values.items(), _SYNC_WRITE_CHUNK_SIZE, strict=False):
+        prepared: dict[UUID, tuple[str, CoercedValue] | None] = {}
+        for account_id, value in chunk:
+            try:
+                prepared[account_id] = None if value is None else _coerce_to_column(definition, value)
+            except InvalidCustomPropertyValue as error:
+                rejected[account_id] = error
+        # Each chunk must commit independently so retries can keep earlier progress.
+        with transaction.atomic(using=using, durable=True):
+            # Prefetch shares one Team instance so change events reuse its cached configuration.
+            accounts = {
+                account.id: account
+                for account in Account.objects.for_team(canonical_team_id, canonical=True)
+                .using(using)
+                .filter(id__in=[account_id for account_id, _ in chunk])
+                .prefetch_related("team")
+            }
+            for account_id, _ in chunk:
+                if account_id not in accounts:
+                    raise Account.DoesNotExist(f"Account {account_id} not found for team {team_id}")
+            keys = [
+                _value_lock_key(canonical_team_id=canonical_team_id, account_id=account_id, definition_id=definition.id)
+                for account_id in prepared
+            ]
+            if keys:
+                with connections[using].cursor() as cursor:
+                    # Sort distinct numeric lock IDs, not keys, to prevent overlapping batch deadlocks.
+                    cursor.execute(
+                        """
+                        SELECT pg_advisory_xact_lock(lock_id)
+                        FROM (
+                            SELECT DISTINCT hashtextextended(key, 0) AS lock_id
+                            FROM unnest(%s::text[]) AS keys(key)
+                            ORDER BY lock_id
+                        ) AS ordered_locks
+                        """,
+                        [keys],
+                    )
+            active_rows = CustomPropertyValue.objects.for_team(canonical_team_id, canonical=True).using(using)
+            current = {
+                row.account_id: row
+                for row in active_rows.filter(account_id__in=prepared, definition_id=definition.id, is_deleted=False)
+            }
+            superseded: list[UUID] = []
+            replacements: list[CustomPropertyValue] = []
+            changes: dict[UUID, CoercedValue | None] = {}
+            for account_id, coerced in prepared.items():
+                previous_row = current.get(account_id)
+                current_value = coerced[1] if coerced is not None else None
+                if previous_row is not None:
+                    previous_row.definition = definition
+                    if value_of(previous_row) == current_value:
+                        continue
+                    superseded.append(previous_row.id)
+                elif coerced is None:
+                    continue
+                changes[account_id] = current_value
+                if coerced is not None:
+                    replacements.append(
+                        CustomPropertyValue(
+                            team_id=canonical_team_id,
+                            account_id=account_id,
+                            definition_id=definition.id,
+                            created_by_id=None,
+                            **{coerced[0]: coerced[1]},
+                        )
+                    )
+            if superseded:
+                active_rows.filter(id__in=superseded, definition_id=definition.id, is_deleted=False).update(
+                    is_deleted=True
+                )
+            if replacements:
+                active_rows.bulk_create(replacements)
+            for account_id, current_value in changes.items():
+                _schedule_value_changed_event(
+                    team_id=canonical_team_id,
+                    account_id=account_id,
+                    definition=definition,
+                    previous_row=current.get(account_id),
+                    current_value=current_value,
+                    actor=None,
+                    workflow_id=None,
+                    using=using,
+                    account=accounts[account_id],
+                )
+        written += len(changes)
+        accepted.update(prepared)
+    return SyncedCustomPropertyValuesResult(
+        written=written, accepted_account_ids=frozenset(accepted), rejected_values=rejected
+    )
+
+
 def _set_value(
     *,
     team_id: int,
@@ -346,6 +464,7 @@ def _schedule_value_changed_event(
     actor: User | None,
     workflow_id: str | None,
     using: str,
+    account: Account | None = None,
 ) -> None:
     """Emit $account_custom_property_changed post-commit when the stored value actually changes.
 
@@ -359,12 +478,16 @@ def _schedule_value_changed_event(
         previous_value = value_of(previous_row)
     if previous_value == current_value:
         return
-    account = Account.objects.for_team(team_id).using(using).select_related("team").get(id=account_id)
+    event_account = (
+        account
+        if account is not None
+        else Account.objects.for_team(team_id).using(using).select_related("team").get(id=account_id)
+    )
 
     def emit() -> None:
         try:
             emit_account_custom_property_changed(
-                account=account,
+                account=event_account,
                 definition=definition,
                 previous_value=previous_value,
                 current_value=current_value,

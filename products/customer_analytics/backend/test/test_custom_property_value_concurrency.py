@@ -2,23 +2,28 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import UTC, datetime
 from queue import Queue
+from threading import Event
 from time import monotonic
 
 from posthog.test.base import NonAtomicBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.db import connection, transaction
+from django.db import OperationalError, connection, transaction
+from django.db.models import QuerySet
 
 from parameterized import parameterized
 
 from posthog.models import Team
 
+from products.customer_analytics.backend.events import emit_account_custom_property_changed
 from products.customer_analytics.backend.logic.custom_property_values import (
     MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES,
+    SyncedCustomPropertyValuesResult,
     record_last_slack_message_at,
     set_account_custom_properties_by_id,
     set_custom_property_value,
     set_synced_custom_property_value,
+    set_synced_custom_property_values,
 )
 from products.customer_analytics.backend.models import Account, CustomPropertyDefinition, CustomPropertyValue
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
@@ -76,12 +81,13 @@ class TestCustomPropertyValueConcurrency(NonAtomicBaseTest):
 
         return executor.submit(run)
 
-    def _assert_write_waits(self, future: Future[object]) -> None:
+    def _assert_write_waits(self, future: Future[object], holder_pid: int | None = None) -> None:
         worker_pid = self.worker_pids.get(timeout=_WAIT_TIMEOUT_SECONDS)
         deadline = monotonic() + _WAIT_TIMEOUT_SECONDS
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_backend_pid()")
-            holder_pid = cursor.fetchone()[0]
+            if holder_pid is None:
+                cursor.execute("SELECT pg_backend_pid()")
+                holder_pid = cursor.fetchone()[0]
             while monotonic() < deadline:
                 if future.done():
                     future.result()
@@ -143,9 +149,16 @@ class TestCustomPropertyValueConcurrency(NonAtomicBaseTest):
             expected_events,
         )
 
-    @parameterized.expand([("same_value", "enterprise", False, 2), ("previous_value", "starter", True, 3)])
+    @parameterized.expand(
+        [
+            ("scalar_same_value", "enterprise", False, 2, False),
+            ("scalar_previous_value", "starter", True, 3, False),
+            ("batch_same_value", "enterprise", False, 2, True),
+            ("batch_previous_value", "starter", True, 3, True),
+        ]
+    )
     def test_sync_checks_current_value_after_the_competing_write_commits(
-        self, _name: str, value: str, changed: bool, history_count: int
+        self, _name: str, value: str, changed: bool, history_count: int, batch: bool
     ) -> None:
         self._set("starter")
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -153,11 +166,19 @@ class TestCustomPropertyValueConcurrency(NonAtomicBaseTest):
                 self._set("enterprise")
                 future = self._start_write(
                     executor,
-                    lambda: set_synced_custom_property_value(
-                        team_id=self.team.id,
-                        account_id=self.account.id,
-                        definition=self.definition,
-                        value=value,
+                    lambda: (
+                        bool(
+                            set_synced_custom_property_values(
+                                team_id=self.team.id, definition=self.definition, values={self.account.id: value}
+                            ).written
+                        )
+                        if batch
+                        else set_synced_custom_property_value(
+                            team_id=self.team.id,
+                            account_id=self.account.id,
+                            definition=self.definition,
+                            value=value,
+                        )
                     ),
                 )
                 self._assert_write_waits(future)
@@ -211,12 +232,22 @@ class TestCustomPropertyValueConcurrency(NonAtomicBaseTest):
             "second",
         )
 
-    def test_environment_and_parent_writes_share_the_same_key(self) -> None:
+    @parameterized.expand([("scalar",), ("batch",)])
+    def test_environment_and_parent_writes_share_the_same_key(self, writer: str) -> None:
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
         with ThreadPoolExecutor(max_workers=1) as executor:
             with transaction.atomic():
                 self._set("first")
-                future = self._start_write(executor, lambda: self._set("second", team_id=environment.id))
+                future = self._start_write(
+                    executor,
+                    lambda: (
+                        set_synced_custom_property_values(
+                            team_id=environment.id, definition=self.definition, values={self.account.id: "second"}
+                        )
+                        if writer == "batch"
+                        else self._set("second", team_id=environment.id)
+                    ),
+                )
                 self._assert_write_waits(future)
             future.result(timeout=_WAIT_TIMEOUT_SECONDS)
         self.assertEqual(
@@ -255,6 +286,114 @@ class TestCustomPropertyValueConcurrency(NonAtomicBaseTest):
             ),
             ["second", "second"],
         )
+
+    def test_retry_keeps_earlier_committed_chunks_without_duplicate_history_or_events(self) -> None:
+        accounts = [self.account, create_account(team_id=self.team.id), create_account(team_id=self.team.id)]
+        for account in accounts:
+            self._set("initial", account=account)
+        self.value_changed.reset_mock()
+        self.value_changed.side_effect = emit_account_custom_property_changed
+        emitted_in_transaction: list[bool] = []
+
+        def capture(**_kwargs: object) -> MagicMock:
+            emitted_in_transaction.append(connection.in_atomic_block)
+            return MagicMock()
+
+        capture_patch = patch("products.customer_analytics.backend.events.capture_batch_internal", side_effect=capture)
+        capture_patch.start()
+        self.addCleanup(capture_patch.stop)
+        bulk_create = QuerySet.bulk_create
+        writes = 0
+
+        def fail_second_chunk(
+            queryset: QuerySet[CustomPropertyValue], rows: list[CustomPropertyValue]
+        ) -> list[CustomPropertyValue]:
+            nonlocal writes
+            writes += 1
+            if writes == 2:
+                raise OperationalError("synthetic chunk failure")
+            return bulk_create(queryset, rows)
+
+        values = {account.id: "changed" for account in accounts}
+        with patch(f"{LOGIC_MODULE}._SYNC_WRITE_CHUNK_SIZE", 2):
+            with patch.object(QuerySet, "bulk_create", autospec=True, side_effect=fail_second_chunk):
+                with self.assertRaises(OperationalError):
+                    set_synced_custom_property_values(team_id=self.team.id, definition=self.definition, values=values)
+            rows = CustomPropertyValue.objects.for_team(self.team.id).filter(definition=self.definition)
+            assert rows.count() == 5
+            assert dict(rows.filter(is_deleted=False).values_list("account_id", "value_str")) == {
+                accounts[0].id: "changed",
+                accounts[1].id: "changed",
+                accounts[2].id: "initial",
+            }
+            assert self.value_changed.call_count == 2
+            result = set_synced_custom_property_values(team_id=self.team.id, definition=self.definition, values=values)
+        assert result.written == 1
+        assert result.accepted_account_ids == set(values)
+        assert rows.count() == 6
+        assert rows.filter(is_deleted=False, value_str="changed").count() == 3
+        assert self.value_changed.call_count == 3
+        assert emitted_in_transaction == [False, False, False]
+        assert {call.kwargs["account"].id for call in self.value_changed.call_args_list} == set(values)
+        assert all(
+            call.kwargs["previous_value"] == "initial" and call.kwargs["current_value"] == "changed"
+            for call in self.value_changed.call_args_list
+        )
+
+    @parameterized.expand([("batch",), ("scalar",)])
+    def test_overlapping_writers_serialize_against_a_batch(self, writer: str) -> None:
+        other = create_account(team_id=self.team.id)
+        locks_held = Event()
+        release = Event()
+
+        def hold_batch() -> SyncedCustomPropertyValuesResult:
+            def hold_after_locks(
+                execute: Callable[..., object], sql: str, params: object, many: bool, context: object
+            ) -> object:
+                result = execute(sql, params, many, context)
+                if "pg_advisory_xact_lock" in sql:
+                    locks_held.set()
+                    assert release.wait(timeout=_WAIT_TIMEOUT_SECONDS)
+                return result
+
+            with connection.execute_wrapper(hold_after_locks):
+                return set_synced_custom_property_values(
+                    team_id=self.team.id,
+                    definition=self.definition,
+                    values={self.account.id: "shared", other.id: "shared"},
+                )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            holder = self._start_write(executor, hold_batch)
+            holder_pid = self.worker_pids.get(timeout=_WAIT_TIMEOUT_SECONDS)
+            try:
+                assert locks_held.wait(timeout=_WAIT_TIMEOUT_SECONDS)
+                competing = self._start_write(
+                    executor,
+                    lambda: (
+                        set_synced_custom_property_values(
+                            team_id=self.team.id,
+                            definition=self.definition,
+                            values={other.id: "shared", self.account.id: "shared"},
+                        )
+                        if writer == "batch"
+                        else self._set("shared")
+                    ),
+                )
+                self._assert_write_waits(competing, holder_pid=holder_pid)
+            finally:
+                release.set()
+            held_result = holder.result(timeout=_WAIT_TIMEOUT_SECONDS)
+            assert isinstance(held_result, SyncedCustomPropertyValuesResult)
+            assert held_result.written == 2
+            competing_result = competing.result(timeout=_WAIT_TIMEOUT_SECONDS)
+            if writer == "batch":
+                assert isinstance(competing_result, SyncedCustomPropertyValuesResult)
+                assert competing_result.written == 0
+        rows = CustomPropertyValue.objects.for_team(self.team.id).filter(definition=self.definition)
+        assert rows.count() == (2 if writer == "batch" else 3)
+        assert rows.filter(is_deleted=False, value_str="shared").count() == 2
+        assert self.value_changed.call_count == 2
 
     def test_slack_timestamp_check_sees_the_committed_newer_value(self) -> None:
         initial = datetime(2026, 1, 1, tzinfo=UTC)
