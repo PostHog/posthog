@@ -1716,10 +1716,10 @@ describe('Hog Executor', () => {
                 webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
             }
 
-            type ReceivedRequest = { id: unknown; signature: unknown; body: string }
+            const BODY_SIGNATURE = 'sha256=5cab16ccc366a42e4b49eff91105aa48fafac08a4ee1ffa945fc0a8fed768342'
+            const EMPTY_BODY_SIGNATURE = 'sha256=720474031dc9df8ead6276881ad787e5ee041cf4c6566b066f2a47cade245dca'
 
-            const signatureOf = (body: string): string =>
-                `sha256=${createHmac('sha256', SECRET).update(body).digest('hex')}`
+            type ReceivedRequest = { id: unknown; signature: unknown; body: string }
 
             const receiveRequests = (statusCodes: number[] = [200]): ReceivedRequest[] => {
                 const received: ReceivedRequest[] = []
@@ -1751,15 +1751,16 @@ describe('Hog Executor', () => {
                 return invocation
             }
 
-            it.each(['POST', 'GET'])('signs the bytes a %s request sends', async (method) => {
+            it.each([
+                ['POST', BODY, BODY_SIGNATURE],
+                ['GET', '', EMPTY_BODY_SIGNATURE],
+            ])('signs the bytes a %s request sends', async (method, sentBody, signature) => {
                 const received = receiveRequests()
 
                 const result = await executor.executeFetch(await createSignedInvocation(method))
 
                 expect(result.error).toBeUndefined()
-                expect(received).toHaveLength(1)
-                expect(received[0].id).toBe(SIGNING_REFS.webhook_id)
-                expect(received[0].signature).toBe(signatureOf(received[0].body))
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: sentBody }])
             })
 
             it('signs every attempt of one delivery with the same delivery id', async () => {
@@ -1770,7 +1771,7 @@ describe('Hog Executor', () => {
 
                 expect(retry.error).toBeUndefined()
                 expect(received.map(({ id }) => id)).toEqual([SIGNING_REFS.webhook_id, SIGNING_REFS.webhook_id])
-                expect(received.map(({ signature }) => signature)).toEqual([signatureOf(BODY), signatureOf(BODY)])
+                expect(received.map(({ signature }) => signature)).toEqual([BODY_SIGNATURE, BODY_SIGNATURE])
             })
 
             it('refuses to send an unsigned request when the secret input is missing', async () => {
