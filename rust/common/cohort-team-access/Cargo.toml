@@ -1,0 +1,22 @@
+[package]
+name = "common-cohort-team-access"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[features]
+# Exposes `TeamAccess::with_granted`, a loaded reader for tests that have no database.
+test-util = []
+
+[dependencies]
+arc-swap = { workspace = true }
+common-types = { path = "../types" }
+lifecycle = { path = "../lifecycle" }
+metrics = { workspace = true }
+rand = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

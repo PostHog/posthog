@@ -1,6 +1,7 @@
-//! In-memory index of teams with ≥1 realtime-supported cohort, consulted by the consumer's team
-//! gate. Refreshed on a `refresh_secs ± jitter` poll and swapped atomically via
-//! [`arc_swap::ArcSwap`] so hot-path reads are lock-free and a refresh never blocks the consumer.
+//! In-memory index of teams with ≥1 realtime-supported cohort, and the consumer's [`TeamGate`]
+//! that joins it with the team access record. Refreshed on a `refresh_secs ± jitter` poll and
+//! swapped atomically via [`arc_swap::ArcSwap`] so hot-path reads are lock-free and a refresh never
+//! blocks the consumer.
 //!
 //! Staleness is safe: the gate is defense-in-depth and the downstream processor re-checks
 //! membership, so a stale snapshot only over-forwards briefly. The index starts empty and unloaded
@@ -14,14 +15,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
-use common_types::cohort::TeamAllowlist;
+use common_cohort_team_access::TeamAccess;
 use lifecycle::Handle;
-use metrics::gauge;
 use rand::Rng;
 use sqlx::PgPool;
-use tracing::{debug, info, warn};
-
-use crate::observability::metrics::ACTIVE_TEAMS;
+use tracing::{info, warn};
 
 /// Must match the Node filter manager's predicate (`cohort_type='realtime'`, not deleted, non-null
 /// `filters`); projected to `DISTINCT team_id` since the shuffler only needs the gate.
@@ -32,22 +30,13 @@ const TEAMS_WITH_REALTIME_COHORTS_SQL: &str = "SELECT DISTINCT team_id \
 pub struct TeamIndex {
     teams: ArcSwap<HashSet<i32>>,
     loaded: AtomicBool,
-    /// Applied at [`refresh`](Self::refresh) time: teams the DB reports as realtime but outside this
-    /// allowlist never enter the snapshot, so the hot-path gate and the `ACTIVE_TEAMS` gauge both
-    /// reflect the scoped set for free.
-    allowlist: TeamAllowlist,
 }
 
 impl TeamIndex {
     pub fn new() -> Self {
-        Self::with_allowlist(TeamAllowlist::All)
-    }
-
-    pub fn with_allowlist(allowlist: TeamAllowlist) -> Self {
         Self {
             teams: ArcSwap::from_pointee(HashSet::new()),
             loaded: AtomicBool::new(false),
-            allowlist,
         }
     }
 
@@ -76,44 +65,58 @@ impl TeamIndex {
     }
 
     fn store(&self, teams: HashSet<i32>) {
-        gauge!(ACTIVE_TEAMS).set(teams.len() as f64);
         self.teams.store(Arc::new(teams));
         self.loaded.store(true, Ordering::Release);
     }
 
     pub async fn refresh(&self, pool: &PgPool) -> Result<usize> {
-        let fetched: Vec<i32> = sqlx::query_scalar(TEAMS_WITH_REALTIME_COHORTS_SQL)
+        let fetched: HashSet<i32> = sqlx::query_scalar(TEAMS_WITH_REALTIME_COHORTS_SQL)
             .fetch_all(pool)
             .await
-            .context("querying posthog_cohort for realtime teams")?;
-        let fetched_count = fetched.len();
-        let kept = filter_by_allowlist(fetched, &self.allowlist);
-        if kept.len() != fetched_count {
-            debug!(
-                fetched = fetched_count,
-                kept = kept.len(),
-                excluded = fetched_count - kept.len(),
-                "team index filtered realtime teams by the allowlist",
-            );
-        }
-        let count = kept.len();
-        self.store(kept);
+            .context("querying posthog_cohort for realtime teams")?
+            .into_iter()
+            .collect();
+        let count = fetched.len();
+        self.store(fetched);
         Ok(count)
     }
-}
-
-/// Keep only the teams in scope. Separated from [`TeamIndex::refresh`] so the allowlist filter is
-/// testable without a database.
-fn filter_by_allowlist(fetched: Vec<i32>, allowlist: &TeamAllowlist) -> HashSet<i32> {
-    fetched
-        .into_iter()
-        .filter(|team_id| allowlist.includes(*team_id))
-        .collect()
 }
 
 impl Default for TeamIndex {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Passes an event when its team processes and has a realtime cohort. The index and the access
+/// record refresh on their own polls. Neither rebuilds the other's snapshot, because two writers
+/// to one snapshot can lose an update and bring back a revoked team.
+pub struct TeamGate {
+    index: Arc<TeamIndex>,
+    access: Arc<TeamAccess>,
+}
+
+impl TeamGate {
+    pub fn new(index: Arc<TeamIndex>, access: Arc<TeamAccess>) -> Self {
+        Self { index, access }
+    }
+
+    pub fn passes(&self, team_id: i32) -> bool {
+        self.index.contains(team_id) && self.access.processing(team_id)
+    }
+
+    /// False until both halves have loaded once.
+    pub fn is_loaded(&self) -> bool {
+        self.index.is_loaded() && self.access.is_loaded()
+    }
+
+    pub fn passing_teams(&self) -> usize {
+        self.index
+            .teams
+            .load()
+            .iter()
+            .filter(|&&team_id| self.access.processing(team_id))
+            .count()
     }
 }
 
@@ -137,13 +140,8 @@ pub async fn run_refresh_loop(
         tokio::select! {
             _ = handle.shutdown_recv() => break,
             _ = tokio::time::sleep(sleep_for) => match index.refresh(&pool).await {
-                Ok(0) => {
-                    warn!(
-                        "team index has zero in-scope teams (no realtime cohorts, or all filtered \
-                         by REALTIME_COHORT_TEAM_ALLOWLIST); forwarding nothing",
-                    );
-                }
-                Ok(count) => info!(active_teams = count, "team index refreshed"),
+                Ok(0) => warn!("team index has no team with a realtime cohort; forwarding nothing"),
+                Ok(count) => info!(realtime_teams = count, "team index refreshed"),
                 Err(err) => warn!(
                     error = %err,
                     "team index refresh failed; keeping previous snapshot",
@@ -167,6 +165,7 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_types::cohort::TeamAllowlist;
 
     #[test]
     fn new_index_is_unloaded_and_empty() {
@@ -200,21 +199,31 @@ mod tests {
     }
 
     #[test]
-    fn filter_by_allowlist_all_keeps_everything() {
-        let kept = filter_by_allowlist(vec![1, 2, 99], &TeamAllowlist::All);
-        assert_eq!(kept, HashSet::from([1, 2, 99]));
+    fn gate_passes_teams_that_process_and_have_a_realtime_cohort() {
+        let gate = TeamGate::new(
+            Arc::new(TeamIndex::from_teams([2, 5, 6])),
+            TeamAccess::with_granted(TeamAllowlist::Only(HashSet::from([2, 3])), [5]),
+        );
+
+        for (team_id, expected) in [(2, true), (3, false), (5, true), (6, false), (7, false)] {
+            assert_eq!(gate.passes(team_id), expected, "team {team_id}");
+        }
+        assert_eq!(gate.passing_teams(), 2);
     }
 
     #[test]
-    fn filter_by_allowlist_only_drops_out_of_scope_teams() {
-        let kept = filter_by_allowlist(vec![1, 2, 99], &TeamAllowlist::Only(HashSet::from([2])));
-        assert_eq!(kept, HashSet::from([2]));
-    }
+    fn gate_is_loaded_only_once_both_halves_are() {
+        let (unloaded_access, _poller) = TeamAccess::new(TeamAllowlist::All);
+        let loaded_access = TeamAccess::with_granted(TeamAllowlist::All, []);
 
-    #[test]
-    fn filter_by_allowlist_empty_scope_keeps_nothing() {
-        let kept = filter_by_allowlist(vec![1, 2, 99], &TeamAllowlist::Only(HashSet::new()));
-        assert!(kept.is_empty());
+        let index_only = TeamGate::new(Arc::new(TeamIndex::from_teams([2])), unloaded_access);
+        let access_only = TeamGate::new(Arc::new(TeamIndex::new()), loaded_access.clone());
+        let both = TeamGate::new(Arc::new(TeamIndex::from_teams([2])), loaded_access);
+
+        assert!(!index_only.is_loaded());
+        assert!(!index_only.passes(2));
+        assert!(!access_only.is_loaded());
+        assert!(both.is_loaded());
     }
 
     #[test]
