@@ -313,6 +313,30 @@ describe('API helper', () => {
             expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts_table_query/')
         })
 
+        it('uses the account persons endpoint for the users widget and preserves request options', async () => {
+            const onRequestTiming = jest.fn()
+            const query = {
+                kind: NodeKind.ActorsQuery,
+                source: { kind: NodeKind.AccountUsersQuery, accountId: 'account-demo' },
+                select: ['persons.id', 'properties.email'],
+            }
+            const result = await api.query(query, {
+                refresh: 'blocking',
+                requestOptions: { onRequestTiming },
+            })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/accounts/account-demo/persons/')
+            expect(JSON.parse(fakeFetch.mock.calls[0][1].body)).toEqual({ query, refresh: 'blocking' })
+            expect(result).toEqual(FAKE_FETCH_RESULT)
+            expect(onRequestTiming).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps other actor queries on the query endpoint', async () => {
+            await api.query({ kind: NodeKind.ActorsQuery, select: ['persons.id'] })
+
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/projects/2/query/ActorsQuery/')
+        })
+
         it('keeps the query URL kind optional', async () => {
             await api.query({} as Record<string, any>)
 

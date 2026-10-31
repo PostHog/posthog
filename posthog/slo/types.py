@@ -17,6 +17,7 @@ class SloOperation(StrEnum):
     ALERT_DELIVERY = "alert_delivery"
     QUERY_SERVICE = "query_service"
     PERSONS_LIST = "persons_list"
+    ACCOUNT_PERSONS_LIST = "account_persons_list"
     DASHBOARD_WIDGET_DELIVERY = "dashboard_widget_delivery"
     PULSE_BRIEF_GENERATION = "pulse-brief-generation"
     SYNC_EVENTS_RETENTION = "sync_events_retention"

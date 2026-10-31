@@ -2347,260 +2347,68 @@ export namespace Schemas {
       readonly last_modified_by: UserBasic;
     }
 
-    export interface AccountPresenceViewer {
-      /** PostHog user ID of the teammate viewing this account. */
-      readonly user_id: number;
-      /** Display name of the teammate viewing this account. */
-      readonly display_name: string;
-    }
-
-    export interface AccountPresence {
-      /** Customer analytics account ID. */
-      readonly account_id: string;
-      /** People viewing this account. */
-      readonly viewers: readonly AccountPresenceViewer[];
-    }
-
-    export interface AccountPresenceListRequest {
-      /**
-         * Up to 100 account IDs to read presence for.
-         * @maxItems 100
-         */
-      account_ids: string[];
-    }
-
     /**
-     * * `custom_property` - Custom property
-     * * `relationship` - Relationship
-     * * `account_field` - Account field
+     * Selected visible person properties.
      */
-    export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
+    export type AccountPersonProperties = {[key: string]: unknown};
 
+    export interface AccountPerson {
+      /** Current person ID. */
+      id: string;
+      /** Display name from visible person properties, or the person ID. */
+      display_name: string;
+      /** Current membership distinct IDs for person navigation, up to 101. */
+      distinct_ids: string[];
+      /** Selected visible person properties. */
+      properties: AccountPersonProperties;
+      /** Earliest account activity across current distinct IDs, in UTC. */
+      account_first_seen: string;
+      /** Latest account activity across current distinct IDs, in UTC. */
+      account_last_seen: string;
+    }
 
-    export const AccountPropertyPinKindEnum = {
-      CustomProperty: 'custom_property',
-      Relationship: 'relationship',
-      AccountField: 'account_field',
+    export interface PersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Person properties */
+      type?: 'person';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface PersonMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+      type?: 'person_metadata';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface CohortPropertyFilter {
+      /** Set by the feature flag API when the cohort is deleted or does not exist. */
+      cohort_deleted?: boolean | null;
+      /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+      cohort_missing?: boolean | null;
+      cohort_name?: string | null;
+      key?: 'id';
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      type?: 'cohort';
+      value: number;
+    }
+
+    export interface HogQLPropertyFilter {
+      key: string;
+      label?: string | null;
+      type?: 'hogql';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export const EmptyPropertyFilterValue = {
+      type: 'empty',
     } as const;
-
-    /**
-     * A team-defined account relationship type (CSM, Onboarding manager, ...).
-     */
-    export interface AccountRelationshipDefinition {
-      /** Relationship definition UUID. */
-      readonly id: string;
-      /**
-         * Human-readable name of the relationship. Unique within the team.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
-         * @nullable
-         */
-      description?: string | null;
-      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
-      is_single_holder?: boolean;
-      /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
-      readonly is_controlled: boolean;
-    }
-
-    /**
-     * * `human` - Human
-     * * `workflow` - Workflow
-     * * `ai` - AI
-     * * `salesforce_claim` - Salesforce claim
-     * * `migration` - Migration
-     */
-    export type AccountRelationshipSourceEnum = typeof AccountRelationshipSourceEnum[keyof typeof AccountRelationshipSourceEnum];
-
-
-    export const AccountRelationshipSourceEnum = {
-      Human: 'human',
-      Workflow: 'workflow',
-      Ai: 'ai',
-      SalesforceClaim: 'salesforce_claim',
-      Migration: 'migration',
-    } as const;
-
-    /**
-     * One assignment of a user to an account relationship, with its effective range.
-     */
-    export interface AccountRelationship {
-      /** Unique id of this assignment row. */
-      readonly id: string;
-      /** The relationship type this assignment belongs to. */
-      readonly definition: AccountRelationshipDefinition;
-      /** The assigned user; null when their account was deleted. */
-      readonly user: AccountAssignment | null;
-      /** When this assignment became effective. */
-      readonly started_at: string;
-      /**
-         * When this assignment ended; null while it is active.
-         * @nullable
-         */
-      readonly ended_at: string | null;
-      /** Which kind of writer made this assignment; null on rows older than provenance tracking.
-       *
-       * * `human` - Human
-       * * `workflow` - Workflow
-       * * `ai` - AI
-       * * `salesforce_claim` - Salesforce claim
-       * * `migration` - Migration */
-      readonly source: AccountRelationshipSourceEnum | null;
-    }
-
-    /**
-     * Input for assigning a user to an account relationship.
-     */
-    export interface AccountRelationshipWrite {
-      /** Id of the relationship definition to assign. */
-      definition: string;
-      /** PostHog user id of the assignee. Must be a member of the account's organization. */
-      user: number;
-    }
-
-    export interface AccountSupportTicketMessage {
-      /** UUID of the support ticket message. */
-      readonly id: string;
-      /** Plain-text message content. */
-      readonly content: string;
-      /** Display name of the message author. */
-      readonly author_name: string;
-      /** Whether PostHog received or sent the message.
-       *
-       * * `inbound` - Inbound
-       * * `outbound` - Outbound */
-      readonly direction: EmailThreadMessageDirectionEnum;
-      /** Whether the message is an internal note hidden from the customer. */
-      readonly is_private: boolean;
-      /** When the message was created. */
-      readonly created_at: string;
-    }
-
-    /**
-     * * `account_field` - account_field
-     * * `custom_property` - custom_property
-     */
-    export type AccountTrackRuleFieldKindEnum = typeof AccountTrackRuleFieldKindEnum[keyof typeof AccountTrackRuleFieldKindEnum];
-
-
-    export const AccountTrackRuleFieldKindEnum = {
-      AccountField: 'account_field',
-      CustomProperty: 'custom_property',
-    } as const;
-
-    /**
-     * * `name` - name
-     * * `external_id` - external_id
-     * * `created_at` - created_at
-     * * `updated_at` - updated_at
-     * * `churned_at` - churned_at
-     * * `ignored_at` - ignored_at
-     * * `stripe_customer_id` - stripe_customer_id
-     * * `hubspot_deal_id` - hubspot_deal_id
-     * * `billing_id` - billing_id
-     * * `sfdc_id` - sfdc_id
-     * * `zendesk_id` - zendesk_id
-     */
-    export type AccountTrackRuleFieldFieldEnum = typeof AccountTrackRuleFieldFieldEnum[keyof typeof AccountTrackRuleFieldFieldEnum];
-
-
-    export const AccountTrackRuleFieldFieldEnum = {
-      Name: 'name',
-      ExternalId: 'external_id',
-      CreatedAt: 'created_at',
-      UpdatedAt: 'updated_at',
-      ChurnedAt: 'churned_at',
-      IgnoredAt: 'ignored_at',
-      StripeCustomerId: 'stripe_customer_id',
-      HubspotDealId: 'hubspot_deal_id',
-      BillingId: 'billing_id',
-      SfdcId: 'sfdc_id',
-      ZendeskId: 'zendesk_id',
-    } as const;
-
-    export interface AccountTrackRuleField {
-      kind: AccountTrackRuleFieldKindEnum;
-      field?: AccountTrackRuleFieldFieldEnum | null;
-      /** @nullable */
-      definition_id?: string | null;
-    }
-
-    export interface AccountTrackRuleCondition {
-      field: AccountTrackRuleField;
-      operator: string;
-      values?: unknown[];
-    }
-
-    export interface AccountTrackRuleGroup {
-      conditions: AccountTrackRuleCondition[];
-    }
-
-    export type AccountTrackRuleSampleRuleValues = { [key: string]: unknown };
-
-    export interface AccountTrackRuleSample {
-      readonly id: string;
-      readonly name: string;
-      /** @nullable */
-      readonly external_id: string | null;
-      readonly rule_values: AccountTrackRuleSampleRuleValues;
-    }
-
-    export interface AccountTrackRulePreview {
-      config_version: number;
-      eligible_active: number;
-      skipped_churned: number;
-      tracked: number;
-      ignored: number;
-      newly_ignored: number;
-      restored: number;
-      readonly tracked_samples: readonly AccountTrackRuleSample[];
-      readonly ignored_samples: readonly AccountTrackRuleSample[];
-      validation_errors?: string[];
-    }
-
-    export interface AccountTrackRuleRunRequest {
-      idempotency_key: string;
-      confirmed: boolean;
-    }
-
-    export interface AccountTrackRuleRunView {
-      readonly id: string;
-      /** @minimum 0 */
-      readonly config_version: number;
-      readonly trigger: string;
-      readonly status: string;
-      /** @minimum 0 */
-      readonly eligible_active: number;
-      /** @minimum 0 */
-      readonly skipped_churned: number;
-      /** @minimum 0 */
-      readonly tracked: number;
-      /** @minimum 0 */
-      readonly ignored: number;
-      /** @minimum 0 */
-      readonly newly_ignored: number;
-      /** @minimum 0 */
-      readonly restored: number;
-      /** @nullable */
-      readonly started_at: string | null;
-      /** @nullable */
-      readonly finished_at: string | null;
-      /** @nullable */
-      readonly error: string | null;
-      /** @nullable */
-      readonly created_by: number | null;
-      readonly created_at: string;
-    }
-
-    export interface AccountTrackRulesConfig {
-      schema_version: number;
-      /** @minimum 0 */
-      version: number;
-      enabled: boolean;
-      groups: AccountTrackRuleGroup[];
-    }
+    export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
@@ -2878,6 +2686,244 @@ export namespace Schemas {
       webAnalyticsFirstPageviewFilters?: boolean | null;
     }
 
+    export interface EventPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator?: PropertyOperator | null;
+      /** Event properties */
+      type?: 'event';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type Key10 = typeof Key10[keyof typeof Key10];
+
+
+    export const Key10 = {
+      TagName: 'tag_name',
+      Text: 'text',
+      Href: 'href',
+      Selector: 'selector',
+    } as const;
+
+    export interface ElementPropertyFilter {
+      key: Key10;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'element';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface EventMetadataPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'event_metadata';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface SessionPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'session';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type DurationType = typeof DurationType[keyof typeof DurationType];
+
+
+    export const DurationType = {
+      Duration: 'duration',
+      ActiveSeconds: 'active_seconds',
+      InactiveSeconds: 'inactive_seconds',
+    } as const;
+
+    export interface RecordingPropertyFilter {
+      key: DurationType | string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'recording';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface LogEntryPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'log_entry';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
+
+    export interface GroupPropertyFilter {
+      group_key_names?: GroupPropertyFilterGroupKeyNames;
+      group_type_index?: number | null;
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'group';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FeaturePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      /** Event property with "$feature/" prepended */
+      type?: 'feature';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface FlagPropertyFilter {
+      /** The key should be the flag ID */
+      key: string;
+      label?: string | null;
+      /** Only flag_evaluates_to operator is allowed for flag dependencies */
+      operator?: 'flag_evaluates_to';
+      /** Feature flag dependency */
+      type?: 'flag';
+      /** The value can be true, false, or a variant name */
+      value: boolean | string;
+    }
+
+    export interface DataWarehousePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface DataWarehousePersonPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'data_warehouse_person_property';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface ErrorTrackingIssueFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'error_tracking_issue';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
+
+
+    export const LogPropertyFilterType = {
+      Log: 'log',
+      LogAttribute: 'log_attribute',
+      LogResourceAttribute: 'log_resource_attribute',
+    } as const;
+
+    export interface LogPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: LogPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface MetricPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'metric_attribute';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
+
+
+    export const SpanPropertyFilterType = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export interface SpanPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type: SpanPropertyFilterType;
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface RevenueAnalyticsPropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'revenue_analytics';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export interface WorkflowVariablePropertyFilter {
+      key: string;
+      label?: string | null;
+      operator: PropertyOperator;
+      type?: 'workflow_variable';
+      value?: (string | number | boolean)[] | string | number | boolean | null;
+    }
+
+    export type BehavioralEventSource = typeof BehavioralEventSource[keyof typeof BehavioralEventSource];
+
+
+    export const BehavioralEventSource = {
+      Events: 'events',
+      Actions: 'actions',
+    } as const;
+
+    export type TimeUnitType = typeof TimeUnitType[keyof typeof TimeUnitType];
+
+
+    export const TimeUnitType = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Year: 'year',
+    } as const;
+
+    export type InlineBehavioralType = typeof InlineBehavioralType[keyof typeof InlineBehavioralType];
+
+
+    export const InlineBehavioralType = {
+      PerformedEvent: 'performed_event',
+      PerformedEventMultiple: 'performed_event_multiple',
+    } as const;
+
+    export interface BehavioralPropertyFilter {
+      /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
+      event_filters?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | FeaturePropertyFilter | HogQLPropertyFilter)[] | null;
+      event_type: BehavioralEventSource;
+      /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
+      explicit_datetime?: string | null;
+      explicit_datetime_to?: string | null;
+      /** Event name, or action id when event_type is 'actions' */
+      key: string;
+      label?: string | null;
+      /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
+      negation?: boolean | null;
+      /** Count comparison for performed_event_multiple, defaults to exact */
+      operator?: PropertyOperator | null;
+      /** Count threshold for performed_event_multiple */
+      operator_value?: number | null;
+      time_interval?: TimeUnitType | null;
+      /** Relative time window size, paired with time_interval */
+      time_value?: number | null;
+      /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
+      type?: 'behavioral';
+      value: InlineBehavioralType;
+    }
+
+    export interface PropertyGroupFilterValue {
+      type: FilterLogicalOperator;
+      values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
+    }
+
     export interface ClickhouseQueryProgress {
       active_cpu_time: number;
       bytes_read: number;
@@ -3073,6 +3119,491 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface AccountPersonsActorsQuery {
+      /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+      filterTestAccounts?: boolean | null;
+      /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+      fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
+      kind?: 'ActorsQuery';
+      limit?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset?: number | null;
+      orderBy?: string[] | null;
+      /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
+      properties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | PropertyGroupFilterValue | null;
+      response?: ActorsQueryResponse | null;
+      search?: string | null;
+      select?: string[] | null;
+      /** Account membership source for the table. */
+      source: AccountUsersQuery;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface AccountPersonsPage {
+      /** Matching current persons for this account. */
+      results: AccountPerson[];
+      /** Selected visible property keys, in request order. */
+      columns: string[];
+      /** Maximum persons per page. */
+      limit: number;
+      /** Number of matching persons skipped. */
+      offset: number;
+      /** Whether another page exists. */
+      has_more: boolean;
+      /**
+         * Offset of the next page, or null.
+         * @nullable
+         */
+      next_offset: number | null;
+    }
+
+    /**
+     * Read cached results or calculate synchronously.
+     */
+    export type AccountPersonsQueryRequestRefresh = typeof AccountPersonsQueryRequestRefresh[keyof typeof AccountPersonsQueryRequestRefresh] | null;
+
+
+    export const AccountPersonsQueryRequestRefresh = {
+      Blocking: 'blocking',
+      ForceBlocking: 'force_blocking',
+    } as const;
+
+    export type AccountPersonsQueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
+
+    export type BreakdownType = typeof BreakdownType[keyof typeof BreakdownType];
+
+
+    export const BreakdownType = {
+      Cohort: 'cohort',
+      Person: 'person',
+      Event: 'event',
+      EventMetadata: 'event_metadata',
+      Element: 'element',
+      Group: 'group',
+      Session: 'session',
+      Hogql: 'hogql',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      RevenueAnalytics: 'revenue_analytics',
+    } as const;
+
+    export type MultipleBreakdownType = typeof MultipleBreakdownType[keyof typeof MultipleBreakdownType];
+
+
+    export const MultipleBreakdownType = {
+      Person: 'person',
+      Event: 'event',
+      EventMetadata: 'event_metadata',
+      Element: 'element',
+      Group: 'group',
+      Session: 'session',
+      Hogql: 'hogql',
+      Cohort: 'cohort',
+      RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
+    } as const;
+
+    export interface Breakdown {
+      group_type_index?: number | null;
+      histogram_bin_count?: number | null;
+      normalize_url?: boolean | null;
+      property: string | number;
+      type?: MultipleBreakdownType | null;
+    }
+
+    export interface BreakdownFilter {
+      breakdown?: string | (string | number)[] | number | null;
+      breakdown_group_type_index?: number | null;
+      breakdown_hide_other_aggregation?: boolean | null;
+      breakdown_histogram_bin_count?: number | null;
+      breakdown_limit?: number | null;
+      breakdown_normalize_url?: boolean | null;
+      breakdown_path_cleaning?: boolean | null;
+      breakdown_type?: BreakdownType | null;
+      breakdowns?: Breakdown[] | null;
+    }
+
+    export interface CompareFilter {
+      /** Whether to compare the current date range to a previous date range. */
+      compare?: boolean | null;
+      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+      compare_to?: string | null;
+    }
+
+    export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
+
+
+    export const IntervalType = {
+      Second: 'second',
+      Minute: 'minute',
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+      Quarter: 'quarter',
+      Year: 'year',
+    } as const;
+
+    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
+
+
+    export const MetricsFilterOp = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+    } as const;
+
+    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
+
+
+    export const MetricsAttributeScope = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    export interface MetricsQueryFilter {
+      key: string;
+      op: MetricsFilterOp;
+      scope?: MetricsAttributeScope | null;
+      value: string;
+    }
+
+    export interface MetricsDashboardVariableSelection {
+      all?: boolean | null;
+      /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+      values: string[];
+    }
+
+    export type MetricsDashboardVariableSource = typeof MetricsDashboardVariableSource[keyof typeof MetricsDashboardVariableSource];
+
+
+    export const MetricsDashboardVariableSource = {
+      Custom: 'custom',
+      Promql: 'promql',
+      Sql: 'sql',
+      Textbox: 'textbox',
+    } as const;
+
+    export interface MetricsDashboardVariable {
+      /** The text that All puts in a PromQL query. `.*` when it is empty. */
+      allValue?: string | null;
+      current?: MetricsDashboardVariableSelection | null;
+      /** The options when `source` is `custom`. */
+      customValues?: string[] | null;
+      includeAll?: boolean | null;
+      /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+      label?: string | null;
+      multi?: boolean | null;
+      /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+      name: string;
+      /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+      query?: string | null;
+      /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+      regex?: string | null;
+      source: MetricsDashboardVariableSource;
+    }
+
+    export interface DashboardFilter {
+      breakdown_filter?: BreakdownFilter | null;
+      /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
+      compareFilter?: CompareFilter | null;
+      date_from?: string | null;
+      date_to?: string | null;
+      explicitDate?: boolean | null;
+      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      filterTestAccounts?: boolean | null;
+      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      interval?: IntervalType | null;
+      metricFilters?: MetricsQueryFilter[] | null;
+      /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+      metricVariables?: MetricsDashboardVariable[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
+    }
+
+    export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
+
+
+    export const LimitContext = {
+      PosthogAi: 'posthog_ai',
+    } as const;
+
+    export interface AccountPersonsQueryRequest {
+      async?: false | null;
+      /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+      client_query_id?: string | null;
+      filters_override?: DashboardFilter | null;
+      /** Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value. */
+      limit_context?: LimitContext | null;
+      /** Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name. */
+      name?: string | null;
+      /** Account-user table query to run. */
+      query: AccountPersonsActorsQuery;
+      /** Read cached results or calculate synchronously. */
+      refresh?: AccountPersonsQueryRequestRefresh;
+      variables_override?: AccountPersonsQueryRequestVariablesOverride;
+    }
+
+    export interface AccountPresenceViewer {
+      /** PostHog user ID of the teammate viewing this account. */
+      readonly user_id: number;
+      /** Display name of the teammate viewing this account. */
+      readonly display_name: string;
+    }
+
+    export interface AccountPresence {
+      /** Customer analytics account ID. */
+      readonly account_id: string;
+      /** People viewing this account. */
+      readonly viewers: readonly AccountPresenceViewer[];
+    }
+
+    export interface AccountPresenceListRequest {
+      /**
+         * Up to 100 account IDs to read presence for.
+         * @maxItems 100
+         */
+      account_ids: string[];
+    }
+
+    /**
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship
+     * * `account_field` - Account field
+     */
+    export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
+
+
+    export const AccountPropertyPinKindEnum = {
+      CustomProperty: 'custom_property',
+      Relationship: 'relationship',
+      AccountField: 'account_field',
+    } as const;
+
+    /**
+     * A team-defined account relationship type (CSM, Onboarding manager, ...).
+     */
+    export interface AccountRelationshipDefinition {
+      /** Relationship definition UUID. */
+      readonly id: string;
+      /**
+         * Human-readable name of the relationship. Unique within the team.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * What this relationship means, e.g. 'The customer success manager responsible for this account'.
+         * @nullable
+         */
+      description?: string | null;
+      /** Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account. */
+      is_single_holder?: boolean;
+      /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
+      readonly is_controlled: boolean;
+    }
+
+    /**
+     * * `human` - Human
+     * * `workflow` - Workflow
+     * * `ai` - AI
+     * * `salesforce_claim` - Salesforce claim
+     * * `migration` - Migration
+     */
+    export type AccountRelationshipSourceEnum = typeof AccountRelationshipSourceEnum[keyof typeof AccountRelationshipSourceEnum];
+
+
+    export const AccountRelationshipSourceEnum = {
+      Human: 'human',
+      Workflow: 'workflow',
+      Ai: 'ai',
+      SalesforceClaim: 'salesforce_claim',
+      Migration: 'migration',
+    } as const;
+
+    /**
+     * One assignment of a user to an account relationship, with its effective range.
+     */
+    export interface AccountRelationship {
+      /** Unique id of this assignment row. */
+      readonly id: string;
+      /** The relationship type this assignment belongs to. */
+      readonly definition: AccountRelationshipDefinition;
+      /** The assigned user; null when their account was deleted. */
+      readonly user: AccountAssignment | null;
+      /** When this assignment became effective. */
+      readonly started_at: string;
+      /**
+         * When this assignment ended; null while it is active.
+         * @nullable
+         */
+      readonly ended_at: string | null;
+      /** Which kind of writer made this assignment; null on rows older than provenance tracking.
+       *
+       * * `human` - Human
+       * * `workflow` - Workflow
+       * * `ai` - AI
+       * * `salesforce_claim` - Salesforce claim
+       * * `migration` - Migration */
+      readonly source: AccountRelationshipSourceEnum | null;
+    }
+
+    /**
+     * Input for assigning a user to an account relationship.
+     */
+    export interface AccountRelationshipWrite {
+      /** Id of the relationship definition to assign. */
+      definition: string;
+      /** PostHog user id of the assignee. Must be a member of the account's organization. */
+      user: number;
+    }
+
+    export interface AccountSupportTicketMessage {
+      /** UUID of the support ticket message. */
+      readonly id: string;
+      /** Plain-text message content. */
+      readonly content: string;
+      /** Display name of the message author. */
+      readonly author_name: string;
+      /** Whether PostHog received or sent the message.
+       *
+       * * `inbound` - Inbound
+       * * `outbound` - Outbound */
+      readonly direction: EmailThreadMessageDirectionEnum;
+      /** Whether the message is an internal note hidden from the customer. */
+      readonly is_private: boolean;
+      /** When the message was created. */
+      readonly created_at: string;
+    }
+
+    /**
+     * * `account_field` - account_field
+     * * `custom_property` - custom_property
+     */
+    export type AccountTrackRuleFieldKindEnum = typeof AccountTrackRuleFieldKindEnum[keyof typeof AccountTrackRuleFieldKindEnum];
+
+
+    export const AccountTrackRuleFieldKindEnum = {
+      AccountField: 'account_field',
+      CustomProperty: 'custom_property',
+    } as const;
+
+    /**
+     * * `name` - name
+     * * `external_id` - external_id
+     * * `created_at` - created_at
+     * * `updated_at` - updated_at
+     * * `churned_at` - churned_at
+     * * `ignored_at` - ignored_at
+     * * `stripe_customer_id` - stripe_customer_id
+     * * `hubspot_deal_id` - hubspot_deal_id
+     * * `billing_id` - billing_id
+     * * `sfdc_id` - sfdc_id
+     * * `zendesk_id` - zendesk_id
+     */
+    export type AccountTrackRuleFieldFieldEnum = typeof AccountTrackRuleFieldFieldEnum[keyof typeof AccountTrackRuleFieldFieldEnum];
+
+
+    export const AccountTrackRuleFieldFieldEnum = {
+      Name: 'name',
+      ExternalId: 'external_id',
+      CreatedAt: 'created_at',
+      UpdatedAt: 'updated_at',
+      ChurnedAt: 'churned_at',
+      IgnoredAt: 'ignored_at',
+      StripeCustomerId: 'stripe_customer_id',
+      HubspotDealId: 'hubspot_deal_id',
+      BillingId: 'billing_id',
+      SfdcId: 'sfdc_id',
+      ZendeskId: 'zendesk_id',
+    } as const;
+
+    export interface AccountTrackRuleField {
+      kind: AccountTrackRuleFieldKindEnum;
+      field?: AccountTrackRuleFieldFieldEnum | null;
+      /** @nullable */
+      definition_id?: string | null;
+    }
+
+    export interface AccountTrackRuleCondition {
+      field: AccountTrackRuleField;
+      operator: string;
+      values?: unknown[];
+    }
+
+    export interface AccountTrackRuleGroup {
+      conditions: AccountTrackRuleCondition[];
+    }
+
+    export type AccountTrackRuleSampleRuleValues = { [key: string]: unknown };
+
+    export interface AccountTrackRuleSample {
+      readonly id: string;
+      readonly name: string;
+      /** @nullable */
+      readonly external_id: string | null;
+      readonly rule_values: AccountTrackRuleSampleRuleValues;
+    }
+
+    export interface AccountTrackRulePreview {
+      config_version: number;
+      eligible_active: number;
+      skipped_churned: number;
+      tracked: number;
+      ignored: number;
+      newly_ignored: number;
+      restored: number;
+      readonly tracked_samples: readonly AccountTrackRuleSample[];
+      readonly ignored_samples: readonly AccountTrackRuleSample[];
+      validation_errors?: string[];
+    }
+
+    export interface AccountTrackRuleRunRequest {
+      idempotency_key: string;
+      confirmed: boolean;
+    }
+
+    export interface AccountTrackRuleRunView {
+      readonly id: string;
+      /** @minimum 0 */
+      readonly config_version: number;
+      readonly trigger: string;
+      readonly status: string;
+      /** @minimum 0 */
+      readonly eligible_active: number;
+      /** @minimum 0 */
+      readonly skipped_churned: number;
+      /** @minimum 0 */
+      readonly tracked: number;
+      /** @minimum 0 */
+      readonly ignored: number;
+      /** @minimum 0 */
+      readonly newly_ignored: number;
+      /** @minimum 0 */
+      readonly restored: number;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly finished_at: string | null;
+      /** @nullable */
+      readonly error: string | null;
+      /** @nullable */
+      readonly created_by: number | null;
+      readonly created_at: string;
+    }
+
+    export interface AccountTrackRulesConfig {
+      schema_version: number;
+      /** @minimum 0 */
+      version: number;
+      enabled: boolean;
+      groups: AccountTrackRuleGroup[];
     }
 
     /**
@@ -3633,442 +4164,6 @@ export namespace Schemas {
     }
 
     export type AccountsTableQueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
-
-    export type BreakdownType = typeof BreakdownType[keyof typeof BreakdownType];
-
-
-    export const BreakdownType = {
-      Cohort: 'cohort',
-      Person: 'person',
-      Event: 'event',
-      EventMetadata: 'event_metadata',
-      Element: 'element',
-      Group: 'group',
-      Session: 'session',
-      Hogql: 'hogql',
-      DataWarehouse: 'data_warehouse',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-      RevenueAnalytics: 'revenue_analytics',
-    } as const;
-
-    export type MultipleBreakdownType = typeof MultipleBreakdownType[keyof typeof MultipleBreakdownType];
-
-
-    export const MultipleBreakdownType = {
-      Person: 'person',
-      Event: 'event',
-      EventMetadata: 'event_metadata',
-      Element: 'element',
-      Group: 'group',
-      Session: 'session',
-      Hogql: 'hogql',
-      Cohort: 'cohort',
-      RevenueAnalytics: 'revenue_analytics',
-      DataWarehouse: 'data_warehouse',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
-    } as const;
-
-    export interface Breakdown {
-      group_type_index?: number | null;
-      histogram_bin_count?: number | null;
-      normalize_url?: boolean | null;
-      property: string | number;
-      type?: MultipleBreakdownType | null;
-    }
-
-    export interface BreakdownFilter {
-      breakdown?: string | (string | number)[] | number | null;
-      breakdown_group_type_index?: number | null;
-      breakdown_hide_other_aggregation?: boolean | null;
-      breakdown_histogram_bin_count?: number | null;
-      breakdown_limit?: number | null;
-      breakdown_normalize_url?: boolean | null;
-      breakdown_path_cleaning?: boolean | null;
-      breakdown_type?: BreakdownType | null;
-      breakdowns?: Breakdown[] | null;
-    }
-
-    export interface CompareFilter {
-      /** Whether to compare the current date range to a previous date range. */
-      compare?: boolean | null;
-      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-      compare_to?: string | null;
-    }
-
-    export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
-
-
-    export const IntervalType = {
-      Second: 'second',
-      Minute: 'minute',
-      Hour: 'hour',
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Quarter: 'quarter',
-      Year: 'year',
-    } as const;
-
-    export type MetricsFilterOp = typeof MetricsFilterOp[keyof typeof MetricsFilterOp];
-
-
-    export const MetricsFilterOp = {
-      Eq: 'eq',
-      Neq: 'neq',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-    } as const;
-
-    export type MetricsAttributeScope = typeof MetricsAttributeScope[keyof typeof MetricsAttributeScope];
-
-
-    export const MetricsAttributeScope = {
-      Resource: 'resource',
-      Attribute: 'attribute',
-      Auto: 'auto',
-    } as const;
-
-    export interface MetricsQueryFilter {
-      key: string;
-      op: MetricsFilterOp;
-      scope?: MetricsAttributeScope | null;
-      value: string;
-    }
-
-    export interface MetricsDashboardVariableSelection {
-      all?: boolean | null;
-      /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
-      values: string[];
-    }
-
-    export type MetricsDashboardVariableSource = typeof MetricsDashboardVariableSource[keyof typeof MetricsDashboardVariableSource];
-
-
-    export const MetricsDashboardVariableSource = {
-      Custom: 'custom',
-      Promql: 'promql',
-      Sql: 'sql',
-      Textbox: 'textbox',
-    } as const;
-
-    export interface MetricsDashboardVariable {
-      /** The text that All puts in a PromQL query. `.*` when it is empty. */
-      allValue?: string | null;
-      current?: MetricsDashboardVariableSelection | null;
-      /** The options when `source` is `custom`. */
-      customValues?: string[] | null;
-      includeAll?: boolean | null;
-      /** Shown in the dashboard filter bar. The name is shown when it is empty. */
-      label?: string | null;
-      multi?: boolean | null;
-      /** Letters, digits and underscores. Tiles refer to it as `$name`. */
-      name: string;
-      /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
-      query?: string | null;
-      /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
-      regex?: string | null;
-      source: MetricsDashboardVariableSource;
-    }
-
-    export interface EventPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      /** Event properties */
-      type?: 'event';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface PersonPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Person properties */
-      type?: 'person';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface PersonMetadataPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
-      type?: 'person_metadata';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type Key10 = typeof Key10[keyof typeof Key10];
-
-
-    export const Key10 = {
-      TagName: 'tag_name',
-      Text: 'text',
-      Href: 'href',
-      Selector: 'selector',
-    } as const;
-
-    export interface ElementPropertyFilter {
-      key: Key10;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'element';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface EventMetadataPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'event_metadata';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface SessionPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'session';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface CohortPropertyFilter {
-      /** Set by the feature flag API when the cohort is deleted or does not exist. */
-      cohort_deleted?: boolean | null;
-      /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
-      cohort_missing?: boolean | null;
-      cohort_name?: string | null;
-      key?: 'id';
-      label?: string | null;
-      operator?: PropertyOperator | null;
-      type?: 'cohort';
-      value: number;
-    }
-
-    export type DurationType = typeof DurationType[keyof typeof DurationType];
-
-
-    export const DurationType = {
-      Duration: 'duration',
-      ActiveSeconds: 'active_seconds',
-      InactiveSeconds: 'inactive_seconds',
-    } as const;
-
-    export interface RecordingPropertyFilter {
-      key: DurationType | string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'recording';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface LogEntryPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'log_entry';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type GroupPropertyFilterGroupKeyNames = {[key: string]: string} | null;
-
-    export interface GroupPropertyFilter {
-      group_key_names?: GroupPropertyFilterGroupKeyNames;
-      group_type_index?: number | null;
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'group';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface FeaturePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      /** Event property with "$feature/" prepended */
-      type?: 'feature';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface FlagPropertyFilter {
-      /** The key should be the flag ID */
-      key: string;
-      label?: string | null;
-      /** Only flag_evaluates_to operator is allowed for flag dependencies */
-      operator?: 'flag_evaluates_to';
-      /** Feature flag dependency */
-      type?: 'flag';
-      /** The value can be true, false, or a variant name */
-      value: boolean | string;
-    }
-
-    export interface HogQLPropertyFilter {
-      key: string;
-      label?: string | null;
-      type?: 'hogql';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export const EmptyPropertyFilterValue = {
-      type: 'empty',
-    } as const;
-    export type EmptyPropertyFilter = typeof EmptyPropertyFilterValue;
-
-    export interface DataWarehousePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'data_warehouse';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface DataWarehousePersonPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'data_warehouse_person_property';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface ErrorTrackingIssueFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'error_tracking_issue';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type LogPropertyFilterType = typeof LogPropertyFilterType[keyof typeof LogPropertyFilterType];
-
-
-    export const LogPropertyFilterType = {
-      Log: 'log',
-      LogAttribute: 'log_attribute',
-      LogResourceAttribute: 'log_resource_attribute',
-    } as const;
-
-    export interface LogPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type: LogPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface MetricPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'metric_attribute';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type SpanPropertyFilterType = typeof SpanPropertyFilterType[keyof typeof SpanPropertyFilterType];
-
-
-    export const SpanPropertyFilterType = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export interface SpanPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type: SpanPropertyFilterType;
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface RevenueAnalyticsPropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'revenue_analytics';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export interface WorkflowVariablePropertyFilter {
-      key: string;
-      label?: string | null;
-      operator: PropertyOperator;
-      type?: 'workflow_variable';
-      value?: (string | number | boolean)[] | string | number | boolean | null;
-    }
-
-    export type BehavioralEventSource = typeof BehavioralEventSource[keyof typeof BehavioralEventSource];
-
-
-    export const BehavioralEventSource = {
-      Events: 'events',
-      Actions: 'actions',
-    } as const;
-
-    export type TimeUnitType = typeof TimeUnitType[keyof typeof TimeUnitType];
-
-
-    export const TimeUnitType = {
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-      Year: 'year',
-    } as const;
-
-    export type InlineBehavioralType = typeof InlineBehavioralType[keyof typeof InlineBehavioralType];
-
-
-    export const InlineBehavioralType = {
-      PerformedEvent: 'performed_event',
-      PerformedEventMultiple: 'performed_event_multiple',
-    } as const;
-
-    export interface BehavioralPropertyFilter {
-      /** Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups */
-      event_filters?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | FeaturePropertyFilter | HogQLPropertyFilter)[] | null;
-      event_type: BehavioralEventSource;
-      /** Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval */
-      explicit_datetime?: string | null;
-      explicit_datetime_to?: string | null;
-      /** Event name, or action id when event_type is 'actions' */
-      key: string;
-      label?: string | null;
-      /** Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators */
-      negation?: boolean | null;
-      /** Count comparison for performed_event_multiple, defaults to exact */
-      operator?: PropertyOperator | null;
-      /** Count threshold for performed_event_multiple */
-      operator_value?: number | null;
-      time_interval?: TimeUnitType | null;
-      /** Relative time window size, paired with time_interval */
-      time_value?: number | null;
-      /** Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP */
-      type?: 'behavioral';
-      value: InlineBehavioralType;
-    }
-
-    export interface DashboardFilter {
-      breakdown_filter?: BreakdownFilter | null;
-      /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
-      compareFilter?: CompareFilter | null;
-      date_from?: string | null;
-      date_to?: string | null;
-      explicitDate?: boolean | null;
-      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
-      filterTestAccounts?: boolean | null;
-      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
-      interval?: IntervalType | null;
-      metricFilters?: MetricsQueryFilter[] | null;
-      /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
-      metricVariables?: MetricsDashboardVariable[] | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-    }
-
-    export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
-
-
-    export const LimitContext = {
-      PosthogAi: 'posthog_ai',
-    } as const;
 
     export type RefreshType = typeof RefreshType[keyof typeof RefreshType];
 
@@ -5744,11 +5839,6 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
-    }
-
-    export interface PropertyGroupFilterValue {
-      type: FilterLogicalOperator;
-      values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
     }
 
     export type Compare = typeof Compare[keyof typeof Compare];
@@ -130371,6 +130461,55 @@ export namespace Schemas {
      */
     include_history?: boolean;
     };
+
+    export type AccountsPersonsRetrieveParams = {
+    /**
+     * JSON array of person property filters with key, operator, value, and type="person". Filters use AND.
+     */
+    filters?: string;
+    /**
+     * Maximum persons per page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of matching persons to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * JSON array of selected person property keys. Example: ["email", "name"].
+     */
+    properties?: string;
+    /**
+     * Search name, email, person ID, or distinct ID.
+     * @maxLength 1000
+     */
+    search?: string;
+    /**
+     * Sort by id, display_name, account_first_seen, account_last_seen, or a selected property key.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    sort_column?: string;
+    /**
+     * Sort direction. Person ID breaks ties.
+     *
+     * * `asc` - Ascending
+     * * `desc` - Descending
+     * @minLength 1
+     */
+    sort_direction?: AccountsPersonsRetrieveSortDirection;
+    };
+
+    export type AccountsPersonsRetrieveSortDirection = typeof AccountsPersonsRetrieveSortDirection[keyof typeof AccountsPersonsRetrieveSortDirection];
+
+
+    export const AccountsPersonsRetrieveSortDirection = {
+      Asc: 'asc',
+      Desc: 'desc',
+    } as const;
 
     export type AccountsEmailThreadsListParams = {
     /**

@@ -6521,22 +6521,33 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
+        const data = {
+            query,
+            client_query_id: queryOptions?.clientQueryId,
+            refresh: queryOptions?.refresh,
+            filters_override: queryOptions?.filtersOverride,
+            variables_override: queryOptions?.variablesOverride,
+            limit_context: queryOptions?.limitContext,
+        }
+        if (bodyKind === NodeKind.ActorsQuery && query.source?.kind === NodeKind.AccountUsersQuery) {
+            const { getAccountsPersonsQueryCreateUrl } =
+                await import('products/customer_analytics/frontend/generated/api')
+            return await api.create(
+                getAccountsPersonsQueryCreateUrl(
+                    String(ApiConfig.getCurrentTeamId()),
+                    encodeURIComponent(query.source.accountId)
+                ),
+                data,
+                queryOptions?.requestOptions
+            )
+        }
+
         const apiRequest =
             bodyKind === NodeKind.AccountsTableQuery
                 ? new ApiRequest().accountsTableQuery()
                 : new ApiRequest().query(undefined, bodyKind)
 
-        return await apiRequest.create({
-            ...queryOptions?.requestOptions,
-            data: {
-                query,
-                client_query_id: queryOptions?.clientQueryId,
-                refresh: queryOptions?.refresh,
-                filters_override: queryOptions?.filtersOverride,
-                variables_override: queryOptions?.variablesOverride,
-                limit_context: queryOptions?.limitContext,
-            },
-        })
+        return await apiRequest.create({ ...queryOptions?.requestOptions, data })
     },
 
     async queryHogQL<T = any[]>(
