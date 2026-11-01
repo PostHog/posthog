@@ -87,6 +87,21 @@ _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
     ast.CompareOperationOp.GtEq: "greaterOrEquals",
 }
 
+# Positive pattern matches: false when the value is NULL and the pattern a non-NULL constant. The negated forms are
+# true for a NULL value, so they are deliberately absent.
+_PATTERN_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Like,
+        ast.CompareOperationOp.ILike,
+        ast.CompareOperationOp.Regex,
+        ast.CompareOperationOp.IRegex,
+    }
+)
+
+# Single-argument HogQL wrappers that map a NULL input to NULL (`toFloat`/`toInt` print as `accurateCastOrNull`,
+# `toDateTime` as `parseDateTime64BestEffortOrNull`).
+_NULL_PRESERVING_WRAPPERS = frozenset({"toFloat", "toInt", "toDateTime", "toString", "lower"})
+
 
 @dataclass(frozen=True)
 class MaterializedPropertySource:
@@ -1184,8 +1199,14 @@ class ClickHousePropertyResolver(CloningVisitor):
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
         self._in_grouped_clause = False
+        # The WHERE/PREWHERE comparisons (and call-form comparisons) that sit under only `and`/`or` nodes, keyed by
+        # `id()`. The only place `_property_group_key_guard` may land: there a NULL and a false comparison filter alike.
+        # The values pin each node so its id can't be reused; only comparisons read the dict, other calls are inert.
+        self._key_guard_nodes: dict[int, ast.Expr] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        self._collect_key_guard_nodes(node.where)
+        self._collect_key_guard_nodes(node.prewhere)
         scope: set[int] = set()
         join: ast.JoinExpr | None = node.select_from
         while join is not None:
@@ -1230,6 +1251,17 @@ class ClickHousePropertyResolver(CloningVisitor):
         finally:
             self._in_grouped_clause = was_in_grouped_clause
             self._tables_in_scope.pop()
+
+    def _collect_key_guard_nodes(self, clause: ast.Expr | None) -> None:
+        stack = [clause]
+        while stack:
+            expr = stack.pop()
+            if isinstance(expr, ast.And | ast.Or):
+                stack.extend(expr.exprs)
+            elif isinstance(expr, ast.Call) and expr.name in ("and", "or"):
+                stack.extend(expr.args)
+            elif isinstance(expr, ast.CompareOperation | ast.Call):
+                self._key_guard_nodes[id(expr)] = expr
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
         """True if the property's source table is in the current SELECT's FROM/JOIN chain (by object identity)."""
@@ -1423,6 +1455,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         if optimized is not None:
             return optimized
 
+        regex_guard = self._regex_call_key_guard(node)
+        if regex_guard is not None:
+            return _call("and", [regex_guard, super().visit_call(node)])
+
         # A comparison written in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
         # `in(properties.x, (...))`) is still a comparison: route it through visit_compare_operation so the same rewrites
         # fire. Otherwise we'd descend into the args and substitute the value, losing the optimization. Only the plain
@@ -1436,9 +1472,16 @@ class ClickHousePropertyResolver(CloningVisitor):
             and node.order_by is None
             and node.filter_expr is None
         ):
-            return self.visit_compare_operation(
-                ast.CompareOperation(left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name])
+            comparison = ast.CompareOperation(
+                left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name]
             )
+            # `comparison` is a temporary: drop its id once visited so a later node can't inherit it from the freed address.
+            if id(node) in self._key_guard_nodes:
+                self._key_guard_nodes[id(comparison)] = comparison
+            try:
+                return self.visit_compare_operation(comparison)
+            finally:
+                self._key_guard_nodes.pop(id(comparison), None)
 
         return super().visit_call(node)
 
@@ -1946,7 +1989,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.
-        prefilter = self._person_json_substring_prefilter(node)
+        prefilter = self._person_json_substring_prefilter(node) or self._property_group_key_guard(node)
         compared = super().visit_compare_operation(node)
         if prefilter is not None:
             return _call("and", [prefilter, compared])
@@ -2328,6 +2371,66 @@ class ClickHousePropertyResolver(CloningVisitor):
         # ClickHouse's transform_null_in setting makes `in(map[key], ...)` skip the keys index; the has() guard restores it.
         in_expr = _call("in", [prop.group_value(), ast.Tuple(exprs=[_const(v) for v in string_values])])
         return _call("and", [prop.group_has(), in_expr])
+
+    def _regex_call_key_guard(self, node: ast.Call) -> ast.Call | None:
+        """`_property_group_key_guard` for `match(value, pattern)`, bare or as the `regex` filter's `ifNull(..., 0)`.
+
+        `match` has no comparison operator in call form, so it never reaches `visit_compare_operation`; judge it as the
+        `=~` comparison it is. Both forms are NULL or false for an absent key.
+        """
+        if id(node) not in self._key_guard_nodes:
+            return None
+        match node:
+            case (
+                ast.Call(name="ifNull", args=[ast.Call(name="match", args=[value, pattern]), ast.Constant(value=0)])
+                | ast.Call(name="match", args=[value, pattern])
+            ):
+                comparison = ast.CompareOperation(left=value, right=pattern, op=ast.CompareOperationOp.Regex)
+                self._key_guard_nodes[id(comparison)] = comparison
+                try:
+                    return self._property_group_key_guard(comparison)
+                finally:
+                    self._key_guard_nodes.pop(id(comparison), None)
+        return None
+
+    def _property_group_key_guard(self, node: ast.CompareOperation) -> ast.Call | None:
+        """`indexHint(has(map, key))` to AND ahead of a range or positive pattern comparison over a property-group property.
+
+        Those comparisons read `if(has(map, key), map[key], NULL)` inside the comparison, where no skip index can see
+        it; the `has()` conjunct lets the keys bloom filter skip granules without the key. `indexHint` keeps it to index
+        analysis and evaluates to 1 per row, so it cannot change the result and costs no row-level work (a plain `has()`
+        per OR branch cost 20-30% more CPU on an OR of 11 ILIKE patterns). Skipping is sound because an absent key reads
+        NULL through the NULL-preserving wrappers unwrapped below, so the comparison is NULL or false. Only a WHERE or
+        PREWHERE comparison under `and`/`or` alone qualifies: index analysis reads only those clauses, and there a NULL
+        or false comparison drops the row, whereas under `not` or `if` it can still select it (the printer leaves a
+        comparison against an events timestamp without `ifNull`). A NULL or non-constant pattern can match a NULL value,
+        so it bails.
+        """
+        if id(node) not in self._key_guard_nodes:
+            return None
+        operands: tuple[ast.Expr, ...]
+        if node.op in _PATTERN_OPS:
+            if not isinstance(node.right, ast.Constant) or node.right.value is None:
+                return None
+            operands = (node.left,)
+        elif node.op in _RANGE_OP_TO_CH_NAME:
+            operands = (node.left, node.right)
+        else:
+            return None
+        for operand in operands:
+            operand = operand.expr if isinstance(operand, ast.Alias) else operand
+            while (
+                isinstance(operand, ast.Call) and operand.name in _NULL_PRESERVING_WRAPPERS and len(operand.args) == 1
+            ):
+                operand = operand.args[0]
+            # `_property_group_property` also looks through `toBool(transform(...))`, whose default can make an
+            # absent key match; only a bare property read is NULL for an absent key.
+            if isinstance(operand, ast.Call):
+                continue
+            prop = self._property_group_property(operand)
+            if prop is not None:
+                return _call("indexHint", [prop.group_has()])
+        return None
 
     # --- individually-materialized-column optimizers ---
 
