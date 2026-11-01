@@ -2038,7 +2038,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                         insight_id: insight.id,
                     })
                 } else {
-                    // The chunk did not load, so send the action without the config properties rather than drop it
                     posthog.capture('bi-worksheet-action', { action: 'added_to_dashboard', insight_id: insight.id })
                 }
             }
