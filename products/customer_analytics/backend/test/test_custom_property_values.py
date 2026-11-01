@@ -5,7 +5,9 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, OperationalError, connection
+from django.db.models import QuerySet
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -29,6 +31,7 @@ from products.customer_analytics.backend.logic.custom_property_values import (
     set_account_custom_properties_by_id,
     set_custom_property_value,
     set_synced_custom_property_value,
+    set_synced_custom_property_values,
 )
 from products.customer_analytics.backend.models import (
     CANONICAL_LAST_SLACK_MESSAGE_AT,
@@ -286,6 +289,156 @@ class TestSetCustomPropertyValue(BaseTest):
                 account_id=self.account.id,
                 properties={str(definition.id): None},
             )
+
+
+class TestSetSyncedCustomPropertyValues(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.definition = create_custom_property_definition(team_id=self.team.id, display_type=DisplayType.NUMBER)
+        capture_patch = patch("products.customer_analytics.backend.events.capture_batch_internal")
+        self.capture = capture_patch.start()
+        self.addCleanup(capture_patch.stop)
+
+    def test_mixed_changes_preserve_history_and_emit_only_changes_after_commit(self) -> None:
+        accounts = Account.objects.for_team(self.team.id).bulk_create(
+            [
+                Account(team_id=self.team.id, name=name)
+                for name in ("Insert", "Update", "Clear", "Same", "Unset", "Invalid")
+            ]
+        )
+        inserted, updated, cleared, unchanged, unset, invalid = accounts
+        previous = CustomPropertyValue.objects.for_team(self.team.id).bulk_create(
+            [
+                CustomPropertyValue(team_id=self.team.id, account=account, definition=self.definition, value_num=value)
+                for account, value in [(updated, 3), (cleared, 8), (unchanged, 4), (invalid, 9)]
+            ]
+        )
+        values = {
+            inserted.id: "7",
+            updated.id: "12",
+            cleared.id: None,
+            unchanged.id: "4",
+            unset.id: None,
+            invalid.id: "bad",
+        }
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            result = set_synced_custom_property_values(team_id=self.team.id, definition=self.definition, values=values)
+            self.capture.assert_not_called()
+        assert len(callbacks) == 3
+        assert result.written == 3
+        assert result.accepted_account_ids == {account.id for account in accounts if account != invalid}
+        assert set(result.rejected_values) == {invalid.id}
+        assert isinstance(result.rejected_values[invalid.id], InvalidCustomPropertyValue)
+        rows = CustomPropertyValue.objects.for_team(self.team.id).filter(definition=self.definition)
+        assert set(rows.values_list("account_id", "value_num", "is_deleted")) == {
+            (inserted.id, 7.0, False),
+            (updated.id, 3.0, True),
+            (updated.id, 12.0, False),
+            (cleared.id, 8.0, True),
+            (unchanged.id, 4.0, False),
+            (invalid.id, 9.0, False),
+        }
+        assert rows.count() == 6
+        assert set(rows.filter(id__in=[row.id for row in previous]).values_list("id", flat=True)) == {
+            row.id for row in previous
+        }
+        assert set(rows.values_list("created_by_id", flat=True)) == {None}
+        events = [call.kwargs["events"][0] for call in self.capture.call_args_list]
+        assert {
+            (
+                event["properties"]["account_id"],
+                event["properties"]["previous_value"],
+                event["properties"]["current_value"],
+            )
+            for event in events
+        } == {
+            (str(inserted.id), None, 7.0),
+            (str(updated.id), 3.0, 12.0),
+            (str(cleared.id), 8.0, None),
+        }
+        for event in events:
+            assert event["event"] == "$account_custom_property_changed"
+            assert event["distinct_id"] == f"account:{event['properties']['account_id']}"
+            assert event["properties"]["property_id"] == str(self.definition.id)
+            assert event["properties"]["property_name"] == self.definition.name
+            assert event["properties"]["data_type"] == "numeric"
+            assert event["properties"]["actor_type"] == "system"
+            assert event["properties"]["actor_id"] is None
+            assert event["properties"]["workflow_id"] is None
+        assert all(call.kwargs["token"] == self.team.api_token for call in self.capture.call_args_list)
+        self.capture.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            retry = set_synced_custom_property_values(team_id=self.team.id, definition=self.definition, values=values)
+        assert retry.written == 0
+        assert retry.accepted_account_ids == result.accepted_account_ids
+        assert rows.count() == 6
+        self.capture.assert_not_called()
+
+    def test_bulk_create_failure_rolls_back_updates_and_schedules_no_events(self) -> None:
+        updated = create_account(team_id=self.team.id)
+        cleared = create_account(team_id=self.team.id)
+        inserted = create_account(team_id=self.team.id)
+        previous = CustomPropertyValue.objects.for_team(self.team.id).bulk_create(
+            [
+                CustomPropertyValue(team_id=self.team.id, account=account, definition=self.definition, value_num=2)
+                for account in (updated, cleared)
+            ]
+        )
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with patch.object(QuerySet, "bulk_create", side_effect=OperationalError("synthetic write failure")):
+                with pytest.raises(OperationalError):
+                    set_synced_custom_property_values(
+                        team_id=self.team.id,
+                        definition=self.definition,
+                        values={updated.id: 5, cleared.id: None, inserted.id: 6},
+                    )
+        rows = CustomPropertyValue.objects.for_team(self.team.id).filter(definition=self.definition)
+        assert rows.count() == 2
+        assert set(rows.filter(is_deleted=False).values_list("id", flat=True)) == {row.id for row in previous}
+        assert callbacks == []
+        self.capture.assert_not_called()
+
+    @parameterized.expand([("foreign_account",), ("missing_account",), ("foreign_definition",)])
+    def test_rejects_missing_or_foreign_pairs_atomically(self, case: str) -> None:
+        account = create_account(team_id=self.team.id)
+        other_team = Team.objects.create(organization=self.organization)
+        foreign = create_account(team_id=other_team.id)
+        definition = self.definition
+        values = {account.id: 2, foreign.id if case == "foreign_account" else uuid4(): 3}
+        if case == "foreign_definition":
+            definition = create_custom_property_definition(team_id=other_team.id, display_type=DisplayType.NUMBER)
+            values = {account.id: 2}
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with pytest.raises(
+                CustomPropertyDefinitionNotFound if case == "foreign_definition" else Account.DoesNotExist
+            ):
+                set_synced_custom_property_values(team_id=self.team.id, definition=definition, values=values)
+        assert not CustomPropertyValue.objects.for_team(self.team.id).exists()
+        assert not CustomPropertyValue.objects.for_team(other_team.id).exists()
+        assert callbacks == []
+        self.capture.assert_not_called()
+
+    @parameterized.expand([("one", 1, 1), ("full_chunk", 500, 1), ("two_chunks", 501, 2)])
+    def test_write_query_count_scales_with_chunks(self, _name: str, size: int, chunks: int) -> None:
+        accounts = Account.objects.for_team(self.team.id).bulk_create(
+            [Account(team_id=self.team.id, name=f"Synthetic account {index}") for index in range(size)]
+        )
+        CustomPropertyValue.objects.for_team(self.team.id).bulk_create(
+            [
+                CustomPropertyValue(team_id=self.team.id, account=account, definition=self.definition, value_num=0)
+                for account in accounts
+            ]
+        )
+        with CaptureQueriesContext(connection) as queries:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = set_synced_custom_property_values(
+                    team_id=self.team.id, definition=self.definition, values={account.id: 1 for account in accounts}
+                )
+        assert result.written == size
+        assert len(queries) <= 1 + 12 * chunks
+        assert sum("pg_advisory_xact_lock" in query["sql"] for query in queries) == chunks
+        assert CustomPropertyValue.objects.for_team(self.team.id).filter(is_deleted=False).count() == size
+        assert self.capture.call_count == size
 
 
 class TestSetAccountCustomPropertiesById(BaseTest):
