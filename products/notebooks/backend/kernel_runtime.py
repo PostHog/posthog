@@ -43,9 +43,7 @@ logger = structlog.get_logger(__name__)
 # (`SANDBOX_TTL_SECONDS`) is longer because it has to outlast an unattended agent run.
 NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 
-# Each sandbox is paid compute that runs until its TTL, so a scripted caller must not start them
-# without bound. A normal user starts a few a day. These limits apply to every path that
-# provisions a sandbox (start, restart, execute, SQL runs), not only to one endpoint.
+# Each sandbox is paid compute until its TTL. A normal user starts a few a day.
 NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR = 30
 NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM = 20
 
@@ -740,7 +738,6 @@ class KernelRuntimeService:
                 raise KernelSandboxLimitExceeded(
                     "You started too many notebook kernels in the last hour. Try again later."
                 )
-        # A sandbox that PostHog did not destroy keeps running until its TTL, so count it until then.
         running = KernelRuntime.objects.filter(
             team_id=notebook.team_id, ended_at__isnull=True, ttl_expires_at__gt=now
         ).count()

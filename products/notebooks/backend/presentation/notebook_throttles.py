@@ -1,9 +1,7 @@
 from posthog.rate_limit import _UserBucketRateThrottle
 
 
-# A notebook create costs little alone, but each new notebook can start a paid kernel sandbox, so a
-# scripted create loop turns into a sandbox loop. A person or an agent creates a few notebooks an
-# hour, so these rates only stop a script.
+# Each new notebook can start a paid kernel sandbox, so these rates stop a scripted create loop.
 class NotebookCreateBurstThrottle(_UserBucketRateThrottle):
     scope = "notebook_create_burst"
     rate = "20/minute"
