@@ -169,9 +169,10 @@ def compute_project_profile(*, team: Team, force: bool = False, defer_surfaces: 
 
     `force=True` skips the post-lock re-check so a caller that explicitly asked for a
     rebuild (via `get_project_profile(force_refresh=True)`) actually gets one even when
-    a fresh row exists. The lock still serializes concurrent forced rebuilds, so the
-    cost is at most one duplicate `build_inventory` per simultaneous force request —
-    bounded and only paid by callers who knowingly opted into it.
+    a fresh row exists. The lock still serializes concurrent forced rebuilds, but each
+    forced call persists its own row. Only callers who knowingly opted into it pay for
+    that extra row. The duplicate `build_inventory` cost applies to every concurrent
+    cache miss, as the next paragraph describes.
 
     The surface queries can take up to `SURFACES_TIME_BUDGET_S`, and `build_inventory` runs a
     ClickHouse aggregation. Both run before the transaction, so the advisory lock and the
