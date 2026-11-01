@@ -242,7 +242,16 @@ class TestCpuGate(SimpleTestCase):
                 set(),
                 {ScoringRun.TRAIN, ScoringRun.SCORE},
             ),
-            ("recent_cache_skips_the_read", 10, 17, 5, True, SpendStatus.FRESH, {1}, {ScoringRun.TRAIN, ScoringRun.SCORE}),
+            (
+                "recent_cache_skips_the_read",
+                10,
+                17,
+                5,
+                True,
+                SpendStatus.FRESH,
+                {1},
+                {ScoringRun.TRAIN, ScoringRun.SCORE},
+            ),
             ("stale_spend_blocks_nothing", 10, 17, 40, True, SpendStatus.STALE, set(), set()),
             ("missing_spend_blocks_nothing", 10, 17, None, True, SpendStatus.MISSING, set(), set()),
         ]
@@ -1105,7 +1114,17 @@ class TestReadSpend(ClickhouseTestMixin, BaseTest):
             # Not a scoring query: the scored-buckets read, and a query of another product with the same name.
             (today, self.team.id, "buckets", 1, 9_000_000, 9, "signals", "alerting", ""),
             (today, self.team.id, "foreign", 1, 9_000_000, 9, "insights", "alerting", "anomaly_scoring_train"),
-            (today - timedelta(days=1), self.team.id, "yesterday", 1, 9_000_000, 9, "signals", "alerting", "anomaly_scoring_train"),
+            (
+                today - timedelta(days=1),
+                self.team.id,
+                "yesterday",
+                1,
+                9_000_000,
+                9,
+                "signals",
+                "alerting",
+                "anomaly_scoring_train",
+            ),
         ]
         sync_execute(
             """INSERT INTO sharded_query_log_archive_v3
@@ -1300,7 +1319,10 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         spend = SpendSnapshot(
             day=NOW.date(),
             read_at=NOW,
-            teams={heavy_team.id: TeamSpend(cpu_seconds=61.0, read_bytes=1), self.team.id: TeamSpend(cpu_seconds=1.0, read_bytes=1)},
+            teams={
+                heavy_team.id: TeamSpend(cpu_seconds=61.0, read_bytes=1),
+                self.team.id: TeamSpend(cpu_seconds=1.0, read_bytes=1),
+            },
         )
 
         with (

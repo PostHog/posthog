@@ -15262,6 +15262,18 @@ snapshots:
         hash: v1.k794b7964.0dac77dbf97e99deb916b18c338f397b1c7c58d305dcb722c2c397f1efe2167f.CH2uxVc4xyfRne0meiJNYXeK1aiNC9KaBpAX_EVhWiQ
     scenes-app-replay-vision-test-account-filter-settings-dialog--default--light:
         hash: v1.k794b7964.4a45317cf1541935394cc4f27a9b29c17f0c8aeaebb6a832fd947dca51c1dacd.-SOqokEQ4yQf2ZbX4EM6nY2csQRt0E46XT4F1g_pTlE
+    scenes-app-replay-vision-turnonscannerdialogs--ai-analysis-off-for-member--dark:
+        hash: v1.k794b7964.238cf8eb3a06540830339849b738e02b6cac0d03b7438de02470a3638a1342d0.ozXyQycz4MSjgE431seFDLk5_6476JKQa5WU0zhUiok
+    scenes-app-replay-vision-turnonscannerdialogs--ai-analysis-off-for-member--light:
+        hash: v1.k794b7964.153bfc6e24f67d51d5ceb29e5dc824d21570e24b52203450f0c9d84afa3874c2.bFOeLkCAFHnYwgMGkmjbyYNYYQ_EWIyipgjO89aU7_E
+    scenes-app-replay-vision-turnonscannerdialogs--allow-ai-analysis--dark:
+        hash: v1.k794b7964.01e452a9ea0f81c71c5ebba699aec1bb6f0e0cd03490465d58edee3e64e9cf15.uIWrmx84lDf7ARJjo2q97S3LnZ0RE_xlzVLTb8yth-E
+    scenes-app-replay-vision-turnonscannerdialogs--allow-ai-analysis--light:
+        hash: v1.k794b7964.8679a15ce3dacad2c7f93831fa345f52f91a5bca338c5d9133514ba00aeddda4.Q9YaKK36sfV3blZJhhanRHc1IgO0p51Qpoka8p2h80w
+    scenes-app-replay-vision-turnonscannerdialogs--take-over-scanner--dark:
+        hash: v1.k794b7964.e391483793d6250bb523edbac11fcf15bdb907b2080050b568a7f5b507f7294e.aCN72Q-58kxiOHZ_2E_98WurauukO9ItvLt3lWnU2U4
+    scenes-app-replay-vision-turnonscannerdialogs--take-over-scanner--light:
+        hash: v1.k794b7964.eeb66851276718735e3a1250a6e6a9b4773cd8797a6eb824f002c6326a6977f1.yZjfBMDZiVyie0_KRHhuiaTNmSsqDvsfzUPmZQecm2o
     scenes-app-saved-insights--empty-state--dark:
         hash: v1.k794b7964.8186a1849accab762928456f98db977a9b097cf28199d7e1eb6c1e841500852c.SXNRf2LgiH3DkvhwUukZcGqDXngv1kGiEhGYUAhlKC8
     scenes-app-saved-insights--empty-state--light:

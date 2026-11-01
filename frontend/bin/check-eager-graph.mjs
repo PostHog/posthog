@@ -104,8 +104,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-11-01: 5.21 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_480_000,
+        // 2026-11-01: 4.11 MiB eager output, stable CSS included. ~0.3% headroom.
+        budgetBytes: 4_320_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -125,6 +125,8 @@ const ROOTS = [
             'src/taxonomy/core-filter-definitions-by-group.json',
             // The project notice logic pulls in dompurify and the sample data logic.
             'src/layout/navigation/projectNoticeLogic.tsx',
+            // Only impersonating staff see this notice, and it pulls in react-draggable.
+            'src/layout/navigation/ImpersonationNotice/ImpersonationNotice.tsx',
             // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
             'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The Today layout renders only behind the today-rail-nav flag, and it pulls in quill primitives.
@@ -142,6 +144,9 @@ const ROOTS = [
             'node_modules/re2js/',
             // react-markdown and its remark plugins load on first render. Shell code uses LazyLemonMarkdown.
             'node_modules/react-markdown/',
+            // The command palette loads on its first open, and its flagged search pulls in quill.
+            'src/lib/components/Command/Command.tsx',
+            'packages/quill/packages/',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -185,8 +190,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-11-01: 5.65 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_945_000,
+        // 2026-11-01: 5.01 MiB, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_270_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
@@ -203,8 +208,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        // 2026-10-30: 7.46 MiB, stable CSS included. ~1% headroom.
-        budgetBytes: 7_900_000,
+        // 2026-11-01: 6.39 MiB, stable CSS included. ~1% headroom.
+        budgetBytes: 6_770_000,
         forbidden: [
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
