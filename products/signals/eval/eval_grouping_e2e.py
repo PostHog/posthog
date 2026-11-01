@@ -45,6 +45,7 @@ from products.signals.backend.temporal.grouping import (
     MatchSignalToReportInput,
     generate_search_queries,
     match_signal_to_report,
+    provisional_split_title,
     verify_match_specificity,
 )
 from products.signals.backend.temporal.report_safety_judge import judge_report_safety
@@ -247,7 +248,7 @@ class EvalGroupingPipeline:
                 specificity_match_result.match_metadata.specificity = specificity_meta
             else:
                 specificity_match_result = NewReportMatch(
-                    title=description.split("\n")[0],
+                    title=provisional_split_title(description, case.signal.config.source_product),
                     summary=f"Split from group: {report_title}",
                     match_metadata=NoMatchMetadata(
                         reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
