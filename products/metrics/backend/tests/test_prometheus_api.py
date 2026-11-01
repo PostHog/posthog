@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 import requests
@@ -27,6 +28,7 @@ class TestPrometheusQueryApi(APIBaseTest):
         patcher = patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_upstream())
         self.request_mock = patcher.start()
         self.addCleanup(patcher.stop)
+        cache.clear()
 
     def test_query_is_forwarded_to_the_prometheus_api_with_team_header(self):
         response = self.client.get(f"{self.base}/query", {"query": "sum(rate(http_requests_total[5m]))"})
@@ -85,3 +87,49 @@ class TestPrometheusQueryApi(APIBaseTest):
         response = self.client.get(f"{self.base}/query", {"query": "up"}, headers={"authorization": f"Bearer {token}"})
 
         assert response.status_code == expected_status
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="grafana", user=self.user, secure_value=hash_key_value(token), scopes=scopes
+        )
+        return token
+
+    @parameterized.expand(
+        [
+            ("grafana_with_personal_api_key", True, "Grafana/11.3.0", "personal_api_key", "grafana"),
+            ("in_app_connection_test", False, "Mozilla/5.0", "session", "other"),
+        ]
+    )
+    def test_usage_is_reported_with_auth_method_and_client(
+        self, _name: str, use_key: bool, user_agent: str, auth_method: str, client: str
+    ):
+        headers = {"user-agent": user_agent}
+        if use_key:
+            headers["authorization"] = f"Bearer {self._personal_api_key(['metrics:read'])}"
+            self.client.logout()
+
+        with patch("posthoganalytics.capture") as capture_mock:
+            response = self.client.get(f"{self.base}/query", {"query": "up"}, headers=headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        usage_calls = [c for c in capture_mock.call_args_list if c.kwargs["event"] == "metrics prometheus api used"]
+        assert len(usage_calls) == 1
+        assert usage_calls[0].kwargs["distinct_id"] == self.user.distinct_id
+        assert usage_calls[0].kwargs["properties"]["auth_method"] == auth_method
+        assert usage_calls[0].kwargs["properties"]["client"] == client
+
+    def test_repeated_dashboard_queries_report_usage_once_per_window(self):
+        headers = {
+            "authorization": f"Bearer {self._personal_api_key(['metrics:read'])}",
+            "user-agent": "Grafana/11.3.0",
+        }
+        self.client.logout()
+
+        with patch("posthoganalytics.capture") as capture_mock:
+            for path in ("query", "query_range", "labels", "series"):
+                assert self.client.get(f"{self.base}/{path}", headers=headers).status_code == status.HTTP_200_OK
+            self.client.get(f"{self.base}/write", headers=headers)
+
+        usage_calls = [c for c in capture_mock.call_args_list if c.kwargs["event"] == "metrics prometheus api used"]
+        assert len(usage_calls) == 1

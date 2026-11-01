@@ -28,6 +28,8 @@ import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardI
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
 import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
+import { metricsPrometheusConnectLogic } from './prometheusConnect/metricsPrometheusConnectLogic'
+import { MetricsPrometheusConnectModal } from './prometheusConnect/MetricsPrometheusConnectModal'
 
 export const METRICS_LOGIC_KEY = 'metrics'
 
@@ -83,6 +85,8 @@ const MetricsSceneContent = (): JSX.Element => {
         primeItems()
     })
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const prometheusApiEnabled = useFeatureFlag('LOGS_METRICS_SNUFFLE_API')
+    const { openConnectModal } = useActions(metricsPrometheusConnectLogic)
 
     const onFeedbackClick = (): void => {
         posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
@@ -102,6 +106,15 @@ const MetricsSceneContent = (): JSX.Element => {
                             <div className="@min-[48rem]/metrics-scene:hidden">
                                 <QuillMetricsDashboardActions />
                             </div>
+                            {prometheusApiEnabled && (
+                                <Button
+                                    variant="outline"
+                                    onClick={openConnectModal}
+                                    data-attr="metrics-prometheus-connect"
+                                >
+                                    Connect Grafana
+                                </Button>
+                            )}
                             <Button variant="outline" onClick={onFeedbackClick}>
                                 <IconFeedback />
                                 Feedback
@@ -113,6 +126,16 @@ const MetricsSceneContent = (): JSX.Element => {
                             <div className="@min-[48rem]/metrics-scene:hidden">
                                 <MetricsDashboardActions />
                             </div>
+                            {prometheusApiEnabled && (
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={openConnectModal}
+                                    data-attr="metrics-prometheus-connect"
+                                >
+                                    Connect Grafana
+                                </LemonButton>
+                            )}
                             <LemonButton
                                 size="small"
                                 type="secondary"
@@ -157,6 +180,7 @@ const MetricsSceneContent = (): JSX.Element => {
                 {activeTab === 'sql' && <MetricsSqlEditor />}
             </div>
             <MetricsDashboardImportModal />
+            {prometheusApiEnabled && <MetricsPrometheusConnectModal />}
         </>
     )
 }

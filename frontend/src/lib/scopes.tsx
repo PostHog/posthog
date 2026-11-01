@@ -450,6 +450,7 @@ export const API_KEY_SCOPE_PRESETS: {
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'grafana', label: 'Grafana', scopes: ['metrics:read'] },
     {
         value: 'project_management',
         label: 'Project & user management',
