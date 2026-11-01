@@ -82,15 +82,21 @@ describe.each([
     })
 
     it.each([
-        { isComposing: false, copies: true },
-        { isComposing: true, copies: false },
-    ])('Cmd+Enter with isComposing $isComposing copies the prompt: $copies', async ({ isComposing, copies }) => {
+        { keys: 'Cmd+Enter', shiftKey: false, isComposing: false, copies: true },
+        { keys: 'Cmd+Enter during an IME composition', shiftKey: false, isComposing: true, copies: false },
+        { keys: 'Shift+Cmd+Enter', shiftKey: true, isComposing: false, copies: false },
+    ])('$keys copies the prompt: $copies', async ({ shiftKey, isComposing, copies }) => {
         const user = userEvent.setup()
         await user.click(screen.getByText('Edit with your agent').closest('button') as HTMLButtonElement)
         await waitFor(() => expect(screen.getByLabelText('Describe the change')).toHaveFocus())
         await user.keyboard(' the button to green')
 
-        fireEvent.keyDown(screen.getByLabelText('Describe the change'), { key: 'Enter', metaKey: true, isComposing })
+        fireEvent.keyDown(screen.getByLabelText('Describe the change'), {
+            key: 'Enter',
+            metaKey: true,
+            shiftKey,
+            isComposing,
+        })
 
         const logic = messageTemplateLogic({ id: 'existing-id' })
         if (copies) {
