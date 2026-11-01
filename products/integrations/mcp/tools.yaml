@@ -132,7 +132,7 @@ tools:
             - kind
         param_overrides:
             config:
-                input_schema: EmailSenderConfigSchema
+                input_schema: EmailSenderCreateConfigSchema
                 required: true
         inject_body:
             kind: email
