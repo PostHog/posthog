@@ -5,7 +5,18 @@ from typing import Any
 from django.db.models import F, Q, QuerySet
 
 import django_filters
+from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+
+from products.replay_vision.backend.search import parse_date_bound
+
+
+def validate_date_bound(value: str) -> str:
+    try:
+        parse_date_bound(value, None, end_of_range=False)
+    except ValueError as e:
+        raise serializers.ValidationError(str(e))
+    return value
 
 
 def split_csv(value: str) -> list[str]:

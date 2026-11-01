@@ -16141,6 +16141,36 @@
             "readOnlyHint": false
         }
     },
+    "vision-groups-get": {
+        "description": "Get one group's counts and up to three example observations over a window (`date_from` defaults to `-30d`). Takes an `id` from `vision-groups-list`. Returns 404 when the group has no readable member in the window.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get one group of near-duplicate issues",
+        "title": "Get one group of near-duplicate issues",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "api_operations": ["GET /api/projects/{project_id}/vision/groups/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "vision-groups-list": {
+        "description": "List groups: tight clusters of one scanner's issue observations that tell the same story, such as one bug many people hit. Narrower than themes. `example_summary` (the best member's summary) is the label. Each row counts readable members in the window (`date_from` defaults to `-30d`; at most 90 days with `scanner_id`, 30 days without): observations, distinct people, and members in the same-length window before it for the trend. `status` says whether a group is `emerging`, `active`, `fading` or `dormant`. `order` by `people` (default), `observations`, `growth` or `recent`. Read the members with `vision-scanners-observations-list` filtered by `group`. On an experiment scanner, set `include_routine` to group ordinary behavior too and `by_variant` to split each group's counts by variant.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List groups of near-duplicate issues",
+        "title": "List groups of near-duplicate issues",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "api_operations": ["GET /api/projects/{project_id}/vision/groups/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "vision-observations-create-task": {
         "description": "Create a PostHog Task from a replay vision observation's finding, so it can be triaged and fixed. The title and description come from the scanner and its result. This records the task only and does not start a coding agent. Idempotent per observation: once a task exists, later calls return the same `task_id`.",
         "category": "Replay vision",
@@ -16724,7 +16754,7 @@
         }
     },
     "vision-scanners-scouts-create": {
-        "description": "Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner, so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `display_name` people will read; the server derives its permanent `name` from it. Put the full markdown prompt in `body`. The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run is a full agent run, so agree the schedule with the person.",
+        "description": "Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner, so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `display_name` people will read; the server derives its permanent `name` from it. Put the full markdown prompt in `body`. The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run is a full agent run, so agree the schedule with the person. To start from a ready-made scout, read `vision-scanners-scouts-templates-list` and pass a template's `body` unchanged with its `key` as `template_key`: the scout then picks up later improvements to that template, until someone edits it. The `scratch` template is the exception: fill in its `<ALL CAPS>` placeholders first.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "Create scout for scanner",
@@ -16738,6 +16768,21 @@
             "readOnlyHint": false
         },
         "requires_ai_consent": true
+    },
+    "vision-scanners-scouts-templates-list": {
+        "description": "List the ready-made scouts a scanner offers, such as a daily digest, a trend watch or a root cause scout, in the order the Replay Vision UI shows them. Each has a `key`, `title`, `description`, a default name and schedule, and the full `body` rendered for this scanner. Create one with `vision-scanners-scouts-create`, passing the `body` unchanged and the `key` as `template_key`. The `scratch` template is a skeleton: replace every `<ALL CAPS>` placeholder in its body with what the person wants before creating it; the create call rejects a body that still has one. For `variant-analysis`, also pass `variant_analysis: true`, which attaches the record schema the variants view reads.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List scout templates for scanner",
+        "title": "List scout templates for scanner",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{scanner_id}/scouts/templates/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     },
     "vision-scanners-self-driving-stats": {
         "description": "What a signal-emitting scanner led to, all time: `signals_emitted` into the Signals inbox, `reports_contributed` (reports that include at least one of its signals), and implementation `prs_opened` and `prs_merged` by self-driving on those reports. All zero for a scanner that does not emit signals.",
@@ -16778,6 +16823,36 @@
         "title": "Compare an experiment scanner's variants",
         "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{scanner_id}/variants/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "vision-themes-get": {
+        "description": "Get one search theme's name, counts and up to three example observations over a window (`date_from` defaults to `-30d`). Takes an `id` from `vision-themes-list`. Returns 404 when the theme has no readable member in the window.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get one theme of recurring issues",
+        "title": "Get one theme of recurring issues",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "api_operations": ["GET /api/projects/{project_id}/vision/themes/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "vision-themes-list": {
+        "description": "List search themes: broad clusters of one scanner's issue observations (failures, struggles, confusion) that describe the same kind of situation, each with a short model-written `name` once it has enough members. Each row counts readable members in the window (`date_from` defaults to `-30d`; at most 90 days with `scanner_id`, 30 days without): observations, distinct people, and members in the same-length window before it for the trend. `status` works as on groups. `order` by `people`, `observations`, `growth` or `recent`. Only issue observations join a theme, and a theme never spans scanners. Use it to see what comes up often or is getting worse, then read the members with `vision-scanners-observations-list` filtered by `theme`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List recurring themes of issues",
+        "title": "List recurring themes of issues",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "api_operations": ["GET /api/projects/{project_id}/vision/themes/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

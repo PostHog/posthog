@@ -21,6 +21,7 @@ import { StartupProgramLabel } from '~/types'
 import { expect } from 'storybook/test'
 
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
+import scoutTemplates from '../__mocks__/scoutTemplates.json'
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -1021,6 +1022,15 @@ const meta: Meta = {
                         : params.id === monitorOverviewScanner.id
                           ? monitorOverviewScanner
                           : summarizerScanner,
+                // Rendered by the backend's templates; only the root cause body is full, since only its form is shown.
+                '/api/projects/:team_id/vision/scanners/:scannerId/scouts/templates/': ({ params }) =>
+                    (params.scannerId === summarizerScanner.id
+                        ? scoutTemplates.summarizer
+                        : scoutTemplates.monitor
+                    ).map((template) => ({
+                        ...template,
+                        body: template.body.replaceAll('SCANNER_ID', String(params.scannerId)),
+                    })),
                 '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
                 '/api/projects/:team_id/vision/scanners/:id/observations/stats/': ({ params }) =>
