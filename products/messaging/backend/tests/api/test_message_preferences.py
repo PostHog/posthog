@@ -22,6 +22,14 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 
+SEND_CLAIMS = {
+    "app_source_id": "flow-1",
+    "instance_id": "action-1",
+    "workflow_id": "flow-1",
+    "invocation_id": "run-1",
+    "workflow_version": 3,
+}
+
 STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css" />'
 
 
@@ -327,14 +335,30 @@ class TestMessagePreferencesViews(BaseTest):
         config.capture_workflows_engagement_events = True
         config.save()
 
+    @parameterized.expand(
+        [
+            ("a link that names no email", {}, {}),
+            ("a link that names the email but not its run", {"app_source_id": "flow-1", "instance_id": "action-1"}, {}),
+            (
+                "a link that names the step, run and version that sent it",
+                SEND_CLAIMS,
+                {
+                    "$workflow_id": "flow-1",
+                    "$workflow_action_id": "action-1",
+                    "$workflow_invocation_id": "run-1",
+                    "$workflow_version": 3,
+                },
+            ),
+        ]
+    )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_one_click_unsubscribe_emits_unsubscribed_event(
-        self, mock_validate_messaging_preferences_token, mock_capture_internal
+        self, _name, token_claims, send_properties, mock_validate_messaging_preferences_token, mock_capture_internal
     ):
         self._enable_engagement_events()
         mock_validate_messaging_preferences_token.return_value = mock_response(
-            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **token_claims}
         )
 
         response = self.client.get(
@@ -352,6 +376,7 @@ class TestMessagePreferencesViews(BaseTest):
                 "$email": self.recipient.identifier,
                 "category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
                 "source": "one_click",
+                **send_properties,
             },
         )
 
@@ -378,7 +403,7 @@ class TestMessagePreferencesViews(BaseTest):
         }
         self.recipient.save()
         mock_validate_messaging_preferences_token.return_value = mock_response(
-            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **SEND_CLAIMS}
         )
 
         data = {
@@ -398,6 +423,7 @@ class TestMessagePreferencesViews(BaseTest):
         )
         for call in mock_capture_internal.call_args_list:
             self.assertEqual(call.kwargs["properties"]["source"], "preferences_page")
+            self.assertEqual(call.kwargs["properties"]["$workflow_invocation_id"], "run-1")
 
     @parameterized.expand(["one_click", "preferences_form"])
     @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")

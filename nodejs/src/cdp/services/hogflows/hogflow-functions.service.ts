@@ -121,26 +121,36 @@ export class HogFlowFunctionsService {
             },
         }
 
+        const savedState = invocation.state.currentAction?.hogFunctionState
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
-            state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
-                    hogFunction,
-                    globalsWithSource,
-                    undefined,
-                    {
-                        appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
-                        instanceId: invocation.state.currentAction?.id,
-                    }
-                ),
-                timings: [],
-                attempts: 0,
-                actionId: invocation.state.currentAction?.id,
-                actionStepCount: invocation.state.actionStepCount,
-                customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
-                rerunAttempts: invocation.state.rerunAttempts,
-            },
+            state: savedState
+                ? {
+                      ...savedState,
+                      renderedWorkflowVersion: savedState.renderedWorkflowVersion ?? invocation.hogFlow.version,
+                  }
+                : {
+                      globals: await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(
+                          hogFunction,
+                          globalsWithSource,
+                          undefined,
+                          {
+                              appSourceId: invocation.parentRunId ?? invocation.hogFlow.id,
+                              instanceId: invocation.state.currentAction?.id,
+                              workflowId: invocation.hogFlow.id,
+                              invocationId: invocation.id,
+                              workflowVersion: invocation.hogFlow.version,
+                          }
+                      ),
+                      timings: [],
+                      attempts: 0,
+                      actionId: invocation.state.currentAction?.id,
+                      actionStepCount: invocation.state.actionStepCount,
+                      customerTaskIdempotencyVersion: invocation.state.customerTaskIdempotencyVersion,
+                      rerunAttempts: invocation.state.rerunAttempts,
+                      renderedWorkflowVersion: invocation.hogFlow.version,
+                  },
         }
 
         return hogFunctionInvocation

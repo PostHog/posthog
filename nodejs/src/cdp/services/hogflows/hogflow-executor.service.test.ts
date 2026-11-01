@@ -430,6 +430,35 @@ describe('Hogflow Executor', () => {
             })
         })
 
+        it.each([
+            ['keeps the version a step rendered under', true, 2],
+            ['uses the live version for a step saved before the rendered version was stored', false, 3],
+        ])('%s when the workflow is republished before it sends', async (_name, storesRenderedVersion, expected) => {
+            await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
+            const config = { template_id: customerTaskTemplate.id, inputs: { name: { value: 'Follow up' } } }
+            const renderedFlow = { ...hogFlow, version: 2 }
+            const invocation = createExampleHogFlowInvocation(renderedFlow, {
+                currentAction: { id: 'function_id_1', startedAtTimestamp: Date.now() },
+            })
+            const hogFunction = await hogFlowFunctionsService.buildHogFunction(renderedFlow, config)
+            const rendered = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+            const { renderedWorkflowVersion, ...legacyState } = rendered.state
+            invocation.state.currentAction!.hogFunctionState = parseJSON(
+                JSON.stringify(storesRenderedVersion ? { ...legacyState, renderedWorkflowVersion } : legacyState)
+            )
+
+            invocation.hogFlow = { ...renderedFlow, version: 3 }
+            const resumed = await hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
+                event: invocation.state.event,
+                person: invocation.person,
+            })
+
+            expect(resumed.state.renderedWorkflowVersion).toBe(expected)
+        })
+
         it.each([false, true])('keeps legacy task keys with saved function state: %s', async (hasSavedState) => {
             await insertHogFunctionTemplate(hub.postgres, customerTaskTemplate)
             const config = {
