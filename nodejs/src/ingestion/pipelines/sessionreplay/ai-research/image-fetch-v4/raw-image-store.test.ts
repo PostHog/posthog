@@ -9,7 +9,9 @@ import type { ImageFetchResult } from './image-fetcher'
 import { RawImageStore } from './raw-image-store'
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('png body')])
+const WOFF2 = Buffer.from('wOF2 body')
 const REF = 'imageurl:v4:7:2026-10:abcdefghijklmnopqrstuv'
+const FONT_REF = 'fonturl:v4:7:2026-10:abcdefghijklmnopqrstuv'
 const KEY = Buffer.alloc(32, 9)
 const STORED: TeamMonthKey = { status: 'ok', key: KEY }
 
@@ -53,46 +55,52 @@ const candidate = (ref = REF): FetchCandidate => ({
     republishCount: 0,
     lastRepublishReason: null,
 })
-const fetched = (bytes = PNG): ImageFetchResult => ({
+const fetched = (bytes = PNG, contentType = 'image/png'): ImageFetchResult => ({
     outcome: 'ok',
     redirects: 0,
     currentUrl: IMAGE_URL,
     status: 200,
     bytes,
-    contentType: 'image/png',
+    contentType,
 })
 
 describe('RawImageStore', () => {
-    it('stores the image sealed under its team month key, over any earlier object of its reference', async () => {
-        const { sink, puts } = store(STORED)
-        await sink.publishImage(candidate(), fetched())
+    it.each([
+        ['image', REF, fetched(), PNG, 'images/url', 'image-url'],
+        ['font', FONT_REF, fetched(WOFF2, 'font/woff2'), WOFF2, 'fonts/url', 'font-url'],
+    ])(
+        'stores the %s sealed under its team month key, over any earlier object of its reference',
+        async (_asset, ref, result, bytes, prefix, kind) => {
+            const { sink, puts } = store(STORED)
+            await sink.publishImage(candidate(ref), result)
 
-        expect(puts).toHaveLength(1)
-        expect(puts[0]).toBeInstanceOf(PutObjectCommand)
-        const { Bucket, Key, IfNoneMatch, Body, ContentType } = (puts[0] as PutObjectCommand).input
-        expect([Bucket, Key, IfNoneMatch]).toEqual([
-            'images-v4',
-            'images/url/month=2026-10/7/abcdefghijklmnopqrstuv',
-            undefined,
-        ])
-        const { aad, body } = open(Body as Buffer)
-        expect(body).toEqual(PNG)
-        expect(aad).toEqual({
-            v: 4,
-            context: { teamId: 7, keyMonth: '2026-10', kind: 'image-url', codec: 'none', ref: REF },
-        })
+            expect(puts).toHaveLength(1)
+            expect(puts[0]).toBeInstanceOf(PutObjectCommand)
+            const { Bucket, Key, IfNoneMatch, Body, ContentType } = (puts[0] as PutObjectCommand).input
+            expect([Bucket, Key, IfNoneMatch]).toEqual([
+                'images-v4',
+                `${prefix}/month=2026-10/7/abcdefghijklmnopqrstuv`,
+                undefined,
+            ])
+            const { aad, body } = open(Body as Buffer)
+            expect(body).toEqual(bytes)
+            expect(aad).toEqual({
+                v: 4,
+                context: { teamId: 7, keyMonth: '2026-10', kind, codec: 'none', ref },
+            })
 
-        // The refresh copies the object onto itself, which resets the creation time the lifecycle counts from.
-        await expect(sink.refreshImage(candidate())).resolves.toBe(true)
-        expect(puts[1]).toBeInstanceOf(CopyObjectCommand)
-        expect((puts[1] as CopyObjectCommand).input).toEqual({
-            Bucket,
-            Key,
-            CopySource: 'images-v4/images/url/month%3D2026-10/7/abcdefghijklmnopqrstuv',
-            MetadataDirective: 'REPLACE',
-            ContentType,
-        })
-    })
+            // The refresh copies the object onto itself, which resets the creation time the lifecycle counts from.
+            await expect(sink.refreshImage(candidate(ref))).resolves.toBe(true)
+            expect(puts[1]).toBeInstanceOf(CopyObjectCommand)
+            expect((puts[1] as CopyObjectCommand).input).toEqual({
+                Bucket,
+                Key,
+                CopySource: `images-v4/${prefix}/month%3D2026-10/7/abcdefghijklmnopqrstuv`,
+                MetadataDirective: 'REPLACE',
+                ContentType,
+            })
+        }
+    )
 
     it('resolves to false when it refreshes a reference that has no object', async () => {
         const { sink, puts } = store(STORED, NOT_FOUND)

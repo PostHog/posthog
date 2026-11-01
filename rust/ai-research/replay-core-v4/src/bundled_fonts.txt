@@ -1,0 +1,115 @@
+# Text font families that the v4 renderer ships, so that a block names them and the fetcher does not fetch them.
+#
+# One family name per line, as the font-family descriptor of an @font-face rule names it. Only ASCII letters, digits
+# and single spaces. The recorder compares names without case and reads a run of whitespace as one space. A blank line
+# and a line that starts with "#" are ignored.
+#
+# Each src URL of an @font-face rule whose family is on this list becomes fonturl:v4:bundled:{slug}, where the slug is
+# the name in lowercase with "-" for each space. The renderer must hold each family here in every weight and style,
+# and pick the face from the rule's font-weight and font-style descriptors.
+#
+# List only text families whose licence lets the renderer image carry them: SIL OFL, Apache 2.0 or the Ubuntu Font
+# Licence. Never list an icon font. An icon font puts its glyphs at private code points that move between versions,
+# so a bundled copy can draw the wrong icon. The fetcher fetches those.
+#
+# replay-core-v4 embeds this file, so a change ships with a recorder image build. A malformed or repeated line fails
+# the crate's tests.
+
+Albert Sans
+Archivo
+Arimo
+Assistant
+Barlow
+Barlow Condensed
+Be Vietnam Pro
+Bebas Neue
+Bitter
+Cabin
+Cairo
+Catamaran
+Comfortaa
+Cormorant Garamond
+Crimson Pro
+Crimson Text
+DM Sans
+DM Serif Display
+Dosis
+EB Garamond
+Exo 2
+Figtree
+Fira Code
+Fira Sans
+Geist
+Geist Mono
+Heebo
+Hind
+IBM Plex Mono
+IBM Plex Sans
+IBM Plex Serif
+Inconsolata
+Instrument Sans
+Inter
+Inter Tight
+JetBrains Mono
+Josefin Sans
+Jost
+Kanit
+Karla
+Lato
+Lexend
+Libre Baskerville
+Libre Franklin
+Lora
+Manrope
+Maven Pro
+Merriweather
+Montserrat
+Mukta
+Mulish
+Noto Sans
+Noto Sans JP
+Noto Sans KR
+Noto Sans SC
+Noto Sans TC
+Noto Serif
+Nunito
+Nunito Sans
+Onest
+Open Sans
+Oswald
+Outfit
+Overpass
+Oxygen
+PT Sans
+PT Serif
+Playfair Display
+Plus Jakarta Sans
+Poppins
+Prompt
+Public Sans
+Quicksand
+Raleway
+Red Hat Display
+Red Hat Text
+Roboto
+Roboto Condensed
+Roboto Flex
+Roboto Mono
+Roboto Slab
+Rubik
+Sarabun
+Signika
+Sora
+Source Code Pro
+Source Sans 3
+Source Sans Pro
+Source Serif 4
+Space Grotesk
+Space Mono
+Tajawal
+Titillium Web
+Ubuntu
+Urbanist
+Varela Round
+Work Sans
+Zilla Slab
