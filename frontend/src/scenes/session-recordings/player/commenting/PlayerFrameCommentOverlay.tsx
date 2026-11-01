@@ -57,7 +57,10 @@ export const PlayerCommentModal = (): JSX.Element => {
                                 data-attr="create-recording-comment-input"
                                 onPressCmdEnter={submitRecordingComment}
                                 initialContent={recordingComment.richContent}
-                                onCreate={setRichContentEditor}
+                                onCreate={(editor) => {
+                                    setRichContentEditor(editor)
+                                    editor.focus('end')
+                                }}
                                 onUpdate={() => {
                                     // it can't be null by now, but TS doesn't know that
                                     if (richContentEditor) {
