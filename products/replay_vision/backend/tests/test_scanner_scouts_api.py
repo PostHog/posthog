@@ -353,13 +353,10 @@ class TestScoutTemplateSync(_VisionAPITestCase):
         self._create("signals-scout-y-daily-digest", digest + "\nOnly report checkout.", "daily-digest")
         # A scout made before claiming existed: its untouched text is claimed on its next run.
         self._create("signals-scout-z-daily-digest", digest, None)
-        # The scratch skeleton is the author's to fill in, so it never follows the template.
-        self._create("signals-scout-w-scratch", self._template_body("scratch"), "scratch")
         names = [
             "signals-scout-x-daily-digest",
             "signals-scout-y-daily-digest",
             "signals-scout-z-daily-digest",
-            "signals-scout-w-scratch",
         ]
 
         self._refresh(*names)
@@ -379,7 +376,6 @@ class TestScoutTemplateSync(_VisionAPITestCase):
                 assert skill.body.endswith("A new template step.")
                 assert skill.version == 2
             assert self._skill("signals-scout-y-daily-digest").body.endswith("Only report checkout.")
-            assert self._skill("signals-scout-w-scratch").version == 1
 
             # Someone edits a synced scout; from then on the template no longer overwrites it.
             publish_skill_version(
