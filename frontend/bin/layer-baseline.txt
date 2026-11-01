@@ -108,7 +108,6 @@ frontend/src/lib/api.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
 frontend/src/lib/components/Account/ProjectFreshnessIndicator.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/ActivityLog/ActivityLogSubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
-frontend/src/lib/components/ActivityLog/activityDescriptions/tagActivityDescriber.tsx -> frontend/src/scenes/insights/utils.tsx
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/dashboard/newDashboardLogic.ts
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
@@ -197,7 +196,6 @@ frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/data-man
 frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
 frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/insights/filters/ActionFilter/flagCallsSeries.ts
 frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/insights/filters/ActionFilter/seriesNode.ts
-frontend/src/lib/components/EntityFilterInfo.tsx -> frontend/src/scenes/insights/utils.tsx
 frontend/src/lib/components/Errors/Exception/CollapsibleExceptionHeader.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/Errors/Frame/FrameVariables.tsx -> products/error_tracking/frontend/components/PropertiesTable.tsx
 frontend/src/lib/components/EventPropertyTabs/EventPropertyTabs.tsx -> frontend/src/scenes/surveys/utils.ts
@@ -224,7 +222,6 @@ frontend/src/lib/components/IngestionControls/triggers/FlagTrigger/flagTriggerLo
 frontend/src/lib/components/IngestionControls/triggers/UrlConfig.tsx -> frontend/src/scenes/session-recordings/components/AiRegexHelper/AiRegexHelper.tsx
 frontend/src/lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor.tsx -> frontend/src/scenes/settings/environment/ReplayTriggers.tsx
 frontend/src/lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor.tsx -> frontend/src/scenes/settings/environment/SessionRecordingSettings.tsx
-frontend/src/lib/components/InsightLabel/index.tsx -> frontend/src/scenes/insights/utils.tsx
 frontend/src/lib/components/InsightLabel/index.tsx -> frontend/src/scenes/insights/utils/resultSeries.ts
 frontend/src/lib/components/InsightLabel/index.tsx -> products/product_analytics/frontend/insights/trends/mathsLogic.tsx
 frontend/src/lib/components/InsightLegend/InsightLegend.tsx -> frontend/src/scenes/insights/insightLogic.tsx
@@ -289,7 +286,6 @@ frontend/src/lib/components/SessionTimeline/timeline/items/page.tsx -> products/
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/nodes/InsightQuery/defaults.ts
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/Sharing/sharingLogic.ts -> frontend/src/scenes/insights/utils.tsx
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
@@ -460,7 +456,6 @@ frontend/src/queries/nodes/DataVisualization/dataVisualizationLogic.ts -> produc
 frontend/src/queries/nodes/DataVisualization/dataVisualizationLogic.ts -> products/business_intelligence/frontend/biMemberAliases.ts
 frontend/src/queries/nodes/DataVisualization/dataVisualizationLogic.ts -> products/business_intelligence/frontend/biQueryResults.ts
 frontend/src/queries/nodes/DataVisualization/dataVisualizationLogic.ts -> products/business_intelligence/frontend/biTableLayout.ts
-frontend/src/queries/nodes/DataVisualization/eventColumnLabels.ts -> frontend/src/scenes/insights/utils.tsx
 frontend/src/queries/nodes/EventsNode/EventName.tsx -> products/actions/frontend/components/EventName.tsx
 frontend/src/queries/nodes/HogQLQuery/HogQLQueryEditor.tsx -> frontend/src/scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic.ts
 frontend/src/queries/nodes/HogQLQuery/hogQLQueryEditorLogic.tsx -> frontend/src/scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic.tsx

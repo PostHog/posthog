@@ -1,5 +1,10 @@
 import clsx from 'clsx'
 
+import {
+    formatEventName,
+    getDisplayNameFromEntityFilter,
+    isAllEventsEntityFilter,
+} from 'lib/insights/entityFilterNames'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -12,7 +17,6 @@ import {
     isGroupSeriesNode,
     isWarehouseSeriesNode,
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
-import { formatEventName, getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
