@@ -15,7 +15,7 @@ from parameterized import parameterized
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.flag_evaluations_mode import (
@@ -65,10 +65,10 @@ class TestSetFlagEvaluationsMode(BaseTest):
     def test_warns_only_when_the_mode_stops_experiments_on_feature_flag_called(
         self, _name: str, mode: str, expects_warning: bool
     ) -> None:
-        Experiment.objects.create(
-            team=self.team,
+        create_experiment(
+            team_id=self.team.id,
+            feature_flag_id=FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user).id,
             name="Started before the cutoff",
-            feature_flag=FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user),
             start_date=datetime(2026, 8, 1, tzinfo=UTC),
         )
 

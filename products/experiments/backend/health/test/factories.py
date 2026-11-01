@@ -44,9 +44,12 @@ RUNNING_CONTEXT = HealthContext(
     condition_set_traffic=None,
     pause_history=None,
     primary_metric=None,
+    only_count_matured_users=False,
+    primary_metric_windows=None,
     excluded_variant_keys=frozenset(),
     metric_compiles=None,
     latest_calculation=None,
+    exposure_filters_without_column=None,
 )
 
 

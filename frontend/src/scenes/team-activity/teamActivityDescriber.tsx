@@ -172,7 +172,8 @@ const TEAM_PROPERTIES_MAPPING: Record<
     | keyof ExperimentsConfig
     | 'heatmaps_screenshot_allowed_hostnames'
     | 'conversations_signing_secret'
-    | 'conversations_signing_secret_previous',
+    | 'conversations_signing_secret_previous'
+    | 'events_retention_months',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
@@ -447,6 +448,19 @@ const TEAM_PROPERTIES_MAPPING: Record<
 
         return { description: descriptions }
     },
+
+    // Events retention
+    events_retention_months: (change) => ({
+        description: [
+            change.after === null ? (
+                <>removed the project's events retention window</>
+            ) : (
+                <>
+                    set the events retention window to <em>{String(change.after)} months</em>
+                </>
+            ),
+        ],
+    }),
 
     // Logs
     logs_settings: () => {

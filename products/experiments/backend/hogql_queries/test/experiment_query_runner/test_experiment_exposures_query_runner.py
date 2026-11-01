@@ -30,11 +30,14 @@ from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
 from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_journeys import journeys_for
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
@@ -49,6 +52,11 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.uti
 )
 from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+LEAVES_OUT_TEST_ACCOUNTS = {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
+KEEPS_MATCHING_USERS = {"key": "email", "value": "@example.org", "operator": "icontains", "type": "person"}
+HOGQL_FILTER = {"key": "not(person.properties.email ilike '%@example.com')", "type": "hogql"}
+LATER = "2024-01-07T12:00:00Z"
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -1505,6 +1513,34 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
 
+    def _expose_users_behind_a_test_account_filter(
+        self,
+        users: int,
+        test_accounts: int,
+        test_account_filter: dict[str, Any],
+        event_properties: dict[str, Any] | None = None,
+    ) -> None:
+        self.feature_flag.last_called_at = datetime(2024, 1, 1, 12, tzinfo=UTC)
+        self.feature_flag.save()
+        self.team.test_account_filters = [test_account_filter]
+        self.team.save()
+        self.experiment.exposure_criteria = {"filterTestAccounts": True}
+        for i in range(users + test_accounts):
+            domain = "example.com" if i >= users else "example.org"
+            _create_person(distinct_ids=[f"person_{i}"], properties={"email": f"person{i}@{domain}"}, team=self.team)
+            _create_event(
+                distinct_id=f"person_{i}",
+                event="$feature_flag_called",
+                timestamp="2024-01-01T10:00:00Z",
+                properties={
+                    "$feature_flag_response": "test",
+                    "$feature_flag": self.feature_flag.key,
+                    **(event_properties or {}),
+                },
+                team=self.team,
+            )
+        flush_persons_and_events()
+
     def _running_exposure_query(self) -> ExperimentExposureQuery:
         self.experiment.end_date = None
         self.experiment.save()
@@ -1548,6 +1584,67 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             self.team,
         )
         flush_persons_and_events()
+        self._log_split_change_from_90_10_on_2024_01_03()
+
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+        ).calculate()
+
+        self.assertEqual(
+            [(finding.code, finding.subcode) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
+        )
+
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_srm_segments_after_a_split_change_count_only_the_users_first_exposed_after_it(self) -> None:
+        ff_property = f"$feature/{self.feature_flag.key}"
+        # Web 1.0.0 got the old 90/10 split before the change. After it, web 2.0.0 matches the current 50/50 split
+        # and posthog-node 4.2.1 doesn't.
+        journeys_for(
+            {
+                f"user_{library}_{version}_{variant}_{i}": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": day,
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": self.feature_flag.key,
+                            "$lib": library,
+                            "$lib_version": version,
+                        },
+                    }
+                ]
+                for day, library, version, counts in (
+                    ("2024-01-02", "web", "1.0.0", (("control", 200), ("test", 10))),
+                    ("2024-01-04", "web", "2.0.0", (("control", 60), ("test", 60))),
+                    ("2024-01-04", "posthog-node", "4.2.1", (("control", 15), ("test", 105))),
+                )
+                for variant, count in counts
+                for i in range(count)
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+        self._log_split_change_from_90_10_on_2024_01_03()
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=True):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        [finding] = response.health_findings or []
+        versions = sorted(
+            str(value) for key, value in finding.evidence.items() if re.fullmatch(r"library_version_\d+", key)
+        )
+        self.assertEqual((finding.subcode, versions), ("split_changed", ["2.0.0", "4.2.1"]))
+        self.assertIn(
+            'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
+            "library.",
+            finding.detail,
+        )
+
+    def _log_split_change_from_90_10_on_2024_01_03(self) -> None:
         before = {
             **self.feature_flag.filters,
             "multivariate": {
@@ -1573,36 +1670,44 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             created_at=datetime(2024, 1, 3, tzinfo=UTC),
         )
 
-        response = ExperimentExposuresQueryRunner(
-            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
-        ).calculate()
-
-        self.assertEqual(
-            [(finding.code, finding.subcode) for finding in response.health_findings or []],
-            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
-        )
-
     @parameterized.expand(
         [
             (
                 "reader_who_sees_the_findings",
                 True,
-                'The mismatch comes from users whose first exposure was sent by the "posthog-node" library.',
+                'The mismatch comes from users whose first exposure was sent by version "4.2.1" of the "posthog-node" '
+                "library.",
+                "library_version",
                 {
-                    "reason": "library",
+                    "located_dimensions": "library,library_version",
                     "library_1": "web",
                     "library_1_exposed_control": 100,
                     "library_1_exposed_test": 100,
                     "library_2": "posthog-node",
                     "library_2_exposed_control": 5,
                     "library_2_exposed_test": 120,
+                    "library_3": "posthog-ios",
+                    "library_3_exposed_control": 10,
+                    "library_3_exposed_test": 10,
+                    "library_version_1": "1.200.0",
+                    "library_version_1_library": "web",
+                    "library_version_1_exposed_control": 100,
+                    "library_version_1_exposed_test": 100,
+                    "library_version_2": "4.2.1",
+                    "library_version_2_library": "posthog-node",
+                    "library_version_2_exposed_control": 5,
+                    "library_version_2_exposed_test": 120,
+                    "library_version_3": "3.0.0",
+                    "library_version_3_library": "posthog-ios",
+                    "library_version_3_exposed_control": 10,
+                    "library_version_3_exposed_test": 10,
                     "page_1": "/",
                     "page_1_exposed_control": 34,
                     "page_1_exposed_test": 34,
                     "page_2": "/pricing",
                     "page_2_exposed_control": 20,
                     "page_2_exposed_test": 20,
-                    "page_3": "/docs",
+                    "page_3": "/docs/:page",
                     "page_3_exposed_control": 15,
                     "page_3_exposed_test": 15,
                     "page_4": "/blog",
@@ -1614,57 +1719,77 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                     "page_6": BREAKDOWN_OTHER_STRING_LABEL,
                     "page_6_exposed_control": 9,
                     "page_6_exposed_test": 9,
+                    "screen_1": "Checkout",
+                    "screen_1_exposed_control": 10,
+                    "screen_1_exposed_test": 10,
                 },
             ),
             (
                 "reader_who_does_not_see_them",
                 False,
                 "This may indicate issues with randomization or data collection.",
+                None,
                 {},
             ),
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_splits_the_exposures_by_the_library_and_page_of_the_first_exposure(
-        self, _name: str, findings_shown: bool, detail: str, evidence: dict[str, str | int]
+        self, _name: str, findings_shown: bool, detail: str, reason: str | None, evidence: dict[str, str | int]
     ) -> None:
-        def exposure(variant: str, timestamp: str, library: str, path: str | None) -> dict[str, Any]:
-            properties = {"$feature_flag_response": variant, "$feature_flag": self.feature_flag.key, "$lib": library}
+        def exposure(variant: str, timestamp: str, library: str, version: str, **place: str | None) -> dict[str, Any]:
             return {
                 "event": "$feature_flag_called",
                 "timestamp": timestamp,
-                "properties": {**properties, "$pathname": path} if path else properties,
+                "properties": {
+                    "$feature_flag_response": variant,
+                    "$feature_flag": self.feature_flag.key,
+                    "$lib": library,
+                    "$lib_version": version,
+                    **{key: value for key, value in place.items() if value},
+                },
             }
 
-        # Seven pages, so that the two smallest share the "other" segment. Half of the users first exposed on the
-        # web are exposed by the server later, and stay web users.
+        # Seven pages, so that the two smallest share the "other" segment, and one of them has a path per document
+        # that the team's path cleaning groups. Half of the users first exposed on the web are exposed by the server
+        # later, and stay web users.
+        self.team.path_cleaning_filters = [{"alias": "/docs/:page", "regex": "/docs/\\d+"}]
+        self.team.save()
         pages = [
             page
             for page, users in (
                 ("/", 34),
                 ("/pricing", 20),
-                ("/docs", 15),
+                ("/docs/{i}", 15),
                 ("/blog", 12),
                 ("/about", 10),
                 ("/careers", 5),
                 ("/contact", 4),
             )
-            for _ in range(users)
+            for i in range(users)
+            for page in (page.format(i=i),)
         ]
         web_first = {
             f"web_{variant}_{i}": [
-                exposure(variant, "2024-01-02T10:00:00Z", "web", page),
-                *([exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)] if i % 2 else []),
+                exposure(variant, "2024-01-02T10:00:00Z", "web", "1.200.0", **{"$pathname": page}),
+                *([exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", "4.2.1")] if i % 2 else []),
             ]
             for variant in ("control", "test")
             for i, page in enumerate(pages)
         }
         server_only = {
-            f"server_{variant}_{i}": [exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", None)]
+            f"server_{variant}_{i}": [exposure(variant, "2024-01-03T10:00:00Z", "posthog-node", "4.2.1")]
             for variant, count in (("control", 5), ("test", 120))
             for i in range(count)
         }
-        journeys_for({**web_first, **server_only}, self.team)
+        mobile = {
+            f"mobile_{variant}_{i}": [
+                exposure(variant, "2024-01-02T11:00:00Z", "posthog-ios", "3.0.0", **{"$screen_name": "Checkout"})
+            ]
+            for variant in ("control", "test")
+            for i in range(10)
+        }
+        journeys_for({**web_first, **server_only, **mobile}, self.team)
         flush_persons_and_events()
 
         with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=findings_shown):
@@ -1673,7 +1798,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ).calculate()
 
         [finding] = response.health_findings or []
-        self.assertEqual((finding.code, finding.subcode), (ExperimentExposureHealthFindingCode.SRM, None))
+        self.assertEqual(
+            (finding.code, finding.subcode, finding.reason), (ExperimentExposureHealthFindingCode.SRM, None, reason)
+        )
         self.assertIn(detail, finding.detail)
         self.assertEqual(
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")}, evidence
@@ -1844,6 +1971,24 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(cache_key(None), hidden_key)
         self.assertEqual(token_key, hidden_key)
 
+    @parameterized.expand([("filter_on", True, False), ("filter_off", False, True)])
+    def test_cache_key_follows_the_test_account_filters_only_when_the_query_applies_them(
+        self, _name: str, filter_test_accounts: bool, same_key: bool
+    ) -> None:
+        self.experiment.exposure_criteria = {"filterTestAccounts": filter_test_accounts}
+        query = self._running_exposure_query()
+
+        def cache_key() -> str:
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).get_cache_key()
+
+        self.team.test_account_filters = [{"key": "$ip", "value": "1.2.3.4", "operator": "is_not", "type": "event"}]
+        self.team.save()
+        before = cache_key()
+        self.team.test_account_filters = [{"key": "$ip", "value": "5.6.7.8", "operator": "is_not", "type": "event"}]
+        self.team.save()
+
+        self.assertEqual(cache_key() == before, same_key)
+
     @parameterized.expand(
         [
             ("first_day", "2024-01-01T23:00:00Z", None, []),
@@ -1888,51 +2033,218 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("test_accounts_exposed", 2, True, "No users exposed: the test account filter removes all of them", 2),
-            ("nobody_exposed", 0, True, "No users exposed, although the feature flag is called", 0),
             (
-                "reader_who_does_not_see_the_findings",
+                "test_accounts_exposed",
+                0,
                 2,
-                False,
-                "No users exposed, although the feature flag is called",
-                None,
+                LEAVES_OUT_TEST_ACCOUNTS,
+                True,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
+                        "calls_not_counted",
+                        "No users exposed: the test account filter removes all of them",
+                        2,
+                    )
+                ],
             ),
+            (
+                "nobody_exposed",
+                0,
+                0,
+                LEAVES_OUT_TEST_ACCOUNTS,
+                True,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
+                        "calls_not_counted",
+                        "No users exposed, although the feature flag is called",
+                        0,
+                    )
+                ],
+            ),
+            (
+                "test_accounts_exposed_for_a_reader_who_does_not_see_the_findings",
+                0,
+                2,
+                LEAVES_OUT_TEST_ACCOUNTS,
+                False,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.ZERO_EXPOSURES,
+                        "calls_not_counted",
+                        "No users exposed: the test account filter removes all of them",
+                        2,
+                    )
+                ],
+            ),
+            (
+                "few_users_counted_for_a_reader_who_does_not_see_the_findings",
+                3,
+                100,
+                KEEPS_MATCHING_USERS,
+                False,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                        None,
+                        "The test account filter removes most exposed users",
+                        103,
+                    )
+                ],
+            ),
+            (
+                "few_users_counted",
+                3,
+                100,
+                KEEPS_MATCHING_USERS,
+                True,
+                "2024-01-07T12:00:00Z",
+                [
+                    (
+                        ExperimentExposureHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                        None,
+                        "The test account filter removes most exposed users",
+                        103,
+                    )
+                ],
+            ),
+            ("few_users_counted_in_the_first_day", 3, 100, KEEPS_MATCHING_USERS, True, "2024-01-01T23:00:00Z", []),
+            ("few_users_counted_with_only_negative_filters", 3, 100, LEAVES_OUT_TEST_ACCOUNTS, True, LATER, []),
+            ("few_users_counted_with_only_a_hogql_filter", 3, 100, HOGQL_FILTER, True, LATER, []),
         ]
     )
-    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
-    def test_zero_exposures_counts_the_users_that_the_test_account_filter_removes(
-        self, _name: str, test_accounts: int, findings_shown: bool, title: str, counted: int | None
+    def test_counts_the_users_that_the_test_account_filter_removes(
+        self,
+        _name: str,
+        users: int,
+        test_accounts: int,
+        test_account_filter: dict[str, Any],
+        findings_shown: bool,
+        now: str,
+        expected: list[tuple[ExperimentExposureHealthFindingCode, str | None, str, int | None]],
     ) -> None:
-        self.feature_flag.last_called_at = datetime(2024, 1, 2, tzinfo=UTC)
-        self.feature_flag.save()
-        self.team.test_account_filters = [
-            {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
-        ]
-        self.team.save()
-        self.experiment.exposure_criteria = {"filterTestAccounts": True}
-        for i in range(test_accounts):
-            _create_person(distinct_ids=[f"tester_{i}"], properties={"email": f"tester{i}@example.com"}, team=self.team)
-            _create_event(
-                distinct_id=f"tester_{i}",
-                event="$feature_flag_called",
-                timestamp="2024-01-02",
-                properties={"$feature_flag_response": "test", "$feature_flag": self.feature_flag.key},
-                team=self.team,
-            )
-        flush_persons_and_events()
+        self._expose_users_behind_a_test_account_filter(users, test_accounts, test_account_filter)
+        query_types: list[str] = []
 
-        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=findings_shown):
+        def execute(**kwargs: Any) -> Any:
+            query_types.append(kwargs["query_type"])
+            return execute_hogql_query(**kwargs)
+
+        runner_module = ExperimentExposuresQueryRunner.__module__
+        with (
+            time_machine.travel(now, tick=False),
+            patch(f"{runner_module}.execute_hogql_query", side_effect=execute),
+            patch(f"{runner_module}.shows_health_findings", return_value=findings_shown),
+        ):
             response = ExperimentExposuresQueryRunner(
                 team=self.team, query=self._running_exposure_query(), user=self.user
             ).calculate()
 
         self.assertEqual(
             [
-                (finding.subcode, finding.title, finding.evidence.get("exposed_without_test_account_filter"))
+                (
+                    finding.code,
+                    finding.subcode,
+                    finding.title,
+                    finding.evidence.get("exposed_without_test_account_filter"),
+                )
                 for finding in response.health_findings or []
             ],
-            [("calls_not_counted", title, counted)],
+            expected,
         )
+        self.assertEqual(
+            "ExperimentExposuresWithoutTestAccountFilterQuery" in query_types,
+            any(count is not None for *_, count in expected),
+        )
+
+    @parameterized.expand([("direct", False, True), ("precomputed", True, False)])
+    @time_machine.travel(LATER, tick=False)
+    def test_compares_the_count_without_the_filter_only_with_direct_exposures(
+        self, _name: str, use_precomputation: bool, compared: bool
+    ) -> None:
+        self._setup_precomputation_test(use_precomputation)
+        self._expose_users_behind_a_test_account_filter(3, 100, KEEPS_MATCHING_USERS)
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+        query_types: list[str] = []
+
+        def execute(**kwargs: Any) -> Any:
+            query_types.append(kwargs["query_type"])
+            return execute_hogql_query(**kwargs)
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.execute_hogql_query", side_effect=execute):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        self.assertEqual("ExperimentExposuresWithoutTestAccountFilterQuery" in query_types, compared)
+        self.assertEqual(
+            [finding.code for finding in response.health_findings or []],
+            [ExperimentExposureHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES] if compared else [],
+        )
+
+    @parameterized.expand([("counted", None), ("timed_out", ClickHouseQueryTimeOut())])
+    @time_machine.travel(LATER, tick=False)
+    def test_recalculating_reuses_the_count_without_the_filter(self, _name: str, error: Exception | None) -> None:
+        self._expose_users_behind_a_test_account_filter(3, 100, KEEPS_MATCHING_USERS)
+        query = self._running_exposure_query()
+        counts: list[str] = []
+
+        def execute(**kwargs: Any) -> Any:
+            if kwargs["query_type"] == "ExperimentExposuresWithoutTestAccountFilterQuery":
+                counts.append(kwargs["query_type"])
+                if error:
+                    raise error
+            return execute_hogql_query(**kwargs)
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.execute_hogql_query", side_effect=execute):
+            for _ in range(2):
+                ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).calculate()
+
+        self.assertEqual(len(counts), 1)
+
+    @time_machine.travel(LATER, tick=False)
+    def test_a_reader_denied_a_property_gets_their_own_count_without_the_filter(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self._expose_users_behind_a_test_account_filter(0, 100, KEEPS_MATCHING_USERS, {"plan": "paid"})
+        exposure_config = ExperimentEventExposureConfig(
+            event="$feature_flag_called",
+            properties=[{"key": "plan", "operator": "exact", "value": "paid", "type": "event"}],
+        )
+        self.experiment.exposure_criteria = {
+            "filterTestAccounts": True,
+            "exposure_config": exposure_config.model_dump(mode="json"),
+        }
+        query = self._running_exposure_query()
+
+        def exposed_without_the_filter() -> list[int | None]:
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query, user=self.user).calculate()
+            return [
+                finding.evidence.get("exposed_without_test_account_filter")
+                for finding in response.health_findings or []
+            ]
+
+        self.assertEqual(exposed_without_the_filter(), [100])
+
+        plan = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.EVENT)
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(plan.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
+        )
+
+        self.assertEqual(exposed_without_the_filter(), [0])
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)

@@ -24,7 +24,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 7
+RENDER_VERSION = 9
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -51,10 +51,19 @@ TASK_GOAL_CHARS = 180
 TASK_TITLE_CHARS = 100
 MAX_TAGS = 5
 MAX_TAG_CHARS = 30
-ACTIVITY_LINE_CHARS = 220
+ACTIVITY_LINE_CHARS = 300
 ACTIVITY_NAME_CHARS = 70
-ACTIVITY_INTENT_CHARS = 100
+ACTIVITY_INTENT_CHARS = 160
+# Distinct agent intents one collapsed line keeps, newest first. They share ACTIVITY_INTENT_CHARS.
+ACTIVITY_MAX_INTENTS = 2
 VIEW_LINE_CHARS = 160
+MCP_LINES = 10
+MCP_LINE_CHARS = 400
+MCP_CHAIN_MAX_INTENTS = 6
+# The MCP intent buffer cuts an intent to this many characters.
+MCP_INTENT_CHARS = 200
+# An intent on a long chain keeps at least this many characters, even when the line cap then cuts the chain.
+MIN_MCP_INTENT_CHARS = 30
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
 MAX_COMPLETION_TOKENS = 4000
@@ -71,6 +80,8 @@ MIN_BARE_TITLE_WORDS = 8
 TASKS_HEADER = "Tasks the person gave to PostHog AI or the Slack agent ([tags] goal):"
 ACTIVITY_HEADER = "Things the person created or changed in PostHog (agent: why their coding agent did it):"
 VIEWS_HEADER = "Things the person opened in PostHog, by type (days: distinct days in the window; not theirs: someone else made it):"
+MCP_HEADER = "What the person's AI agent looked into for them over MCP (one line per session; intents in order):"
+MCP_CHAIN_SEPARATOR = " --> "
 
 # Helper tasks that a task spawns for itself, such as repository selection, carry the parent's origin.
 SANDBOX_PROMPT_TITLE_PREFIX = "[sandbox_prompt:"
@@ -118,6 +129,20 @@ MIN_BULK_OBJECTS = 10
 BULK_WINDOW = datetime.timedelta(hours=1)
 # A task goal seen on this many distinct days is a scheduled job, not a question the person asked.
 MIN_REPEATED_TASK_DAYS = 4
+# The MCP routes an agent calls to orient itself: the current user, project and organization, and skills.
+MCP_PLUMBING_ROUTES: frozenset[str] = frozenset(
+    {
+        "users-detail",
+        "projects-detail",
+        "projects-list",
+        "project_environments-detail",
+        "organizations-detail",
+        "organizations-list",
+    }
+)
+MCP_PLUMBING_ROUTE_PREFIXES: tuple[str, ...] = ("project_llm_skills-", "project_community_skills-")
+# The same chain of intents in this many sessions of the window is a scheduled job, not a person.
+MIN_REPEATED_MCP_CHAINS = 4
 _DIGITS = re.compile(r"\d+")
 _CAMEL_WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
 
@@ -237,8 +262,12 @@ class RenderLimits:
     task_goal_chars: int = _limit(TASK_GOAL_CHARS, max_value=800)
     activity_line_chars: int = _limit(ACTIVITY_LINE_CHARS, max_value=1000)
     activity_intent_chars: int = _limit(ACTIVITY_INTENT_CHARS, max_value=500)
+    activity_max_intents: int = _limit(ACTIVITY_MAX_INTENTS, max_value=10)
     profile_max_chars: int = _limit(PROFILE_MAX_CHARS, max_value=20000)
     max_completion_tokens: int = _limit(MAX_COMPLETION_TOKENS, max_value=16000)
+    mcp_lines: int = _limit(MCP_LINES, max_value=50)
+    mcp_line_chars: int = _limit(MCP_LINE_CHARS, max_value=1000)
+    mcp_chain_max_intents: int = _limit(MCP_CHAIN_MAX_INTENTS, max_value=20)
 
 
 DEFAULT_LIMITS = RenderLimits()
@@ -267,6 +296,11 @@ class Drop(StrEnum):
     BURST_CAP = "burst_cap"
     SAMPLE_CAP = "sample_cap"
     SECTIONS_BUDGET = "sections_budget"
+    EXCLUDED_PRODUCT = "excluded_product"
+    MCP_PLUMBING_ROUTE = "mcp_plumbing_route"
+    MCP_IN_ACTIVITY = "mcp_in_activity"
+    MCP_THIN_SESSION = "mcp_thin_session"
+    MCP_REPEATED_CHAIN = "mcp_repeated_chain"
 
 
 @frozen
@@ -324,11 +358,26 @@ class ViewItem:
 
 
 @frozen
+class McpItem:
+    """One MCP call of the person's agent, with the intent the agent stated, from the MCP intent buffer.
+
+    `session_id` and `route_name` can be empty."""
+
+    at: datetime.datetime
+    session_id: str
+    route_name: str
+    intent: str
+
+
+@frozen
 class Unit:
     """One rendered line, dated by its latest activity."""
 
     at: datetime.datetime
     text: str
+    # Characters of agent intent on the line.
+    intent_chars: int = 0
+    intent_keys: frozenset[str] = frozenset()
 
 
 @frozen
@@ -339,6 +388,8 @@ class _ActivityLine:
     text: str
     created: bool
     rows: int
+    intent_chars: int = 0
+    intent_keys: frozenset[str] = frozenset()
 
 
 @frozen
@@ -356,10 +407,17 @@ class RenderedInput:
     # Units of each source before its line cap, so a caller can tell when the cap binds.
     task_pool: int
     activity_pool: int
+    # Activity lines that carry at least one agent intent, and the intent characters on them.
+    intent_lines: int = 0
+    intent_chars: int = 0
+    n_mcp_lines: int = 0
+    mcp_chars: int = 0
+    # MCP sessions that passed the named filters, before the caps.
+    mcp_pool: int = 0
 
     @property
     def units(self) -> int:
-        return self.n_tasks + self.n_activity_lines + self.n_view_lines
+        return self.n_tasks + self.n_activity_lines + self.n_view_lines + self.n_mcp_lines
 
 
 def _mask_token(match: re.Match[str]) -> str:
@@ -407,6 +465,11 @@ def cap_line(text: str, max_chars: int) -> str:
         return text
     cut = text[: max_chars - 1]
     return (cut.rsplit(" ", 1)[0] if " " in cut else cut) + "…"
+
+
+def intent_key(intent: str) -> str:
+    """An agent intent as both sources compare it. The activity log and the MCP buffer cut it at different lengths."""
+    return clean_text(intent, MCP_INTENT_CHARS).casefold()
 
 
 def _day(at: datetime.datetime) -> datetime.date:
@@ -491,13 +554,37 @@ def task_units(tasks: Iterable[TaskItem], drops: Counter[str], limits: RenderLim
 ObjectKey = tuple[str, str, str]
 
 
-def _intent_suffix(rows: Iterable[ActivityItem], max_chars: int) -> str:
-    intents = [row for row in rows if row.intent and row.intent.strip()]
-    if not intents:
-        return ""
-    intent = max(intents, key=lambda row: row.at).intent or ""
-    intent_text = cap_line(clean_text(intent, max_chars * 2), max_chars)
-    return f" (agent: {intent_text})" if intent_text else ""
+def _intent_text(rows: Iterable[ActivityItem], limits: RenderLimits) -> tuple[str, frozenset[str]]:
+    """Up to `limits.activity_max_intents` distinct intents of the rows, newest first, in one shared budget,
+    and the `intent_key` of each.
+
+    The budget is at most half the line, so the head of the line always keeps some room."""
+    max_chars = min(limits.activity_intent_chars, limits.activity_line_chars // 2)
+    distinct: dict[str, str] = {}
+    keys: set[str] = set()
+    for row in sorted(rows, key=lambda row: row.at, reverse=True):
+        if len(distinct) >= limits.activity_max_intents:
+            break
+        text = clean_text(row.intent or "", max_chars * 2)
+        if text:
+            distinct.setdefault(text.casefold(), text)
+            keys.add(intent_key(row.intent or ""))
+    return cap_line("; ".join(distinct.values()), max_chars), frozenset(keys)
+
+
+def _activity_line(head: str, rows: Sequence[ActivityItem], limits: RenderLimits, *, created: bool) -> _ActivityLine:
+    """The head cut to the room that the agent intents leave, so a long name cannot push the intents out."""
+    intent, keys = _intent_text(rows, limits)
+    suffix = f" (agent: {intent})" if intent else ""
+    head = cap_line(head, max(limits.activity_line_chars - len(suffix), 1))
+    return _ActivityLine(
+        at=max(row.at for row in rows),
+        text=cap_line(head + suffix, limits.activity_line_chars),
+        created=created,
+        rows=len(rows),
+        intent_chars=len(intent),
+        intent_keys=keys,
+    )
 
 
 def _display_name(name: str) -> str:
@@ -534,12 +621,7 @@ def _object_line(
     latest = max(row.at for row in rows)
     count = f" (x{len(rows)})" if len(rows) > 1 else ""
     line = f'- {_day(latest).isoformat()} {activity} {scope} "{_display_name(name)}"{context}{count}'
-    return _ActivityLine(
-        at=latest,
-        text=cap_line(line + _intent_suffix(rows, limits.activity_intent_chars), limits.activity_line_chars),
-        created=activity == "created",
-        rows=len(rows),
-    )
+    return _activity_line(line, rows, limits, created=activity == "created")
 
 
 def _group_line(
@@ -571,14 +653,10 @@ def _group_line(
         activities = sorted({key[1] for key in children}, key=lambda activity: (activity != "created", activity))
         head = f"{' and '.join(activities)} {child_text} on {parent_text}: "
     head = f"- {_day(latest).isoformat()} {head}"
-    intent = _intent_suffix(rows, limits.activity_intent_chars)
-    line = head + _quoted_names(names, limits.activity_line_chars - len(head) - len(intent)) + intent
-    return _ActivityLine(
-        at=latest,
-        text=cap_line(line, limits.activity_line_chars),
-        created=any(row.activity == "created" for row in rows),
-        rows=len(rows),
-    )
+    intent, _ = _intent_text(rows, limits)
+    suffix_chars = len(f" (agent: {intent})") if intent else 0
+    line = head + _quoted_names(names, limits.activity_line_chars - len(head) - suffix_chars)
+    return _activity_line(line, rows, limits, created=any(row.activity == "created" for row in rows))
 
 
 def _lines_with_parents(
@@ -693,8 +771,7 @@ def _object_id(item: ActivityItem) -> str:
 
 def _count_line(rows: Sequence[ActivityItem], text: str, limits: RenderLimits) -> _ActivityLine:
     latest = max(row.at for row in rows)
-    line = f"- {_day(latest).isoformat()} {text}" + _intent_suffix(rows, limits.activity_intent_chars)
-    return _ActivityLine(at=latest, text=cap_line(line, limits.activity_line_chars), created=False, rows=len(rows))
+    return _activity_line(f"- {_day(latest).isoformat()} {text}", rows, limits, created=False)
 
 
 @frozen
@@ -808,7 +885,7 @@ def activity_units(
 ) -> list[Unit]:
     """Changes collapsed to one line per object, or per parent, creates first, then the most changed, then the newest.
 
-    A line carries the newest agent intent of its rows. A day keeps at most `limits.max_activity_lines_per_day`
+    A line carries the newest distinct agent intents of its rows, up to `limits.activity_max_intents`. A day keeps at most `limits.max_activity_lines_per_day`
     lines while other days have lines left, not the `MAX_UNITS_PER_DAY` of tasks: lines are already
     collapsed per object, and a busy day of changes to different objects is more than three things."""
     kept, count_lines = person_activity(items, drops, limits)
@@ -818,7 +895,13 @@ def activity_units(
     lines = _lines_with_parents(collapsed, parents or {}, drops, limits) + count_lines
     ranked = sorted(lines, key=lambda line: (not line.created, -line.rows, -line.at.timestamp(), line.text))
     kept_lines = _spread_across_days(ranked, drops, limits)
-    return sorted((Unit(at=line.at, text=line.text) for line in kept_lines), key=lambda unit: (unit.at, unit.text))
+    return sorted(
+        (
+            Unit(at=line.at, text=line.text, intent_chars=line.intent_chars, intent_keys=line.intent_keys)
+            for line in kept_lines
+        ),
+        key=lambda unit: (unit.at, unit.text),
+    )
 
 
 def _match_product(patterns: Sequence[tuple[re.Pattern[str], Product]], name: str) -> Product | None:
@@ -840,6 +923,34 @@ def scope_product(scope: str) -> Product | None:
 def scope_of(view_type: str) -> str:
     """The activity log scope of a file system type, such as "FeatureFlag" for "feature_flag"."""
     return "".join(word.capitalize() for word in view_type.split("/")[0].split("_"))
+
+
+def view_product(view: ViewItem) -> Product | None:
+    if view.type == SCENE_VIEW_TYPE:
+        return scene_product(view.ref)
+    return scope_product(scope_of(view.type))
+
+
+def without_products(
+    activity: Iterable[ActivityItem],
+    views: Iterable[ViewItem],
+    products: frozenset[Product],
+    drops: Counter[str],
+) -> tuple[list[ActivityItem], list[ViewItem]]:
+    """The activity rows and views whose product is not in `products`. Tasks have no product, so they stay."""
+    kept_activity: list[ActivityItem] = []
+    for item in activity:
+        if scope_product(item.scope) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_activity.append(item)
+    kept_views: list[ViewItem] = []
+    for view in views:
+        if view_product(view) in products:
+            drops[Drop.EXCLUDED_PRODUCT] += 1
+        else:
+            kept_views.append(view)
+    return kept_activity, kept_views
 
 
 def _days(count: int) -> str:
@@ -898,6 +1009,83 @@ def view_units(
     if len(ranked) > limits.view_lines:
         drops[Drop.SAMPLE_CAP] += len(ranked) - limits.view_lines
     units = [Unit(at=at, text=cap_line(text, limits.view_line_chars)) for _, at, text in ranked[: limits.view_lines]]
+    return sorted(units, key=lambda unit: (unit.at, unit.text))
+
+
+def _is_plumbing_route(route_name: str) -> bool:
+    return route_name in MCP_PLUMBING_ROUTES or route_name.startswith(MCP_PLUMBING_ROUTE_PREFIXES)
+
+
+@frozen
+class _McpSession:
+    """The intents of one MCP session, in order, dated by its latest call."""
+
+    at: datetime.datetime
+    calls: int
+    chain: tuple[str, ...]
+
+
+def _mcp_sessions(records: Iterable[McpItem], shown_intents: frozenset[str], drops: Counter[str]) -> list[_McpSession]:
+    """The records grouped by session, without plumbing routes and the intents that `shown_intents` holds.
+
+    A record without a session id is its own session. Consecutive equal intents collapse to one."""
+    grouped: dict[tuple[str, int], list[McpItem]] = {}
+    for index, record in enumerate(records):
+        if _is_plumbing_route(record.route_name):
+            drops[Drop.MCP_PLUMBING_ROUTE] += 1
+            continue
+        grouped.setdefault((record.session_id, -1) if record.session_id else ("", index), []).append(record)
+    sessions: list[_McpSession] = []
+    for calls in grouped.values():
+        calls.sort(key=lambda call: call.at)
+        chain: list[str] = []
+        for call in calls:
+            text = clean_text(call.intent, MCP_INTENT_CHARS)
+            if not text:
+                continue
+            if intent_key(call.intent) in shown_intents:
+                drops[Drop.MCP_IN_ACTIVITY] += 1
+                continue
+            if not chain or chain[-1].casefold() != text.casefold():
+                chain.append(text)
+        if not chain:
+            drops[Drop.MCP_THIN_SESSION] += 1
+            continue
+        sessions.append(_McpSession(at=calls[-1].at, calls=len(calls), chain=tuple(chain)))
+    return sessions
+
+
+def _mcp_line(session: _McpSession, limits: RenderLimits) -> str:
+    """The session's intents in order. A long chain keeps its first intents and its last one, with "…" between."""
+    chain = list(session.chain)
+    if len(chain) > limits.mcp_chain_max_intents:
+        chain = [*chain[: limits.mcp_chain_max_intents - 1], "…", chain[-1]]
+    calls = "1 call" if session.calls == 1 else f"{session.calls} calls"
+    head = f"- {_day(session.at).isoformat()}, {calls}: "
+    # Each intent gets an equal share of the line, so a long first intent cannot push the last one out.
+    room = max((limits.mcp_line_chars - len(head)) // len(chain) - len(MCP_CHAIN_SEPARATOR), MIN_MCP_INTENT_CHARS)
+    return cap_line(head + MCP_CHAIN_SEPARATOR.join(cap_line(intent, room) for intent in chain), limits.mcp_line_chars)
+
+
+def mcp_units(
+    records: Iterable[McpItem],
+    activity_lines: Iterable[Unit],
+    drops: Counter[str],
+    limits: RenderLimits = DEFAULT_LIMITS,
+) -> list[Unit]:
+    """One line per MCP session of the person's agent, with the intents it stated in order.
+
+    An intent that an activity line already shows goes, so a write does not show twice. A chain that
+    repeats in `MIN_REPEATED_MCP_CHAINS` or more sessions is a scheduled job, and all its sessions go."""
+    shown = frozenset(key for unit in activity_lines for key in unit.intent_keys)
+    sessions = _mcp_sessions(records, shown, drops)
+    chains = Counter(tuple(_goal_key(intent) for intent in session.chain) for session in sessions)
+    units: list[Unit] = []
+    for session in sessions:
+        if chains[tuple(_goal_key(intent) for intent in session.chain)] >= MIN_REPEATED_MCP_CHAINS:
+            drops[Drop.MCP_REPEATED_CHAIN] += 1
+            continue
+        units.append(Unit(at=session.at, text=_mcp_line(session, limits)))
     return sorted(units, key=lambda unit: (unit.at, unit.text))
 
 
@@ -979,13 +1167,15 @@ def build_input(
     views: Iterable[ViewItem] = (),
     limits: RenderLimits = DEFAULT_LIMITS,
     parents: ParentLookup | None = None,
+    mcp: Iterable[McpItem] = (),
 ) -> RenderedInput | None:
     """The rendered input of one (project, person) pair, or None when nothing survives the filters.
 
     Order: the named filters, then the burst cap, then the recency-weighted sample, then the hard
     budget, so the sample is drawn from clean units only. `parents` groups activity lines under the
     objects that hold them. The views section shows its lines grouped by type after the budget,
-    because the budget drops the oldest unit of a section first."""
+    because the budget drops the oldest unit of a section first. `mcp` holds the calls of the
+    person's agent from the MCP intent buffer, and gets its own section after the activity."""
     drops: Counter[str] = Counter()
     activity = list(activity)
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
@@ -994,26 +1184,41 @@ def build_input(
     # Lines that `activity_units` dropped for its line cap or its per-day cap.
     activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP] - capped_before
     view_lines = view_units(views, activity, drops, limits)
-    if not task_pool and not activity_lines and not view_lines:
+    mcp_pool = burst_cap(
+        dedupe_latest(mcp_units(mcp, activity_lines, drops, limits), drops), drops, limits.max_units_per_day
+    )
+    if not task_pool and not activity_lines and not view_lines and not mcp_pool:
         return None
     chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
-    sections = [(TASKS_HEADER, chosen_tasks), (ACTIVITY_HEADER, activity_lines), (VIEWS_HEADER, view_lines)]
+    chosen_mcp = sample_units(mcp_pool, limit=limits.mcp_lines, as_of=as_of, seed=seed)
+    drops[Drop.SAMPLE_CAP] += len(mcp_pool) - len(chosen_mcp)
+    sections = [
+        (TASKS_HEADER, chosen_tasks),
+        (ACTIVITY_HEADER, activity_lines),
+        (MCP_HEADER, chosen_mcp),
+        (VIEWS_HEADER, view_lines),
+    ]
     enforce_budget(sections, drops, limits.sections_max_chars)
-    sections[2] = (VIEWS_HEADER, sorted(sections[2][1], key=lambda unit: unit.text))
+    sections[3] = (VIEWS_HEADER, sorted(sections[3][1], key=lambda unit: unit.text))
     rendered = [_section(header, units) for header, units in sections]
     text = "\n\n".join(part for part in rendered if part)
     return RenderedInput(
         text=text,
         n_tasks=len(sections[0][1]),
         n_activity_lines=len(sections[1][1]),
-        n_view_lines=len(sections[2][1]),
+        n_view_lines=len(sections[3][1]),
         task_chars=len(rendered[0]),
         activity_chars=len(rendered[1]),
-        view_chars=len(rendered[2]),
+        view_chars=len(rendered[3]),
         input_chars=len(text),
         input_tokens_estimate=estimate_tokens(len(text)),
         drops={str(reason): count for reason, count in sorted(drops.items()) if count},
         task_pool=len(task_pool),
         activity_pool=activity_pool,
+        intent_lines=sum(1 for unit in sections[1][1] if unit.intent_chars),
+        intent_chars=sum(unit.intent_chars for unit in sections[1][1]),
+        n_mcp_lines=len(sections[2][1]),
+        mcp_chars=len(rendered[2]),
+        mcp_pool=len(mcp_pool),
     )

@@ -1,0 +1,23 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/hedgehog_root"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent"
+  android:background="@drawable/hedgehog_widget_background"
+  android:clipToOutline="true"
+  android:contentDescription="@string/hedgehog_widget_label">
+
+  <ImageView
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:scaleType="centerCrop"
+    android:src="@drawable/hoglet_garden"
+    android:importantForAccessibility="no" />
+
+  <ViewFlipper
+    android:id="@+id/hedgehog_flipper"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:autoStart="true"
+    android:flipInterval="120" />
+
+</FrameLayout>

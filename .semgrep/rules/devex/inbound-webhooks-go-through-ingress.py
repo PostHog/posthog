@@ -74,6 +74,16 @@ def naive_compare_view(request: HttpRequest) -> HttpResponse:
     return HttpResponse(status=202)
 
 
+def linear_header_view(request: HttpRequest) -> HttpResponse:
+    signature = request.headers.get("Linear-Signature", "")
+    # ruleid: inbound-webhooks-go-through-ingress
+    expected = hmac.new(b"secret", request.body, hashlib.sha256).hexdigest()
+    # ruleid: inbound-webhooks-go-through-ingress
+    if not hmac.compare_digest(expected, signature):
+        return HttpResponse(status=403)
+    return HttpResponse(status=200)
+
+
 def verify_pandadoc_signature(body: bytes, signature: str, secret: str) -> bool:
     # ruleid: inbound-webhooks-go-through-ingress
     expected = hmac.digest(secret.encode(), body, hashlib.sha256)

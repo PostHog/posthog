@@ -112,6 +112,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchSuggestionViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillViewSet",
+    "products.batch_exports.backend.presentation.views.batch_export.exports.BatchExportViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
     # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
@@ -221,6 +222,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.notebooks.backend.presentation.views.reusable_widget.ReusableWidgetViewSet",
     "products.notifications.backend.presentation.views.NotificationsViewSet",
     "products.product_analytics.backend.presentation.events_retention.EventsRetentionViewSet",
+    # Returns the organization's one retention setting, not a page of rows.
+    "products.product_analytics.backend.presentation.events_retention.OrganizationEventsRetentionViewSet",
     "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",

@@ -3,10 +3,14 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Surveys',
+    activityDescribers: {
+        [ActivityScope.SURVEY]: () =>
+            import('scenes/surveys/surveyActivityDescriber').then((module) => module.surveyActivityDescriber),
+    },
     urls: {
         surveys: (tab?: `${SurveysTabs}`): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
         /** @param id A UUID or 'new'. ':id' for routing. */

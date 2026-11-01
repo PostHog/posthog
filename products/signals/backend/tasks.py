@@ -1,3 +1,4 @@
+import time
 from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
@@ -53,6 +54,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
@@ -89,7 +91,11 @@ from products.signals.backend.support_writeback import (
     post_pull_request_to_tickets,
     task_can_write_support_ticket_update,
 )
-from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
+from products.signals.backend.tracker_issues import (
+    close_tracker_issue_for_report,
+    complete_monitoring_tracker_issues,
+    link_pull_request_to_tracker_issue,
+)
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
@@ -300,6 +306,8 @@ def close_dismissed_report_pr(
     ignore_result=True,
     bind=True,
     max_retries=5,
+    soft_time_limit=45,
+    time_limit=60,
 )
 @with_team_scope()
 def close_report_tracker_issue(
@@ -320,6 +328,12 @@ def close_report_tracker_issue(
     )
     if retry_needed:
         raise self.retry(countdown=min(60 * (2**self.request.retries), 900))
+
+
+@shared_task(ignore_result=True, soft_time_limit=45, time_limit=60)
+@skip_team_scope_audit
+def sweep_monitoring_tracker_issues() -> None:
+    complete_monitoring_tracker_issues(deadline=time.monotonic() + 40)
 
 
 @shared_task(
@@ -495,7 +509,7 @@ def deliver_scout_slack_thread_replies(
         scout_report_slack_message(
             team_id=team_id,
             report_id=report_id,
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             thread_ts=thread_ts,
         )
         if report_id is not None
@@ -506,7 +520,7 @@ def deliver_scout_slack_thread_replies(
         if message is not None:
             record_scout_report_slack_replies(
                 team_id=team_id,
-                slack_workspace_id=integration.integration_id,
+                slack_workspace_id=integration.integration_id or "",
                 channel=message.channel,
                 thread_ts=thread_ts,
                 reply_ts=posted,

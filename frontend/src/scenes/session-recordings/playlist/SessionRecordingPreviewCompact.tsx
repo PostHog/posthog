@@ -2,21 +2,18 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { memo } from 'react'
 
-import { IconBug, IconCursorClick, IconHourglass, IconKeyboard, IconLive } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { colonDelimitedDuration } from 'lib/utils/durations'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { asDisplay } from 'products/persons/frontend/person-utils'
@@ -25,52 +22,13 @@ import { gatherIconProperties } from './gatherIconProperties'
 import { ItemCheckbox } from './ItemCheckbox'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { SortMetric } from './SortMetric'
 import { UnwatchedIndicator } from './UnwatchedIndicator'
 
 export interface SessionRecordingPreviewCompactProps {
     recording: SessionRecordingType
     isActive?: boolean
     selectable?: boolean
-}
-
-function formatDuration(seconds: number): string {
-    const [hours, minutes, rest] = colonDelimitedDuration(seconds).split(':')
-    return hours === '00' ? `${minutes}:${rest}` : `${hours}:${minutes}:${rest}`
-}
-
-function SortMetric({
-    recording,
-    order,
-}: {
-    recording: SessionRecordingType
-    order: RecordingsQuery['order']
-}): JSX.Element {
-    if (order === 'console_error_count') {
-        return (
-            <span className="flex items-center gap-x-0.5 font-semibold">
-                <IconBug className="text-secondary" />
-                {recording.console_error_count ?? '-'}
-            </span>
-        )
-    }
-    if (order === 'recording_ttl') {
-        const ttl = recording.recording_ttl
-        const ttlColor =
-            ttl !== undefined && ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS ? 'text-danger' : undefined
-        return (
-            <span className={clsx('flex items-center gap-x-0.5', ttlColor)}>
-                <IconHourglass />
-                {ttl === undefined ? '-' : `${ttl}d`}
-            </span>
-        )
-    }
-    const seconds =
-        order === 'active_seconds'
-            ? recording.active_seconds
-            : order === 'inactive_seconds'
-              ? recording.inactive_seconds
-              : recording.recording_duration
-    return <span className="tabular-nums">{seconds === undefined ? '-' : formatDuration(seconds)}</span>
 }
 
 export const SessionRecordingPreviewCompact = memo(
@@ -231,9 +189,13 @@ export const SessionRecordingPreviewCompact = memo(
     },
     (prevProps, nextProps) =>
         prevProps.recording.id === nextProps.recording.id &&
-        // The row renders matches_filters, and the same recording flips in and out of matching
-        // as filters change around an open player, so comparing only the id would keep it stale.
+        // The open recording stays listed when filters change, with matches_filters flipped, so the id alone would
+        // keep the row stale.
         prevProps.recording.matches_filters === nextProps.recording.matches_filters &&
+        // Mark watched and a session ending reload the same ids with viewed and ongoing flipped.
+        prevProps.recording.viewed === nextProps.recording.viewed &&
+        prevProps.recording.ongoing === nextProps.recording.ongoing &&
+        prevProps.recording.viewers?.length === nextProps.recording.viewers?.length &&
         prevProps.isActive === nextProps.isActive &&
         prevProps.selectable === nextProps.selectable
 )

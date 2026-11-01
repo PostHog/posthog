@@ -1,5 +1,5 @@
 import uuid
-from time import time_ns
+from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import (
@@ -24,6 +24,7 @@ from posthog.hogql.database.schema.sessions_v3 import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.uuidt import uuid7
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -130,14 +131,44 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
             0,  # just making sure the query runs
         )
 
-    def test_channel_type(self):
+    @parameterized.expand(
+        [
+            ("gad_source", {"gad_source": "1"}, "Paid Search"),
+            ("gclid_from_google", {"gclid": "abc", "$referring_domain": "www.google.com"}, "Paid Search"),
+            ("empty_gclid_is_not_a_click", {"gclid": "", "$referring_domain": "www.google.com"}, "Organic Search"),
+            ("gad_source_without_referrer", {"gad_source": "1", "$referring_domain": "$direct"}, "Paid Search"),
+            ("fbclid_without_referrer", {"fbclid": "xyz", "$referring_domain": "$direct"}, "Organic Social"),
+            (
+                "unknown_source_stripped_referrer",
+                {"utm_source": "newsletter-2026", "$referring_domain": "$direct"},
+                "Direct",
+            ),
+            ("unknown_referrer", {"$referring_domain": "blog.example.org"}, "Referral"),
+            (
+                "self_referral_with_paid_utms",
+                {"$referring_domain": "example.com", "utm_source": "google", "utm_medium": "cpc"},
+                "Paid Search",
+            ),
+            (
+                "self_referral_with_unknown_source",
+                {"$referring_domain": "example.com", "utm_source": "newsletter-2026"},
+                "Referral",
+            ),
+            (
+                "msclkid_only_in_url",
+                {"$current_url": "https://example.com/?msclkid=m1", "$referring_domain": "$direct"},
+                "Direct",
+            ),
+        ]
+    )
+    def test_channel_type(self, _name, properties, expected_channel_type):
         session_id = str(uuid7())
 
         _create_event(
             event="$pageview",
             team=self.team,
             distinct_id="d1",
-            properties={"gad_source": "1", "$session_id": session_id},
+            properties={**properties, "$session_id": session_id},
         )
 
         response = self.__execute(
@@ -150,8 +181,104 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         result = (response.results or [])[0]
         self.assertEqual(
             result[0],
-            "Paid Search",
+            expected_channel_type,
         )
+
+    @parameterized.expand(
+        [
+            (
+                "utm_only_in_url",
+                [("$pageview", 0, {"$current_url": "https://example.com/?utm_source=newsletter&utm_campaign=fall"})],
+                (None, None, "Direct"),
+            ),
+            (
+                "first_event_is_not_a_pageview",
+                [
+                    ("$feature_flag_called", 0, {}),
+                    ("$pageview", 2, {"utm_source": "google", "utm_campaign": "spring"}),
+                ],
+                ("google", "spring", "Organic Search"),
+            ),
+            (
+                # entry_utm_* skip a NULL on the landing page view and take a later value, while the channel type
+                # tuple keeps the landing page view's empty values, so the two disagree for this session
+                "utm_added_on_second_pageview",
+                [
+                    ("$pageview", 0, {}),
+                    ("$pageview", 1, {"utm_source": "google", "utm_medium": "cpc", "utm_campaign": "spring"}),
+                ],
+                ("google", "spring", "Direct"),
+            ),
+            (
+                "two_campaigns_keep_the_first",
+                [
+                    ("$pageview", 0, {"utm_source": "newsletter", "utm_campaign": "A"}),
+                    ("$pageview", 30, {"utm_source": "newsletter", "utm_campaign": "B"}),
+                ],
+                ("newsletter", "A", "Direct"),
+            ),
+            (
+                "sdk_session_entry_properties_are_not_read",
+                [("$pageview", 0, {"$session_entry_utm_source": "email"})],
+                (None, None, "Direct"),
+            ),
+        ]
+    )
+    def test_entry_utm_and_channel_type_across_events(self, _name, events, expected):
+        session_id = str(uuid7("2024-03-08T00:00:00+00:00"))
+        start = datetime.fromisoformat("2024-03-08T00:00:00+00:00")
+        for event, offset_seconds, properties in events:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="d1",
+                properties={"$referring_domain": "$direct", **properties, "$session_id": session_id},
+                timestamp=start + timedelta(seconds=offset_seconds),
+            )
+
+        response = self.__execute(
+            parse_select(
+                "select $entry_utm_source, $entry_utm_campaign, $channel_type from sessions where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        self.assertEqual((response.results or [])[0], expected)
+
+    @parameterized.expand([("replay_starts_before_first_pageview", True), ("replay_only", False)])
+    def test_replay_rows_shape_the_session(self, _name, with_pageview):
+        session_id = str(uuid7("2024-03-08T00:00:00+00:00"))
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id="d1",
+            session_id=session_id,
+            first_timestamp="2024-03-08T00:00:00",
+            last_timestamp="2024-03-08T00:00:00",
+            ensure_analytics_event_in_session=False,
+        )
+        if with_pageview:
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id="d1",
+                properties={"$session_id": session_id, "$current_url": "https://example.com/"},
+                timestamp="2024-03-08T00:00:05",
+            )
+
+        response = self.__execute(
+            parse_select(
+                "select $start_timestamp, $session_duration, $pageview_count, $is_bounce, $has_replay_events from sessions where session_id = {session_id}",
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        start_timestamp, duration, pageview_count, is_bounce, has_replay_events = (response.results or [])[0]
+        self.assertEqual(start_timestamp.isoformat()[:19], "2024-03-08T00:00:00")
+        self.assertTrue(has_replay_events)
+        if with_pageview:
+            self.assertEqual((duration, pageview_count, is_bounce), (5, 1, True))
+        else:
+            self.assertEqual((duration, pageview_count, is_bounce), (0, 0, None))
 
     def test_session_dot_channel_type(self):
         session_id = str(uuid7())
@@ -227,7 +354,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results or [], [(0, 0, 0)])
 
     def test_counts(self):
-        s1 = str(uuid7())
+        s1 = str(uuid7("2023-12-02T00:00:00+00:00"))
         d1 = "d1"
         _create_event(
             event="$pageview",
@@ -261,7 +388,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results or [], [(1, 2, 3)])
 
     def test_idempotent_event_counts(self):
-        s1 = str(uuid7())
+        s1 = str(uuid7("2023-12-02T00:00:00+00:00"))
         d1 = "d1"
         pageview_uuid = str(uuid.uuid4())
         autocapture_uuid = str(uuid.uuid4())
@@ -303,7 +430,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results or [], [(1, 1, 1)])
 
     def test_page_screen_autocapture_count_up_to(self):
-        time = time_ns() // (10**6)
+        time = int(datetime.fromisoformat("2023-12-02T00:00:00+00:00").timestamp() * 1000)
 
         # two pageviews
         s1 = str(uuid7(time))
@@ -407,7 +534,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         assert results == [(2, False), (1, True), (1, False), (2, False), (1, False), (0, True)]
 
     def test_bounce_rate(self):
-        time = time_ns() // (10**6)
+        time = int(datetime.fromisoformat("2023-12-02T00:00:00+00:00").timestamp() * 1000)
         # ensure the sessions ids are sortable by giving them different time components
         s1a = str(uuid7(time))
         s1b = str(uuid7(time + 1))
@@ -517,7 +644,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_custom_bounce_rate_duration(self):
-        time = time_ns() // (10**6)
+        time = int(datetime.fromisoformat("2023-12-11T00:00:00+00:00").timestamp() * 1000)
         # ensure the sessions ids are sortable by giving them different time components
         s = str(uuid7(time))
 
@@ -694,50 +821,88 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$end_hostname",
                 "$end_pathname",
                 "$end_timestamp",
+                "$entry__bhlid",
                 "$entry__kx",
+                "$entry_awc",
+                "$entry_bfcid",
+                "$entry_cjevent",
                 "$entry_current_url",
                 "$entry_dclid",
+                "$entry_dicbo",
                 "$entry_epik",
                 "$entry_fbclid",
+                "$entry_gad_campaignid",
                 "$entry_gad_source",
                 "$entry_gbraid",
                 "$entry_gclid",
                 "$entry_gclsrc",
+                "$entry_has__bhlid",
                 "$entry_has__kx",
+                "$entry_has_awc",
+                "$entry_has_bfcid",
+                "$entry_has_cjevent",
                 "$entry_has_dclid",
+                "$entry_has_dicbo",
                 "$entry_has_epik",
                 "$entry_has_fbclid",
+                "$entry_has_gad_campaignid",
                 "$entry_has_gbraid",
                 "$entry_has_gclid",
                 "$entry_has_gclsrc",
                 "$entry_has_igshid",
+                "$entry_has_irclickid",
                 "$entry_has_irclid",
                 "$entry_has_li_fat_id",
                 "$entry_has_mc_cid",
                 "$entry_has_msclkid",
+                "$entry_has_ndclid",
+                "$entry_has_oppref",
                 "$entry_has_qclid",
+                "$entry_has_rdt_cid",
+                "$entry_has_rtid",
                 "$entry_has_sccid",
+                "$entry_has_srsltid",
+                "$entry_has_syclid",
+                "$entry_has_tblci",
                 "$entry_has_ttclid",
                 "$entry_has_twclid",
+                "$entry_has_utm_creative_format",
+                "$entry_has_utm_id",
+                "$entry_has_utm_marketing_tactic",
+                "$entry_has_utm_source_platform",
                 "$entry_has_wbraid",
+                "$entry_has_yclid",
                 "$entry_hostname",
                 "$entry_igshid",
+                "$entry_irclickid",
                 "$entry_irclid",
                 "$entry_li_fat_id",
                 "$entry_mc_cid",
                 "$entry_msclkid",
+                "$entry_ndclid",
+                "$entry_oppref",
                 "$entry_pathname",
                 "$entry_qclid",
+                "$entry_rdt_cid",
                 "$entry_referring_domain",
+                "$entry_rtid",
                 "$entry_sccid",
+                "$entry_srsltid",
+                "$entry_syclid",
+                "$entry_tblci",
                 "$entry_ttclid",
                 "$entry_twclid",
                 "$entry_utm_campaign",
                 "$entry_utm_content",
+                "$entry_utm_creative_format",
+                "$entry_utm_id",
+                "$entry_utm_marketing_tactic",
                 "$entry_utm_medium",
                 "$entry_utm_source",
+                "$entry_utm_source_platform",
                 "$entry_utm_term",
                 "$entry_wbraid",
+                "$entry_yclid",
                 "$is_bounce",
                 "$last_external_click_url",
                 "$pageview_count",
@@ -764,32 +929,45 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_source(self):
         results = get_lazy_session_table_properties_v3("source")
         self.assertEqual(
-            results,
+            [result["name"] for result in results],
             [
-                {
-                    "id": "$entry_utm_source",
-                    "is_numerical": False,
-                    "is_seen_on_filtered_events": None,
-                    "name": "$entry_utm_source",
-                    "property_type": PropertyType.String,
-                    "tags": [],
-                },
-                {
-                    "id": "$entry_gad_source",
-                    "is_numerical": False,
-                    "is_seen_on_filtered_events": None,
-                    "name": "$entry_gad_source",
-                    "property_type": PropertyType.String,
-                    "tags": [],
-                },
+                "$entry_utm_source",
+                "$entry_gad_source",
+                "$entry_utm_source_platform",
+                "$entry_has_utm_source_platform",
             ],
+        )
+        self.assertEqual(
+            results[0],
+            {
+                "id": "$entry_utm_source",
+                "is_numerical": False,
+                "is_seen_on_filtered_events": None,
+                "name": "$entry_utm_source",
+                "property_type": PropertyType.String,
+                "tags": [],
+            },
         )
 
     def test_entry_utm(self):
         results = get_lazy_session_table_properties_v3("entry utm")
         self.assertEqual(
             [result["name"] for result in results],
-            ["$entry_utm_source", "$entry_utm_campaign", "$entry_utm_medium", "$entry_utm_term", "$entry_utm_content"],
+            [
+                "$entry_utm_source",
+                "$entry_utm_campaign",
+                "$entry_utm_medium",
+                "$entry_utm_term",
+                "$entry_utm_content",
+                "$entry_utm_id",
+                "$entry_has_utm_id",
+                "$entry_utm_source_platform",
+                "$entry_has_utm_source_platform",
+                "$entry_utm_creative_format",
+                "$entry_has_utm_creative_format",
+                "$entry_utm_marketing_tactic",
+                "$entry_has_utm_marketing_tactic",
+            ],
         )
 
     def test_can_get_values_for_all(self):

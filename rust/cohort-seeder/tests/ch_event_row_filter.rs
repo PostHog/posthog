@@ -1,11 +1,11 @@
 //! Checks against a live ClickHouse that a behavioral scan's row filter admits every row the
 //! condition's program matches, with the VM as the oracle, that the materialized-column lookup
-//! accepts only columns holding the same values, and that the scan streams events through the
-//! overrides join.
+//! accepts only columns holding the same values on the scanned table, and that the scan streams
+//! events and flag calls through the overrides join.
 
 #![cfg(feature = "ch-test-support")]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use chrono_tz::UTC;
 use clickhouse::Row;
@@ -14,16 +14,18 @@ use cohort_core::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
 use cohort_core::hogvm::analysis::GlobalsPlan;
 use cohort_core::hogvm::{build_behavioral_globals, evaluate_detailed, EvalOutcome, GlobalsBuild};
 use cohort_seeder::clickhouse::client::build_client;
+use cohort_seeder::clickhouse::row::EventRow;
 use cohort_seeder::clickhouse::sql::{plan_scan, row_filter_sql, scan_sql, ScanPlan};
 use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::{
-    ActiveConditions, BandSpec, ChunkProjection, ColumnName, ConditionAnalyses, ConditionHash,
-    EventNameSet, Lookback, MaterializedColumns, PinnedCondition, SChunkMs, SeedDomain,
+    ActiveConditions, BandSpec, ChunkProjection, ConditionAnalyses, ConditionHash, EventNameSet,
+    Lookback, MaterializedColumns, PinnedCondition, SChunkMs, ScanTable, SeedDomain,
 };
 use envconfig::Envconfig;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 const HASH: &str = "aaaaaaaaaaaaaaaa";
 const EVENT: &str = "$feature_flag_called";
@@ -141,12 +143,15 @@ async fn the_row_filter_drops_rows_no_program_can_match() {
     assert_eq!(admitted, vec![false; dropped.len()], "{predicate}");
 }
 
-/// Only a live server shows how ClickHouse formats the stored default expression.
+/// Only a live server shows how ClickHouse formats the stored default expression. Each lookup
+/// reads only the table pair of its scan. `$cross_to_flags` has its expression on `sharded_events`
+/// and its name on `flag_evaluations`. `$cross_to_events` has the reverse. A lookup that mixed the
+/// two pairs would accept one of them.
 #[tokio::test]
-async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables() {
+async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables_of_the_scanned_pair() {
     const DATABASE: &str = "seeder_materialized_lookup";
     let admin = connect(None);
-    for statement in [
+    let statements = [
         format!("DROP DATABASE IF EXISTS {DATABASE}"),
         format!("CREATE DATABASE {DATABASE}"),
         format!(
@@ -155,7 +160,8 @@ async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables() {
                 `mat_$feature_flag` String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag'), '^\"|\"$', ''), \
                 mat_typed String DEFAULT JSONExtract(properties, 'typed', 'String'), \
                 mat_nullable Nullable(String) DEFAULT JSONExtract(properties, 'nullable', 'Nullable(String)'), \
-                `mat_$data_only` String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$data_only'), '^\"|\"$', '')\
+                `mat_$data_only` String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$data_only'), '^\"|\"$', ''), \
+                cross_to_flags String DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$cross_to_flags'), '^\"|\"$', '')\
             ) ENGINE = MergeTree ORDER BY tuple()"
         ),
         format!(
@@ -163,10 +169,21 @@ async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables() {
                 properties String, \
                 `mat_$feature_flag` String COMMENT 'column_materializer::properties::$feature_flag', \
                 mat_typed String, \
-                mat_nullable Nullable(String)\
+                mat_nullable Nullable(String), \
+                cross_to_events String\
             ) ENGINE = Memory"
         ),
-    ] {
+    ]
+    .into_iter()
+    .chain(flag_evaluations_tables(DATABASE))
+    .chain([
+        format!(
+            "ALTER TABLE {DATABASE}.sharded_flag_evaluations ADD COLUMN cross_to_events String \
+             DEFAULT replaceRegexpAll(JSONExtractRaw(properties, '$cross_to_events'), '^\"|\"$', '')"
+        ),
+        format!("ALTER TABLE {DATABASE}.flag_evaluations ADD COLUMN cross_to_flags String"),
+    ]);
+    for statement in statements {
         admin
             .query(&statement)
             .execute()
@@ -175,16 +192,30 @@ async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables() {
     }
 
     let client = connect(Some(DATABASE));
-    let keys = BTreeSet::from(["$feature_flag", "typed", "nullable", "$data_only", "absent"]);
-    let columns = MaterializedColumns::lookup(&client, &keys)
-        .await
-        .expect("the lookup reads only system.columns");
-    assert_eq!(
-        columns.column_for("$feature_flag").map(ColumnName::as_str),
-        Some("mat_$feature_flag")
-    );
-    for refused in ["typed", "nullable", "$data_only", "absent"] {
-        assert_eq!(columns.column_for(refused), None, "{refused}");
+    let keys = BTreeSet::from([
+        "$feature_flag",
+        "$feature_flag_response",
+        "typed",
+        "nullable",
+        "$data_only",
+        "$cross_to_flags",
+        "$cross_to_events",
+        "absent",
+    ]);
+    // `response` holds `$feature_flag_response` with the same expression. Its type is
+    // LowCardinality(String), so the lookup refuses it.
+    for (table, expected) in [
+        (ScanTable::Events, ("$feature_flag", "mat_$feature_flag")),
+        (ScanTable::FlagEvaluations, ("$feature_flag", "flag_key")),
+    ] {
+        let columns = MaterializedColumns::lookup(&client, table, &keys)
+            .await
+            .expect("the lookup reads only system.columns");
+        let found = keys
+            .iter()
+            .filter_map(|key| Some((*key, columns.column_for(key)?.as_str())))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(found, BTreeMap::from([expected]), "{table:?}");
     }
 }
 
@@ -228,16 +259,7 @@ async fn the_scan_builds_the_join_from_the_overrides_and_streams_the_events() {
             .unwrap_or_else(|error| panic!("{error}\n{statement}"));
     }
 
-    let domain = SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap();
-    let ScanPlan::Scan(spec) = plan_scan(
-        TeamId(2),
-        &domain,
-        &EventNameSet::new(["purchase".to_owned()]),
-        BandSpec::new(0, 1).unwrap(),
-    ) else {
-        panic!("a day with an event name is scannable");
-    };
-    let scan = scan_sql(&spec, &ChunkProjection::FullColumns);
+    let scan = day_one_scan("purchase", ScanTable::Events);
     let client = connect(Some(DATABASE));
     assert_eq!(
         join_type(
@@ -249,6 +271,121 @@ async fn the_scan_builds_the_join_from_the_overrides_and_streams_the_events() {
         "under `auto` the fixture must build the hash table from the events, or the next check proves nothing"
     );
     assert_eq!(join_type(&client, &scan).await, "LEFT");
+}
+
+/// A row that the 90-day import copied carries `inserted_at = timestamp`, which reads as arrived.
+#[tokio::test]
+async fn the_flag_evaluations_scan_resolves_overrides_and_reads_only_rows_inserted_before_the_claim(
+) {
+    const DATABASE: &str = "seeder_flag_evaluations_scan";
+    let id = |id: u128| Uuid::from_u128(id).to_string();
+    let flag_call = |uuid: u128,
+                     distinct_id: &str,
+                     person_id: u128,
+                     inserted_at_ms: Option<i64>| {
+        let inserted_at = inserted_at_ms
+            .map(|ms| format!(", fromUnixTimestamp64Milli(toInt64({ms}), 'UTC')"))
+            .unwrap_or_default();
+        format!(
+            "(toUUID('{}'), '{EVENT}', '{{\"{KEY}\":\"my-flag\"}}', toDateTime64(100000, 6, 'UTC'), 2, \
+             '{distinct_id}', toUUID('{}'), toDateTime(100000, 'UTC'){inserted_at})",
+            id(uuid),
+            id(person_id),
+        )
+    };
+    let columns = "uuid, event, properties, timestamp, team_id, distinct_id, person_id, _timestamp";
+    let admin = connect(None);
+    let statements = [
+        format!("DROP DATABASE IF EXISTS {DATABASE}"),
+        format!("CREATE DATABASE {DATABASE}"),
+        format!(
+            "CREATE TABLE {DATABASE}.person_distinct_id_overrides (\
+                team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64\
+            ) ENGINE = MergeTree ORDER BY (team_id, distinct_id)"
+        ),
+    ]
+    .into_iter()
+    .chain(flag_evaluations_tables(DATABASE))
+    .chain([
+        format!(
+            "INSERT INTO {DATABASE}.sharded_flag_evaluations ({columns}, inserted_at) VALUES {}",
+            [
+                flag_call(1, "merged", 101, Some(S_CHUNK_MS - 1)),
+                flag_call(2, "plain", 102, Some(S_CHUNK_MS - 3_600_000)),
+                flag_call(3, "unmerged", 103, Some(100_000_000)),
+                flag_call(5, "plain", 105, Some(S_CHUNK_MS)),
+                flag_call(6, "plain", 106, Some(S_CHUNK_MS + 86_400_000)),
+            ]
+            .join(", ")
+        ),
+        format!(
+            "INSERT INTO {DATABASE}.sharded_flag_evaluations ({columns}) VALUES {}",
+            flag_call(4, "imported", 104, None)
+        ),
+        // `plain` has an override only in team 3. A later version deletes the override of
+        // `unmerged`.
+        format!(
+            "INSERT INTO {DATABASE}.person_distinct_id_overrides VALUES \
+             (2, 'merged', toUUID('{}'), 0, 1), \
+             (2, 'unmerged', toUUID('{}'), 0, 1), \
+             (2, 'unmerged', toUUID('{}'), 1, 2), \
+             (3, 'plain', toUUID('{}'), 0, 1)",
+            id(201),
+            id(202),
+            id(202),
+            id(203),
+        ),
+    ]);
+    for statement in statements {
+        admin
+            .query(&statement)
+            .execute()
+            .await
+            .unwrap_or_else(|error| panic!("{error}\n{statement}"));
+    }
+
+    let scan = day_one_scan(EVENT, ScanTable::FlagEvaluations);
+    let persons = connect(Some(DATABASE))
+        .query(&scan)
+        .fetch_all::<EventRow>()
+        .await
+        .unwrap_or_else(|error| panic!("{error}\n{scan}"))
+        .into_iter()
+        .map(|row| (row.uuid, row.person_id))
+        .collect::<BTreeMap<_, _>>();
+
+    assert_eq!(
+        persons,
+        BTreeMap::from([
+            (id(1), id(201)),
+            (id(2), id(102)),
+            (id(3), id(103)),
+            (id(4), id(104)),
+        ])
+    );
+}
+
+const S_CHUNK_MS: i64 = 200_000_000;
+
+fn day_one_scan(event_name: &str, table: ScanTable) -> String {
+    let ScanPlan::Scan(spec) = plan_scan(
+        TeamId(2),
+        &SeedDomain::new(1, UTC, SChunkMs(S_CHUNK_MS)).unwrap(),
+        &EventNameSet::new([event_name.to_owned()]),
+        BandSpec::new(0, 1).unwrap(),
+        table,
+    ) else {
+        panic!("a day with an event name is scannable");
+    };
+    scan_sql(&spec, &ChunkProjection::FullColumns)
+}
+
+fn flag_evaluations_tables(database: &str) -> impl Iterator<Item = String> + '_ {
+    include_str!("fixtures/flag_evaluations.sql")
+        .split(';')
+        .map(str::trim)
+        .filter(|statement| !statement.is_empty())
+        .map(move |statement| statement.replace("{database}", database))
 }
 
 async fn join_type(client: &ClickHouseClient, sql: &str) -> String {

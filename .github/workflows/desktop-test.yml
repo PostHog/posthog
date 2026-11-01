@@ -4,12 +4,21 @@ on:
     # Dispatched by desktop-ci.yml, the single PR/merge_group run for the whole
     # desktop suite; merge_group gating and PR concurrency live there.
     workflow_call:
+        inputs:
+            run-suite:
+                description: Whether this suite needs to run; an empty value uses local change detection.
+                type: string
+                required: false
+                default: ''
+            run-e2e:
+                description: Whether package changes require end-to-end tests.
+                type: string
+                required: false
+                default: ''
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
             POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY:
-                required: false
-            POSTHOG_CODE_E2E_GATEWAY_URL:
                 required: false
     # Master coverage comes from this cron and from the release tag job, which
     # dispatches this workflow on the tree it tags. Pull requests and merge queue
@@ -32,7 +41,7 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: github.event_name != 'merge_group'
+        if: github.event_name != 'merge_group' && inputs.run-suite == ''
         permissions:
             pull-requests: read
         outputs:
@@ -85,7 +94,7 @@ jobs:
     unit-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -139,7 +148,7 @@ jobs:
     electron-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -269,8 +278,7 @@ jobs:
         # after the unit + Electron jobs pass — a red tree never reaches the
         # gateway — and only when a products/desktop/packages/ file changed. Each arm still
         # self-skips unless the POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY secret is
-        # present (fork PRs never see it) and POSTHOG_CODE_E2E_GATEWAY_URL points at
-        # a runner-reachable gateway. Drives cheap models (claude-haiku-4-5 /
+        # present (fork PRs never see it). Drives cheap models (claude-haiku-4-5 /
         # gpt-5-mini), so a run is a handful of short turns.
         needs: [changes, unit-test, electron-test]
         # Always run on any products/desktop/packages/ change (or a change to this workflow),
@@ -288,7 +296,7 @@ jobs:
         # batch merges cleanly, which is what a queue run is for. A model timeout there
         # removes a PR that changes no desktop code from the queue. The PR's own run
         # still covers every branch that really changes products/desktop/packages/.
-        if: ${{ (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ !cancelled() && ((inputs.run-suite != '' && inputs.run-e2e == 'true') || (inputs.run-suite == '' && needs.changes.result == 'success' && (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -351,13 +359,10 @@ jobs:
               working-directory: packages/agent
               run: pnpm --filter agent run test:e2e
               # The suite reads these POSTHOG_CODE_E2E_* names directly
-              # (packages/agent/packages/agent/e2e/config.ts). The personal API key is an org
-              # secret; the URL and model/environment overrides are org vars.
+              # (packages/agent/packages/agent/e2e/config.ts).
               env:
                   POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY }}
-                  # Accept the URL from either an org var or an org secret — it has ended
-                  # up in both places, and vars.* can't see secrets.
-                  POSTHOG_CODE_E2E_GATEWAY_URL: ${{ vars.POSTHOG_CODE_E2E_GATEWAY_URL || secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
+                  POSTHOG_CODE_E2E_GATEWAY_URL: https://ai-gateway.us.posthog.com
                   POSTHOG_CODE_E2E_CLAUDE_MODEL: ${{ vars.POSTHOG_CODE_E2E_CLAUDE_MODEL }}
                   POSTHOG_CODE_E2E_CODEX_MODEL: ${{ vars.POSTHOG_CODE_E2E_CODEX_MODEL }}
                   # Optional: set vars.POSTHOG_CODE_E2E_ENVIRONMENT=cloud to exercise the
