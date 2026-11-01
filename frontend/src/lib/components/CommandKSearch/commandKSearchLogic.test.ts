@@ -31,10 +31,27 @@ describe('commandKSearchLogic', () => {
         ['reuses a query whose request answered', false, []],
     ])('%s when it is searched again', (_, failed, cached) => {
         logic.actions.remoteLoaded('ada', { persons: [] }, failed)
+        const remoteBefore = logic.values.remote
 
-        logic.actions.requestStarted('persons', 'ada')
+        logic.actions.requestsStarted({ persons: 'ada', objects: 'ada' })
 
         expect(logic.values.remote.persons.cache['ada']).toEqual(cached)
+        expect(logic.values.remote === remoteBefore).toBe(!failed)
+    })
+
+    it('arrow up from the first row returns to the input, and arrow down stops at the last row', () => {
+        const rows = logic.values.selectableRows
+        expect(rows.length).toBeGreaterThan(1)
+
+        logic.actions.applyKeyIntent({ type: 'move', direction: -1 })
+        expect(logic.values.highlightedRow).toBeNull()
+
+        logic.actions.applyKeyIntent({ type: 'move', direction: 1 })
+        expect(logic.values.highlightedRow).toBe(rows[0])
+
+        logic.actions.setHighlightedKey(rows[rows.length - 1].key)
+        logic.actions.applyKeyIntent({ type: 'move', direction: 1 })
+        expect(logic.values.highlightedRow).toBe(rows[rows.length - 1])
     })
 
     it('a See all row narrows the search to its type and keeps the words', () => {

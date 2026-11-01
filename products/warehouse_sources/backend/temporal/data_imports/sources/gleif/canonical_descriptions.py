@@ -86,4 +86,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "names": "Localized names for the jurisdiction (nested list).",
         },
     },
+    "Regions": {
+        "description": "An ISO 3166-2 country subdivision (region) code, used for the region of LEI record addresses.",
+        "docs_url": "https://www.gleif.org/en/lei-data/gleif-api",
+        "columns": {
+            "id": "ISO 3166-2 subdivision code, same as `code`.",
+            "code": "ISO 3166-2 subdivision code (e.g. `US-CA`, `DE-BY`).",
+            "name": "A single display name for the region. Often null; the localized names are in `names`.",
+            "names": "Localized names for the region, each with its language code (nested list).",
+        },
+    },
 }

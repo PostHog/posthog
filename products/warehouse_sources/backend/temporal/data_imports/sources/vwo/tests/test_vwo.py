@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -90,17 +91,19 @@ def test_report_empty_collection_terminates(empty: Any) -> None:
 
 
 @pytest.mark.parametrize(
-    "body",
+    "body,non_retryable",
     [
-        {"_errors": [{"code": 401, "message": "Authentication Failed"}]},
-        {"_data": {"unexpected": []}},
-        {"_data": ["bad row"]},
+        ({"_errors": [{"code": 401, "message": "Authentication Failed"}]}, True),
+        ({"_errors": [{"code": 400, "message": "Invalid request"}]}, False),
+        ({"_data": {"unexpected": []}}, False),
+        ({"_data": ["bad row"]}, False),
     ],
 )
-def test_invalid_envelopes_fail_instead_of_replacing_with_empty_data(body: dict[str, Any]) -> None:
+def test_invalid_envelopes_fail_instead_of_replacing_with_empty_data(body: dict[str, Any], non_retryable: bool) -> None:
     result = driver().run("campaigns", [ScriptedResponse(json=body)])
     assert isinstance(result.raised, ValueError)
     assert result.rows == []
+    assert error_message_matches(str(result.raised), VWOSource().get_non_retryable_errors()) is non_retryable
 
 
 @pytest.mark.parametrize(
@@ -127,6 +130,19 @@ def test_deleted_campaign_does_not_stop_other_children() -> None:
         [
             collection([{"id": 11}, {"id": 12}], False),
             ScriptedResponse(status=404, json={}),
+            collection([{"id": 1}], False),
+        ],
+    )
+    assert result.raised is None
+    assert result.rows == [{"id": 1, "campaign_id": 12}]
+
+
+def test_campaign_without_sections_does_not_stop_other_children() -> None:
+    result = driver().run(
+        "campaign_sections",
+        [
+            collection([{"id": 11}, {"id": 12}], False),
+            ScriptedResponse(status=400, json={}),
             collection([{"id": 1}], False),
         ],
     )

@@ -186,8 +186,9 @@ def _execute_graphql(
     response = session.post(url, json={"query": query, "variables": variables}, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # 25 concurrent NerdGraph requests per user / 3,000 NRQL queries per account per
-    # minute surface as 429s; both clear on their own, so back off and retry.
-    if response.status_code == 429 or response.status_code >= 500:
+    # minute surface as 429s; both clear on their own, so back off and retry. 408 is
+    # NerdGraph's own gateway timing out before the query completed, same story.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise NewRelicRetryableError(f"New Relic API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:

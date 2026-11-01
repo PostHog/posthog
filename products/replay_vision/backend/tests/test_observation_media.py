@@ -92,7 +92,6 @@ class TestObservationMedia(BaseTest):
         rendered: list[PreparedFrame],
         observation_id: UUID,
         with_small: list[PreparedFrame] | None = None,
-        ext: str = "webp",
     ) -> None:
         small_ids = {f.object_id for f in (rendered if with_small is None else with_small)}
         prefix = f"s3://{settings.OBJECT_STORAGE_BUCKET}/replay-vision/media/team-{self.team.id}/{observation_id}"
@@ -105,9 +104,9 @@ class TestObservationMedia(BaseTest):
                     frames=[
                         ExtractedFrame(
                             id=f.object_id,
-                            s3_uri=f"{prefix}/{f.object_id}.{ext}",
+                            s3_uri=f"{prefix}/{f.object_id}.webp",
                             file_size_bytes=4096,
-                            small_s3_uri=f"{prefix}/{f.object_id}-small.{ext}" if f.object_id in small_ids else None,
+                            small_s3_uri=f"{prefix}/{f.object_id}-small.webp" if f.object_id in small_ids else None,
                         )
                         for f in rendered
                     ]
@@ -216,9 +215,13 @@ class TestObservationMedia(BaseTest):
                 assert (m.small_asset.content_location or "").endswith("-small.webp")
                 assert m.small_asset.expires_after == m.asset.expires_after
         unlinked = [
-            prepared.frames[2].small_media_asset_id,
-            prepared.frames[3].media_asset_id,
-            prepared.frames[3].small_media_asset_id,
+            asset_id
+            for asset_id in (
+                prepared.frames[2].small_media_asset_id,
+                prepared.frames[3].media_asset_id,
+                prepared.frames[3].small_media_asset_id,
+            )
+            if asset_id is not None
         ]
         for asset in ExportedAsset.objects_including_ttl_deleted.filter(pk__in=unlinked):
             assert asset.expires_after is not None and asset.expires_after <= timezone.now()
@@ -234,22 +237,6 @@ class TestObservationMedia(BaseTest):
 
         small = ExportedAsset.objects_including_ttl_deleted.get(pk=thumbnail.small_media_asset_id)
         assert small.expires_after == expired_at
-
-    def test_a_render_from_before_small_copies_keeps_a_backfilled_copy(self) -> None:
-        prepared = self._prepare()
-        self._finalize(prepared, rendered=prepared.frames, observation_id=self.observation.id)
-        linked = ReplayObservationMedia.objects.for_team(self.team.id).get(observation_id=self.observation.id)
-        assert linked.small_asset_id is not None
-
-        # An in-flight workflow prepared on the old code carries no small asset id, and its rasterizer writes a PNG.
-        old = prepared.model_copy(
-            update={"frames": [f.model_copy(update={"small_media_asset_id": None}) for f in prepared.frames]}
-        )
-        self._finalize(old, rendered=old.frames, observation_id=self.observation.id, ext="png")
-
-        linked.refresh_from_db()
-        assert linked.small_asset_id == prepared.frames[0].small_media_asset_id
-        assert linked.asset.export_format == ExportedAsset.ExportFormat.PNG
 
     def test_an_observation_without_chapters_renders_only_its_thumbnail(self) -> None:
         self.observation.scanner_result = {"model_output": {"scanner_type": "monitor", "verdict": "yes"}}

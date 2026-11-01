@@ -201,6 +201,7 @@ The bulk send batch envelopes and PowerForm form data tables make one API reques
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

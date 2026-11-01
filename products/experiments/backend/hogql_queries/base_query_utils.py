@@ -15,6 +15,7 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMetricMathType,
+    ExperimentWarehouseNativeNode,
     FunnelConversionWindowTimeUnit,
     FunnelMathType,
     GroupMathType,
@@ -22,6 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -108,10 +110,14 @@ def is_threshold_supported_math(math_type: ExperimentMetricMathType | None) -> b
     return math_type in [ExperimentMetricMathType.SUM, ExperimentMetricMathType.TOTAL]
 
 
-def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
+def get_source_value_expr(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode, ExperimentWarehouseNativeNode],
+) -> ast.Expr:
     """
     Return the per-row value that the metric aggregates.
     """
+    if isinstance(source, ExperimentWarehouseNativeNode):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         if hasattr(source, "math") and is_continuous(source.math):

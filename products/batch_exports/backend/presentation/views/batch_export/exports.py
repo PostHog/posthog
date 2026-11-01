@@ -1,54 +1,37 @@
 """Batch export endpoints: create, update, pause, unpause, delete and destination tests."""
 
+import uuid
 import typing
 import dataclasses
 from typing import cast
 
-from django.db import transaction
-
 import posthoganalytics
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
-
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
-
-from posthog.hogql import ast, errors
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
-from posthog.hogql.resolver import resolve_types
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from rest_framework.pagination import LimitOffsetPagination
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.models import Team, User
-from posthog.models.integration import (
-    AzureBlobIntegration,
-    AzureBlobIntegrationError,
-    DatabricksIntegration,
-    DatabricksIntegrationError,
-    Integration,
-    SnowflakeIntegration,
-    SnowflakeIntegrationError,
-)
-from posthog.security.url_validation import (
-    INVALID_HOST_MESSAGE,
-    UNREACHABLE_HOST_MESSAGE,
-    ShapeError,
-    validate_external_host,
-)
-from posthog.temporal.common.client import sync_connect
+from posthog.integrations import IntegrationRecord
+from posthog.models import User
 
-from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.batch_exports.backend.facade import api as batch_exports_api
-from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters, UnsupportedDestinationTestError
+from products.batch_exports.backend.facade import (
+    api as batch_exports_api,
+    contracts,
+)
+from products.batch_exports.backend.facade.contracts import (
+    BatchExportNotFoundError,
+    BatchExportScheduleError,
+    InvalidBatchExportDestinationError,
+    InvalidBatchExportFilters,
+    InvalidDestinationConfigError,
+    UnsupportedDestinationTestError,
+    UnsupportedHogQLQueryError,
+)
 from products.batch_exports.backend.facade.enums import (
-    AZURE_BLOB_SUPPORTED_COMPRESSIONS,
-    EXPORTABLE_EVENTS_MODEL_FIELDS,
-    S3_FAMILY_TYPES,
-    S3_SUPPORTED_COMPRESSIONS,
     SUPPORTED_FILTER_TYPES_DISPLAY,
     TIMEZONES,
     BatchExportDestinationType,
@@ -56,30 +39,13 @@ from products.batch_exports.backend.facade.enums import (
     BatchExportModel,
     IncrementalMode,
 )
-from products.batch_exports.backend.hogql_source import (
-    UnsupportedHogQLQueryError,
-    load_hogql_modifiers,
-    serialize_batch_export_query,
-    validate_hogql_query_for_batch_export,
-)
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportSource
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
     check_high_frequency_batch_exports_enabled,
     check_hogql_batch_exports_enabled,
-)
-from products.batch_exports.backend.service import (
-    DESTINATION_WORKFLOWS,
-    BaseBatchExportInputs,
-    BatchExportIdError,
-    BatchExportSchema,
-    BatchExportServiceError,
-    BatchExportServiceRPCError,
-    delete_batch_export,
-    pause_batch_export,
-    sync_batch_export,
-    unpause_batch_export,
+    fetch_facade_page,
+    parse_path_uuid,
 )
 
 from . import (
@@ -196,78 +162,27 @@ class BatchExportRequestSerializer(serializers.Serializer):
     )
 
 
-def parse_events_hogql_query(hogql_query: str, team_id: int, user: User | None) -> ast.SelectQuery | ast.SelectSetQuery:
-    """Parse a HogQL SelectQuery from a string query."""
-    try:
-        parsed_query = parse_select(hogql_query)
-    except Exception:
-        raise serializers.ValidationError("Failed to parse query")
-
-    try:
-        restricted_properties = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
-        context = HogQLContext(
-            team_id=team_id,
-            user=user,
-            enable_select_queries=True,
-            restricted_properties=restricted_properties,
-            modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
-            ),
-        )
-        if restricted_properties:
-            # A restricted query is stored without its HogQL text, so no run can recompile it for
-            # the native source, where a materialized column does not exist.
-            context.modifiers.materializationMode = MaterializationMode.DISABLED
-        use_native_schema = context.uses_new_events_schema()
-        prepared_select_query = cast(
-            ast.SelectQuery,
-            prepare_ast_for_printing(
-                parsed_query, context=context, dialect="hogql" if use_native_schema else "clickhouse"
-            ),
-        )
-        if use_native_schema:
-            resolve_types(clone_expr(parsed_query, clear_types=True), context=context, dialect="clickhouse")
-    except errors.ExposedHogQLError as e:
-        raise serializers.ValidationError(f"Invalid HogQL query: {e}")
-
-    return prepared_select_query
+def _get_integration_id(destination_attrs: dict[str, typing.Any]) -> int | None:
+    """Return the id of the integration a request sent, or None when it sent none or null."""
+    integration: IntegrationRecord | None = destination_attrs.get("integration")
+    return integration.id if integration is not None else None
 
 
-class _SubqueryFinder(TraversingVisitor):
-    """Walk an AST subtree and flag if any SelectQuery or SelectSetQuery is found."""
-
-    def __init__(self):
-        super().__init__()
-        self.found = False
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        self.found = True
-
-    def visit_select_set_query(self, node: ast.SelectSetQuery):
-        self.found = True
+def _get_integration_change(destination_attrs: dict[str, typing.Any]) -> contracts.IntegrationChange | None:
+    """Return the integration change a request asks for, or None when it left the integration out."""
+    if "integration" not in destination_attrs:
+        return None
+    return contracts.IntegrationChange(integration_id=_get_integration_id(destination_attrs))
 
 
-class _DatabaseFieldFinder(TraversingVisitor):
-    """Walk an AST subtree and collect the names of the database fields it reads."""
-
-    def __init__(self, context: HogQLContext):
-        super().__init__()
-        self.context = context
-        self.names: set[str] = set()
-
-    def visit_field(self, node: ast.Field):
-        resolve = getattr(node.type, "resolve_database_field", None)
-        if resolve is not None:
-            database_field = resolve(self.context)
-            name = getattr(database_field, "name", None)
-            if name is not None:
-                self.names.add(name)
-        super().visit_field(node)
-
-
-class BatchExportSerializer(serializers.ModelSerializer):
+class BatchExportSerializer(serializers.Serializer):
     """Serializer for a BatchExport model."""
 
+    id = serializers.UUIDField(read_only=True)
+    team_id = serializers.IntegerField(read_only=True, help_text="The team this belongs to.")
+    name = serializers.CharField(
+        help_text="A human-readable name for this BatchExport.", style={"base_template": "textarea.html"}
+    )
     model = serializers.ChoiceField(
         choices=BatchExportModel.choices,
         default=serializers.CreateOnlyDefault(BatchExportModel.EVENTS),  # type: ignore[arg-type]
@@ -279,14 +194,30 @@ class BatchExportSerializer(serializers.ModelSerializer):
     destination = destination_views.BatchExportDestinationSerializer(
         help_text="Destination configuration (type, config, and optional integration)."
     )
+    interval = serializers.ChoiceField(
+        choices=BatchExportInterval.choices,
+        help_text="How often the batch export should run.",
+    )
+    paused = serializers.BooleanField(required=False, help_text="Whether this BatchExport is paused or not.")
+    created_at = serializers.DateTimeField(
+        read_only=True, help_text="The timestamp at which this BatchExport was created."
+    )
+    last_updated_at = serializers.DateTimeField(
+        read_only=True, help_text="The timestamp at which this BatchExport was last updated."
+    )
+    last_paused_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="The timestamp at which this BatchExport was last paused."
+    )
+    start_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Time before which any Batch Export runs won't be triggered."
+    )
+    end_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Time after which any Batch Export runs won't be triggered."
+    )
     latest_runs = run_views.BatchExportRunSerializer(
         many=True,
         read_only=True,
         help_text="The 10 most recent runs of this batch export, ordered newest first.",
-    )
-    interval = serializers.ChoiceField(
-        choices=BatchExportInterval.choices,
-        help_text="How often the batch export should run.",
     )
     hogql_query = serializers.CharField(
         required=False,
@@ -317,6 +248,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
         default=serializers.CreateOnlyDefault(IncrementalMode.APPEND),  # type: ignore[arg-type]
         help_text="How this batch export handles incremental updates.",
     )
+    schema = serializers.JSONField(read_only=True, help_text="A schema of custom fields to select when exporting data.")
+    filters = serializers.JSONField(required=False, allow_null=True)
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,
         required=False,
@@ -337,35 +270,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         max_value=23,
         help_text="Hour-of-day offset (0-23) for daily and weekly intervals. Only valid when interval is 'day' or 'week'.",
     )
-
-    class Meta:
-        model = BatchExport
-        fields = [
-            "id",
-            "team_id",
-            "name",
-            "model",
-            "destination",
-            "interval",
-            "paused",
-            "created_at",
-            "last_updated_at",
-            "last_paused_at",
-            "start_at",
-            "end_at",
-            "latest_runs",
-            "hogql_query",
-            "hogql_modifiers",
-            "primary_key",
-            "version_key",
-            "incremental_mode",
-            "schema",
-            "filters",
-            "timezone",
-            "offset_day",
-            "offset_hour",
-        ]
-        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
     def validate(self, attrs: dict) -> dict:
         """Validate this batch export.
@@ -389,13 +293,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
         self._validate_attribute_only_supported_for_model(attrs, name="version_key", model=BatchExportModel.HOGQL)
 
         # TODO: Once these teams are migrated, remove this.
-        if model == BatchExportModel.EVENTS and (hogql_query := attrs.get("hogql_query")) is not None:
-            is_grandfathered_team_id = BatchExport.objects.filter(
-                schema__isnull=False, team=self.context["get_team"]()
-            ).exists()
-            if is_grandfathered_team_id:
-                attrs["hogql_query"] = self._validate_events_hogql_query(hogql_query)
-            else:
+        # Saving the export checks the query, when it builds the schema the export stores.
+        if model == BatchExportModel.EVENTS and attrs.get("hogql_query") is not None:
+            is_grandfathered_organization = batch_exports_api.organization_has_custom_events_schema_exports(
+                self.context["get_team"]().organization_id
+            )
+            if not is_grandfathered_organization:
                 self._validate_attribute_only_supported_for_model(
                     attrs, name="hogql_query", model=BatchExportModel.HOGQL
                 )
@@ -408,17 +311,23 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return attrs
 
     def _validate_interval_offset(self, attrs: dict) -> dict:
-        interval = attrs.get("interval")
-
-        if interval is None:
-            return attrs
-
-        # Convert offset_day and offset_hour to interval_offset
         # Check if offset fields are in the request (for PATCH, distinguish between absent and None)
         offset_day_provided = "offset_day" in attrs
         offset_hour_provided = "offset_hour" in attrs
-        offset_day = attrs.pop("offset_day", None)
-        offset_hour = attrs.pop("offset_hour", None)
+
+        # Convert offset_day and offset_hour to interval_offset
+        if "interval" in attrs:
+            interval = attrs["interval"]
+            offset_day = attrs.pop("offset_day", None)
+            offset_hour = attrs.pop("offset_hour", None)
+        elif self.instance is not None and (offset_day_provided or offset_hour_provided):
+            # A PATCH may send offsets alone. They apply to the saved interval, and an offset the
+            # PATCH leaves out keeps its saved value.
+            interval = self.instance.interval
+            offset_day = attrs.pop("offset_day", self.instance.offset_day)
+            offset_hour = attrs.pop("offset_hour", self.instance.offset_hour)
+        else:
+            return attrs
 
         if interval == "day":
             # For daily exports, only offset_hour is used
@@ -497,30 +406,31 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 1. No hogql_query was passed for a HogQL model.
                 2. When a non-None hogql_query for a HogQL model is unsupported.
         """
-        source = self.instance.source if self.instance is not None else None
-        saved_query = source.hogql_query if source is not None else None
 
-        hogql_query = attrs.get("hogql_query", saved_query)
+        def get_value(name: str) -> typing.Any:
+            """Return the value the request sent, or else the saved one."""
+            return attrs.get(name, getattr(self.instance, name, None))
+
+        hogql_query = get_value("hogql_query")
         if hogql_query is None:
             raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
 
-        user = self.context["request"].user
-        team = self.context["get_team"]()
-        hogql_modifiers = self._get_hogql_modifiers(attrs)
+        # Saved modifiers are valid, even if the query check re-validates them anyways.
+        hogql_modifiers = get_value("hogql_modifiers")
         try:
-            parsed = validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=hogql_modifiers)
+            output_columns = set(
+                batch_exports_api.validate_hogql_query(
+                    self.context["team_id"],
+                    user_id=self._get_user().pk,
+                    hogql_query=hogql_query,
+                    hogql_modifiers=hogql_modifiers,
+                )
+            )
         except UnsupportedHogQLQueryError as e:
             raise serializers.ValidationError({"hogql_query": str(e)}) from e
 
-        # NOTE: Should be populated after a successful preparation
-        assert isinstance(parsed.type, (ast.SelectQueryType, ast.SelectSetQueryType))
-        output_columns = set(parsed.type.columns)
-
-        saved_incremental_mode = self.instance.incremental_mode if self.instance is not None else None
-        incremental_mode = attrs.get("incremental_mode", saved_incremental_mode)
-
-        saved_primary_key = source.primary_key if source is not None else None
-        primary_key = set(attrs.get("primary_key", saved_primary_key) or ())
+        incremental_mode = get_value("incremental_mode")
+        primary_key = set(get_value("primary_key") or ())
 
         if not primary_key and incremental_mode == IncrementalMode.MERGE:
             raise serializers.ValidationError(
@@ -536,8 +446,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 }
             )
 
-        saved_version_key = source.version_key if source is not None else None
-        version_key = set(attrs.get("version_key", saved_version_key) or ())
+        version_key = set(get_value("version_key") or ())
         missing_version_key = version_key - output_columns
 
         if missing_version_key:
@@ -546,22 +455,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     "version_key": f"'version_key' contains columns that are not present in the query: {','.join(missing_version_key)}"
                 }
             )
-
-    def _get_hogql_modifiers(self, attrs: dict[str, typing.Any]) -> HogQLQueryModifiers | None:
-        if "hogql_modifiers" in attrs:
-            if attrs["hogql_modifiers"] is None:
-                modifiers: HogQLQueryModifiers | None = None
-            else:
-                # Modifiers were already validated and loaded by the field
-                field = typing.cast(HogQLModifiersField, self.fields["hogql_modifiers"])
-                modifiers = field.loaded
-        else:
-            source = self.instance.source if self.instance is not None else None
-            # Modifiers are valid if present in the db, even if the function
-            # re-validates them anyways.
-            modifiers = load_hogql_modifiers(source.hogql_modifiers if source is not None else None)
-
-        return modifiers
 
     def validate_model(self, model: str) -> str:
         """Validate the model is new or not changing when provided."""
@@ -667,266 +560,30 @@ class BatchExportSerializer(serializers.ModelSerializer):
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
-        config = destination_attrs["config"]
         view = self.context.get("view")
 
-        instance = None
+        export_id: uuid.UUID | None = None
         if self.instance is not None:
-            instance = self.instance
-            existing_config = instance.destination.config
+            export_id = self.instance.id
         elif view is not None and "pk" in view.kwargs:
             # Running validation for a `detail=True` action.
-            instance = view.get_object()
-            existing_config = instance.destination.config
-        else:
-            existing_config = {}
+            export_id = uuid.UUID(str(view.kwargs["pk"]))
 
-        if instance is not None and destination_type != instance.destination.type:
-            raise serializers.ValidationError(
-                f"Cannot change destination type from '{instance.destination.type}' to '{destination_type}'. "
-                "Delete this batch export and create a new one with the new destination type."
+        try:
+            batch_exports_api.validate_batch_export_destination(
+                self.context["team_id"],
+                export_id=export_id,
+                destination_type=destination_type,
+                config=destination_attrs["config"],
+                integration=_get_integration_change(destination_attrs),
             )
-
-        # This setting is used for grandfathered exports that used the legacy Parquet file extension,
-        # and is a one-way migration; once exports use the new `.parquet` extension it is not
-        # possible to go back to using the legacy extension.
-        if config.get("legacy_parquet_extension") is True and not destination_views._uses_legacy_parquet_extension(
-            destination_type, existing_config
-        ):
-            raise serializers.ValidationError(
-                "'legacy_parquet_extension' can only stay on for an export that already writes the "
-                "compression codec into its Parquet file names. It cannot be turned on for a new "
-                "export, or turned back on once an export moved to the standard '.parquet' extension."
-            )
-
-        merged_config = recursive_dict_merge(existing_config, config)
-
-        # SSRF protection for HTTP batch exports
-        if destination_type == BatchExportDestinationType.HTTP:
-            url = merged_config.get("url")
-            if url and url not in ("https://us.i.posthog.com/batch/", "https://eu.i.posthog.com/batch/"):
-                raise serializers.ValidationError(f"Invalid destination URL: {url}")
-
-        if destination_type == BatchExportDestinationType.SNOWFLAKE:
-            integration: Integration | None = destination_attrs.get("integration")
-            if integration is None and "integration" not in destination_attrs and instance is not None:
-                # A PATCH may send config alone, which keeps the export's existing integration.
-                # An explicit `integration: null` is a removal, and is rejected below.
-                integration = instance.destination.integration
-
-            if integration is None:
-                raise serializers.ValidationError("Integration is required for Snowflake batch exports")
-
-            # Also rejects an integration missing its account, user or authentication type, so a
-            # half-built one fails here rather than on the export's first run.
-            try:
-                SnowflakeIntegration(integration)
-            except SnowflakeIntegrationError as e:
-                raise serializers.ValidationError(str(e))
-
-        if destination_type in S3_FAMILY_TYPES:
-            integration = destination_attrs.get("integration")
-            if integration is None and "integration" not in destination_attrs and instance is not None:
-                # A PATCH may send config alone, which keeps the export's existing integration.
-                # An explicit `integration: null` is a removal, and is rejected below.
-                integration = instance.destination.integration
-
-            if integration is None:
-                raise serializers.ValidationError(f"Integration is required for {destination_type} batch exports")
-
-            # Credentials and the provider endpoint are not declared on the input dataclasses, so
-            # `BatchExportDestinationSerializer.validate` already rejects them as unknown fields.
-
-            # we already validate the required inputs in BatchExportDestinationSerializer::validate
-            # so here we just ensure that the inputs are not empty
-            required_non_empty_inputs = ["bucket_name", "region", "prefix"]
-
-            empty_inputs = []
-
-            for required_input in required_non_empty_inputs:
-                value = config.get(required_input)
-                if value is not None and isinstance(value, str) and value.strip() == "":
-                    empty_inputs.append(required_input)
-
-            if empty_inputs:
-                raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
-
-            # The integration must match the destination kind. (Team ownership is already enforced
-            # by the team-scoped `integration` field, which can only resolve integrations belonging
-            # to the request's team.)
-            if integration.kind != destination_views.S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]:
-                raise serializers.ValidationError(
-                    f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
-                )
-
-            # JSONLines is the default file format for S3 exports for legacy reasons
-            file_format = merged_config.get("file_format", "JSONLines")
-            supported_file_formats = S3_SUPPORTED_COMPRESSIONS.keys()
-            if file_format not in supported_file_formats:
-                raise serializers.ValidationError(
-                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
-                )
-            compression = merged_config.get("compression", None)
-            if compression and compression not in S3_SUPPORTED_COMPRESSIONS[file_format]:
-                raise serializers.ValidationError(
-                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {S3_SUPPORTED_COMPRESSIONS[file_format]}"
-                )
-
-        if destination_type == BatchExportDestinationType.DATABRICKS:
-            # validate the Integration is valid (this is mandatory for Databricks batch exports)
-            integration = destination_attrs.get("integration")
-            if integration is None:
-                raise serializers.ValidationError("Integration is required for Databricks batch exports")
-            if integration.kind != Integration.IntegrationKind.DATABRICKS:
-                raise serializers.ValidationError("Integration is not a Databricks integration.")
-            # try instantiate the integration to check if it's valid
-            try:
-                DatabricksIntegration(integration)
-            except DatabricksIntegrationError as e:
-                raise serializers.ValidationError(str(e))
-
-        if destination_type == BatchExportDestinationType.POSTGRES:
-            integration = destination_attrs.get("integration")
-            # New Postgres exports must use an Integration for credentials. Exports created before
-            # integrations existed keep their inline credentials, so only require it on create
-            # (`instance is None`); existing inline-credential exports stay valid when edited.
-            if integration is None and instance is None:
-                raise serializers.ValidationError("Integration is required for Postgres batch exports")
-            if integration is not None and integration.kind != Integration.IntegrationKind.POSTGRESQL:
-                raise serializers.ValidationError("Integration is not a PostgreSQL integration.")
-
-        if destination_type == BatchExportDestinationType.BIGQUERY:
-            integration = destination_attrs.get("integration")
-            if integration is None:
-                raise serializers.ValidationError("Integration is required for BigQuery batch exports")
-            if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
-                raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
-
-        if destination_type == BatchExportDestinationType.AZURE_BLOB:
-            # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
-            integration = destination_attrs.get("integration")
-            if integration is None:
-                raise serializers.ValidationError("Integration is required for Azure Blob batch exports")
-            if integration.kind != Integration.IntegrationKind.AZURE_BLOB:
-                raise serializers.ValidationError("Integration is not an Azure Blob integration.")
-            # try instantiate the integration to check if it's valid
-            try:
-                AzureBlobIntegration(integration)
-            except AzureBlobIntegrationError as e:
-                raise serializers.ValidationError(str(e))
-
-            file_format = merged_config.get("file_format", "JSONLines")
-            supported_file_formats = AZURE_BLOB_SUPPORTED_COMPRESSIONS.keys()
-            if file_format not in supported_file_formats:
-                raise serializers.ValidationError(
-                    f"File format {file_format} is not supported. Supported file formats are {list(supported_file_formats)}"
-                )
-            compression = merged_config.get("compression", None)
-            if compression and compression not in AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]:
-                raise serializers.ValidationError(
-                    f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {AZURE_BLOB_SUPPORTED_COMPRESSIONS[file_format]}"
-                )
-
-        if destination_type == BatchExportDestinationType.REDSHIFT:
-            integration = destination_attrs.get("integration")
-
-            # Sticky integration: an export that uses one cannot drop back to inline credentials.
-            # TODO: remove this guard once inline credentials are gone.
-            if instance is not None and instance.destination.integration is not None and integration is None:
-                raise serializers.ValidationError(
-                    "Cannot remove the integration from a Redshift batch export that uses one. "
-                    "Re-send its `integration` to keep it (or a different one to swap)."
-                )
-
-            # New Redshift exports must use an Integration for credentials. Exports created before
-            # integrations existed keep their inline credentials, so only require it on create
-            # (`instance is None`); existing inline-credential exports stay valid when edited.
-            if integration is None and instance is None:
-                raise serializers.ValidationError("Integration is required for Redshift batch exports")
-
-            if integration is not None:
-                # (Team ownership is already enforced by the team-scoped `integration` field.)
-                if integration.kind != Integration.IntegrationKind.AWS_REDSHIFT:
-                    raise serializers.ValidationError("Integration is not a Redshift integration.")
-
-                # Only plain Redshift integrations store a host; AWS-flavor ones obtain
-                # temporary credentials for a cluster endpoint that stays in the export config.
-                if "host" not in integration.config and not merged_config.get("host"):
-                    raise serializers.ValidationError(
-                        "A 'host' is required when using an AWS Redshift integration: "
-                        "set it to the cluster or workgroup endpoint."
-                    )
-
-            mode = merged_config.get("mode")
-
-            if mode == "COPY":
-                copy_inputs = merged_config.get("copy_inputs", {})
-                if not copy_inputs:
-                    raise serializers.ValidationError("Missing required inputs for 'COPY'")
-
-                required_inputs = {"s3_bucket", "region_name", "authorization", "bucket_credentials"}
-                if required_inputs - copy_inputs.keys():
-                    raise serializers.ValidationError("Missing required input for 'COPY'")
-
-                credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
-
-                bucket_credentials = copy_inputs["bucket_credentials"]
-                bucket_integration_id = destination_views._coerce_integration_id(bucket_credentials)
-                authorization = copy_inputs.get("authorization")
-                authorization_integration_id = destination_views._coerce_integration_id(authorization)
-
-                existing_copy_inputs = existing_config.get("copy_inputs") or {}
-
-                for field_name, copy_integration_id in (
-                    ("bucket_credentials", bucket_integration_id),
-                    ("authorization", authorization_integration_id),
-                ):
-                    # Sticky like the top-level integration: COPY credentials that reference an
-                    # integration cannot drop back to inline values.
-                    # TODO: remove this guard once integrations are mandatory for Redshift and
-                    # inline credentials are gone.
-                    if (
-                        instance is not None
-                        and copy_integration_id is None
-                        and destination_views._coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
-                    ):
-                        raise serializers.ValidationError(
-                            f"Cannot switch '{field_name}' from an integration to inline credentials. "
-                            "Send a different integration ID to swap, or omit the field to keep the current one."
-                        )
-                    if copy_integration_id is None:
-                        continue
-                    # These ids live inside `config` rather than the team-scoped `integration`
-                    # field, so team ownership must be checked here.
-                    if not Integration.objects.filter(
-                        id=copy_integration_id,
-                        team_id=self.context["team_id"],
-                        kind=Integration.IntegrationKind.AWS_S3,
-                    ).exists():
-                        raise serializers.ValidationError(
-                            f"'{field_name}' does not reference an AWS S3 integration of this project."
-                        )
-
-                if bucket_integration_id is None and (
-                    not isinstance(bucket_credentials, dict) or credential_keys - bucket_credentials.keys()
-                ):
-                    raise serializers.ValidationError("Missing required bucket credentials for 'COPY'")
-
-                if authorization_integration_id is None:
-                    if isinstance(authorization, dict):
-                        if credential_keys - authorization.keys():
-                            raise serializers.ValidationError("Missing required credentials for 'COPY'")
-                    elif isinstance(authorization, str):
-                        if not authorization.strip():
-                            raise serializers.ValidationError("Missing required IAM role for 'COPY'")
-                    else:
-                        raise serializers.ValidationError(
-                            "Authorization for 'COPY' must be an IAM role ARN, AWS credentials, or an integration ID."
-                        )
+        except InvalidBatchExportDestinationError as e:
+            raise serializers.ValidationError(str(e))
+        except BatchExportNotFoundError:
+            raise NotFound(f"BatchExport ID '{export_id}' not found.")
 
         if destination_type == BatchExportDestinationType.WORKFLOWS:
-            team_id = self.context["team_id"]
-            team = Team.objects.get(id=team_id)
+            team = self.context["get_team"]()
 
             if not posthoganalytics.feature_enabled(
                 "backfill-workflows-destination",
@@ -942,244 +599,65 @@ class BatchExportSerializer(serializers.ModelSerializer):
             ):
                 raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
-        if destination_type in (
-            BatchExportDestinationType.POSTGRES,
-            BatchExportDestinationType.REDSHIFT,
-        ):
-            # PostgreSQL-server integrations (Postgres, plain Redshift) keep the host in the
-            # linked Integration; AWS Redshift integrations and inline configs keep it in
-            # `config`. Prefer the Integration's host when it has one so we don't skip
-            # SSRF validation (and don't `KeyError` on a `config` that has no `host`).
-            integration = destination_attrs.get("integration")
-            host = integration.config.get("host") if integration is not None else None
-            if host is None:
-                host = merged_config.get("host")
-
-            if host is not None:
-                try:
-                    validate_external_host(host)
-                except ShapeError:
-                    raise serializers.ValidationError(INVALID_HOST_MESSAGE)
-                except ValueError:
-                    raise serializers.ValidationError(UNREACHABLE_HOST_MESSAGE)
-
         return destination_attrs
 
-    def create(self, validated_data: dict) -> BatchExport:
-        """Create a BatchExport."""
-        destination_data = validated_data.pop("destination")
-        team_id = self.context["team_id"]
-        model = validated_data["model"]
-        hogql_query = validated_data.pop("hogql_query", None)
-        hogql_modifiers = validated_data.pop("hogql_modifiers", None)
-        primary_key = validated_data.pop("primary_key", None)
-        version_key = validated_data.pop("version_key", None)
-
-        source = None
-        if model == BatchExportModel.HOGQL:
-            source = BatchExportSource(
-                team_id=team_id,
-                hogql_query=hogql_query,
-                hogql_modifiers=hogql_modifiers,
-                primary_key=primary_key,
-                version_key=version_key,
-            )
-        elif hogql_query is not None:
-            # TODO: Migrate batch exports using a HogQL query to HogQL model.
-            validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
-
-        destination_views._set_default_parquet_extension(destination_data["type"], destination_data["config"])
-
-        destination = BatchExportDestination(**destination_data)
+    def _get_user(self) -> User:
         user = self.context["request"].user
         if not isinstance(user, User):
             raise NotAuthenticated()
+        return user
 
-        batch_export = BatchExport(
-            team_id=team_id,
+    def create(self, validated_data: dict) -> contracts.BatchExportConfiguration:
+        """Create a BatchExport."""
+        destination_data = validated_data["destination"]
+        export = contracts.NewBatchExport(
+            destination=contracts.BatchExportDestinationInput(
+                type=destination_data["type"],
+                config=destination_data["config"],
+                integration_id=_get_integration_id(destination_data),
+            ),
+            **{name: value for name, value in validated_data.items() if name != "destination"},
+        )
+        try:
+            return batch_exports_api.create_batch_export_from_input(
+                self.context["team_id"], user_id=self._get_user().pk, export=export
+            )
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError(str(e))
+
+    def update(
+        self, instance: contracts.BatchExportConfiguration, validated_data: dict
+    ) -> contracts.BatchExportConfiguration:
+        """Update a BatchExport."""
+        user = self._get_user()
+        destination_data = validated_data.pop("destination", None)
+        # The model cannot change, as `validate_model` checks.
+        validated_data.pop("model", None)
+
+        destination = None
+        if destination_data:
+            destination = contracts.BatchExportDestinationPatch(
+                config=destination_data.get("config", {}),
+                integration=_get_integration_change(destination_data),
+            )
+
+        update = contracts.BatchExportUpdate(
+            changed=frozenset(validated_data),
             destination=destination,
-            source=source,
-            last_modified_by=user,
             **validated_data,
         )
-
-        sync_batch_export(batch_export, created=True)
-
-        with transaction.atomic():
-            destination.save()
-
-            if source is not None:
-                source.save()
-
-            batch_export.save()
-
-        return batch_export
-
-    def serialize_hogql_query_to_batch_export_schema(self, hogql_query: ast.SelectQuery) -> BatchExportSchema:
-        """Return a batch export schema from a HogQL query ast."""
-        request = self.context.get("request")
-        user = request.user if request is not None else None
-        restricted_properties = get_restricted_properties_with_group_type_index_for_team(
-            user=user, team_id=self.context["team_id"]
-        )
-        context = HogQLContext(
-            team_id=self.context["team_id"],
-            user=user,
-            enable_select_queries=True,
-            limit_top_select=False,
-            restricted_properties=restricted_properties,
-            modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
-            ),
-        )
-        if context.uses_new_events_schema():
-            context.modifiers.materializationMode = MaterializationMode.DISABLED
         try:
-            schema = serialize_batch_export_query(hogql_query, context)
-        except errors.ExposedHogQLError:
-            raise serializers.ValidationError("Unsupported HogQL query")
-        if context.restricted_properties:
-            schema.pop("hogql_query", None)
-        return schema
-
-    def _validate_events_hogql_query(self, hogql_query: str) -> ast.SelectQuery:
-        """Validate a HogQL query being used for events batch exports.
-
-        This method essentially checks that a query is supported by batch exports:
-        1. UNION ALL is not supported.
-        2. Any JOINs are not supported.
-        3. Query must SELECT FROM events, and only from events.
-        4. Subqueries in SELECT expressions are not supported.
-        5. Query must select only from those fields we expose from the events table.
-        """
-        parsed = parse_events_hogql_query(
-            hogql_query, team_id=self.context["team_id"], user=self.context["request"].user
-        )
-
-        if isinstance(parsed, ast.SelectSetQuery):
-            raise serializers.ValidationError("UNIONs are not supported")
-
-        parsed = cast(ast.SelectQuery, parsed)
-
-        if parsed.select_from is None:
-            raise serializers.ValidationError("Query must SELECT FROM events")
-
-        if parsed.ctes:
-            raise serializers.ValidationError("CTEs are not supported")
-
-        if isinstance(parsed.select_from.table, (ast.SelectQuery, ast.SelectSetQuery)):
-            raise serializers.ValidationError("Subqueries are not supported")
-
-        # Not sure how to make mypy understand this works, hence the ignore comment.
-        # And if it doesn't, it's still okay as it could mean an unsupported query.
-        # We would come back with the example to properly type this.
-        if parsed.select_from.table.chain != ["events"]:  # type: ignore
-            raise serializers.ValidationError("Query must only SELECT FROM events")
-
-        if parsed.select_from.next_join is not None:
-            raise serializers.ValidationError("JOINs are not supported")
-
-        subquery_finder = _SubqueryFinder()
-        for field in parsed.select:
-            subquery_finder.visit(field)
-            if subquery_finder.found:
-                raise serializers.ValidationError("Subqueries in SELECT expressions are not supported")
-
-        # Check that the query only selects from those fields we expose from the events table.
-        field_finder = _DatabaseFieldFinder(HogQLContext(team_id=self.context["team_id"], enable_select_queries=True))
-        for field in parsed.select:
-            field_finder.visit(field)
-
-        unsupported = sorted(field_finder.names - EXPORTABLE_EVENTS_MODEL_FIELDS)
-        if unsupported:
-            raise serializers.ValidationError(
-                f"Batch exports cannot read these fields: {', '.join(unsupported)}. "
-                f"Supported fields are: {', '.join(sorted(EXPORTABLE_EVENTS_MODEL_FIELDS))}."
+            return batch_exports_api.update_batch_export(
+                self.context["team_id"], instance.id, user_id=user.pk, update=update
             )
-
-        return parsed
-
-    def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
-        """Update a BatchExport."""
-        destination_data = validated_data.pop("destination", None)
-
-        missing = object()
-        hogql_query = validated_data.pop("hogql_query", missing)
-        hogql_modifiers = validated_data.pop("hogql_modifiers", missing)
-        primary_key = validated_data.pop("primary_key", missing)
-        version_key = validated_data.pop("version_key", missing)
-
-        user = self.context["request"].user
-        if not isinstance(user, User):
-            raise NotAuthenticated()
-
-        validated_data["last_modified_by"] = user
-
-        with transaction.atomic():
-            if destination_data:
-                # Type changes are rejected by `validate_destination` — the incoming `type`
-                # (if any) always equals the existing type by the time we get here.
-                destination_views._pin_existing_parquet_extension(
-                    batch_export.destination.type, batch_export.destination.config
-                )
-                batch_export.destination.config = recursive_dict_merge(
-                    batch_export.destination.config,
-                    destination_data.get("config", {}),
-                )
-                integration = destination_data.get("integration", batch_export.destination.integration)
-                batch_export.destination.integration = integration
-
-            if batch_export.model == BatchExportModel.HOGQL:
-                hogql_attributes = (hogql_query, hogql_modifiers, primary_key, version_key)
-                if any(attr is not missing for attr in hogql_attributes):
-                    source = batch_export.source or BatchExportSource(team_id=batch_export.team_id)
-
-                    if hogql_query is not missing:
-                        source.hogql_query = hogql_query
-                    if hogql_modifiers is not missing:
-                        source.hogql_modifiers = hogql_modifiers
-                    if primary_key is not missing:
-                        source.primary_key = primary_key
-                    if version_key is not missing:
-                        source.version_key = version_key
-
-                    source.save()
-                    batch_export.source = source
-
-            elif hogql_query is not missing:
-                validated_data["schema"] = (
-                    self.serialize_hogql_query_to_batch_export_schema(hogql_query) if hogql_query is not None else None
-                )
-
-            batch_export.destination.save()
-            batch_export = super().update(batch_export, validated_data)
-
-            sync_batch_export(batch_export, created=False)
-
-        return batch_export
+        except UnsupportedHogQLQueryError as e:
+            raise serializers.ValidationError(str(e))
 
 
-def recursive_dict_merge(
-    old: dict[str, typing.Any],
-    new: dict[str, typing.Any],
-) -> dict[str, typing.Any]:
-    """Merge two dictionaries, and recursively merge any dictionaries in them."""
-    merged = {**old, **new}
-
-    for key, value in merged.items():
-        if not isinstance(value, dict):
-            continue
-
-        # Recurse only when both sides are dicts: a dict replacing a scalar (e.g. inline
-        # credentials replacing an IAM role or an integration id) is an overwrite, not a merge.
-        old_value = old.get(key)
-        new_value = new.get(key)
-        merged[key] = recursive_dict_merge(
-            old_value if isinstance(old_value, dict) else {},
-            new_value if isinstance(new_value, dict) else {},
-        )
-
-    return merged
+# The viewset has no queryset to type the `id` path parameter from, so each detail action declares it.
+BATCH_EXPORT_ID_PARAMETER = OpenApiParameter(
+    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this batch export."
+)
 
 
 @extend_schema(tags=["batch_exports"])
@@ -1190,27 +668,42 @@ def recursive_dict_merge(
     # created before integrations keep their inline credentials on update.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
-    update=extend_schema(request=BatchExportRequestSerializer),
-    partial_update=extend_schema(request=BatchExportRequestSerializer),
+    update=extend_schema(request=BatchExportRequestSerializer, parameters=[BATCH_EXPORT_ID_PARAMETER]),
+    partial_update=extend_schema(request=BatchExportRequestSerializer, parameters=[BATCH_EXPORT_ID_PARAMETER]),
+    retrieve=extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER]),
+    destroy=extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER]),
+    logs=extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER]),
 )
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
-    queryset = (
-        BatchExport.objects.exclude(deleted=True)
-        .order_by("-created_at")
-        .prefetch_related("destination", "source")
-        .all()
-    )
     serializer_class = BatchExportSerializer
     log_source = "batch_exports"
 
-    def safely_get_queryset(self, queryset):
-        """Filter out batch exports with Workflows destination type if action is list."""
-        if self.action == "list":
-            return queryset.exclude(destination__type="Workflows")
-        return queryset
+    def dangerously_get_object(self) -> contracts.BatchExportConfiguration:
+        # The mixin's get_object() reads through a queryset, which this view does not have, so the
+        # export is read through the facade instead. That skips the mixin's team filter and object
+        # permission check, so both happen here: the facade filters by team, and
+        # check_object_permissions runs on the contract. `logs` reads the export through here too.
+        export_id = parse_path_uuid(self.kwargs["pk"])
+        try:
+            batch_export = batch_exports_api.get_batch_export(
+                self.team_id, export_id, include_latest_runs=self.action == "retrieve"
+            )
+        except BatchExportNotFoundError as e:
+            raise NotFound(*e.args) from e
+        self.check_object_permissions(self.request, batch_export)
+        return batch_export
 
-    @extend_schema(request=None)
+    def list(self, request: request.Request, *args: typing.Any, **kwargs: typing.Any) -> response.Response:
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        batch_exports = fetch_facade_page(
+            paginator,
+            request,
+            lambda offset, limit: batch_exports_api.list_batch_exports(self.team_id, offset=offset, limit=limit),
+        )
+        return paginator.get_paginated_response(self.get_serializer(batch_exports, many=True).data)
+
+    @extend_schema(request=None, parameters=[BATCH_EXPORT_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
@@ -1222,20 +715,16 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         team_id = batch_export.team_id
         note = f"Pause requested by user {user_id} from team {team_id}"
 
-        temporal = sync_connect()
-
         try:
-            pause_batch_export(temporal, str(batch_export.id), note=note)
-        except BatchExportIdError:
-            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
-        except BatchExportServiceRPCError:
+            batch_exports_api.pause_batch_export(team_id, batch_export.id, note=note)
+        except BatchExportNotFoundError:
+            raise NotFound(f"BatchExport ID '{batch_export.id}' not found.")
+        except BatchExportScheduleError:
             raise ValidationError("Invalid request to pause a BatchExport could not be carried out")
-        except BatchExportServiceError:
-            raise
 
         return response.Response({"paused": True})
 
-    @extend_schema(request=BatchExportUnpauseRequestSerializer)
+    @extend_schema(request=BatchExportUnpauseRequestSerializer, parameters=[BATCH_EXPORT_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
@@ -1251,28 +740,27 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         note = f"Unpause requested by user {user_id} from team {team_id}"
 
         batch_export = self.get_object()
-        temporal = sync_connect()
 
         try:
-            unpause_batch_export(temporal, str(batch_export.id), note=note, backfill=backfill)
-        except BatchExportIdError:
-            raise NotFound(f"BatchExport ID '{str(batch_export.id)}' not found.")
-        except BatchExportServiceRPCError:
+            batch_exports_api.unpause_batch_export(batch_export.team_id, batch_export.id, note=note, backfill=backfill)
+        except BatchExportNotFoundError:
+            raise NotFound(f"BatchExport ID '{batch_export.id}' not found.")
+        except BatchExportScheduleError:
             raise ValidationError("Invalid request to unpause a BatchExport could not be carried out")
-        except BatchExportServiceError:
-            raise
 
         return response.Response({"paused": False})
 
-    def perform_destroy(self, instance: BatchExport):
+    def perform_destroy(self, instance: contracts.BatchExportConfiguration) -> None:
         """Perform a BatchExport destroy by clearing Temporal and Django state.
 
         If the underlying Temporal Schedule doesn't exist, we ignore the error and proceed with the delete anyways.
         The Schedule could have been manually deleted causing Django and Temporal to go out of sync. For whatever reason,
-        since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
-        instance.save().
+        since we are deleting, we assume that we can recover from this state by finishing the delete operation.
         """
-        delete_batch_export(instance)
+        try:
+            batch_exports_api.delete_batch_export(instance.id, instance.team_id)
+        except BatchExportNotFoundError:
+            raise NotFound(f"BatchExport ID '{instance.id}' not found.")
 
     def _parse_destination_test_step(self, request: request.Request) -> int:
         step_serializer = DestinationTestStepRequestSerializer(data=request.data)
@@ -1280,19 +768,25 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         request.data.pop("step", None)
         return step_serializer.validated_data["step"]
 
-    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
+    def _run_destination_test_step(
+        self, serializer: serializers.BaseSerializer, step: int, *, export_id: uuid.UUID | None
+    ) -> response.Response:
         destination = serializer.validated_data["destination"]
-        integration: Integration | None = destination.get("integration")
         try:
             result = batch_exports_api.run_destination_test_step(
                 self.team_id,
+                export_id=export_id,
                 destination_type=destination["type"],
                 config=destination["config"],
-                integration_id=integration.id if integration else None,
+                integration_id=_get_integration_id(destination),
                 step=step,
             )
         except UnsupportedDestinationTestError:
             raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
+        except InvalidDestinationConfigError as e:
+            raise ValidationError(str(e))
+        except BatchExportNotFoundError:
+            raise NotFound(f"BatchExport ID '{export_id}' not found.")
         return response.Response(dataclasses.asdict(result))
 
     @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])
@@ -1315,25 +809,17 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         serializer = self.get_serializer(data=request.data)
         _ = serializer.is_valid(raise_exception=True)
 
-        return self._run_destination_test_step(serializer, test_step)
+        return self._run_destination_test_step(serializer, test_step, export_id=None)
 
+    @extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = self._parse_destination_test_step(request)
 
         batch_export = self.get_object()
-
-        # Remove any additional fields from stored configuration
-        _, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
-        workflow_fields = {field.name for field in dataclasses.fields(BaseBatchExportInputs)} | {
-            field.name for field in dataclasses.fields(workflow_inputs)
-        }
-        stored_config = {k: v for k, v in batch_export.destination.config.items() if k in workflow_fields}
-
-        data = request.data
-        data["destination"]["config"] = {**stored_config, **data["destination"]["config"]}
-
-        serializer = self.get_serializer(data=data)
+        serializer = self.get_serializer(
+            data=request.data, context={**self.get_serializer_context(), "partial_destination_config": True}
+        )
         _ = serializer.is_valid(raise_exception=True)
 
-        return self._run_destination_test_step(serializer, test_step)
+        return self._run_destination_test_step(serializer, test_step, export_id=batch_export.id)

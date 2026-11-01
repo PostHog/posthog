@@ -66,7 +66,10 @@ export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             width: '10%',
             render: function renderID(_, item) {
                 return (
-                    <Link to={urls.aiObservabilityDataset(dataset.id, { ...searchParams, item: item.id })}>
+                    <Link
+                        to={urls.aiObservabilityDataset(dataset.id, { ...searchParams, item: item.id })}
+                        data-attr="dataset-item-open"
+                    >
                         {truncateValue(item.id)}
                     </Link>
                 )
@@ -162,35 +165,39 @@ export function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    to={urls.aiObservabilityDataset(dataset.id, { ...searchParams, item: item.id })}
-                                    data-attr={`dataset-item-${item.id}-dropdown-edit`}
-                                    fullWidth
-                                >
-                                    {canEditDataset && !item.archived ? 'Edit' : 'View'}
-                                </LemonButton>
-
-                                {canManageDataset && !dataset.archived && !isHistoricalRevision && (
+                                <div data-attr="dataset-item-dropdown-edit">
                                     <LemonButton
-                                        status={item.archived ? undefined : 'danger'}
-                                        onClick={() =>
-                                            item.archived
-                                                ? restoreDatasetItem(item.id, item.version)
-                                                : archiveDatasetItem(item.id, item.version)
-                                        }
-                                        loading={archivingDatasetItemId === item.id}
-                                        disabledReason={
-                                            archivingDatasetItemId && archivingDatasetItemId !== item.id
-                                                ? 'Another dataset item is being archived'
-                                                : undefined
-                                        }
-                                        data-attr={`dataset-item-${item.id}-dropdown-${
-                                            item.archived ? 'unarchive' : 'archive'
-                                        }`}
+                                        to={urls.aiObservabilityDataset(dataset.id, { ...searchParams, item: item.id })}
+                                        data-attr={`dataset-item-${item.id}-dropdown-edit`}
                                         fullWidth
                                     >
-                                        {item.archived ? 'Unarchive' : 'Archive'}
+                                        {canEditDataset && !item.archived ? 'Edit' : 'View'}
                                     </LemonButton>
+                                </div>
+
+                                {canManageDataset && !dataset.archived && !isHistoricalRevision && (
+                                    <div data-attr={`dataset-item-dropdown-${item.archived ? 'unarchive' : 'archive'}`}>
+                                        <LemonButton
+                                            status={item.archived ? undefined : 'danger'}
+                                            onClick={() =>
+                                                item.archived
+                                                    ? restoreDatasetItem(item.id, item.version)
+                                                    : archiveDatasetItem(item.id, item.version)
+                                            }
+                                            loading={archivingDatasetItemId === item.id}
+                                            disabledReason={
+                                                archivingDatasetItemId && archivingDatasetItemId !== item.id
+                                                    ? 'Another dataset item is being archived'
+                                                    : undefined
+                                            }
+                                            data-attr={`dataset-item-${item.id}-dropdown-${
+                                                item.archived ? 'unarchive' : 'archive'
+                                            }`}
+                                            fullWidth
+                                        >
+                                            {item.archived ? 'Unarchive' : 'Archive'}
+                                        </LemonButton>
+                                    </div>
                                 )}
                             </>
                         }

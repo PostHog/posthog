@@ -6,13 +6,16 @@ import { register } from 'prom-client'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -23,6 +26,7 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailStatusService } from '../../messaging/email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
@@ -31,6 +35,7 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler, messageOptOutsAfterStep } from './hog_function'
 
@@ -87,7 +92,8 @@ describe('HogFunctionHandler', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            null
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
@@ -132,7 +138,8 @@ describe('HogFunctionHandler', () => {
             mockHogFlowFunctionsService,
             mockRecipientPreferencesService,
             mockEmailValidationService,
-            'fetch'
+            'fetch',
+            null
         )
 
         // Simple hog function that prints the inputs
@@ -556,16 +563,120 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    describe('transactional email status', () => {
+        const skipOptedOut = (): void => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
+        }
+        const skipSuppressed = (): void => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('suppressed')
+        }
+        const skipUnreachable = (): void => {
+            ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
+                'Skipping send: the domain has no reachable mail servers.'
+            )
+        }
+        const skipFrequencyCapped = (): void => {
+            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+        }
+
+        it.each([
+            ['an opt-out', skipOptedOut, TRANSACTIONAL_EMAIL_EVENT, 'function_email', false, 'recipient_opted_out'],
+            [
+                'a suppression',
+                skipSuppressed,
+                TRANSACTIONAL_EMAIL_EVENT,
+                'function_email',
+                false,
+                'recipient_suppressed',
+            ],
+            [
+                'a predicted bounce',
+                skipUnreachable,
+                TRANSACTIONAL_EMAIL_EVENT,
+                'function_email',
+                false,
+                'recipient_unreachable',
+            ],
+            [
+                'the frequency cap',
+                skipFrequencyCapped,
+                TRANSACTIONAL_EMAIL_EVENT,
+                'function_email',
+                false,
+                'frequency_capped',
+            ],
+            ['a suppression of a test send', skipSuppressed, TRANSACTIONAL_EMAIL_EVENT, 'function_email', true, null],
+            ['a suppression of a workflow email', skipSuppressed, '$pageview', 'function_email', false, null],
+            ['a suppression of an SMS step', skipSuppressed, TRANSACTIONAL_EMAIL_EVENT, 'function_sms', false, null],
+        ] as const)(
+            'records the email status of a send skipped by %s',
+            async (_desc, skip, triggerEvent, actionType, isTest, reason) => {
+                const produce = jest.fn().mockResolvedValue(undefined)
+                const emailStatusService = new EmailStatusService(
+                    { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
+                    { EMAIL_STATUS_ENABLED: true }
+                )
+                const handler = new HogFunctionHandler(
+                    mockHogFlowFunctionsService,
+                    mockRecipientPreferencesService,
+                    mockEmailValidationService,
+                    'email',
+                    emailStatusService
+                )
+                invocation.id = new UUIDT().toString()
+                invocation.state.event.event = triggerEvent
+                skip()
+                const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                    queue: 'hog',
+                    queuePriority: 0,
+                })
+
+                await handler.execute({
+                    invocation,
+                    action: { ...action, type: actionType } as Extract<HogFlowAction, { type: typeof actionType }>,
+                    result: invocationResult,
+                    hogExecutorOptions: { isTest },
+                })
+                await emailStatusService.flush()
+
+                const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
+                expect(rows).toEqual(
+                    reason
+                        ? [
+                              expect.objectContaining({
+                                  team_id: team.id,
+                                  message_id: invocation.id,
+                                  status: 'failed',
+                                  reason,
+                              }),
+                          ]
+                        : []
+                )
+            }
+        )
+    })
+
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
-    it.each([
-        ['fetch', 'workflow_billable_invocations'],
-        ['email', 'workflow_emails_sent'],
-        ['sms', 'workflow_sms_sent'],
-    ] as const)(
-        'emits a single billable_invocation with %s kind matching the handler billing type',
-        async (billingType, usageKey) => {
+    it.each(
+        (
+            [
+                ['fetch', 'workflow_billable_invocations'],
+                ['email', 'workflow_emails_sent'],
+                ['push', 'workflow_push_sent'],
+                ['sms', 'workflow_sms_sent'],
+            ] as const
+        ).flatMap(([billingType, usageKey]) =>
+            [
+                { mode: 'production', isTest: false, mockFunctions: false },
+                { mode: 'unmocked test', isTest: true, mockFunctions: false },
+                { mode: 'mocked test', isTest: true, mockFunctions: true },
+            ].map((options) => ({ billingType, usageKey, ...options }))
+        )
+    )(
+        'emits $billingType metrics and only excludes mocked usage in $mode mode',
+        async ({ billingType, usageKey, isTest, mockFunctions }) => {
             const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
                 reportBillableInvocation: jest.fn(),
             }
@@ -574,6 +685,7 @@ describe('HogFunctionHandler', () => {
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 billingType,
+                null,
                 usageReporter
             )
 
@@ -582,7 +694,17 @@ describe('HogFunctionHandler', () => {
                 queuePriority: 0,
             })
 
-            await handler.execute({ invocation, action, result: invocationResult })
+            await handler.execute({
+                invocation,
+                action,
+                result: invocationResult,
+                hogExecutorOptions: {
+                    isTest,
+                    ...(mockFunctions
+                        ? { asyncFunctionsNames: [], functions: { fetch: () => ({ status: 200, body: {} }) } }
+                        : {}),
+                },
+            })
 
             const billableMetrics = invocationResult.metrics.filter(
                 (metric) => metric.metric_name === 'billable_invocation'
@@ -598,9 +720,14 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey })
-            )
+            if (isTest && mockFunctions) {
+                expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
+            } else {
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(billingType === 'push' ? 2 : 1)
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                    expect.objectContaining({ teamId: team.id, usageKey })
+                )
+            }
         }
     )
 
@@ -617,6 +744,7 @@ describe('HogFunctionHandler', () => {
             mockRecipientPreferencesService,
             mockEmailValidationService,
             'push',
+            null,
             usageReporter
         )
 
@@ -639,9 +767,18 @@ describe('HogFunctionHandler', () => {
 
         expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
         if (shouldBill) {
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
-            )
+            const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:push`
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_push_sent',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_billable_invocations',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(2)
         } else {
             expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
         }
@@ -662,7 +799,8 @@ describe('HogFunctionHandler', () => {
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
-                billingType
+                billingType,
+                null
             )
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {
@@ -681,6 +819,43 @@ describe('HogFunctionHandler', () => {
             expect(invocationResult.invocation.state.flowVersion).toBe(expected)
         }
     )
+
+    it('keeps a paused protected send protected on its retry after protection is turned off', async () => {
+        const sentWith: any[] = []
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            (hogFunctionInvocation: any) => {
+                sentWith.push(hogFunctionInvocation.hogFunction.metadata)
+                return Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            }
+        )
+        ;(action.config as any).sensitive = true
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+        expect(firstResult.invocation.state.currentAction!.hogFunctionState!.sensitive).toBe(true)
+        ;(action.config as any).sensitive = false
+        await hogFunctionHandler.execute({
+            invocation: firstResult.invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
+    })
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
@@ -858,6 +1033,7 @@ describe('HogFunctionHandler', () => {
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 'fetch',
+                null,
                 undefined,
                 { awaitedStepsEnabled: true }
             )
@@ -924,6 +1100,7 @@ describe('HogFunctionHandler', () => {
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 'fetch',
+                null,
                 undefined,
                 { awaitedStepsEnabled }
             )
@@ -1041,6 +1218,7 @@ describe('HogFunctionHandler', () => {
                     mockRecipientPreferencesService,
                     mockEmailValidationService,
                     'fetch',
+                    null,
                     undefined,
                     { awaitedStepsEnabled }
                 )

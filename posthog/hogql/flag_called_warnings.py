@@ -1,14 +1,16 @@
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type, unwrap_table_alias_type
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
-# posthog/models/flag_evaluations/sql.py defines this name too. It imports django.conf, which this module keeps
-# off its import path, so the name is spelled out here.
-FLAG_CALLED_EVENT = "$feature_flag_called"
+from posthog.dataclasses import frozen
 
 # Orgs that can't query posthog.flag_evaluations yet get this warning too, so the copy speaks of the move in the future.
 FLAG_CALLED_ON_EVENTS_WARNING = (
@@ -17,10 +19,16 @@ FLAG_CALLED_ON_EVENTS_WARNING = (
     "posthog.flag_evaluations instead."
 )
 
+FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE = (
+    f"This query reads {FLAG_CALLED_EVENT} events from posthog.flag_evaluations, which keeps the last 90 days "
+    "of flag calls."
+)
 
-class _FlagCalledOnEventsFinder(TraversingVisitor):
-    def __init__(self) -> None:
+
+class _FlagCalledLiteralFinder(TraversingVisitor):
+    def __init__(self, table_class: type[Table]) -> None:
         super().__init__()
+        self.table_class = table_class
         self.literals: list[ast.Constant] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -43,26 +51,17 @@ class _FlagCalledOnEventsFinder(TraversingVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
             for field_side, value_side in ((node.left, node.right), (node.right, node.left)):
-                if _is_events_event_field(field_side):
+                if _is_event_field_of(field_side, self.table_class):
                     self.literals.extend(_flag_called_constants(value_side))
         super().visit_compare_operation(node)
 
 
-def _is_events_event_field(expr: ast.Expr) -> bool:
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    if not isinstance(expr, ast.Field):
+def _is_event_field_of(expr: ast.Expr, table_class: type[Table]) -> bool:
+    field_type = event_field_type(expr)
+    if field_type is None:
         return False
-    # A select alias used in WHERE wraps the column in one FieldAliasType per alias.
-    field_type = expr.type
-    while isinstance(field_type, ast.FieldAliasType):
-        field_type = field_type.type
-    if not isinstance(field_type, ast.FieldType) or field_type.name != "event":
-        return False
-    table_type = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
-    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
+    table_type = unwrap_table_alias_type(field_type.table_type)
+    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, table_class)
 
 
 def _flag_called_constants(expr: ast.Expr) -> list[ast.Constant]:
@@ -84,7 +83,7 @@ def flag_called_on_events_warnings(
     # A caller that passes an already printed AST never builds the database, and its AST may be rewritten.
     if context.database is None:
         return []
-    finder = _FlagCalledOnEventsFinder()
+    finder = _FlagCalledLiteralFinder(EventsTable)
     with context.timings.measure("flag_called_warnings"):
         finder.visit(resolve_types(clone_expr(node), context, dialect="clickhouse"))
     # A literal that a variable supplies has no span, and a notice without one marks the whole query.
@@ -93,3 +92,16 @@ def flag_called_on_events_warnings(
         for literal in finder.literals
         if literal.start is not None and literal.end is not None
     ]
+
+
+@frozen
+class LiteralSpan:
+    start: int | None
+    end: int | None
+
+
+def flag_called_spans_read_from_flag_evaluations(prepared: ast.AST) -> set[LiteralSpan]:
+    """The spans of the `$feature_flag_called` literals that a prepared AST compares to `flag_evaluations.event`."""
+    finder = _FlagCalledLiteralFinder(FlagEvaluationsTable)
+    finder.visit(prepared)
+    return {LiteralSpan(start=literal.start, end=literal.end) for literal in finder.literals}

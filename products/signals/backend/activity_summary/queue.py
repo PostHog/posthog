@@ -73,7 +73,11 @@ DAY = datetime.timedelta(days=1)
 _BOUND_CHARS_PER_TOKEN = 2
 # The cost bound when the model has no price. One update of the default model costs far less.
 _UNPRICED_UPDATE_COST_USD = 0.05
-_CALLED_MODEL = (UserActivitySummary.Status.OK, UserActivitySummary.Status.FAILED)
+_CALLED_MODEL = (
+    UserActivitySummary.Status.OK,
+    UserActivitySummary.Status.FAILED,
+    UserActivitySummary.Status.EMPTY_PROFILE,
+)
 
 SOURCE_ACTIVITY_LOG = "activity_log"
 SOURCE_TASKS = "tasks"
@@ -255,6 +259,19 @@ def enrollment(config: ActivitySummaryConfig) -> Enrollment:
 
 def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
     return enrollment(config).team_ids
+
+
+def mcp_buffer_team_ids(config: ActivitySummaryConfig) -> list[int]:
+    """The enrolled teams whose MCP intents the buffer keeps."""
+    if not config.mcp_buffer_enabled:
+        return []
+    if not config.mcp_buffer_organization_ids:
+        return enrolled_team_ids(config)
+    # Every web process refreshes this list, so check only the listed organizations' teams, not the full enrollment.
+    teams = Team.objects.filter(
+        organization_id__in=_parse_organization_ids(config.mcp_buffer_organization_ids)
+    ).select_related("organization")
+    return sorted(team.id for team in teams if is_team_enrolled_for_generation(config, team))
 
 
 def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:

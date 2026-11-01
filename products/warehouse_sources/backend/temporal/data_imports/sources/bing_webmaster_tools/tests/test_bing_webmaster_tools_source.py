@@ -43,10 +43,11 @@ class TestBingWebmasterToolsSource:
         # Static endpoint catalog with no I/O; must opt in so public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_throttle_fault_is_retryable_not_disabling(self):
+    @pytest.mark.parametrize("fault", ["ThrottleUser", "ThrottleIP"])
+    def test_throttle_fault_is_retryable_not_disabling(self, fault):
         # A rate-limit fault must keep Temporal retrying the activity (it is not a permanent
         # account/credential problem) and must stay out of error tracking as noise.
-        error_message = "Bing Webmaster Tools GetUserSites failed with status 400: ERROR!!! ThrottleUser"
+        error_message = f"Bing Webmaster Tools GetUserSites failed with status 400: ERROR!!! {fault}"
 
         assert error_message_matches(error_message, self.source.get_retryable_errors())
         assert not error_message_matches(error_message, self.source.get_non_retryable_errors())

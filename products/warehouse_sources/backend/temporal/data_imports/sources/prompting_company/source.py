@@ -135,6 +135,7 @@ class PromptingCompanySource(ResumableSource[PromptingCompanySourceConfig, Promp
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Analytics start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

@@ -20,9 +20,11 @@ export function EvaluationResultCell({ row }: { row: EvaluationResultApi }): JSX
             <div className="text-sm @3xl:text-base font-semibold">{resultHeadline(row)}</div>
             <div className="text-xs text-secondary">{resultEvidence(row)}</div>
             {/* The trend column hides on a narrow table, so the change shows here instead. */}
-            <div className="text-xs mt-0.5 @min-[32.5rem]:hidden">
-                <EvaluationResultChange row={row} />
-            </div>
+            {row.change && (
+                <div className="text-xs mt-0.5 @min-[32.5rem]:hidden">
+                    <EvaluationResultChange row={row} />
+                </div>
+            )}
         </div>
     )
     return row.lowEvidence ? (

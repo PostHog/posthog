@@ -134,6 +134,7 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="attribute_names",
+                        sync_setting=True,
                         label="Attribute names",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

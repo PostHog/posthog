@@ -21,6 +21,7 @@ from prometheus_client import Counter
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.security.outbound_proxy import internal_requests
 
+from products.tasks.backend.exceptions import GatewayTokenUnavailableError, ProcessTaskTransientError
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_PRODUCT,
     PRODUCT_CREDIT_BUCKET,
@@ -128,8 +129,7 @@ _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 
 
-def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
-    """The `ai_product` the agent server will resolve for this run."""
+def _origin_gateway_product(origin_product: str | None, *, internal: bool) -> str:
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
     # Stored rows may carry a caller-set review_hog origin predating its
     # reservation; only the server-stamped `internal` flag admits the mintable product.
@@ -140,7 +140,22 @@ def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None,
         logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
-        gateway_product = "background_agents" if internal else "posthog_code"
+        return "background_agents" if internal else "posthog_code"
+    return gateway_product
+
+
+def resolve_sandbox_ai_product(
+    origin_product: str | None,
+    ai_stage: str | None,
+    *,
+    internal: bool = False,
+    billing_product: str | None = None,
+    profile_billing_product: str | None = None,
+) -> str:
+    """The `ai_product` the agent server will resolve for this run."""
+    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
+        return "posthog_ai"
+    gateway_product = profile_billing_product or _origin_gateway_product(origin_product, internal=internal)
     if gateway_product == "signals" and ai_stage:
         stage = "scout" if ai_stage.startswith(_SCOUT_STAGE_PREFIX) else ai_stage
         if stage in _SIGNALS_STAGE_PRODUCTS:
@@ -249,8 +264,9 @@ def mint_refusal(
         refusal = _posthog_code_refusal(team_id, model)
         if refusal:
             return refusal
-    # Pi reaches Go only for posthog_code.
-    elif runtime == "pi":
+    elif runtime == "pi" and not (
+        ai_product in {"signals_scout", "posthog_ai"} and origin_product == "signals_scout" and internal
+    ):
         return "pi_runtime"
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
@@ -359,6 +375,7 @@ def mint_scoped_token(
     capture_mode: Literal["none"] | None = None,
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
+    raise_on_failure: bool = False,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -367,6 +384,7 @@ def mint_scoped_token(
     `allowed_models` narrows the product's pin (a free Desktop plan).
     Retries mint rate limits (429) and transient upstream errors with jittered
     backoff. Private callers require an acknowledged capture pin and fail closed on None.
+    `raise_on_failure` preserves retryability for callers that cannot use a fallback gateway.
     """
     gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
     base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
@@ -393,6 +411,7 @@ def mint_scoped_token(
     if capture_mode is not None:
         body["capture_mode"] = capture_mode
     last_error: str = ""
+    retryable = True
     for attempt in range(_MINT_ATTEMPTS):
         try:
             response = post(
@@ -417,6 +436,7 @@ def mint_scoped_token(
                         # Older gateways ignore unknown fields; never use their unprotected token.
                         revoke_scoped_token(token, gateway_config=gateway_config)
                         last_error = "mint response did not acknowledge capture suppression"
+                        retryable = False
                         break
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token
@@ -424,6 +444,7 @@ def mint_scoped_token(
                 last_error = f"HTTP {response.status_code}"
             else:
                 # 4xx other than 429 will not improve on retry (bad credential, bad body).
+                retryable = False
                 last_error = (
                     f"HTTP {response.status_code}"
                     if capture_mode is not None
@@ -443,4 +464,14 @@ def mint_scoped_token(
         last_error,
         extra={"ai_product": ai_product, "team_id": team_id, "error": last_error},
     )
+    if raise_on_failure:
+        context = {"team_id": team_id, "reason": "mint_failed"}
+        if retryable:
+            raise ProcessTaskTransientError(
+                "The AI gateway could not mint a scoped token. Try again in a few minutes.",
+                context,
+                RuntimeError("mint_failed"),
+                capture=False,
+            )
+        raise GatewayTokenUnavailableError("The AI gateway rejected the scoped token request.", context)
     return None

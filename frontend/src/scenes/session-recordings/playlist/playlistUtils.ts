@@ -24,16 +24,29 @@ import {
     UniversalFilterValue,
 } from '~/types'
 
-/**
- * There's an edge case (ticket) where depending on entrypoint to Replay, pre-seeded
- * session IDs can be accidentally saved explicilty as part of a saved filter (unintentionally)
- */
+export function splitOngoingRecordings<T extends { ongoing?: boolean }>(
+    recordings: T[],
+    enabled: boolean
+): { ongoing: T[]; finished: T[] } {
+    if (!enabled || !recordings.some((r) => r.ongoing)) {
+        return { ongoing: [], finished: recordings }
+    }
+    return { ongoing: recordings.filter((r) => r.ongoing), finished: recordings.filter((r) => !r.ongoing) }
+}
+
+// Pre-seeded session ids and the person picked from the player belong to the open list, not to a saved filter.
 export function stripSessionIds<T extends Partial<RecordingUniversalFilters> | undefined | null>(filters: T): T {
-    if (!filters || !('session_ids' in filters)) {
+    if (!filters || !('session_ids' in filters || 'person_uuid' in filters)) {
         return filters
     }
-    const { session_ids: _session_ids, ...rest } = filters
+    const { session_ids: _session_ids, person_uuid: _person_uuid, ...rest } = filters
     return rest as T
+}
+
+// The list writes recommended_only false back. A saved filter never holds it.
+export function comparableRecordingFilters<T extends Partial<RecordingUniversalFilters>>(filters: T): T {
+    const { recommended_only, ...rest } = stripSessionIds(filters)
+    return (recommended_only ? { ...rest, recommended_only } : rest) as T
 }
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
@@ -143,7 +156,7 @@ export async function createPlaylist(
 
 export async function deletePlaylist(
     playlist: SessionRecordingPlaylistType,
-    undoCallback?: () => void
+    undoCallback?: (undo: boolean) => void
 ): Promise<SessionRecordingPlaylistType> {
     await deleteWithUndo({
         object: playlist,
@@ -155,7 +168,7 @@ export async function deletePlaylist(
             } else {
                 deleteFromTree('session_recording_playlist', playlist.short_id)
             }
-            undoCallback?.()
+            undoCallback?.(undo)
         },
     })
     return playlist

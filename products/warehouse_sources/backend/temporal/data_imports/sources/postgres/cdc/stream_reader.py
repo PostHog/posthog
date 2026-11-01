@@ -18,6 +18,7 @@ import structlog
 import psycopg.errors
 from psycopg import sql
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import TLSOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import PgOutputDecoder
@@ -103,7 +104,7 @@ class PgCDCStreamReader:
             from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
             source_impl = PostgresSource()
-            config = source_impl.parse_config(self._source.job_inputs or {})
+            config = source_impl.parse_config(SourceInputsStore.load(self._source))
             tunnel_cm = source_impl.with_ssh_tunnel(config, self._source.team_id)
             self._effective_host, self._effective_port = tunnel_cm.__enter__()
             self._tunnel_cm = tunnel_cm
@@ -369,7 +370,7 @@ class PgCDCStreamReader:
         return self._decoder.get_key_columns(table_name)
 
     @property
-    def last_commit_end_lsn(self) -> str | None:
+    def last_commit_position(self) -> str | None:
         """End LSN of the most recently committed transaction.
 
         Non-None even when only TRUNCATE messages were decoded (no ChangeEvents).

@@ -367,7 +367,7 @@ class HighlightMetricSerializer(DataclassSerializer):
     reason = serializers.ChoiceField(
         choices=HighlightMetricReason.choices,
         allow_null=True,
-        help_text="Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project. Null for a number the person pinned, which `pins` lists, and for metrics computed before this field existed.",
+        help_text="Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.",
     )
     dashboard_name = serializers.CharField(
         allow_null=True,
@@ -422,6 +422,9 @@ class HighlightItemSerializer(DataclassSerializer):
         dataclass = HighlightItem
         extra_kwargs = {
             "source": {"help_text": "Name of the highlight source that found the item, for example alerts."},
+            "product": {
+                "help_text": "Product that declares the source, for example feature_flags. Null for items stored before this field existed and for sources that no product declares any more."
+            },
         }
 
 

@@ -5,7 +5,7 @@ from django.conf import settings
 
 from rest_framework.exceptions import Throttled
 
-from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
     app_org_concurrency_slot,
@@ -38,4 +38,4 @@ def query_concurrency_slots(team: Team) -> Iterator[None]:
         ):
             yield
     except ConcurrencyLimitExceeded as error:
-        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+        raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error

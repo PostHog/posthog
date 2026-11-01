@@ -347,6 +347,15 @@ class DataWarehouseSavedQuerySerializer(
             capture_exception(e)
             logger.exception("Failed to report view action", analytics_event=event)
 
+    def _validate_view_dependencies(self, team: Team, name: str, query: str) -> None:
+        try:
+            get_parents_from_model_query(team, name, query, database=self.context["database"])
+        except (RecursionError, ResolutionCycleError):
+            raise serializers.ValidationError("Model contains a cycle")
+        except Exception as error:
+            _capture_unless_user_error(error)
+            raise _view_types_validation_error(error)
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -357,6 +366,8 @@ class DataWarehouseSavedQuerySerializer(
         sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("edited_history_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
+
+        self._validate_view_dependencies(self.context["get_team"](), view.name, validated_data["query"]["query"])
 
         if not soft_update:
             try:
@@ -471,6 +482,12 @@ class DataWarehouseSavedQuerySerializer(
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
+        if "query" in validated_data or "name" in validated_data:
+            self._validate_view_dependencies(
+                instance.team,
+                validated_data.get("name", instance.name),
+                validated_data.get("query", instance.query)["query"],
+            )
         if "query" in validated_data and not soft_update:
             # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
             # carrying the pending query and name rather than the stored ones, as create() does.
@@ -480,12 +497,6 @@ class DataWarehouseSavedQuerySerializer(
                 query=validated_data["query"],
             )
             try:
-                get_parents_from_model_query(
-                    instance.team,
-                    probe.name,
-                    validated_data["query"]["query"],
-                    database=self.context["database"],
-                )
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
                     inferred_columns = probe.get_columns(user=self.context["request"].user)

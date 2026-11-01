@@ -1483,6 +1483,9 @@ class ExternalDataSourceType(LabeledStrEnum):
     AWSS3TABLES = "AwsS3Tables", "AwsS3Tables"
     BEACONS = "Beacons", "Beacons"
     WOOPAYMENTS = "WooPayments", "WooPayments"
+    SONIOX = "Soniox", "Soniox"
+    NANGO = "Nango", "Nango"
+    FATHOM = "Fathom", "Fathom"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
@@ -1504,6 +1507,12 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.TRINO: "trino",
     ExternalDataSourceType.BIGQUERY: "bigquery",
 }
+
+
+class CDCEngine(StrEnum):
+    """Change data capture engine of a source type, which picks its CDC setup form and status panel."""
+
+    POSTGRES = "postgres"
 
 
 class ManagedWarehouseSQLMode(StrEnum):

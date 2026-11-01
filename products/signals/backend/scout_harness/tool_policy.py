@@ -56,8 +56,6 @@ SANDBOX_HARNESS_OPERATIONS: tuple[McpToolApiOperation, ...] = tuple(
         ("POST", f"{_RUN}artifacts/prepare_upload/"),
         ("POST", f"{_RUN}artifacts/finalize_upload/"),
         ("POST", f"{_RUN}living_artifacts/"),
-        ("GET", f"{_RUN}peers/"),
-        ("POST", f"{_RUN}peers/{{peer_run_id}}/message/"),
         ("GET", "/api/projects/{project_id}/signals/reports/"),
         ("GET", "/api/projects/{project_id}/mcp_server_installations/{id}/tools/"),
     )

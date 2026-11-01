@@ -1,5 +1,6 @@
 from dataclasses import field
 from enum import Enum
+from typing import Any, Literal
 
 from posthog.dataclasses import frozen
 
@@ -19,6 +20,8 @@ class PaginationStyle(Enum):
     OFFSET = "offset"
     # Analytics time-series and click-position endpoints answer the whole period at once.
     SINGLE = "single"
+    # Ingestion API listings use 1-based `page` numbers and report `pagination.nbPages`.
+    INGESTION_PAGE = "ingestion_page"
 
 
 class AlgoliaApi(Enum):
@@ -26,6 +29,10 @@ class AlgoliaApi(Enum):
     SEARCH = "search"
     # Analytics and A/B Testing APIs, served at `analytics.{region}.algolia.com`.
     ANALYTICS = "analytics"
+    # Ingestion API (connectors), served at `data.{region}.algolia.com`.
+    INGESTION = "ingestion"
+    # Query Suggestions API, served at `query-suggestions.{region}.algolia.com`.
+    QUERY_SUGGESTIONS = "query_suggestions"
 
 
 @frozen
@@ -53,6 +60,11 @@ class AlgoliaEndpointConfig:
     start_param: str | None = None
     # Set when the path takes a parameter resolved from another endpoint's rows.
     fanout: DependentEndpointConfig | None = None
+    # Query param carrying the offset paginator's page size.
+    limit_param: str = "limit"
+    # Static query params sent with every request to the endpoint.
+    params: dict[str, Any] = field(default_factory=dict)
+    sort_mode: Literal["asc", "desc"] | None = "asc"
 
     @property
     def default_incremental_field(self) -> str | None:
@@ -62,6 +74,10 @@ class AlgoliaEndpointConfig:
 # Algolia keeps attributing events to recent days after those days close, so an incremental sync
 # re-reads a trailing window from the stored watermark and merges it back on `date`.
 ANALYTICS_LOOKBACK_DAYS = 3
+
+# Ingestion runs change status after they are created, so an incremental sync re-reads the runs
+# created in this window before the stored watermark and merges them back on their ID.
+INGESTION_LOOKBACK_HOURS = 24
 
 _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("date", IncrementalFieldType.Date)]
 
@@ -295,6 +311,96 @@ ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
         primary_keys=None,
         should_sync_default=False,
         api=AlgoliaApi.ANALYTICS,
+    ),
+    # Search API request log. Algolia keeps only the last seven days and lists the newest entries
+    # first, with no date filter, so each sync replaces the snapshot.
+    "api_logs": AlgoliaEndpointConfig(
+        name="api_logs",
+        path="/1/logs",
+        method="GET",
+        pagination=PaginationStyle.OFFSET,
+        data_selector="logs",
+        # No ID field exists. `sha1` is the signature of the entry, and the timestamp guards it.
+        primary_keys=["timestamp", "sha1"],
+        requires_index=False,
+        should_sync_default=False,
+        limit_param="length",
+    ),
+    # Ingestion API (connectors). Application-level, so no index.
+    "ingestion_runs": AlgoliaEndpointConfig(
+        name="ingestion_runs",
+        path="/1/runs",
+        method="GET",
+        pagination=PaginationStyle.INGESTION_PAGE,
+        data_selector="runs",
+        primary_keys=["runID"],
+        requires_index=False,
+        should_sync_default=False,
+        page_size=100,
+        api=AlgoliaApi.INGESTION,
+        start_param="startDate",
+        incremental_fields=[incremental_field("createdAt", IncrementalFieldType.DateTime)],
+        params={"sort": "createdAt", "order": "asc"},
+    ),
+    "ingestion_run_events": AlgoliaEndpointConfig(
+        name="ingestion_run_events",
+        # Without `startDate`, Algolia returns only the events of the last three hours, so each
+        # request starts the window at the creation time of its run.
+        path="/1/runs/{runID}/events?startDate={startDate}",
+        method="GET",
+        pagination=PaginationStyle.INGESTION_PAGE,
+        data_selector="events",
+        primary_keys=["eventID"],
+        requires_index=False,
+        should_sync_default=False,
+        page_size=100,
+        api=AlgoliaApi.INGESTION,
+        # The event filter is bound to each run, so the incremental watermark bounds the runs
+        # listing instead of the event requests.
+        incremental_fields=[incremental_field("publishedAt", IncrementalFieldType.DateTime)],
+        params={"sort": "publishedAt", "order": "asc"},
+        # One request series per run, so the rows of the table are not one ordered series.
+        sort_mode=None,
+        fanout=DependentEndpointConfig(
+            parent_name="ingestion_runs",
+            resolve_param="runID",
+            resolve_field="runID",
+            include_from_parent=[],
+            # `startDate` is derived from the run's `createdAt` when the parent rows are read.
+            child_params={"startDate": {"type": "resolve", "resource": "ingestion_runs", "field": "startDate"}},
+        ),
+    ),
+    # Query Suggestions API. The listing returns every configuration in one JSON array.
+    "query_suggestions_configs": AlgoliaEndpointConfig(
+        name="query_suggestions_configs",
+        path="/1/configs",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="$",
+        primary_keys=["indexName"],
+        requires_index=False,
+        should_sync_default=False,
+        api=AlgoliaApi.QUERY_SUGGESTIONS,
+    ),
+    "query_suggestions_logs": AlgoliaEndpointConfig(
+        name="query_suggestions_logs",
+        path="/1/logs/{indexName}",
+        method="GET",
+        pagination=PaginationStyle.SINGLE,
+        data_selector="$",
+        # Log entries carry no ID, and the table holds only the latest build of each index.
+        primary_keys=None,
+        requires_index=False,
+        should_sync_default=False,
+        api=AlgoliaApi.QUERY_SUGGESTIONS,
+        fanout=DependentEndpointConfig(
+            parent_name="query_suggestions_configs",
+            resolve_param="indexName",
+            # The percent-encoded copy of `indexName` that is made when the parent rows are read.
+            resolve_field="indexNamePath",
+            include_from_parent=["indexName"],
+            parent_field_renames={"indexName": "indexName"},
+        ),
     ),
 }
 

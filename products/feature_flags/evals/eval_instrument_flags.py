@@ -34,7 +34,7 @@ score as a trigger regression here. The trigger wording is what is graded.
 
 The pair is a baseline, not a quality bar: it measures whether the description
 fires on the right request, not whether the workflow the skill teaches is good.
-Both cases are ``SandboxedPrivateEval`` so they run without a Braintrust key.
+Both cases are ``SandboxedEval`` so they run without a Braintrust key.
 
 **Claude runtime only.** Under ``--agent-runtime codex`` the guard refuses the
 cases rather than scoring them. See ``_CODEX_UNSUPPORTED`` for the two reasons and
@@ -55,14 +55,12 @@ from django.conf import settings
 
 from products.feature_flags.evals.offline_config import offline_suite
 from products.feature_flags.evals.scorers import FILE_EDIT_TOOLS
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-
-NO_SEND_LOGS = True
 
 SKILL_NAME = "instrument-feature-flags"
 SCORER_NAME = "instrument_flags_skill_triggered"
@@ -146,8 +144,7 @@ async def eval_instrument_flags(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-feature-flags-instrument-trigger-cli",
         offline_suite=offline_suite(
             "feature_flags/eval_instrument_flags::eval_instrument_flags",

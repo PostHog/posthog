@@ -23,6 +23,7 @@ export function quickInboxSetupDraft(
             scanners.filter((scanner) => scanner.enabled).map((scanner) => scanner.id)
         ),
         step: 'github',
+        setup_mode: 'quick',
         suggestions: [
             {
                 id: `builtin:${general.id}`,

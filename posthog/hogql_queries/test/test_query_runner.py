@@ -943,9 +943,8 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_hit_and_fresh_events_carry_one_identity(self) -> None:
         runner_class = setup_test_query_runner_class()
-        self.team.modifiers = {"useNewEventsSchema": True}
-        self.team.save()
         with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
             mock.patch(
                 "posthog.hogql_queries.query_runner.create_default_modifiers_for_user", side_effect=_add_user_modifier
             ),

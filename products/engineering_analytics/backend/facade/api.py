@@ -27,6 +27,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     AttentionPullRequestList,
     AuthorFrictionDetail,
     AuthorFrictionList,
+    AuthorLLMSpendList,
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
@@ -45,6 +46,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
     GitHubTeamRoster,
     JobLogInsights,
+    LLMSpendCoverage,
     MasterFailureGroup,
     MergedPullRequest,
     PRCostSummary,
@@ -285,6 +287,44 @@ def list_author_workflow_costs(
     return logic.build_author_workflow_costs(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         author=author,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def list_author_llm_spend(
+    *,
+    team: Team,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorLLMSpendList:
+    return logic.build_author_llm_spend(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        author=author,
+        repo=repo,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
+
+
+def get_llm_spend_coverage(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> LLMSpendCoverage:
+    return logic.build_llm_spend_coverage(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        repo=repo,
         date_from=date_from,
         date_to=date_to,
     )

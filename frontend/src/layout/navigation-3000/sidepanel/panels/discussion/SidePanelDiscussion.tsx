@@ -17,7 +17,8 @@ import { sidePanelDiscussionLogic } from './sidePanelDiscussionLogic'
 const HedgehogStop = pngHoggie(stopPng)
 
 export const SidePanelDiscussion = (): JSX.Element => {
-    const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
+    const { commentsLogicProps, sceneSidePanelContext } = useValues(sidePanelDiscussionLogic)
+    const disabledReason = sceneSidePanelContext.discussions_disabled_reason
     const { scope, item_id } = commentsLogicProps ?? {}
 
     const discussionTitle = (
@@ -43,6 +44,8 @@ export const SidePanelDiscussion = (): JSX.Element => {
                     <DiscussionContent logicProps={commentsLogicProps}>
                         <SidePanelPaneHeader title={discussionTitle} />
                     </DiscussionContent>
+                ) : disabledReason ? (
+                    <p className="m-0 p-4 text-secondary">{disabledReason}</p>
                 ) : (
                     <div className="mx-auto p-8 max-w-160 mt-8 ">
                         <div className="max-w-24 mx-auto">

@@ -4,6 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { getBarColorFromStatus } from 'lib/colors'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
@@ -25,7 +26,6 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
-import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
     canHandleTrendsChartClick,
     handleTrendsChartClick,
@@ -66,6 +66,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         lifecycleFilter,
         formula,
         hasPersonsModal,
+        actionNames,
         querySource,
         showValuesOnSeries,
         showPercentagesOnSeries,
@@ -113,8 +114,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const {
@@ -260,6 +261,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-lifecycle-graph"

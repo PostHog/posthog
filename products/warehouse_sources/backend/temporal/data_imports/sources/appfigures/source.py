@@ -78,6 +78,7 @@ Stores, Categories, and Countries are reference tables that need no data set gra
                     ),
                     SourceFieldInputConfig(
                         name="aso_countries",
+                        sync_setting=True,
                         label="ASO keyword countries (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
