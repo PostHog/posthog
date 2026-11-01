@@ -22,13 +22,16 @@ intentionally absent until the warehouse data that backs them lands.
 """
 
 from dataclasses import field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from typing import Any
 
 from pydantic.dataclasses import dataclass
 
 from posthog.hogql.database.models import FieldOrTable
 
 from posthog.enums import LabeledStrEnum
+
+from products.data_modeling.backend.facade.managed_viewset_hooks import DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY
 
 
 class CIEngine(LabeledStrEnum):
@@ -58,7 +61,7 @@ class GitHubSourceNotConnectedError(Exception):
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 # Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
 # spends the team's warehouse compute, so no team gets one without opting in.
-FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
+MATERIALIZED_VIEWS_FEATURE_FLAG = "engineering-analytics-friction"
 
 
 # The default labels would equal the choices of data_warehouse's backfill lifecycle state. Two classes with
@@ -297,6 +300,8 @@ class ExpectedWarehouseView:
     query: str
     fields: dict[str, FieldOrTable]
     materialized: bool = False
+    sync_frequency: timedelta = DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY
+    incremental_config: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
