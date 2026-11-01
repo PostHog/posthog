@@ -127,8 +127,9 @@ def _object_id(item: ActivityItem) -> str | None:
 class _OwnedEntry:
     scope: str
     id: str
-    rows: tuple[ActivityItem, ...]
+    latest: ActivityItem
     edit_days: int
+    created: bool
 
 
 def _owned_entries(edits: dict[tuple[str, str], list[ActivityItem]]) -> list[_OwnedEntry]:
@@ -138,38 +139,42 @@ def _owned_entries(edits: dict[tuple[str, str], list[ActivityItem]]) -> list[_Ow
     with the newest row. A created dashboard ranks above the objects edited on as many days, such as
     the insights on it. The first pass takes at most `MAX_OWNED_PER_TYPE` of a type, and the second
     fills the rest of the slots."""
-    merged: dict[tuple[str, str], list[tuple[str, list[ActivityItem]]]] = {}
+    merged: dict[tuple[str, str], list[_OwnedEntry]] = {}
     for (scope, object_id), rows in edits.items():
         latest = max(rows, key=lambda row: row.at)
-        merged.setdefault((scope, _name(latest.name or "").casefold()), []).append((object_id, rows))
-    entries: list[_OwnedEntry] = []
-    for (scope, _), objects in merged.items():
-        newest_id, _ = max(objects, key=lambda entry: max(row.at for row in entry[1]))
-        entries.append(
-            _OwnedEntry(
-                scope=scope,
-                id=newest_id,
-                rows=tuple(row for _, rows in objects for row in rows),
-                edit_days=sum(len({_day(row.at) for row in rows}) for _, rows in objects),
-            )
+        entry = _OwnedEntry(
+            scope=scope,
+            id=object_id,
+            latest=latest,
+            edit_days=len({_day(row.at) for row in rows}),
+            created=any(row.activity == "created" for row in rows),
         )
+        merged.setdefault((scope, _name(latest.name or "").casefold()), []).append(entry)
+    entries = [
+        dataclasses.replace(
+            max(objects, key=lambda entry: entry.latest.at),
+            edit_days=sum(entry.edit_days for entry in objects),
+            created=any(entry.created for entry in objects),
+        )
+        for objects in merged.values()
+    ]
     entries.sort(
         key=lambda entry: (
             -entry.edit_days,
-            not (entry.scope == DASHBOARD_SCOPE and any(row.activity == "created" for row in entry.rows)),
-            -max(row.at for row in entry.rows).timestamp(),
+            not (entry.scope == DASHBOARD_SCOPE and entry.created),
+            -entry.latest.at.timestamp(),
             entry.scope,
             entry.id,
         )
     )
-    chosen: set[int] = set()
     per_type: Counter[str] = Counter()
-    for index, entry in enumerate(entries):
-        if len(chosen) < MAX_OWNED and per_type[entry.scope] < MAX_OWNED_PER_TYPE:
+    first: list[_OwnedEntry] = []
+    for entry in entries:
+        if len(first) < MAX_OWNED and per_type[entry.scope] < MAX_OWNED_PER_TYPE:
             per_type[entry.scope] += 1
-            chosen.add(index)
-    chosen.update([index for index in range(len(entries)) if index not in chosen][: MAX_OWNED - len(chosen)])
-    return [entries[index] for index in sorted(chosen)]
+            first.append(entry)
+    rest = [entry for entry in entries if entry not in first][: MAX_OWNED - len(first)]
+    return [entry for entry in entries if entry in first or entry in rest]
 
 
 def _ranked(counts: Counter[Product]) -> tuple[str, ...]:
@@ -197,16 +202,15 @@ def compute_fields(
 
     owned: list[OwnedObject] = []
     for entry in _owned_entries(edits):
-        latest = max(entry.rows, key=lambda row: row.at)
         owned.append(
             OwnedObject(
                 ref=f"o{len(owned) + 1}",
                 type=_snake(entry.scope),
                 id=entry.id,
-                name=_name(latest.name or ""),
+                name=_name(entry.latest.name or ""),
                 edit_days=entry.edit_days,
-                last_at=_day(latest.at).isoformat(),
-                created=any(row.activity == "created" for row in entry.rows),
+                last_at=_day(entry.latest.at).isoformat(),
+                created=entry.created,
             )
         )
 

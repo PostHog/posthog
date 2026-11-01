@@ -13,6 +13,7 @@ import math
 import random
 import hashlib
 import datetime
+import functools
 import dataclasses
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -758,6 +759,8 @@ def is_auto_named(name: str) -> bool:
     return _AUTO_NAME.search(name) is not None
 
 
+# Every `person_activity` call checks each row, and a window repeats the same names many times.
+@functools.lru_cache(maxsize=4096)
 def is_unnamed(name: str) -> bool:
     """True for an empty name, and for a name that is only masks or digits once `clean_text` masks it."""
     return _MEANINGLESS_NAME.fullmatch(clean_text(name, ACTIVITY_NAME_CHARS * 2)) is not None
@@ -984,7 +987,7 @@ def without_products(
     return kept_activity, kept_views
 
 
-def _days(count: int) -> str:
+def days_text(count: int) -> str:
     return f"{count} day" if count == 1 else f"{count} days"
 
 
@@ -1027,9 +1030,9 @@ def view_units(
             continue
         opened = len(set(view.days))
         name_text = cap_line(clean_text(name, ACTIVITY_NAME_CHARS * 2), ACTIVITY_NAME_CHARS)
-        facts = [f"opened {_days(opened)}", f"last {_day(view.at).isoformat()}"]
+        facts = [f"opened {days_text(opened)}", f"last {_day(view.at).isoformat()}"]
         if edited := len(edit_days.get((scope_of(view.type), name), ())):
-            facts.append(f"edited {_days(edited)}")
+            facts.append(f"edited {days_text(edited)}")
         if view.not_theirs:
             facts.append("not theirs")
         label = view.type.split("/")[0].replace("_", " ").capitalize()

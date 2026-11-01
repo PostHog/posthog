@@ -12,7 +12,13 @@ from typing import Any
 
 from django.db import models
 
-from products.signals.backend.activity_summary.render import PRODUCT_LABELS, PROFILE_MAX_CHARS, Product, cap_line
+from products.signals.backend.activity_summary.render import (
+    PRODUCT_LABELS,
+    PROFILE_MAX_CHARS,
+    Product,
+    cap_line,
+    days_text,
+)
 
 PROMPT_VERSION = 7
 
@@ -168,10 +174,6 @@ def _product_label(key: str) -> str:
     return PRODUCT_LABELS.get(Product(key), key) if key in Product._value2member_map_ else key
 
 
-def _days(count: int) -> str:
-    return f"{count} day" if count == 1 else f"{count} days"
-
-
 def computed_lines(computed: Mapping[str, Any] | None) -> str:
     """The computed lists of `computed.py` with their refs, at most `COMPUTED_MAX_CHARS` long.
 
@@ -188,10 +190,10 @@ def computed_lines(computed: Mapping[str, Any] | None) -> str:
     watched = {item["ref"]: item for item in computed.get("watched", [])}
     lines: list[str] = []
     for item in computed.get("owned", []):
-        facts = [f"edited on {_days(item['edit_days'])}"]
+        facts = [f"edited on {days_text(item['edit_days'])}"]
         last_at = item["last_at"]
         if (opened := watched.pop(item["ref"], None)) is not None:
-            facts.append(f"opened on {_days(opened['open_days'])}")
+            facts.append(f"opened on {days_text(opened['open_days'])}")
             last_at = max(last_at, opened["last_at"])
         facts.append(f"last {last_at}")
         if item["created"]:
@@ -200,13 +202,13 @@ def computed_lines(computed: Mapping[str, Any] | None) -> str:
     for item in watched.values():
         not_theirs = ", not theirs" if item["not_theirs"] else ""
         lines.append(
-            f'- {item["ref"]} {item["type"]} "{item["name"]}": opened on {_days(item["open_days"])}, last {item["last_at"]}{not_theirs}'
+            f'- {item["ref"]} {item["type"]} "{item["name"]}": opened on {days_text(item["open_days"])}, last {item["last_at"]}{not_theirs}'
         )
     for item in computed.get("pages", []):
         if item["open_days"] < MIN_PAGE_OPEN_DAYS:
             continue
         lines.append(
-            f"- {item['ref']} {_product_label(item['product'])} pages: opened on {_days(item['open_days'])}, last {item['last_at']}"
+            f"- {item['ref']} {_product_label(item['product'])} pages: opened on {days_text(item['open_days'])}, last {item['last_at']}"
         )
     # The product lines have a bounded length, so they are not cut.
     kept: list[str] = []
@@ -250,7 +252,7 @@ def _clean(value: Any, max_chars: int | None = None) -> str | None:
     return cap_line(text, max_chars) if max_chars is not None else text
 
 
-def ref_days(computed: Mapping[str, Any] | None) -> dict[str, str]:
+def refdays_text(computed: Mapping[str, Any] | None) -> dict[str, str]:
     """The last day of each ref in the computed lists."""
     if not computed:
         return {}
@@ -332,7 +334,7 @@ def normalize_summary(
     return {
         "profile": profile,
         "headline": cap_line(headline, MAX_HEADLINE_CHARS),
-        "themes": _themes(parsed.get("themes"), ref_days(computed)),
+        "themes": _themes(parsed.get("themes"), refdays_text(computed)),
         "modes": _modes(parsed.get("modes")),
         "recent_shift": recent_shift,
     }
