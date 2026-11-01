@@ -11,7 +11,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import numpy as np
 from parameterized import parameterized
@@ -43,6 +43,7 @@ from products.signals.backend.anomaly_scores.config import (
     ScoringRun,
     covers_team,
     parse_config,
+    read_payload,
 )
 from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
@@ -201,6 +202,48 @@ class TestTickConfig(SimpleTestCase):
         config = parse_config({"enabled": True, "organization_ids": [ORGANIZATION_ID], **allowlist})
 
         assert (config.enabled, config.allow_team_ids) == (True, ())
+
+    @parameterized.expand(
+        [
+            ("no_deployments", "US", {}, 1.0, 8),
+            ("matching_deployment", "US", {"deployments": {"US": {"self_driving_organization_percentage": 5}}}, 5.0, 8),
+            ("other_deployment", "EU", {"deployments": {"US": {"self_driving_organization_percentage": 5}}}, 1.0, 8),
+            ("no_cloud_deployment", None, {"deployments": {"US": {"self_driving_organization_percentage": 5}}}, 1.0, 8),
+            ("override_capped", "US", {"deployments": {"US": {"max_insights_per_tick": 100}}}, 1.0, 50),
+            (
+                "invalid_override_value",
+                "US",
+                {"deployments": {"US": {"self_driving_organization_percentage": "50"}}},
+                0.0,
+                8,
+            ),
+            ("deployments_not_an_object", "US", {"deployments": ["US"]}, 1.0, 8),
+            ("override_not_an_object", "US", {"deployments": {"US": 50}}, 1.0, 8),
+            (
+                "nested_deployments",
+                "US",
+                {"deployments": {"US": {"self_driving_organization_percentage": 50, "deployments": {}}}},
+                1.0,
+                8,
+            ),
+        ]
+    )
+    def test_the_deployment_override_merges_over_the_top_level_fields(
+        self, _name: str, deployment: str | None, overrides: dict[str, Any], percentage: float, max_insights: int
+    ) -> None:
+        payload = {"enabled": True, "self_driving_organization_percentage": 1, "max_insights_per_tick": 8, **overrides}
+
+        with (
+            override_settings(CLOUD_DEPLOYMENT=deployment),
+            patch("products.signals.backend.anomaly_scores.config.read_flag_payload", return_value=payload),
+        ):
+            config = parse_config(read_payload())
+
+        assert (config.enabled, config.self_driving_organization_percentage, config.max_insights_per_tick) == (
+            True,
+            percentage,
+            max_insights,
+        )
 
     @parameterized.expand(
         [
@@ -1638,17 +1681,19 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         candidates=8,
         max_concurrency=2,
         skipped_for_budget=3,
+        self_driving_organization_percentage=5.0,
     )
 
     result, ran = await _run_tick(plan, statuses)
 
     assert sorted(ran) == started
-    assert (result.picked, result.queries, result.skipped_for_budget, result.stopped_at_capacity) == (
-        len(started),
-        queries,
-        3,
-        stopped,
-    )
+    assert (
+        result.picked,
+        result.queries,
+        result.skipped_for_budget,
+        result.stopped_at_capacity,
+        result.self_driving_organization_percentage,
+    ) == (len(started), queries, 3, stopped, 5.0)
 
 
 @pytest.mark.asyncio
