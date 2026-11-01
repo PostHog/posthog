@@ -1294,6 +1294,24 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
         assert scanner.deep_swept_through == stale
 
 
+@pytest.mark.parametrize("case", ["creator_left_org", "no_ai_consent"])
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_lets_an_unrunnable_scanner_through_to_be_turned_off(case: str) -> None:
+    scanner = _make_scanner(credit_limit=20 * _OBSERVATION_CREDITS)
+    if case == "creator_left_org":
+        creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+        scanner.created_by = creator
+        scanner.save(update_fields=["created_by"])
+    else:
+        Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+
+    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is False
+
+
 @pytest.mark.django_db(transaction=True)
 def test_check_scanner_budget_activity_capped_by_in_flight_alone_does_not_advance_the_watermark() -> None:
     # Only adding in-flight reservations pushes this over the limit: a transient spike must skip

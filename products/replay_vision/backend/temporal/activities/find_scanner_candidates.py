@@ -42,7 +42,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     build_candidate_batch,
 )
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
-from products.replay_vision.backend.scanner_access import creator_can_scan
+from products.replay_vision.backend.scanner_access import unrunnable_reason
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
@@ -191,10 +191,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     # Without AI consent or the creator's recording access a scanner can never spend, so turn it off instead of leaving it silently idle.
-    if not scanner.team.organization.is_ai_data_processing_approved:
-        return _disable_unrunnable_scanner(scanner, "no_ai_consent")
-    if not creator_can_scan(scanner):
-        return _disable_unrunnable_scanner(scanner, "creator_lost_access")
+    if reason := unrunnable_reason(scanner):
+        return _disable_unrunnable_scanner(scanner, reason)
 
     lifecycle_block = _experiment_lifecycle_block(scanner)
     sweep_until: dt.datetime | None = None
