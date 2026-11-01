@@ -118,4 +118,33 @@ describe('WorkflowSceneHeader', () => {
         expect(launch).toHaveTextContent('Disable')
         expect(launch).not.toHaveAttribute('aria-disabled', 'true')
     })
+
+    it('gives a viewer of a manual workflow no way to trigger or rename it', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    ...ACTIVE_WITH_DRAFT,
+                    trigger: { type: 'manual' },
+                    user_access_level: AccessControlLevel.Viewer,
+                },
+            },
+        })
+        await act(async () => {
+            await logic.asyncActions.loadWorkflow()
+        })
+
+        render(
+            <Provider>
+                <BindLogic logic={workflowLogic} props={{ id: WORKFLOW_ID }}>
+                    <WorkflowSceneHeader id={WORKFLOW_ID} />
+                </BindLogic>
+            </Provider>
+        )
+
+        const trigger = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Trigger'
+        )
+        expect(trigger).toHaveAttribute('aria-disabled', 'true')
+        expect(document.querySelector('.scene-title-section')).toHaveAttribute('data-editable', 'false')
+    })
 })
