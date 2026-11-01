@@ -14,8 +14,10 @@ from products.workflows.backend import providers
 from products.workflows.evals.scorers import APPLY_URL_PATH
 from products.workflows.evals.seeders import (
     DOMAIN_CONNECT_SENDER,
+    MEMBER_SENDER,
     VERIFIED_SENDER,
     seed_domain_connect_support,
+    seed_member_without_admin,
     seed_verified_sender,
 )
 from products.workflows.evals.simulated_email_domains import (
@@ -148,3 +150,13 @@ class TestEvalCasesThroughTheApi(APIBaseTest):
         assert status["status"] == "verified", status
         assert {record["status"] for record in status["records"]} <= {"found", "verified"}
         assert VERIFIED_SENDER.split("@")[1] in {record["hostname"] for record in status["records"]}
+
+    def test_a_member_reaches_verify_and_is_refused(self) -> None:
+        seed_member_without_admin(self._context())
+        with simulated_email_domains(), patch("posthoganalytics.feature_enabled", return_value=True):
+            integration_id = self._create_sender(MEMBER_SENDER)
+            status = self._status(integration_id)
+            verify = self.client.post(f"/api/environments/{self.team.pk}/integrations/{integration_id}/email/verify")
+
+        assert status["status"] == "verified", status
+        assert verify.status_code == 403, verify.json()

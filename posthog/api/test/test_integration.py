@@ -1778,6 +1778,25 @@ class TestEmailIntegrationScopedAccess:
         }
         assert stored.json()["config"] == (updated_config if allowed else original_config)
 
+    def test_flag_released_to_a_project_id_reaches_the_sender_update(self, client: HttpClient) -> None:
+        authorization = self.authorization("pak", "integration:write")
+
+        def released_to_this_project(key: str, distinct_id: str, **kwargs: Any) -> bool:
+            return str(kwargs["group_properties"]["project"]["id"]) == str(self.team.id)
+
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=released_to_this_project),
+            patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain"),
+        ):
+            response = client.patch(
+                f"/api/projects/{self.team.pk}/integrations/{self.integration.pk}/email/",
+                {"config": {"email": "sender@example.com", "provider": "ses", "name": "Updated sender"}},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=authorization,
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     @pytest.mark.parametrize("authentication", ["pak", "oauth"])
     @pytest.mark.parametrize(
         "restriction,expected_status,detail",

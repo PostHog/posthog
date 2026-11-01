@@ -49,7 +49,7 @@ If you cannot read it, stop and ask a project admin to add the sender or to tell
 
 ### 2. Create the sender
 
-Call `integrations-email-create` with `config.email` and `config.name`.
+Call `integrations-email-create` with `config.email` and `config.name`. The provider defaults to `ses`.
 The MAIL FROM subdomain belongs to the whole domain, not to one sender: creating a sender sets it for every sender on that domain.
 
 - When the domain already has a sender, pass the `<label>` from step 1 as `mail_from_subdomain`. Any other value moves the domain's MAIL FROM and breaks verification for the existing senders until new records are published.
@@ -78,6 +78,7 @@ Pick the first path that works:
 3. **Hand the records to the person.**
    List the records that are still `pending`, as a table with type, name, value and priority.
    Mark the DMARC record as needed only when the domain has no `_dmarc` record yet: look it up if you can, otherwise ask the person to check their DNS host before adding it.
+   For each SPF record, look up the existing `v=spf1` record at that name. If one exists, give the one merged value to replace it with, as [references/publishing-records.md](references/publishing-records.md) describes. If you cannot read it, ask the person for its current value first. Tell them to edit that record, never to add a second one.
    Mention that many DNS hosts append the domain to the name field, so they enter `_amazonses.mail` rather than `_amazonses.mail.example.com` when the zone is `example.com`.
 
 When you publish records yourself or hand them over, never create a second `_dmarc` record.

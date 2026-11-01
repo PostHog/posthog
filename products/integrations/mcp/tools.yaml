@@ -117,7 +117,7 @@ tools:
         title: Create an email sender
         description: >
             Create an email sender for Workflows on a custom domain, for example hello@mail.example.com. Pass config
-            with email (the from address), name (the from name shown in the inbox), provider 'ses', and optionally
+            with email (the from address), name (the from name shown in the inbox), and optionally
             mail_from_subdomain and reply_to. This registers the sending domain with the email provider and returns the
             new integration; its `id` is the integration_id the other email tools take. The sender cannot send until
             its domain is verified. Next, call integrations-email-status-retrieve to get the DNS records the domain
@@ -130,6 +130,10 @@ tools:
             mailbox domains such as gmail.com are rejected, and a domain already used by another organization fails.
         exclude_params:
             - kind
+        param_overrides:
+            config:
+                input_schema: EmailSenderConfigSchema
+                required: true
         inject_body:
             kind: email
         feature_flag: workflows-email-from-code

@@ -1,13 +1,3 @@
-"""Scorers for the email domain setup eval suite.
-
-They grade outcomes rather than the path the agent took, so a reordered or extended
-setup flow keeps passing: which senders the project holds after the run, what the final
-message hands the person, and a few rules the skill exists to enforce.
-
-Every scorer reads its per-case parameters from ``expected`` under its own ``_name()``
-and returns ``score=None`` when its key is absent, so one scorer list spans the suite.
-"""
-
 from __future__ import annotations
 
 import re
@@ -83,13 +73,6 @@ def read_senders(team_id: int) -> dict[str, dict[str, Any]]:
 
 
 class SendersInProject(AsyncOnlyScorerMixin, Scorer):
-    """Binary: does the project hold exactly the expected senders, configured as expected?
-
-    Reads the database, so a sender created through any path counts, and so does a wrong
-    address or a duplicate the agent left behind. Per sender, each rule pins a config value,
-    such as ``verified`` or ``mail_from_subdomain``, and a ``<key>_not`` rule rules one out.
-    """
-
     def _name(self) -> str:
         return "senders_in_project"
 
@@ -129,8 +112,6 @@ class SendersInProject(AsyncOnlyScorerMixin, Scorer):
 
 
 class AvoidedTool(Scorer):
-    """Binary: did no call to any of ``expected.tools`` succeed? A refused attempt passes."""
-
     def _name(self) -> str:
         return "avoided_tool"
 
@@ -146,12 +127,6 @@ class AvoidedTool(Scorer):
 
 
 class FinalMessageMentions(Scorer):
-    """Binary: does the final message contain every value in ``expected.values``?
-
-    Record values are exact strings a person has to copy into their DNS host, so a
-    summary that paraphrases or truncates one hands over a record that cannot verify.
-    """
-
     def _name(self) -> str:
         return "final_message_mentions"
 
@@ -165,13 +140,6 @@ class FinalMessageMentions(Scorer):
 
 
 class MergedSpfRecord(Scorer):
-    """Binary: does one SPF record in the final message carry every include in ``expected.includes``?
-
-    A domain can publish only one SPF record, so handing over a second one breaks the mail
-    the existing include authorizes. Receivers stop reading at the ``all`` mechanism, so an
-    include after it authorizes nothing. Which host the record goes on is the judge's call.
-    """
-
     def _name(self) -> str:
         return "merged_spf_record"
 
@@ -194,12 +162,6 @@ class MergedSpfRecord(Scorer):
 
 
 class SharedApplyUrl(Scorer):
-    """Binary: does the final message carry the complete URL a successful apply-url call returned?
-
-    Only the person can approve the change at their DNS host, so a URL that stays in a
-    tool result helps nobody, and a shortened one fails its signature check.
-    """
-
     def _name(self) -> str:
         return "shared_apply_url"
 
@@ -218,12 +180,6 @@ class SharedApplyUrl(Scorer):
 
 
 class BoundedVerifyPolling(Scorer):
-    """Binary: did the agent call verify at most ``expected.max_calls`` times?
-
-    Each verify call queries DNS and the email provider. When the records still wait on the
-    person, or a permission error repeats, more calls cannot change the answer.
-    """
-
     def _name(self) -> str:
         return "bounded_verify_polling"
 
@@ -239,8 +195,6 @@ class BoundedVerifyPolling(Scorer):
 
 
 class FinalMessageJudge(JudgedScorer):
-    """Judge one yes/no question about the final message. ``name`` is the ``expected`` key that opts a case in."""
-
     def __init__(self, *, name: str, question: str, **kwargs: Any) -> None:
         super().__init__(
             name=name,
@@ -263,12 +217,6 @@ class FinalMessageJudge(JudgedScorer):
 
 
 class RecordsHandoffJudge(FinalMessageJudge):
-    """Judge whether the final message hands over ``expected.records`` the way ``question`` asks.
-
-    The reference list lets the judge check every record, while the exact long values stay
-    with ``FinalMessageMentions``, which cannot miss a changed character.
-    """
-
     def _prompt_template(self, question: str) -> str:
         return (
             f"{question}\n\n<records>{{{{expected.records}}}}</records>\n\n"

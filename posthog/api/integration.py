@@ -159,7 +159,7 @@ from posthog.permissions import (
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
-from posthog.utils import absolute_uri, is_relative_url
+from posthog.utils import absolute_uri, flag_identity, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
@@ -1579,14 +1579,22 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
-def email_from_code_enabled(team: Team, user: User) -> bool:
+def email_flag_enabled(flag: str, team: Team, user: User) -> bool:
+    identity = flag_identity(user, team, team.organization)
+    if identity is None:
+        return False
     return feature_enabled_or_false(
-        EMAIL_FROM_CODE_FLAG,
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-        group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.uuid)}},
+        flag,
+        identity.distinct_id,
+        groups=identity.groups,
+        person_properties=identity.person_properties,
+        group_properties=identity.group_properties,
         send_feature_flag_events=False,
     )
+
+
+def email_from_code_enabled(team: Team, user: User) -> bool:
+    return email_flag_enabled(EMAIL_FROM_CODE_FLAG, team, user)
 
 
 class EmailDomainAgentSetupPermission(BasePermission):
@@ -2893,16 +2901,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         if not any(
-            feature_enabled_or_false(
-                flag,
-                str(cast(User, request.user).distinct_id),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.uuid)},
-                },
-                send_feature_flag_events=False,
-            )
+            email_flag_enabled(flag, self.team, cast(User, request.user))
             for flag in ("workflows-email-domain-wizard", EMAIL_FROM_CODE_FLAG)
         ):
             raise NotFound()
