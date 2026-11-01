@@ -380,10 +380,16 @@ def create_batch_hog_flow_job_invocation(
     max_audience_size: int | None = None,
     filters: dict | None = None,
     realtime_cohort: dict | None = None,
+    audience_snapshot: dict | None = None,
 ) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
-        json={"max_audience_size": max_audience_size, "filters": filters, "realtime_cohort": realtime_cohort},
+        json={
+            "max_audience_size": max_audience_size,
+            "filters": filters,
+            "realtime_cohort": realtime_cohort,
+            "audience_snapshot": audience_snapshot,
+        },
         headers=get_internal_api_headers(),
         # A run waits on this call while it is created, so a stalled CDP API must not hold it open.
         timeout=30,

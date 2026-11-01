@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -86,7 +87,27 @@ def set_batch_job_status(
     if from_statuses is not None:
         jobs = jobs.filter(status__in=from_statuses)
     # `.update()` bypasses auto_now, so stamp updated_at explicitly.
-    jobs.update(status=status, updated_at=timezone.now())
+    updated = jobs.update(status=status, updated_at=timezone.now())
+    if updated and status in TERMINAL_BATCH_JOB_STATES:
+        _schedule_audience_snapshot_cleanup(team_id=team_id, batch_job_id=batch_job_id)
+
+
+TERMINAL_BATCH_JOB_STATES = {
+    HogFlowBatchJobState.COMPLETED,
+    HogFlowBatchJobState.FAILED,
+    HogFlowBatchJobState.CANCELLED,
+}
+
+
+def _schedule_audience_snapshot_cleanup(*, team_id: int, batch_job_id: UUID) -> None:
+    # Only runs that resolved their audience up front have rows to drop.
+    if not HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id, audience_status__isnull=False).exists():
+        return
+    from products.workflows.backend.tasks.batch_jobs import (  # noqa: PLC0415 — the task module imports this service
+        delete_batch_job_audience_snapshot,
+    )
+
+    transaction.on_commit(lambda: delete_batch_job_audience_snapshot.delay(team_id, str(batch_job_id)), robust=True)
 
 
 def filter_by_broadcast_status(queryset: QuerySet[HogFlow], statuses: Collection[str]) -> QuerySet[HogFlow]:
