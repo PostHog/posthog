@@ -55,6 +55,7 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_check_final_agents import MonitoringScoutResult
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
@@ -1329,7 +1330,9 @@ class ScoutNoteSerializer(serializers.Serializer):
             "not: one reader's rating of the named report, context to weigh rather than a directive. "
             "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
             "report: evidence about who owns that surface, and a prompt to revisit the routing "
-            "memory it corrects, rather than a directive."
+            "memory it corrects, rather than a directive. `report_note` for one left from a report "
+            "through this API with `report_id` set: steering written straight for you, about the "
+            "report its content names."
         ),
     )
 
@@ -1424,7 +1427,9 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         help_text=(
             "Optional id of the inbox report this note is about. The note then names the report so a "
             "scout can fetch it, and the report's activity log records that the note was left. "
-            "Requires read access to inbox reports, and the report must belong to this project."
+            "Requires edit access to inbox reports, and the report must belong to this project. "
+            "The report reference shares the note's character budget, so `content` is capped at "
+            f"{MAX_REPORT_NOTE_TEXT_LENGTH} characters when this is set."
         ),
     )
     expires_at = _BestEffortDateTimeField(
@@ -1444,6 +1449,18 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         if value is not None and value <= timezone.now():
             return None
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("report_id") and len(attrs.get("content", "")) > MAX_REPORT_NOTE_TEXT_LENGTH:
+            raise serializers.ValidationError(
+                {
+                    "content": (
+                        "A note about a report also stores a reference to it, so content is limited "
+                        f"to {MAX_REPORT_NOTE_TEXT_LENGTH} characters when report_id is set."
+                    )
+                }
+            )
+        return attrs
 
 
 # --- Emit -----------------------------------------------------------------

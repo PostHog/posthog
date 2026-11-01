@@ -3808,6 +3808,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
         REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
         REPORT_REVIEWER_CORRECTION = "report_reviewer_correction", "Derived from an inbox reviewer correction"
+        REPORT_NOTE = "report_note", "Left from an inbox report"
 
     @classmethod
     def derived_origins(cls) -> tuple[str, ...]:

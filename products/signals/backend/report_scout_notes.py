@@ -1,8 +1,12 @@
 """Scout notes a person leaves from an inbox report.
 
-A note left from a report is an ordinary `HUMAN` scout note whose content names the report by id, so a
-scout can fetch the report and the report finds its notes again through the notes list's `text` filter.
-The title stays out of the content because direct notes are listed to callers who may not read reports.
+A note left from a report names the report by id, so a scout can fetch the report and the report
+finds its notes again through the notes list's `text` filter. The title stays out of the content
+because direct notes are listed to callers who may not read reports.
+
+The row carries the `report_note` origin rather than `HUMAN`, because it quotes a report id the way
+the four forwarded origins quote report content: the notes list withholds every derived origin from
+a caller that fails the reports read gate, so the id reaches nobody who could not read the report.
 
 The same transaction appends a `scout_note_left` artefact to the report. The note steers future runs
 and can be retired; the artefact is the report's record that someone steered the scouts from it, and
@@ -17,13 +21,19 @@ from django.db import transaction
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ScoutNoteLeft
-from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.scout_harness.tools.notes import ScoutNote, leave_note
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutNote
+from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH, ScoutNote, leave_note
 
 
 def report_note_content(report_id: str, text: str) -> str:
     # The inbox strips this exact prefix when it lists a report's notes; keep the two in step.
     return f"Note on inbox report `{report_id}`:\n\n{text}"
+
+
+# The stored note carries the report reference, so the text a caller may send is the note cap less
+# that reference. The request serializer rejects a longer one, so a body the schema accepts never
+# fails the deeper cap instead.
+MAX_REPORT_NOTE_TEXT_LENGTH = MAX_NOTE_CONTENT_LENGTH - len(report_note_content("0" * 36, ""))
 
 
 def leave_report_note(
@@ -39,7 +49,7 @@ def leave_report_note(
     """Leave a scout note about `report` and record it on the report's activity log.
 
     `team_id` is the canonical team the scouts read notes from. The caller has already checked
-    that the report belongs to it and that the caller may read reports and steer scouts.
+    that the report belongs to it and that the caller may write to reports and steer scouts.
     """
     with transaction.atomic():
         note = leave_note(
@@ -48,6 +58,7 @@ def leave_report_note(
             skill_name=skill_name,
             created_by_id=created_by_id,
             expires_at=expires_at,
+            origin=SignalScoutNote.Origin.REPORT_NOTE,
         )
         SignalReportArtefact.add_log(
             team_id=report.team_id,
