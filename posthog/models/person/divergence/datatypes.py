@@ -121,3 +121,10 @@ class RepairSummary:
     mapping_outcomes: dict[RepairOutcome, int]
     # Published rows that Kafka did not confirm: the delivery failed, or it was still queued at the deadline.
     undelivered: int
+
+
+@frozen
+class RepublishResult:
+    summary: RepairSummary
+    # Named persons and distinct ids that ClickHouse may still disagree on: not repaired, or not delivered.
+    unconfirmed: tuple[str, ...]
