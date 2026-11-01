@@ -129,4 +129,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "phone": "The contact phone number.",
         },
     },
+    "interview_kits": {
+        "description": "A reusable interview template (questions and scorecard) that interviewers use in Teamtailor.",
+        "docs_url": "https://docs.teamtailor.com/",
+        "columns": {
+            "id": "The unique ID of the interview kit.",
+            "type": "The JSON:API resource type (always 'interview-kits').",
+            "name": "The name of the interview kit.",
+            "created-at": "When the interview kit was created.",
+        },
+    },
 }

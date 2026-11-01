@@ -129,6 +129,7 @@ class TestTeamtailorSourceResponse:
             ("movements", "/v1/movements"),
             ("reject_reasons", "/v1/reject-reasons"),
             ("locations", "/v1/locations"),
+            ("interview_kits", "/v1/interview-kits"),
         ]
     )
     def test_source_response_shape(self, endpoint: str, expected_path: str) -> None:
