@@ -56,7 +56,6 @@ from products.replay_vision.backend.temporal.activities.refresh_learned_rules im
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
 )
-from products.replay_vision.backend.temporal.activities.sync_scout_templates import sync_scout_templates_activity
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
 from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
@@ -69,7 +68,6 @@ from products.replay_vision.backend.temporal.learned_rules import RefreshLearned
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
-from products.replay_vision.backend.temporal.scout_template_sync import SyncScoutTemplatesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_alerts import (
     VisionAlertCheckWorkflow,
@@ -92,7 +90,6 @@ WORKFLOWS = [
     RebuildHighlightFeedsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
-    SyncScoutTemplatesWorkflow,
     VisionAlertCheckWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
@@ -145,7 +142,6 @@ ACTIVITIES: list[Callable[..., Any]] = [
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
     rebuild_highlight_feeds_activity,
-    sync_scout_templates_activity,
     snapshot_benchmark_labels_activity,
     load_benchmark_cases_activity,
     prepare_benchmark_case_activity,

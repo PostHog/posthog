@@ -136,9 +136,6 @@ from products.replay_vision.backend.temporal.highlight_rebuild import create_rep
 from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
-from products.replay_vision.backend.temporal.scout_template_sync import (
-    create_replay_vision_scout_template_sync_schedule,
-)
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
@@ -1038,7 +1035,6 @@ schedules = [
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
     create_replay_vision_highlight_rebuild_schedule,
-    create_replay_vision_scout_template_sync_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,

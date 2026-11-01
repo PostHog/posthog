@@ -278,11 +278,3 @@ HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
 HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=5)
 # The activity starts no team after this, which leaves a slow last build room inside the activity timeout.
 HIGHLIGHT_REBUILD_CLAIM_BUDGET = dt.timedelta(minutes=3)
-
-# Scout template sync: an hourly pass that moves untouched template scouts onto the latest template text.
-SCOUT_TEMPLATE_SYNC_WORKFLOW_NAME = "replay-vision-sync-scout-templates"
-SCOUT_TEMPLATE_SYNC_WORKFLOW_ID = "replay-vision-scout-template-sync"
-SCOUT_TEMPLATE_SYNC_SCHEDULE_ID = "replay-vision-scout-template-sync-schedule"
-SCOUT_TEMPLATE_SYNC_INTERVAL = dt.timedelta(hours=1)
-SCOUT_TEMPLATE_SYNC_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
-SCOUT_TEMPLATE_SYNC_ACTIVITY_TIMEOUT = dt.timedelta(minutes=10)

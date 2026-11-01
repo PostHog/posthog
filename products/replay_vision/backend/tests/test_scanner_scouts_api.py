@@ -11,7 +11,6 @@ from posthog.models.team import Team
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
-from products.replay_vision.backend.scout_template_sync import TemplateSyncResult, sync_template_scouts
 from products.replay_vision.backend.scout_templates import ScoutTemplateKey, render_template_body
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
@@ -20,7 +19,7 @@ from products.replay_vision.backend.variant_analysis import (
     VARIANT_ANALYSIS_TAG,
     pause_variant_analysis_scouts,
 )
-from products.signals.backend.facade import api as signals_facade
+from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.model_selection import scout_model_pin_catalog
 from products.signals.backend.scout_harness.tools.structured_output import validate_structured_output_schema
@@ -331,33 +330,44 @@ class TestScoutTemplateSync(_VisionAPITestCase):
         assert templates.status_code == 200, templates.json()
         return next(t["body"] for t in templates.json() if t["key"] == key)
 
-    def test_template_edits_reach_untouched_scouts_and_never_edited_ones(self) -> None:
+    def _refresh(self, *names: str) -> None:
+        # The entry point the scout runner calls before it loads a scout's skill.
+        for name in names:
+            refresh_source_scout(self.team.id, name)
+
+    def test_template_edits_reach_untouched_scouts_before_they_run_and_never_edited_ones(self) -> None:
         digest = self._template_body("daily-digest")
         self._create("signals-scout-x-daily-digest", digest, "daily-digest")
         self._create("signals-scout-y-daily-digest", digest + "\nOnly report checkout.", "daily-digest")
-        # A scout made before claiming existed: its untouched text is claimed on the next sync.
+        # A scout made before claiming existed: its untouched text is claimed on its next run.
         self._create("signals-scout-z-daily-digest", digest, None)
         # The scratch skeleton is the author's to fill in, so it never follows the template.
         self._create("signals-scout-w-scratch", self._template_body("scratch"), "scratch")
+        names = [
+            "signals-scout-x-daily-digest",
+            "signals-scout-y-daily-digest",
+            "signals-scout-z-daily-digest",
+            "signals-scout-w-scratch",
+        ]
 
-        assert sync_template_scouts() == TemplateSyncResult(updated=0, claimed=1, edited=0, failed=0)
+        self._refresh(*names)
+        assert {name: self._skill(name).version for name in names} == dict.fromkeys(names, 1)
 
         def edited_template(*args: Any) -> str | None:
             body = render_template_body(*args)
             return None if body is None else body + "\nA new template step."
 
         with patch("products.replay_vision.backend.scout_template_sync.render_template_body", edited_template):
-            # The scout created with an edited body was never claimed, so it is not counted as edited either.
-            assert sync_template_scouts() == TemplateSyncResult(updated=2, claimed=0, edited=0, failed=0)
-            # Applied once: the next pass finds every untouched scout already current.
-            assert sync_template_scouts() == TemplateSyncResult(updated=0, claimed=0, edited=0, failed=0)
+            self._refresh(*names)
+            # Applied once: the next run finds every untouched scout already current.
+            self._refresh(*names)
 
             for name in ("signals-scout-x-daily-digest", "signals-scout-z-daily-digest"):
                 skill = self._skill(name)
                 assert skill.body.endswith("A new template step.")
                 assert skill.version == 2
             assert self._skill("signals-scout-y-daily-digest").body.endswith("Only report checkout.")
-            assert not self._skill("signals-scout-w-scratch").body.endswith("A new template step.")
+            assert self._skill("signals-scout-w-scratch").version == 1
 
             # Someone edits a synced scout; from then on the template no longer overwrites it.
             publish_skill_version(
@@ -367,25 +377,16 @@ class TestScoutTemplateSync(_VisionAPITestCase):
                 body="My own instructions.",
                 base_version=2,
             )
-            assert sync_template_scouts() == TemplateSyncResult(updated=0, claimed=0, edited=1, failed=0)
+            self._refresh("signals-scout-x-daily-digest")
             assert self._skill("signals-scout-x-daily-digest").body == "My own instructions."
 
-    def test_claims_scouts_made_from_an_older_template_and_isolates_a_failing_one(self) -> None:
+    def test_a_scout_made_from_an_older_template_gets_the_current_one_on_its_first_run(self) -> None:
         old_body = f"Read `vision-scanners-get` with id `{self.scanner.id}` and file a digest."
         normalized = old_body.replace(str(self.scanner.id), "{scanner_id}")
         self._create("signals-scout-a-daily-digest", old_body, None)
-        self._create("signals-scout-b-daily-digest", old_body, None)
         history = {ScoutTemplateKey.DAILY_DIGEST: frozenset({hashlib.sha256(normalized.encode()).hexdigest()})}
+
         with patch("products.replay_vision.backend.scout_template_sync.LEGACY_TEMPLATE_BODY_HASHES", history):
-            assert sync_template_scouts() == TemplateSyncResult(updated=0, claimed=2, edited=0, failed=0)
+            self._refresh("signals-scout-a-daily-digest")
 
-        real_publish = signals_facade.publish_source_scout_body
-
-        def publish_failing_for_a(**kwargs: Any) -> bool:
-            if kwargs["skill_name"] == "signals-scout-a-daily-digest":
-                raise RuntimeError("boom")
-            return real_publish(**kwargs)
-
-        with patch.object(signals_facade, "publish_source_scout_body", publish_failing_for_a):
-            assert sync_template_scouts() == TemplateSyncResult(updated=1, claimed=0, edited=0, failed=1)
-        assert self._skill("signals-scout-b-daily-digest").body == self._template_body("daily-digest")
+        assert self._skill("signals-scout-a-daily-digest").body == self._template_body("daily-digest")

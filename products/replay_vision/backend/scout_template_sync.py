@@ -1,8 +1,8 @@
 """Keeps scanner scouts created from a template on the template's latest text.
 
-A scout is claimed when its text is exactly what a template rendered. On every sync, a claimed scout whose
-text still matches the hash recorded at its last write gets the current template text as a new skill
-version. A scout someone has edited no longer matches, so the sync leaves it alone.
+A scout is claimed when its text is exactly what a template rendered. Right before each run, a claimed scout
+whose text still matches the hash recorded at its last write gets the current template text as a new skill
+version. A scout someone has edited no longer matches, so it keeps their text.
 """
 
 import re
@@ -11,11 +11,9 @@ import hashlib
 
 import structlog
 
-from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
 from products.replay_vision.backend.scout_template_history import LEGACY_TEMPLATE_BODY_HASHES
 from products.replay_vision.backend.scout_templates import (
     SYNCED_TEMPLATE_KEYS,
@@ -29,14 +27,6 @@ logger = structlog.get_logger(__name__)
 
 # Prefixes the template record, so a record another product wrote is never read as a Replay Vision key.
 TEMPLATE_RECORD_PREFIX = "replay_vision_scanner_scout:"
-
-
-@frozen
-class TemplateSyncResult:
-    updated: int
-    claimed: int
-    edited: int
-    failed: int
 
 
 def _synced_key(value: str | None) -> ScoutTemplateKey | None:
@@ -73,31 +63,27 @@ def claim_template_scout(
     return _claim(team_id=team_id, skill_name=skill_name, version=1, key=key)
 
 
-def _scanner_types(skills: list[signals_facade.SourceScoutSkill]) -> dict[tuple[int, str], str]:
-    """Each scout's scanner type, keyed by the scout's team and scanner id.
-
-    Scouts live on the canonical team while a scanner can sit on one of its environments, so a scanner only
-    counts for a scout when its team, or that team's parent, is the scout's team.
-    """
-    team_ids = {skill.team_id for skill in skills}
-    canonical = {team_id: team_id for team_id in team_ids}
-    canonical.update(Team.objects.filter(parent_team_id__in=team_ids).values_list("id", "parent_team_id"))
-    ids = []
-    for skill in skills:
-        try:
-            ids.append(uuid.UUID(skill.source_id))
-        except ValueError:
-            continue
-    # Cross-team by design: a system sweep over every team's scouts, each scanner matched to its scout's team below.
+def _scanner_type(team_id: int, scanner_id: str) -> str | None:
+    """The scanner's type, when it sits on the scout's team or one of that team's environments."""
+    try:
+        scanner_uuid = uuid.UUID(scanner_id)
+    except ValueError:
+        return None
+    team_ids = [team_id, *Team.objects.filter(parent_team_id=team_id).values_list("id", flat=True)]
+    # Scoped to the scout's team and its environments, which the single-team rule can't express.
     # nosemgrep: idor-lookup-without-team
-    rows = ReplayScanner.objects.filter(id__in=ids, team_id__in=canonical).values_list("id", "team_id", "scanner_type")
-    return {(canonical[team_id], str(scanner_id)): scanner_type for scanner_id, team_id, scanner_type in rows}
+    return (
+        ReplayScanner.objects.filter(id=scanner_uuid, team_id__in=team_ids)
+        .values_list("scanner_type", flat=True)
+        .first()
+    )
 
 
-def _sync_one(skill: signals_facade.SourceScoutSkill, scanner_type: str) -> str | None:
+def _refresh(skill: signals_facade.SourceScoutSkill, scanner_type: str) -> str | None:
     """Bring one scout up to date, returning what happened to it, or None when nothing did."""
     scanner_id = skill.source_id.lower()
     key = _key_from_record(skill.template)
+    template_hash = skill.template_hash
     if key is None:
         # A scout created before claiming existed: claim it when its text is a template's, untouched.
         key = template_key_from_skill_name(skill.skill_name)
@@ -106,9 +92,10 @@ def _sync_one(skill: signals_facade.SourceScoutSkill, scanner_type: str) -> str 
             or _is_legacy_template_body(key, skill.body, scanner_id)
         ):
             return None
-        claimed = _claim(team_id=skill.team_id, skill_name=skill.skill_name, version=skill.version, key=key)
-        return "claimed" if claimed else None
-    if signals_facade.source_scout_body_hash(skill.body) != skill.template_hash:
+        if not _claim(team_id=skill.team_id, skill_name=skill.skill_name, version=skill.version, key=key):
+            return None
+        template_hash = signals_facade.source_scout_body_hash(skill.body)
+    if signals_facade.source_scout_body_hash(skill.body) != template_hash:
         return "edited"
     body = render_template_body(key, scanner_id, scanner_type)
     if body is None or body == skill.body:
@@ -123,26 +110,12 @@ def _sync_one(skill: signals_facade.SourceScoutSkill, scanner_type: str) -> str 
     return "updated" if published else None
 
 
-def sync_template_scouts() -> TemplateSyncResult:
-    counts = {"updated": 0, "claimed": 0, "edited": 0, "failed": 0}
-    skills = signals_facade.source_scout_skills(SCOUT_SOURCE_PRODUCT)
-    scanner_types = _scanner_types(skills)
-    for skill in skills:
-        scanner_type = scanner_types.get((skill.team_id, skill.source_id.lower()))
-        if scanner_type is None:
-            continue
-        # One broken scout must not hold back every scout after it on each hourly run.
-        try:
-            outcome = _sync_one(skill, scanner_type)
-        except Exception:
-            logger.exception(
-                "replay_vision_scout_template_sync_failed", team_id=skill.team_id, skill_name=skill.skill_name
-            )
-            outcome = "failed"
-        if outcome:
-            counts[outcome] += 1
-            if outcome in ("updated", "claimed"):
-                logger.info(
-                    f"replay_vision_scout_template_{outcome}", team_id=skill.team_id, skill_name=skill.skill_name
-                )
-    return TemplateSyncResult(**counts)
+def refresh_template_scout(team_id: int, skill_name: str, scanner_id: str) -> None:
+    """Signals calls this right before a scanner scout runs, so the run reads the latest template text."""
+    scanner_type = _scanner_type(team_id, scanner_id)
+    skill = signals_facade.source_scout_skill(team_id, skill_name) if scanner_type else None
+    if skill is None or scanner_type is None:
+        return
+    outcome = _refresh(skill, scanner_type)
+    if outcome == "updated":
+        logger.info("replay_vision_scout_template_updated", team_id=team_id, skill_name=skill_name)

@@ -1509,40 +1509,34 @@ class SourceScoutSkill:
     template_hash: str | None
 
 
-def source_scout_skills(source_product: str) -> list[SourceScoutSkill]:
-    """Every live scout recorded as belonging to `source_product`, across teams, with its skill's latest text."""
+def source_scout_skill(team_id: int, skill_name: str) -> SourceScoutSkill | None:
+    """A source-owned scout's latest live skill text, or None when the scout or its skill is gone."""
     from products.skills.backend.models.skills import (
         LLMSkill,  # noqa: PLC0415 — keeps the skills models off the facade's import path
     )
 
-    source_ids = {
-        (team_id, skill_name): source_id
-        for team_id, skill_name, source_id in SignalScoutConfig.all_teams.filter(
-            source_product=source_product
-        ).values_list("team_id", "skill_name", "source_id")
-        if source_id
-    }
-    if not source_ids:
-        return []
-    skills = LLMSkill.objects.filter(
-        team_id__in={team_id for team_id, _ in source_ids},
-        name__in={skill_name for _, skill_name in source_ids},
-        is_latest=True,
-        deleted=False,
-    ).only("team_id", "name", "body", "version", "metadata")
-    return [
-        SourceScoutSkill(
-            team_id=skill.team_id,
-            skill_name=skill.name,
-            source_id=source_ids[(skill.team_id, skill.name)],
-            body=skill.body,
-            version=skill.version,
-            template=(skill.metadata or {}).get(SOURCE_TEMPLATE_METADATA_KEY),
-            template_hash=(skill.metadata or {}).get(SOURCE_TEMPLATE_HASH_METADATA_KEY),
-        )
-        for skill in skills
-        if (skill.team_id, skill.name) in source_ids
-    ]
+    source_id = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .values_list("source_id", flat=True)
+        .first()
+    )
+    skill = (
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False)
+        .only("team_id", "name", "body", "version", "metadata")
+        .first()
+    )
+    if not source_id or skill is None:
+        return None
+    return SourceScoutSkill(
+        team_id=team_id,
+        skill_name=skill_name,
+        source_id=source_id,
+        body=skill.body,
+        version=skill.version,
+        template=(skill.metadata or {}).get(SOURCE_TEMPLATE_METADATA_KEY),
+        template_hash=(skill.metadata or {}).get(SOURCE_TEMPLATE_HASH_METADATA_KEY),
+    )
 
 
 def set_source_scout_template(*, team_id: int, skill_name: str, version: int, template: str) -> bool:
