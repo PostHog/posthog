@@ -5279,6 +5279,7 @@ export interface SignalReportStateRequestApi {
  * * `commit` - Commit
  * * `task_run` - Task Run
  * * `note` - Note
+ * * `scout_note_left` - Scout Note Left
  * * `title_change` - Title Change
  * * `summary_change` - Summary Change
  * * `code_review` - Code Review
@@ -5321,6 +5322,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     Commit: 'commit',
     TaskRun: 'task_run',
     Note: 'note',
+    ScoutNoteLeft: 'scout_note_left',
     TitleChange: 'title_change',
     SummaryChange: 'summary_change',
     CodeReview: 'code_review',
@@ -8257,7 +8259,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. `report_note` for one left from a report through this API with `report_id` set: steering written straight for you, about the report its content names. */
     origin: string
 }
 
@@ -8275,6 +8277,11 @@ export interface ScoutNoteCreateRequestApi {
      * @maxLength 200
      */
     skill_name?: string
+    /**
+     * Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set.
+     * @nullable
+     */
+    report_id?: string | null
     /**
      * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
      * @nullable

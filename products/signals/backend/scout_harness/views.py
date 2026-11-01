@@ -85,11 +85,12 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
-from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.report_access import may_read_reports, may_write_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_check_final_agents import MonitoringScoutResult, submit_monitoring_scout_result
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.report_monitoring_results import InvalidMonitoringResult, MonitoringResultConflict
+from products.signals.backend.report_scout_notes import leave_report_note
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerWriteError
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
 from products.signals.backend.scout_harness.create_access import can_create_scout
@@ -276,6 +277,7 @@ from products.signals.backend.scout_harness.trial_access import (
 )
 from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
+from products.signals.backend.task_attribution import resolve_request_attribution
 from products.signals.backend.tasks import enqueue_project_profile_build
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
@@ -397,6 +399,23 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     if not isinstance(user, User):
         return False
     return may_read_reports(user=user, team=canonical_team)
+
+
+def _may_write_reports(request: Request, canonical_team: Team) -> bool:
+    """Whether this caller could append to an inbox report's activity log canonically.
+
+    A note left from a report appends a `scout_note_left` artefact, and the reports artefact API
+    gates every write on the `task` scope object plus the `task` editor bar. The notes surface
+    rides `signal_scout`, so both legs are re-checked here, as `_may_read_reports` does on the read
+    side, or steering access alone would write to a report the caller may not edit.
+    """
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    if scopes is not None and not ("*" in scopes or "task:write" in scopes):
+        return False
+    user = request.user
+    if not isinstance(user, User):
+        return False
+    return may_write_reports(user=user, team=canonical_team)
 
 
 class Conflict(exceptions.APIException):
@@ -2296,6 +2315,22 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "Leaving or deleting scout notes requires editor access to skills, since notes steer the scout agents."
             )
 
+    def _report_to_note_on(self, request: Request, team_id: int, report_id: uuid.UUID | None) -> SignalReport | None:
+        if report_id is None:
+            return None
+        # The note names the report and its activity log gains an entry, so the caller must be able
+        # to edit reports, not only steer scouts.
+        if not _may_write_reports(request, self.team.parent_team or self.team):
+            raise exceptions.PermissionDenied("Leaving a note on a report requires edit access to inbox reports.")
+        report = (
+            SignalReport.objects.filter(team_id=team_id, id=report_id)
+            .exclude(status=SignalReport.Status.DELETED)
+            .first()
+        )
+        if report is None:
+            raise exceptions.ValidationError({"report_id": "No report with this id in this project."})
+        return report
+
     @validated_request(
         query_serializer=ScoutNotesQuerySerializer,
         responses={
@@ -2364,14 +2399,27 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # `request.user` is a real `User` under all three auth classes here; `pk` guards the
         # theoretical anonymous edge so attribution degrades to null instead of raising.
         created_by_id = request.user.pk if getattr(request.user, "pk", None) else None
+        team_id = _canonical_team_id(self)
+        report = self._report_to_note_on(request, team_id, data.get("report_id"))
         try:
-            note = leave_note(
-                team_id=_canonical_team_id(self),
-                content=data["content"],
-                skill_name=data.get("skill_name") or "",
-                created_by_id=created_by_id,
-                expires_at=data.get("expires_at"),
-            )
+            if report is None:
+                note = leave_note(
+                    team_id=team_id,
+                    content=data["content"],
+                    skill_name=data.get("skill_name") or "",
+                    created_by_id=created_by_id,
+                    expires_at=data.get("expires_at"),
+                )
+            else:
+                note = leave_report_note(
+                    team_id=team_id,
+                    report=report,
+                    text=data["content"],
+                    skill_name=data.get("skill_name") or "",
+                    created_by_id=created_by_id,
+                    expires_at=data.get("expires_at"),
+                    attribution=resolve_request_attribution(request, team_id),
+                )
         except InvalidNoteError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
         return Response(ScoutNoteSerializer(note.as_dict()).data, status=status.HTTP_201_CREATED)
