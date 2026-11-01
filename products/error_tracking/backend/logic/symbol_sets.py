@@ -18,7 +18,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps, groups
@@ -56,6 +56,12 @@ DEFAULT_SYMBOL_SET_ORDERING = SYMBOL_SET_ORDERINGS["-created_at"]
 
 class SymbolSetNotFoundError(Exception):
     pass
+
+
+class SymbolSetUploadInProgress(APIException):
+    status_code = 409
+    default_detail = "Another upload for this symbol set is in progress. Try again after it finishes."
+    default_code = "upload_in_progress"
 
 
 @frozen
@@ -298,6 +304,14 @@ def _needs_upload(
     )
 
 
+def _has_active_pending_upload(existing: ErrorTrackingSymbolSet, *, lost_insert: bool) -> bool:
+    if existing.content_hash is not None or existing.storage_ptr is None:
+        return False
+    # Older CLIs retry 409s; allow for the gap between row creation and URL signing.
+    active_until = existing.created_at + datetime.timedelta(seconds=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT + 60)
+    return lost_insert or timezone.now() < active_until
+
+
 # The DRF ValidationErrors on this path are the CLI upload contract, not server faults, so
 # error tracking must not see them. Real faults are still captured, by DRF's global reporting
 # hook (posthog.exceptions.exception_reporting), which reports every non-APIException.
@@ -349,53 +363,59 @@ def bulk_create_symbol_sets(
     id_url_map: dict[str, dict[str, Any]] = {}
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
 
-    def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
-        storage_ptr = generate_symbol_set_file_key()
+    def issue_upload(existing: ErrorTrackingSymbolSet) -> None:
+        assert existing.storage_ptr is not None
         id_url_map[existing.ref] = {
-            **generate_symbol_set_upload_presigned_urls(storage_ptr, new_symbol_set_map[existing.ref].content_length),
+            **generate_symbol_set_upload_presigned_urls(
+                existing.storage_ptr, new_symbol_set_map[existing.ref].content_length
+            ),
             "symbol_set_id": str(existing.id),
         }
-        existing.storage_ptr = storage_ptr
+
+    def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
+        existing.storage_ptr = generate_symbol_set_file_key()
         # bulk_finish_upload stores the hash once the new file is confirmed in object storage.
         existing.content_hash = None
+        issue_upload(existing)
 
     with transaction.atomic():
-        existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
-        existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_sets = list(set(chunk_ids) - set(existing_symbol_set_refs))
+        existing_symbol_set_refs = set(
+            ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids).values_list("ref", flat=True)
+        )
+        missing_sets = sorted(set(chunk_ids) - existing_symbol_set_refs)
 
-        symbol_sets_to_be_created = []
+        symbol_sets_to_be_created: dict[str, ErrorTrackingSymbolSet] = {}
         for chunk_id in missing_sets:
-            storage_ptr = generate_symbol_set_file_key()
-            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(
-                storage_ptr, new_symbol_set_map[chunk_id].content_length
-            )
-            # Note that on creation, we /do not set/ the content hash. We use content hashes included in
-            # the create request only to see if we can skip updated - we set the content hash when we
-            # get upload confirmation, during `bulk_finish_upload`, not before
-            to_create = ErrorTrackingSymbolSet(
+            symbol_sets_to_be_created[chunk_id] = ErrorTrackingSymbolSet(
                 team=team,
                 ref=chunk_id,
-                storage_ptr=storage_ptr,
+                storage_ptr=generate_symbol_set_file_key(),
                 release_id=new_symbol_set_map[chunk_id].release_id,
             )
-            symbol_sets_to_be_created.append(to_create)
 
-        # create missing symbol sets
-        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created.values(), ignore_conflicts=True)
+        symbol_sets = (
+            ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids)
+            .order_by("ref")
+            .select_for_update(no_key=True)
+        )
 
-        for symbol_set in created_symbol_sets:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
-
-        # update existing symbol sets
         to_update = []
-        for existing in existing_symbol_sets:
+        for existing in symbol_sets:
+            created = symbol_sets_to_be_created.get(existing.ref)
+            if created is not None and existing.pk == created.pk:
+                issue_upload(existing)
+                continue
+
             upload = new_symbol_set_map[existing.ref]
             dirty = False
 
             if _binds_release(existing, upload):
                 existing.release_id = upload.release_id
                 dirty = True
+
+            if _has_active_pending_upload(existing, lost_insert=created is not None):
+                raise SymbolSetUploadInProgress
 
             if _needs_upload(existing, upload, team.id, force, skip_on_conflict):
                 reissue_upload(existing)
