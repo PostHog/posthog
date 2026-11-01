@@ -43,7 +43,7 @@ describe('emailSetupModalLogic', () => {
             get: { '/api/environments/:team_id/integrations': { results: [] } },
             patch: {
                 '/api/environments/:team_id/integrations/:id/email': async ({ request }) => {
-                    const body = await request.json()
+                    const body = (await request.json()) as { config: Record<string, any> }
                     updates.push(body.config)
                     return [200, { id: 1, kind: 'email', config: body.config }]
                 },
