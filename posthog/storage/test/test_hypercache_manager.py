@@ -24,6 +24,7 @@ from posthog.storage.hypercache_manager import (
     push_hypercache_teams_processed_metrics,
     warm_caches,
 )
+from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG
 
 
 def create_test_hypercache(
@@ -777,3 +778,25 @@ class TestNarrowTeamQueryset(BaseTest):
         # Neither the refresh fields nor the extra fields are deferred, so reading
         # team.name never triggers a per-team lazy load.
         assert deferred & {"id", "project_id", "organization_id", "name"} == set()
+
+    def test_related_rows_are_narrowed_when_no_related_column_is_declared(self):
+        config = HyperCacheManagementConfig(
+            hypercache=create_test_hypercache(),
+            update_fn=lambda team, ttl=None: True,
+            cache_name="test_cache",
+            refresh_only_fields=["id", "project_id", "organization_id"],
+        )
+
+        team = config.narrow_team_queryset(Team.objects.filter(id=self.team.id)).get()
+
+        # The wide JSONB columns on the joined organization row cost reads and detoasting on
+        # every page of the cron sweeps, so they stay out of the SELECT.
+        assert "available_product_features" in team.organization.get_deferred_fields()
+        assert "name" in team.project.get_deferred_fields()
+
+    def test_team_metadata_reads_joined_names_without_a_lazy_load(self):
+        team = TEAM_HYPERCACHE_MANAGEMENT_CONFIG.narrow_team_queryset(Team.objects.filter(id=self.team.id)).get()
+
+        with self.assertNumQueries(0):
+            assert team.organization.name
+            assert team.project.name
