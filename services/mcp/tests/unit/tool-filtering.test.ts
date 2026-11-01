@@ -154,6 +154,30 @@ describe('Tool Filtering - Features', () => {
             description: 'empty array for only invalid features',
             expectedTools: [],
         },
+        {
+            features: ['insights'],
+            description: 'insight query plus saved-insight CRUD',
+            expectedTools: [
+                'insight-query',
+                'insight-create',
+                'insight-get',
+                'insight-update',
+                'insight-delete',
+                'insights-list',
+            ],
+        },
+        {
+            features: ['invalid', 'insights'],
+            description: 'insight tools when mixed with an invalid feature',
+            expectedTools: [
+                'insight-query',
+                'insight-create',
+                'insight-get',
+                'insight-update',
+                'insight-delete',
+                'insights-list',
+            ],
+        },
     ]
 
     describe('getToolsForFeatures', () => {
@@ -172,6 +196,85 @@ describe('Tool Filtering - Features', () => {
             expect(tools).toContain('annotation-delete')
             expect(tools).toContain('annotations-list')
             expect(tools).toContain('annotation-retrieve')
+        })
+
+        it('keeps product_analytics from gaining insights tools under either spelling', () => {
+            const hyphen = getToolsForFeatures({ features: ['product-analytics'] })
+            const underscore = getToolsForFeatures({ features: ['product_analytics'] })
+
+            expect(hyphen).toEqual(underscore)
+            expect(hyphen).toContain('insight-create')
+            expect(hyphen).toContain('insights-list')
+            expect(hyphen).toContain('elements-stats-retrieve')
+            expect(hyphen).not.toContain('insight-query')
+            expect(hyphen).not.toContain('query-funnel')
+        })
+
+        it('does not pull the rest of product analytics into insights', () => {
+            const tools = getToolsForFeatures({
+                features: ['insights'],
+                featureFlags: { 'insight-data-checks': true },
+            })
+
+            expect(tools).not.toContain('elements-stats-retrieve')
+            expect(tools).not.toContain('insights-activity-retrieve')
+            expect(tools).not.toContain('insights-all-activity-retrieve')
+            expect(tools).not.toContain('insights-trending-retrieve')
+            expect(tools).not.toContain('insight-trust-check')
+        })
+
+        it('unions insights with another feature once per tool', () => {
+            const withFlags = getToolsForFeatures({ features: ['insights', 'flags'] })
+
+            expect(withFlags).toContain('insight-create')
+            expect(withFlags).toContain('insight-query')
+            expect(withFlags).toContain('create-feature-flag')
+            expect(withFlags).not.toContain('dashboard-create')
+            expect(withFlags.filter((name) => name === 'insight-create')).toHaveLength(1)
+
+            const withAnalytics = getToolsForFeatures({ features: ['insights', 'product_analytics'] })
+
+            expect(withAnalytics).toContain('insight-query')
+            expect(withAnalytics).toContain('elements-stats-retrieve')
+            expect(withAnalytics.filter((name) => name === 'insights-list')).toHaveLength(1)
+            expect(withAnalytics.filter((name) => name === 'insight-query')).toHaveLength(1)
+        })
+
+        it('still unions an explicit tools allowlist with feature filters', () => {
+            const namedInsight = getToolsForFeatures({ features: ['flags'], tools: ['insight-get'] })
+
+            expect(namedInsight).toContain('insight-get')
+            expect(namedInsight).toContain('feature-flag-get-definition')
+            expect(namedInsight).not.toContain('insight-create')
+            expect(namedInsight).not.toContain('insights-list')
+
+            const namedDashboard = getToolsForFeatures({ features: ['insights'], tools: ['dashboard-get'] })
+
+            expect(namedDashboard).toContain('insight-create')
+            expect(namedDashboard).toContain('insight-query')
+            expect(namedDashboard).toContain('dashboard-get')
+            expect(namedDashboard).not.toContain('dashboard-create')
+        })
+
+        it('drops insight writes when insights is filtered read-only', () => {
+            const tools = getToolsForFeatures({ features: ['insights'], readOnly: true })
+
+            expect(tools).toContain('insight-query')
+            expect(tools).toContain('insight-get')
+            expect(tools).toContain('insights-list')
+            expect(tools).not.toContain('insight-create')
+            expect(tools).not.toContain('insight-update')
+            expect(tools).not.toContain('insight-delete')
+        })
+
+        it('keeps insight-trust-check on product_analytics behind its flag', () => {
+            expect(getToolsForFeatures({ features: ['product_analytics'] })).not.toContain('insight-trust-check')
+            expect(
+                getToolsForFeatures({
+                    features: ['product_analytics'],
+                    featureFlags: { 'insight-data-checks': true },
+                })
+            ).toContain('insight-trust-check')
         })
     })
 })
