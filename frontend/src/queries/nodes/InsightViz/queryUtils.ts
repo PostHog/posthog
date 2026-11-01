@@ -1,3 +1,4 @@
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
@@ -5,6 +6,7 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     DataNode,
+    FunnelsQuery,
     HogQLVariable,
     InsightQueryNode,
     InsightVizNode,
@@ -17,6 +19,7 @@ import {
     filterKeyForQuery,
     getMathTypeWarning,
     isEventsNode,
+    isFunnelsDataWarehouseNode,
     isFunnelsQuery,
     isHogQLQuery,
     isInsightQueryNode,
@@ -31,11 +34,6 @@ import {
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'
-
-import {
-    isFunnelWithEnoughSteps,
-    isFunnelWithIncompleteDataWarehouseStep,
-} from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
@@ -211,8 +209,17 @@ export const isDraftQueryWorthSaving = (query: Node, filterTestAccountsDefault: 
     return !compareQuery(overlaidDefault, query, { ignoreVisualizationOnlyChanges: true })
 }
 
-export const isBoxPlotMissingProperty = (series: TrendsQuery['series'] | null | undefined): boolean =>
-    !series?.length || series.some((s) => !s?.math_property)
+export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series?.length || 0) > 1
+}
+
+export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series || []).some(
+        (step) =>
+            isFunnelsDataWarehouseNode(step) &&
+            (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
+    )
+}
 
 // The caller passes the regex check so that the RE2 engine stays out of every bundle that imports this module.
 export const validateQuery = (q: DataNode, hasInvalidRegexFilter: (q: DataNode) => boolean): boolean => {

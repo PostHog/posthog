@@ -4,6 +4,7 @@ import { Suspense } from 'react'
 
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
@@ -29,7 +30,6 @@ import {
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { INSIGHT_GRAPH_DATA_ATTR } from '~/queries/nodes/InsightViz/insightImageCapture'

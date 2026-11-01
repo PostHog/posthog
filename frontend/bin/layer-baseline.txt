@@ -170,7 +170,6 @@ frontend/src/lib/components/Cards/TextCard/textCardMarkdown.ts -> products/dashb
 frontend/src/lib/components/Cards/TextCard/textCardModalLogic.ts -> products/dashboards/frontend/components/ImageTile/imageTileUtils.ts
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/utils/queryUtils.ts
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputs.tsx -> frontend/src/scenes/hog-functions/email-templater/EmailTemplater.tsx
 frontend/src/lib/components/CyclotronJob/CyclotronJobInputsValidation.ts -> frontend/src/scenes/hog-functions/email-templater/types.ts
 frontend/src/lib/components/DateFilter/openJumpToTimestampModal.tsx -> frontend/src/scenes/activity/explore/defaults.ts
@@ -363,7 +362,6 @@ frontend/src/queries/Query/Query.tsx -> products/endpoints/frontend/nodes/index.
 frontend/src/queries/Query/Query.tsx -> products/metrics/frontend/nodes/index.ts
 frontend/src/queries/nodes/DataNode/TestAccountFilters.tsx -> frontend/src/scenes/settings/environment/filterTestAccountDefaultsLogic.ts
 frontend/src/queries/nodes/DataNode/dataNodeLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/queries/nodes/DataNode/dataNodeLogic.ts -> frontend/src/scenes/insights/utils/queryUtils.ts
 frontend/src/queries/nodes/DataTable/BackToSource.tsx -> frontend/src/scenes/insights/summarizeInsight.ts
 frontend/src/queries/nodes/DataTable/BackToSource.tsx -> products/product_analytics/frontend/insights/trends/mathsLogic.tsx
 frontend/src/queries/nodes/DataTable/DataTable.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
@@ -397,7 +395,6 @@ frontend/src/queries/nodes/DataVisualization/Components/Variables/VariableFields
 frontend/src/queries/nodes/DataVisualization/Components/Variables/Variables.tsx -> frontend/src/scenes/dashboard/dashboardLogic.tsx
 frontend/src/queries/nodes/DataVisualization/Components/Variables/variableDataLogic.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/queries/nodes/DataVisualization/Components/Variables/variableModalLogic.ts -> frontend/src/scenes/data-management/variables/insightsLoader.ts
-frontend/src/queries/nodes/DataVisualization/Components/Variables/variablesLogic.ts -> frontend/src/scenes/insights/utils/queryUtils.ts
 frontend/src/queries/nodes/DataVisualization/Components/seriesBreakdownLogic.ts -> products/business_intelligence/frontend/biEditorTypes.ts
 frontend/src/queries/nodes/DataVisualization/Components/seriesBreakdownLogic.ts -> products/business_intelligence/frontend/biMemberAliases.ts
 frontend/src/queries/nodes/DataVisualization/Components/seriesBreakdownLogic.ts -> products/business_intelligence/frontend/biQueryResults.ts
@@ -448,7 +445,6 @@ frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scen
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> frontend/src/scenes/insights/utils/queryUtils.ts
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/InsightNav/insightNavLogic.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives.tsx
 frontend/src/queries/nodes/InsightViz/InsightVizDisplay.tsx -> products/product_analytics/frontend/insights/dataChecks/InsightDataChecks.tsx
