@@ -1232,6 +1232,7 @@ export class CdpApi {
             // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
             // worker counts it instead.
             invocation.state.triggerMetricPending = true
+            invocation.state.quotaChecked = true
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
             const priorityClass: EmailQueuePriorityClass = 'fast'
