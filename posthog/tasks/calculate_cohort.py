@@ -1336,6 +1336,8 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
     # its own.
     BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
     BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
+    # The cohort's batch query fails to compile on every trigger until the cohort or the compiler changes.
+    BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED: "refused_ineligible",
 }
 
 

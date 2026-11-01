@@ -36,6 +36,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery, SelectSetNode, SelectSetQuery
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -797,20 +798,27 @@ class HogQLCohortQuery:
         return condition.query
 
 
+# What batch_flag_call_reads raises when the cohort's batch query does not compile.
+FLAG_CALL_READS_COMPILE_ERRORS = (BaseHogQLError, ValidationError, ValueError)
+
+
 @frozen
 class FlagCallReads:
+    only_in_flag_evaluations: bool
     reads_from_events: int
 
 
 def batch_flag_call_reads(cohort: Cohort, team: Team) -> FlagCallReads:
-    """How many flag-call reads the batch query for this cohort leaves on events.
+    """Whether the organization's flag calls are only in flag_evaluations, and how many flag-call reads the batch query
+    for this cohort leaves on events.
 
     It compiles the cohort the way the batch calculation does, so it follows the rewrite's rules and its fallback to
     events when a field doesn't resolve on flag_evaluations. It raises whatever the compile raises.
     """
     executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(bypass_warehouse_access_control=True)
-    executor.generate_clickhouse_sql()
+    _, context = executor.generate_clickhouse_sql()
     prepared = executor.clickhouse_prepared_ast
     return FlagCallReads(
+        only_in_flag_evaluations=context.database is not None and context.database.flag_calls_only_in_flag_evaluations,
         reads_from_events=count_flag_calls_read_from_events(prepared) if prepared is not None else 0,
     )
