@@ -103,8 +103,22 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
     }
     Object.assign(context, phaseContext)
     if (phase === 'scene_rendered') {
+        sceneRenderedListeners.forEach((listener) => listener())
+        sceneRenderedListeners.clear()
         void sendBootTiming().catch(() => {})
     }
+}
+
+const sceneRenderedListeners = new Set<() => void>()
+
+/** Calls `listener` once on the first scene render, or at once if that happened or boot timing does not run. */
+export function onFirstSceneRendered(listener: () => void): () => void {
+    if (phaseTimes.entry === undefined || phaseTimes.scene_rendered !== undefined) {
+        listener()
+        return () => {}
+    }
+    sceneRenderedListeners.add(listener)
+    return () => sceneRenderedListeners.delete(listener)
 }
 
 export interface SceneRenderedMark {
