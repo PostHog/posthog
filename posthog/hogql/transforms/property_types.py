@@ -472,7 +472,9 @@ class PropertySwapper(CloningVisitor):
             start=node.start,
             end=node.end,
             chain=[*field_arg.chain, first_key],
-            type=ast.PropertyType(chain=[first_key], field_type=field_type),
+            # The function parses this value as JSON, so the read is marked `as_json` and the metadata pass leaves a
+            # typed key unconverted.
+            type=ast.PropertyType(chain=[first_key], field_type=field_type, as_json=True),
         )
         property_document: ast.Expr = ast.Call(
             name="toJSONString",
@@ -685,52 +687,72 @@ class PropertySwapper(CloningVisitor):
                 return self._field_type_to_property_call(node, prop_type)
 
         type = node.type
-        if isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1:
+        if isinstance(type, ast.PropertyType) and type.as_json:
+            # The read is consumed as JSON text, so it keeps the stored value whatever the property's type.
+            return node
+        if isinstance(type, ast.PropertyType):
+            definition = self._property_definition(type)
+            if definition is not None:
+                return self._convert_string_property_to_type(node, *definition)
+        return node
+
+    def _property_definition(self, type: ast.PropertyType) -> tuple[Literal["event", "person", "group"], str] | None:
+        """The metadata entry that applies to this property read, as its kind and key, or None when none does."""
+        if type.field_type.name == "properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if (
                 isinstance(type.field_type.table_type, ast.VirtualTableType)
                 and type.field_type.table_type.field == "poe"
             ):
                 if property_name in self.person_properties:
-                    return self._convert_string_property_to_type(node, "person", property_name)
+                    return ("person", property_name)
             elif isinstance(type.field_type.table_type, ast.BaseTableType):
                 table_type = type.field_type.table_type
                 resolved_table = table_type.resolve_database_table(self.context)
                 if isinstance(resolved_table, (PersonsTable, RawPersonsTable)):
                     if property_name in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", property_name)
+                        return ("person", property_name)
                 if isinstance(resolved_table, GroupsTable):
                     if isinstance(table_type, ast.LazyJoinType):
                         if table_type.field.startswith("group_"):
                             group_id = int(table_type.field.split("_")[1])
                             if f"{group_id}_{property_name}" in self.group_properties:
-                                return self._convert_string_property_to_type(
-                                    node, "group", f"{group_id}_{property_name}"
-                                )
+                                return ("group", f"{group_id}_{property_name}")
                     elif isinstance(table_type, ast.LazyTableType):
                         global_group_id: Optional[int] = (
                             self.context.globals.get("group_id") if self.context.globals else None
                         )
                         if isinstance(global_group_id, int):
                             if f"{global_group_id}_{property_name}" in self.group_properties:
-                                return self._convert_string_property_to_type(
-                                    node, "group", f"{global_group_id}_{property_name}"
-                                )
+                                return ("group", f"{global_group_id}_{property_name}")
                 if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     if property_name in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", property_name)
+                        return ("person", property_name)
                 elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
                     if property_name in self.event_properties:
-                        return self._convert_string_property_to_type(node, "event", property_name)
-        if isinstance(type, ast.PropertyType) and type.field_type.name == "person_properties" and len(type.chain) == 1:
+                        return ("event", property_name)
+        if type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 resolved_table = type.field_type.table_type.resolve_database_table(self.context)
                 if isinstance(resolved_table, EVENTS_TABLE_TYPES):
                     if property_name in self.person_properties:
-                        return self._convert_string_property_to_type(node, "person", property_name)
+                        return ("person", property_name)
+        return None
 
-        return node
+    def converts(self, type: ast.PropertyType) -> bool:
+        """Whether this pass replaces the property read with a typed conversion, so a caller that serializes the read
+        itself knows whether the stored value or the converted value is what a direct read yields."""
+        definition = self._property_definition(type)
+        if definition is None:
+            return False
+        kind, property_name = definition
+        properties_by_type = {
+            "event": self.event_properties,
+            "person": self.person_properties,
+            "group": self.group_properties,
+        }
+        return properties_by_type[kind].get(property_name, {}).get("type") in ("Numeric", "Boolean", "DateTime")
 
     def _convert_string_property_to_type(
         self,

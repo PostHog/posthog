@@ -1,5 +1,6 @@
 import re
 import json
+from collections import Counter
 from typing import Any
 from uuid import UUID
 
@@ -151,6 +152,66 @@ class TestWrappedEventJoins(SimpleTestCase):
             printed, _ = self._compile(f"SELECT {select} {WRAPPED_JOIN} {clause}", native=native)
             assert self._exports(printed, "joined", native) == expected, printed
 
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_exports_json_text_for_reads_that_parse_it(self, _name: str, native: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT JSONExtractRaw(joined.properties, 'a'), JSONExtractString(joined.properties, 'a', 'b'), "
+            "JSONExtractRaw(joined.properties, 'amount'), toJSONString(joined.properties.amount), "
+            f"toJSONString(joined.properties.a), joined.properties.a {WRAPPED_JOIN}",
+            native=native,
+        )
+        outer = printed.split(" FROM ", 1)[0]
+        # Alias names echo the HogQL source, so they are stripped before counting the calls that remain outside.
+        assert re.sub(r" AS `[^`]*`", "", outer).count("toJSONString(") == 1, printed
+        assert "toJSONString(accurateCastOrNull(joined.properties___amount" in outer, printed
+        assert re.search(r", joined\.properties___a(_\d+)? AS a$", outer), printed
+        inner = self._wrapper_select_list(printed, "joined", native)
+        assert "accurateCastOrNull" not in inner, printed
+        if native:
+            assert "JSONExtractRaw(ifNull(joined.properties___a, ''))" in outer, printed
+            assert "JSONExtractString(ifNull(joined.properties___a, ''), %(hogql_val_" in outer, printed
+            assert "JSONExtractRaw(ifNull(joined.properties___amount, ''))" in outer, printed
+            assert self._export_counts(printed, "joined", native) == {"properties___a": 2, "properties___amount": 2}
+            assert "toJSONString(joined.properties.^a)" in inner, printed
+            assert "JSONExtractKeysAndValuesRaw" not in inner, printed
+        else:
+            assert "JSONExtractRaw(joined.properties, %(hogql_val_" in outer, printed
+            assert self._export_counts(printed, "joined", native) == {
+                "properties": 1,
+                "properties___a": 2,
+                "properties___amount": 1,
+            }
+            assert "toJSONString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(joined.properties, %(hogql_val_" in inner
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_grouped_clauses_export_the_value_under_a_serialization(self, _name: str, native: bool) -> None:
+        printed, _ = self._compile(
+            "SELECT toJSONString(joined.properties.a) AS a, JSONExtractString(joined.properties, 'label') AS label, "
+            f"any(toJSONString(joined.properties.arr)), count() {WRAPPED_JOIN} GROUP BY joined.properties.a, label "
+            "HAVING toJSONString(joined.properties.a) != '' ORDER BY toJSONString(joined.properties.a)",
+            native=native,
+        )
+        outer = re.sub(r" AS `[^`]*`", "", printed.split(" FROM ", 1)[0])
+        assert "toJSONString(joined.properties___a) AS a" in outer, printed
+        assert "any(joined.properties___arr)" in outer, printed
+        tail = printed.rsplit(") AS joined ON ", 1)[1]
+        assert "GROUP BY joined.properties___a," in tail, printed
+        assert tail.count("toJSONString(joined.properties___a)") == 2, printed
+        inner = self._wrapper_select_list(printed, "joined", native)
+        if native:
+            assert "JSONExtractString(ifNull(toJSONString(joined.properties___label), ''))" in outer, printed
+            assert self._exports(printed, "joined", native) == {
+                "properties___a",
+                "properties___label",
+                "properties___arr",
+            }
+            assert "toString(joined.properties.a)" in inner, printed
+            assert "toString(joined.properties.arr)" not in inner, printed
+        else:
+            assert "JSONExtractString(joined.properties, %(hogql_val_" in outer, printed
+            assert self._exports(printed, "joined", native) == {"properties___a", "properties", "properties___arr"}
+            assert inner.count("toJSONString(") == 1, printed
+
     def test_decides_exports_per_source(self) -> None:
         printed, _ = self._compile(
             "SELECT b.properties, c.properties.amount FROM events AS a "
@@ -188,6 +249,14 @@ class TestWrappedEventJoins(SimpleTestCase):
             "AS joined ON equals(initial__pdi.person_id, joined.pdi___person_id) WHERE equals(initial.team_id, 1) LIMIT 50000"
         )
 
+    def test_moves_the_sample_clause_into_the_wrapper(self) -> None:
+        printed, _ = self._compile(
+            "SELECT count() FROM events AS initial JOIN events AS joined SAMPLE 0.1 "
+            "ON initial.person_id = joined.person_id"
+        )
+        assert "FROM events AS joined SAMPLE 0.1 " in printed, printed
+        assert printed.count("SAMPLE") == 1, printed
+
     def test_corrects_the_person_id_inside_the_wrapper_only(self) -> None:
         printed, _ = self._compile(f"SELECT joined.person_id {WRAPPED_JOIN}")
         assert printed.startswith(
@@ -215,10 +284,9 @@ class TestWrappedEventJoins(SimpleTestCase):
         printed, context = self._compile(
             f"SELECT joined.properties.a.b, joined.properties.a___b, joined.properties.arr[1] {WRAPPED_JOIN}"
         )
-        assert self._exports(printed, "joined", native=False) == {
-            "properties___a___b",
-            "properties___a___b_2",
-            "properties___arr___1",
+        assert self._export_counts(printed, "joined", native=False) == {
+            "properties___a___b": 2,
+            "properties___arr___1": 1,
         }
         assert 1 in context.values.values()
         assert "1" not in context.values.values()
@@ -322,6 +390,10 @@ class TestWrappedEventJoins(SimpleTestCase):
         names = {name.strip("`") for name in re.findall(r" AS (`[^`]+`|\w+)", select_list)}
         return names - JOIN_KEY_EXPORTS
 
+    def _export_counts(self, printed: str, alias: str, native: bool) -> dict[str, int]:
+        """The exports by name, with the counter a taken name gets removed, so a test pins the columns and not a suffix."""
+        return dict(Counter(re.sub(r"(?<=[^_])_\d+$", "", name) for name in self._exports(printed, alias, native)))
+
 
 class TestLazyJoins(BaseTest):
     snapshot: Any
@@ -356,10 +428,32 @@ class TestLazyJoins(BaseTest):
                 "sum(related.properties.amount) OVER (PARTITION BY related.$session_id)",
                 (7.0,),
             ),
+            (
+                "json_functions",
+                "JSONExtractRaw(related.properties, 'a'), JSONExtractString(related.properties, 'a', 'b'), "
+                "JSONLength(related.properties, 'a'), JSONExtractRaw(related.properties, 'amount'), "
+                "toJSONString(related.properties.amount), toJSONString(related.properties.rating)",
+                ('{"b":"nested"}', "nested", 1, '"7"', "7", None),
+            ),
+            (
+                "grouped",
+                "toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
+                "toJSONString(related.properties.amount), any(toJSONString(related.properties.label)), "
+                "any(JSONExtractRaw(related.properties, 'a')), count()",
+                ('"ready"', "ready", "7", '"ready"', '{"b":"nested"}', 1),
+                "GROUP BY toJSONString(related.properties.label), JSONExtractString(related.properties, 'label'), "
+                "toJSONString(related.properties.amount)",
+            ),
+            (
+                "grouped_by_key",
+                "toJSONString(related.properties.label), toJSONString(related.properties.a), count()",
+                ('"ready"', '"{\\"b\\":\\"nested\\"}"', 1),
+                "GROUP BY related.properties.label, related.properties.a",
+            ),
         ]
     )
     def test_wrapped_events_join_executes_exported_property_reads(
-        self, _name: str, select: str, expected: tuple[object, ...]
+        self, _name: str, select: str, expected: tuple[object, ...], clause: str = ""
     ) -> None:
         for name, property_type in [
             ("amount", "Numeric"),
@@ -388,7 +482,7 @@ class TestLazyJoins(BaseTest):
         result = execute_hogql_query(
             f"SELECT {select} FROM events AS source "
             "JOIN events AS related ON source.person_id = related.person_id "
-            "WHERE source.uuid = {event_uuid} AND related.uuid = {event_uuid}",
+            f"WHERE source.uuid = {{event_uuid}} AND related.uuid = {{event_uuid}} {clause}",
             team=self.team,
             placeholders={"event_uuid": ast.Constant(value=event_uuid)},
             modifiers=HogQLQueryModifiers(
