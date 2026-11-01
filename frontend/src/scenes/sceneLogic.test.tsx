@@ -12,7 +12,7 @@ import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -176,6 +176,24 @@ describe('sceneLogic', () => {
             })
             // The support form needs this event, or a non-entitled organization cannot report the failure.
             expect(logic.values.sceneLoadExceptionEvent).toEqual(exceptionEvent)
+        })
+
+        it('shows project unavailable, not the load error, to a member with no projects', async () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                organization: {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    teams: [],
+                    membership_level: OrganizationMembershipLevel.Member,
+                },
+            })
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+
+            router.actions.push(urls.cohorts())
+            await expectLogic(logic).delay(1)
+
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectUnavailable)
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         // An import can reject long after the person gave up and went somewhere else. The error
