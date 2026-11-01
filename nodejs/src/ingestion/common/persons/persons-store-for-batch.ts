@@ -60,6 +60,9 @@ export interface PersonsStoreTransactionForBatch {
     /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[], distinctId: string): Promise<InternalPerson[]>
 
+    /** The live person that owns the distinct id, read on this transaction without a row lock. */
+    readPerson(teamId: number, distinctId: string): Promise<InternalPerson | undefined>
+
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
     moveDistinctIds(
@@ -240,6 +243,10 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         distinctId: string
     ): Promise<InternalPerson[]> {
         return this.tx.readMergeRows(teamId, targetId, sourceIds, distinctId)
+    }
+
+    readPerson(teamId: number, distinctId: string): Promise<InternalPerson | undefined> {
+        return this.tx.readPerson(teamId, distinctId)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
