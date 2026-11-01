@@ -83,7 +83,12 @@ Check directly, in this order, and ask only what the tools cannot answer:
   That is the floor, not a fault (C2 in `interpretation.md`).
 - Stored results may not exist yet for a fresh experiment.
   A read of the stored results that returns nothing in the first hours is expected.
-  The scheduled calculation skips an experiment younger than 12 hours or with fewer than 50 exposures in total, so an empty experiment has stored results only when a calculation was started another way, for example from the experiment page.
+  The scheduled calculation skips an experiment younger than 12 hours. For an older experiment it first counts the exposures, and it calculates only at 50 or more in total.
+  So an empty experiment has stored results only when a calculation was started another way, for example from the experiment page.
+- After three scheduled counts in a row below 50, the schedule stops counting the exposures of that experiment for seven days.
+  A count of 50 or more resets this. A count that fails does not change it.
+  So an experiment that starts slowly and then crosses 50 can wait up to seven days for its first scheduled calculation.
+  A calculation started from the experiment page does not wait.
 - In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 15 minutes.
   The total is 0 because of that only when every exposure is younger than 15 minutes.
 
@@ -92,7 +97,8 @@ products/experiments/backend/hogql_queries/precompute_policy.py; ExperimentResul
 products/experiments/backend/hogql_queries/experiment_query_runner.py; validate_variant_result in
 products/experiments/backend/hogql_queries/utils.py (the per-variant floor); NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES and
 EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS in products/experiments/frontend/constants.ts (the forced page read); MIN_EXPERIMENT_AGE and
-MIN_TOTAL_EXPOSURES in products/experiments/backend/temporal/scheduled_recalculation_logic.py. Verify before citing. -->
+MIN_TOTAL_EXPOSURES, EXPOSURE_BACKOFF_MIN_CONSECUTIVE_CHECKS, EXPOSURE_BACKOFF_INTERVAL, record_exposure_check and
+_exposure_backoff_skips in products/experiments/backend/temporal/scheduled_recalculation_logic.py. Verify before citing. -->
 
 **Reading.** Zero exposures minutes after launch, on a surface with little traffic, is waiting.
 Zero exposures an hour after launch, on a surface that people visit, is a real B-series case: walk B1 to B12.
