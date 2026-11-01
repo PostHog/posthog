@@ -136,6 +136,8 @@ const ROOTS = [
             // The RE2 regex engine checks regex filters before a query runs, and the shell runs no queries.
             // A hit means a module on the shell path imports lib/utils/regexp or re2js again.
             'node_modules/re2js/',
+            // react-markdown and its remark plugins load on first render. Shell code uses LazyLemonMarkdown.
+            'node_modules/react-markdown/',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.

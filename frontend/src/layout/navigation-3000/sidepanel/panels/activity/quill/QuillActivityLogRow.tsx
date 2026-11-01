@@ -22,6 +22,7 @@ import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeAct
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 type ActivityLogTab = 'details' | 'extended description' | 'diff' | 'raw'
@@ -153,7 +154,13 @@ export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLog
                             )}
                         </>
                     ) : (
-                        <div>{logItem.description}</div>
+                        <div>
+                            {logItem.markdownDescription ? (
+                                <LazyLemonMarkdown>{logItem.markdownDescription}</LazyLemonMarkdown>
+                            ) : (
+                                logItem.description
+                            )}
+                        </div>
                     )}
                     {logItem.extendedDescription && <div>{logItem.extendedDescription}</div>}
                     <div className="empty:hidden">

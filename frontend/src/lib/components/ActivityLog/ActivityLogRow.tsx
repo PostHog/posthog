@@ -9,6 +9,7 @@ import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -72,7 +73,15 @@ function ExpandedDetails({
 
 function RowSummary({ logItem, isExpanded }: { logItem: HumanizedActivityLogItem; isExpanded: boolean }): JSX.Element {
     if (!logItem.summary) {
-        return <div className="ActivityLogRow__description">{logItem.description}</div>
+        return (
+            <div className="ActivityLogRow__description">
+                {logItem.markdownDescription ? (
+                    <LazyLemonMarkdown>{logItem.markdownDescription}</LazyLemonMarkdown>
+                ) : (
+                    logItem.description
+                )}
+            </div>
+        )
     }
 
     return (
