@@ -57,6 +57,10 @@ pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_
 // Time a large symbol set parse waits for a `ParseLimiter` permit, in milliseconds.
 pub const SYMBOL_SET_LARGE_PARSE_WAIT_MS: &str = "cymbal_symbol_set_large_parse_wait_ms";
 pub const SYMBOL_SET_PARSE_INPUT_BYTES: &str = "cymbal_symbol_set_parse_input_bytes";
+// Lookups that `ParseLimiter` refuses because the parse estimate is above the memory budget.
+// Labelled by `kind` (the symbol set type) and `cached` (`true` when the refusal comes from
+// the in-memory refusal cache).
+pub const SYMBOL_SET_PARSE_REFUSED: &str = "cymbal_symbol_set_parse_refused";
 
 // Histogram buckets for the byte-shaped metrics above. The default
 // `common_metrics` buckets are tuned for milliseconds of latency and saturate

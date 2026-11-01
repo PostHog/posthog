@@ -131,6 +131,10 @@ impl Countable for Saveable {
     fn parse_input_bytes(&self) -> Option<usize> {
         self.data.parse_input_bytes()
     }
+
+    fn measure_parse_input_bytes(&self) -> Option<usize> {
+        self.data.measure_parse_input_bytes()
+    }
 }
 
 impl<F> Saving<F> {

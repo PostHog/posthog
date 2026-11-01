@@ -63,6 +63,7 @@ pub fn build_catalog(
         config.symbol_set_max_concurrent_large_parses.get(),
         config.symbol_set_parse_memory_budget_bytes.get(),
         config.symbol_set_parse_memory_multiplier.get(),
+        std::time::Duration::from_secs(config.symbol_set_negative_cache_ttl_seconds),
     );
 
     let smp = SourcemapProvider::new(config).with_chunk_id_rescue(
