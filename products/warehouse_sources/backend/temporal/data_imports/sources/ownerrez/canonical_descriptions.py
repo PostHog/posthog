@@ -248,4 +248,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "rules": "Booking rules in effect for the night, such as minimum and maximum stay.",
         },
     },
+    "SpotRates": {
+        "description": "Manual per-night rate and stay-rule overrides (spot rates). One row per property night that has an override; nights without one use the seasonal or property defaults.",
+        "docs_url": "https://api.ownerreservations.com/help/v2/spotrates/get-spotrates.md",
+        "columns": {
+            "property_id": "Identifier of the property the spot rate applies to. Unique together with date.",
+            "date": "Property-local calendar date on which the spot rate is effective.",
+            "amount": "Overridden nightly rate. Empty means the seasonal default rate applies.",
+            "min_nights": "Minimum number of nights. Empty means the season or property rule applies.",
+            "max_nights": "Maximum number of nights. Empty means the season or property rule applies.",
+            "is_arrival_disallowed": "Whether arrival is disallowed on this date. Empty means the season or property rule applies.",
+            "is_departure_disallowed": "Whether departure is disallowed on this date. Empty means the season or property rule applies.",
+            "is_gap_required": "Whether only arrival or departure is allowed on this date, not both. When true, the arrival and departure rules are ignored.",
+            "overrides_gap_arrival": "Whether the arrival rule applies even when gap rules exist.",
+            "overrides_gap_departure": "Whether the departure rule applies even when gap rules exist.",
+            "overrides_gap_min_nights": "Whether the minimum nights rule applies even when gap rules exist.",
+        },
+    },
 }
