@@ -14,7 +14,7 @@ import dataclasses
 from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, Optional
 
-from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
+from products.warehouse_sources.backend.facade.contracts import PersonPropertySyncProgress, RevenueViewSyncInput
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -449,3 +449,18 @@ def record_person_property_sync_run(record: PersonPropertySyncRunRecord) -> None
     if _person_property_sync_recorder is None:
         return
     _person_property_sync_recorder(record)
+
+
+PersonPropertySyncProgressRecorder = Callable[[PersonPropertySyncProgress], None]
+_person_property_sync_progress_recorder: Optional[PersonPropertySyncProgressRecorder] = None
+
+
+def register_person_property_sync_progress_recorder(fn: PersonPropertySyncProgressRecorder) -> None:
+    global _person_property_sync_progress_recorder
+    _person_property_sync_progress_recorder = fn
+
+
+def record_person_property_sync_progress(progress: PersonPropertySyncProgress) -> None:
+    if _person_property_sync_progress_recorder is None:
+        return
+    _person_property_sync_progress_recorder(progress)
