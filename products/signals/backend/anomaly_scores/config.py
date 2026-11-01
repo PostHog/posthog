@@ -3,6 +3,8 @@
 The payload parse fails closed: a missing, malformed or unreadable payload turns the tick off. An invalid
 field falls back to its default, and no default is unbounded. A malformed team allowlist also turns the tick
 off, because its default enrolls every team of the listed organizations.
+
+A `deployments` object, keyed by `settings.CLOUD_DEPLOYMENT`, holds per-region overrides of the top-level fields.
 """
 
 import uuid
@@ -10,6 +12,8 @@ import hashlib
 import dataclasses
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
+
+from django.conf import settings
 
 import structlog
 
@@ -365,8 +369,32 @@ def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
     return has_enabled_source(team.id)
 
 
+def deployment_payload(payload: Any, deployment: str | None) -> Any:
+    """The payload with the entry of `deployment` in its `deployments` object merged over the top-level fields.
+
+    A malformed `deployments` object or entry is ignored, so the top-level fields apply. Each field then gets
+    the same validation and caps as a top-level field.
+    """
+    if not isinstance(payload, dict) or "deployments" not in payload:
+        return payload
+    base = {key: value for key, value in payload.items() if key != "deployments"}
+    deployments = payload["deployments"]
+    if not isinstance(deployments, dict):
+        logger.warning("anomaly_scoring_config_malformed_deployments")
+        return base
+    if deployment is None or deployment not in deployments:
+        return base
+    override = deployments[deployment]
+    if not isinstance(override, dict) or "deployments" in override:
+        logger.warning("anomaly_scoring_config_malformed_deployment_override", deployment=deployment)
+        return base
+    return {**base, **override}
+
+
 def read_payload() -> dict | None:
-    return read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID)
+    return deployment_payload(
+        read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID), settings.CLOUD_DEPLOYMENT
+    )
 
 
 def read_config(payload: Any) -> AnomalyScoringConfig:
