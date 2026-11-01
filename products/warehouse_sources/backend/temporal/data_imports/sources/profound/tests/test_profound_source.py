@@ -57,14 +57,13 @@ class TestProfoundSource:
         assert ok is expected
         assert (message is None) is expected
 
-    def test_version_declaration_defaults_to_v2_with_v1_supported(self) -> None:
-        # Profound versions by URL path segment, so both labels resolve to the same requests;
-        # the default tracks the newest label without deprecating the old one.
+    def test_version_declaration_defaults_to_v2_with_v1_deprecated(self) -> None:
+        # Profound has announced no sunset for its V1 reports, so `v1` stays supported with no date.
         source = ProfoundSource()
 
         assert source.supported_versions == ("v1", "v2")
         assert source.default_version == "v2"
-        assert source.deprecated_versions == ()
+        assert [(d.version, d.sunset_at) for d in source.deprecated_versions] == [("v1", None)]
 
     @parameterized.expand([("unpinned", None), ("pinned_v1", "v1"), ("pinned_v2", "v2")])
     def test_report_path_is_fixed_regardless_of_pin(self, _name: str, pinned: str | None) -> None:
