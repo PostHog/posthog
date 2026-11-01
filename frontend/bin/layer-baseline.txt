@@ -110,8 +110,6 @@ frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> product
 frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> products/annotations/frontend/logics/annotationModalLogic.ts
 frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/AppMetrics/appMetricsLogic.ts -> frontend/src/queries/utils.ts
-frontend/src/lib/components/AuthorizedUrlList/authorizedUrlListLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Cards/InsightCard/DashboardInsightDisplayOptions.tsx -> products/product_analytics/frontend/insights/editor/InsightDisplayOptionsPanel.tsx
 frontend/src/lib/components/Cards/InsightCard/DashboardSqlDisplayOptions.tsx -> frontend/src/queries/nodes/DataVisualization/Components/DisplayTab.tsx
 frontend/src/lib/components/Cards/InsightCard/DashboardSqlDisplayOptions.tsx -> frontend/src/queries/nodes/DataVisualization/Components/TableDisplay.tsx
@@ -201,7 +199,6 @@ frontend/src/lib/components/HedgehogMode/HedgehogMode.tsx -> frontend/src/toolba
 frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
 frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarFetch.ts
 frontend/src/lib/components/HighlightedJSONViewer.tsx -> products/ai_observability/frontend/ConversationDisplay/HighlightedContentWrapper.tsx
-frontend/src/lib/components/HogQLDropdown/HogQLDropdown.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/HogQLEditor/HogQLEditor.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/IngestionControls/TriggerMatchChoice.tsx -> frontend/src/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect.tsx
 frontend/src/lib/components/IngestionControls/TriggerMatchChoice.tsx -> frontend/src/scenes/settings/environment/SessionRecordingSettings.tsx
@@ -223,8 +220,6 @@ frontend/src/lib/components/IntervalFilter/IntervalFilter.tsx -> frontend/src/sc
 frontend/src/lib/components/IntervalFilter/IntervalFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/JSSnippet.tsx -> docs/onboarding/product-analytics/index.ts
 frontend/src/lib/components/JSSnippet.tsx -> frontend/src/scenes/settings/environment/proxyLogic.ts
-frontend/src/lib/components/LiveUserCount/liveUserCountLogic.ts -> frontend/src/queries/utils.ts
-frontend/src/lib/components/Metalytics/metalyticsLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/components/NotFound/index.tsx -> frontend/src/scenes/activity/explore/defaults.ts
 frontend/src/lib/components/NotFound/index.tsx -> frontend/src/scenes/notebooks/Nodes/NotebookNodeContext.ts
 frontend/src/lib/components/PathCleanFilters/PathRegexModal.tsx -> frontend/src/scenes/session-recordings/components/AiRegexHelper/AiRegexHelper.tsx
@@ -245,7 +240,6 @@ frontend/src/lib/components/PropertyFilters/utils.ts -> frontend/src/queries/nod
 frontend/src/lib/components/PropertyKeyInfo.tsx -> frontend/src/scenes/surveys/surveyQuestionLabelsLogic.ts
 frontend/src/lib/components/QuickFilters/quickFiltersLogic.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/components/ResultMenu/ResultMenu.tsx -> frontend/src/scenes/insights/utils.tsx
-frontend/src/lib/components/ReverseProxyChecker/reverseProxyCheckerLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/components/SaveToCohortModalContent/saveToCohortModalContentLogic.ts -> frontend/src/scenes/cohorts/cohortEditLogic.ts
 frontend/src/lib/components/SaveToCohortModalContent/saveToCohortModalContentLogic.ts -> frontend/src/scenes/cohorts/cohortSavedToast.ts
 frontend/src/lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu.tsx -> frontend/src/scenes/notebooks/types.ts
@@ -267,7 +261,6 @@ frontend/src/lib/components/SessionTimeline/timeline/items/custom.tsx -> product
 frontend/src/lib/components/SessionTimeline/timeline/items/eventDetails.tsx -> frontend/src/scenes/sessions/components/SessionEventDetails.tsx
 frontend/src/lib/components/SessionTimeline/timeline/items/exceptionSteps.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/SessionTimeline/timeline/items/exceptions.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
-frontend/src/lib/components/SessionTimeline/timeline/items/logs.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/SessionTimeline/timeline/items/logs.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/SessionTimeline/timeline/items/page.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/nodes/InsightQuery/defaults.ts
@@ -282,7 +275,6 @@ frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> f
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/utils.ts
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> products/persons/frontend/components/PersonDisplay.tsx
 frontend/src/lib/components/TablePreview/databaseTablePreviewLogic.ts -> frontend/src/queries/query.ts
-frontend/src/lib/components/TablePreview/databaseTablePreviewLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/components/TaxonomicFilter/taxonomicFilterLogic.tsx -> frontend/src/scenes/data-management/events/DefinitionHeader.tsx
 frontend/src/lib/components/TaxonomicFilter/taxonomicFilterLogic.tsx -> frontend/src/scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic.ts
 frontend/src/lib/components/TaxonomicFilter/taxonomicFilterLogic.tsx -> frontend/src/scenes/feature-flags/constants.tsx
