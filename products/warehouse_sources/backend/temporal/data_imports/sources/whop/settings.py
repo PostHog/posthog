@@ -11,7 +11,8 @@ BASE_URL = "https://api.whop.com/api/v1"
 # source always sends the version pinned on the source instead of letting the key decide.
 WHOP_API_VERSION_2025_01_01 = "2025-01-01"
 WHOP_API_VERSION_2026_10_13_1 = "2026-10-13-1"
-WHOP_API_VERSIONS = (WHOP_API_VERSION_2025_01_01, WHOP_API_VERSION_2026_10_13_1)
+WHOP_API_VERSION_2026_10_29_8 = "2026-10-29-8"
+WHOP_API_VERSIONS = (WHOP_API_VERSION_2025_01_01, WHOP_API_VERSION_2026_10_13_1, WHOP_API_VERSION_2026_10_29_8)
 API_VERSION_HEADER = "Api-Version-Date"
 
 # The query param that narrows a list to the connected company. Later versions renamed it, and
@@ -20,6 +21,7 @@ API_VERSION_HEADER = "Api-Version-Date"
 COMPANY_FILTER_PARAM: dict[str, str] = {
     WHOP_API_VERSION_2025_01_01: "company_id",
     WHOP_API_VERSION_2026_10_13_1: "account_id",
+    WHOP_API_VERSION_2026_10_29_8: "account_id",
 }
 
 WHOP_API_KEYS_URL = "https://whop.com/dashboard/developer"
@@ -47,11 +49,16 @@ class WhopEndpointConfig:
     supports_created_after: bool = False
     partition_key: str | None = "created_at"
     latest_path: str | None = None
+    # The versions the endpoint is verified on. None means every supported version.
+    versions: tuple[str, ...] | None = None
 
     def path_for(self, api_version: str) -> str:
         if api_version == WHOP_API_VERSION_2025_01_01:
             return self.path
         return self.latest_path or self.path
+
+    def served_on(self, api_version: str) -> bool:
+        return self.versions is None or api_version in self.versions
 
 
 WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
@@ -143,9 +150,24 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
     "affiliates": WhopEndpointConfig(path="/affiliates", company_id_required=True, supports_direction=True),
     "shipments": WhopEndpointConfig(path="/shipments"),
     "company_token_transactions": WhopEndpointConfig(path="/company_token_transactions", company_id_required=True),
+    # Whop renamed social accounts to external accounts in 2026-10-06, and the 2025-01-01 contract
+    # documents neither the path nor its company filter. The resource carries no `created_at`
+    # column, so it only syncs as a full refresh.
+    "external_accounts": WhopEndpointConfig(
+        path="/external_accounts",
+        supports_created_at_order=True,
+        supports_direction=True,
+        partition_key=None,
+        versions=(WHOP_API_VERSION_2026_10_13_1, WHOP_API_VERSION_2026_10_29_8),
+    ),
 }
 
 ENDPOINTS = tuple(WHOP_ENDPOINTS.keys())
+
+
+def endpoints_for(api_version: str) -> tuple[str, ...]:
+    return tuple(name for name, config in WHOP_ENDPOINTS.items() if config.served_on(api_version))
+
 
 # Every Whop resource we sync exposes `created_at` as an immutable ISO 8601 datetime, and
 # `created_after` is the only server-side timestamp filter offered across the catalog. `/payments`

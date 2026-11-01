@@ -140,6 +140,8 @@ def whop_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = WHOP_ENDPOINTS[endpoint]
+    if not config.served_on(api_version):
+        raise ValueError(f"Whop table {endpoint} is not available on API version {api_version}")
     watermark = _parse_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
 
     rest_config: RESTAPIConfig = {

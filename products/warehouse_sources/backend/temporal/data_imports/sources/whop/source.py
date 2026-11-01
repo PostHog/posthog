@@ -32,7 +32,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.web
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop import whop as api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
-    ENDPOINTS,
     INCREMENTAL_FIELDS,
     MERGE_ONLY_ENDPOINTS,
     RESOURCE_TO_EVENT_PREFIX,
@@ -40,8 +39,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.setti
     WEBHOOK_SCHEMA_NAMES,
     WHOP_API_KEYS_URL,
     WHOP_API_VERSION_2025_01_01,
-    WHOP_API_VERSION_2026_10_13_1,
+    WHOP_API_VERSION_2026_10_29_8,
     WHOP_API_VERSIONS,
+    endpoints_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop import WhopResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -79,7 +79,7 @@ class WhopSource(
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = WHOP_API_VERSIONS
-    default_version = WHOP_API_VERSION_2026_10_13_1
+    default_version = WHOP_API_VERSION_2026_10_29_8
     api_docs_url = "https://docs.whop.com/developer/api/versioning"
 
     @property
@@ -118,9 +118,9 @@ class WhopSource(
                             f"Create a company API key in the [Developer tab]({WHOP_API_KEYS_URL}) of your Whop "
                             "dashboard. Grant it read access to the resources you want to sync: "
                             "`company:basic:read`, `member:basic:read`, `payment:basic:read`, "
-                            "`access_pass:basic:read`, `plan:basic:read`, `promo_code:basic:read` and "
-                            "`invoice:basic:read`, plus `developer:manage_webhook` if you want PostHog to "
-                            "register the webhook for you."
+                            "`access_pass:basic:read`, `plan:basic:read`, `promo_code:basic:read`, "
+                            "`invoice:basic:read` and `social_account:read`, plus `developer:manage_webhook` if "
+                            "you want PostHog to register the webhook for you."
                         ),
                         secret=True,
                     ),
@@ -186,6 +186,9 @@ class WhopSource(
                 "Whop rejected the request for this table, so it can't sync. Turn off syncing for this "
                 "table, then re-enable the sync."
             ),
+            "is not available on API version": (
+                "This table isn't available on the Whop API version this source uses. Turn off syncing for this table."
+            ),
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -207,7 +210,7 @@ class WhopSource(
         # Endpoints with no `created_at` sort option page newest-first and stop at the watermark,
         # which re-yields boundary rows that only a merge on `id` can dedupe.
         return build_endpoint_schemas(
-            ENDPOINTS,
+            endpoints_for(self._api_version_date(api_version)),
             INCREMENTAL_FIELDS,
             names,
             merge_only=MERGE_ONLY_ENDPOINTS,

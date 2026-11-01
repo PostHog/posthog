@@ -39,7 +39,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop 
 COMPANY_ID = "biz_test"
 
 LEGACY = "2025-01-01"
-LATEST = "2026-10-13-1"
+PREVIOUS = "2026-10-13-1"
+LATEST = "2026-10-29-8"
 
 SYNC_ENDPOINT = "payments"
 
@@ -106,10 +107,13 @@ class TestApiVersion:
         "pinned, sent_version, filter_param, endpoint, path",
         [
             (LEGACY, LEGACY, "company_id", "entries", "/api/v1/entries"),
+            (PREVIOUS, PREVIOUS, "account_id", "entries", "/api/v1/waitlist_entries"),
             (LATEST, LATEST, "account_id", "entries", "/api/v1/waitlist_entries"),
             # A row created by a pod still on the unversioned code during the deploy.
             ("v1", LEGACY, "company_id", "products", "/api/v1/products"),
             (None, LATEST, "account_id", "products", "/api/v1/products"),
+            (PREVIOUS, PREVIOUS, "account_id", "external_accounts", "/api/v1/external_accounts"),
+            (LATEST, LATEST, "account_id", "external_accounts", "/api/v1/external_accounts"),
         ],
     )
     def test_sync_sends_the_pinned_version(self, pinned, sent_version, filter_param, endpoint, path):
@@ -119,6 +123,20 @@ class TestApiVersion:
         assert request.headers["api-version-date"] == sent_version
         assert request.path == path
         assert request.param(filter_param) == COMPANY_ID
+
+    @pytest.mark.parametrize("pinned, served", [(LEGACY, False), ("v1", False), (PREVIOUS, True), (LATEST, True)])
+    def test_external_accounts_is_only_discovered_where_whop_documents_it(self, pinned, served):
+        schemas = WhopSource().get_schemas(
+            WhopSourceConfig(api_key="test-api-key", company_id=COMPANY_ID), team_id=1, api_version=pinned
+        )
+        assert ("external_accounts" in {schema.name for schema in schemas}) is served
+
+    def test_a_table_the_pin_does_not_serve_fails_before_any_request(self):
+        result = _driver().run("external_accounts", [], api_version=LEGACY)
+
+        assert isinstance(result.raised, ValueError)
+        assert "not available on API version" in str(result.raised)
+        assert result.requests == []
 
 
 class TestPagination:
