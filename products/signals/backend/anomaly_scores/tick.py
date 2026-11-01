@@ -17,6 +17,7 @@ from django.utils import timezone
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
@@ -88,6 +89,9 @@ STATUS_ARTIFACT_UNAVAILABLE = "artifact_unavailable"
 STATUS_ERRORED = "errored"
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=2)
+# No team starts to load after this time. The rest of the plan scales with the loaded teams, so it needs the other half.
+# A timed-out attempt does not stop its thread, so a plan that ends in time also keeps its retry from overlapping it.
+_PLAN_LOAD_BUDGET = _PLAN_TIMEOUT / 2
 # All the scoring queries of one insight stop within their budget. The rest is detection, the capture request,
 # and the failure classification. A query timeout must reach the classification, so that it gets the 1 day cooldown.
 _INSIGHT_TIMEOUT = datetime.timedelta(seconds=SCORING_QUERY_BUDGET_SECONDS) + datetime.timedelta(seconds=90)
@@ -124,6 +128,8 @@ class AnomalyScoringTickPlan:
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    teams_planned: int = 0
+    teams_skipped: int = 0
 
 
 @frozen
@@ -174,6 +180,14 @@ class AnomalyScoringTickResult:
     active_reasons: dict[str, int] | None = None
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    # Time of the plan activity, its retry included. Compare it with the plan timeout.
+    plan_ms: int = 0
+    # Teams with active insights that the plan loaded, and the teams that wait for a later tick.
+    teams_planned: int = 0
+    teams_skipped: int = 0
+    # The plan activity failed, and the tick scored nothing. `plan_error` is the error class.
+    plan_failed: bool = False
+    plan_error: str | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -182,7 +196,8 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
     config = read_config(payload)
     if not config.enabled:
         return AnomalyScoringTickPlan(enabled=False, picks=[], candidates=0, max_concurrency=config.max_concurrency)
-    selection = select_insights(config, parse_selection_config(payload), now, limit)
+    deadline = time.monotonic() + _PLAN_LOAD_BUDGET.total_seconds()
+    selection = select_insights(config, parse_selection_config(payload), now, limit, deadline=deadline)
     record_candidates(selection.candidates)
     capture_census(selection.census, now)
     return AnomalyScoringTickPlan(
@@ -201,7 +216,17 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         active_reasons=selection.active_reasons,
         enrolled_teams=selection.enrolled_teams,
         enrolled_organizations=selection.enrolled_organizations,
+        teams_planned=selection.teams_planned,
+        teams_skipped=selection.teams_skipped,
     )
+
+
+def plan_error_class(error: ActivityError) -> str:
+    """The class of the error that failed the plan activity. An activity timeout is a Temporal `TimeoutError`."""
+    cause = error.cause
+    if isinstance(cause, ApplicationError) and cause.type:
+        return cause.type
+    return type(cause).__name__ if cause is not None else type(error).__name__
 
 
 def failure_status(error: Exception) -> str | None:
@@ -431,6 +456,11 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         active_reasons=result.active_reasons,
         enrolled_teams=result.enrolled_teams,
         enrolled_organizations=result.enrolled_organizations,
+        plan_ms=result.plan_ms,
+        teams_planned=result.teams_planned,
+        teams_skipped=result.teams_skipped,
+        plan_failed=result.plan_failed,
+        plan_error=result.plan_error,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -458,6 +488,11 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             **{f"active_{reason}": count for reason, count in (result.active_reasons or {}).items()},
             "enrolled_teams": result.enrolled_teams,
             "enrolled_organizations": result.enrolled_organizations,
+            "plan_ms": result.plan_ms,
+            "teams_planned": result.teams_planned,
+            "teams_skipped": result.teams_skipped,
+            "plan_failed": result.plan_failed,
+            "plan_error": result.plan_error,
         },
     )
 
@@ -489,12 +524,27 @@ class AnomalyScoringTickWorkflow:
     @workflow.run
     async def run(self, inputs: AnomalyScoringTickInput) -> AnomalyScoringTickResult:
         started = workflow.now()
-        plan = await workflow.execute_activity(
-            plan_anomaly_scoring_tick_activity,
-            inputs,
-            start_to_close_timeout=_PLAN_TIMEOUT,
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        try:
+            plan = await workflow.execute_activity(
+                plan_anomaly_scoring_tick_activity,
+                inputs,
+                start_to_close_timeout=_PLAN_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except ActivityError as error:
+            # Without this event, a failed tick looks like a missing tick. The workflow still fails.
+            plan_ms = round((workflow.now() - started).total_seconds() * 1000)
+            await self._capture(
+                AnomalyScoringTickResult(
+                    enabled=True,
+                    duration_ms=plan_ms,
+                    plan_ms=plan_ms,
+                    plan_failed=True,
+                    plan_error=plan_error_class(error),
+                )
+            )
+            raise
+        plan_ms = round((workflow.now() - started).total_seconds() * 1000)
         if not plan.enabled:
             return AnomalyScoringTickResult()
 
@@ -557,11 +607,17 @@ class AnomalyScoringTickWorkflow:
             active_reasons=plan.active_reasons,
             enrolled_teams=plan.enrolled_teams,
             enrolled_organizations=plan.enrolled_organizations,
+            plan_ms=plan_ms,
+            teams_planned=plan.teams_planned,
+            teams_skipped=plan.teams_skipped,
         )
+        await self._capture(result)
+        return result
+
+    async def _capture(self, result: AnomalyScoringTickResult) -> None:
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,
             result,
             start_to_close_timeout=_CAPTURE_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
-        return result

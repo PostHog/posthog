@@ -533,9 +533,10 @@ async def _arun_signals_scout(
     business_knowledge_maintained = await database_sync_to_async(
         _business_knowledge_maintained_for_team, thread_sensitive=False
     )(team)
-    # Resolved here for the same reason, so every lifecycle event reports the same cadence.
+    # Resolved here for the same reason, so every lifecycle event reports the same cadence. The
+    # backoff comes from the lane that runs this config's skill.
     backoff = (
-        await asyncio.to_thread(resolve_background_backoff)
+        await asyncio.to_thread(resolve_background_backoff, config.skill_name)
         if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND
         else None
     )

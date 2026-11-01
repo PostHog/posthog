@@ -9,12 +9,12 @@ import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } f
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 
 import { useColumnWidths } from '../../hooks/useColumnWidths'
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'

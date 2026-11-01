@@ -4,11 +4,11 @@ import { LemonButton, LemonModal, LemonTable, LemonTableColumns, Link } from '@p
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 
 import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
-import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
 export function ConfirmDowngradeModal({ product }: { product: BillingProductV2AddonType }): JSX.Element | null {
