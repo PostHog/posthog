@@ -1,14 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGridMasonry } from '@posthog/icons'
-
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-
 import {
-    SceneMenuBarItem,
     SceneMenuBarRadioGroup,
     SceneMenuBarRadioItem,
-    SceneMenuBarSeparator,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { DashboardTileSpacing, TileGroupDisplay } from '~/types'
@@ -24,15 +18,9 @@ import {
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardCustomizeSubMenu(): JSX.Element | null {
-    const {
-        dashboard,
-        currentLayoutSize,
-        layoutEditMode,
-        tileGroupSections,
-        tileGroupDisplay,
-        dashboardGridCompactionSaving,
-    } = useValues(dashboardLogic)
-    const { setDashboardEditing, changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
+    const { dashboard, currentLayoutSize, tileGroupSections, tileGroupDisplay, dashboardGridCompactionSaving } =
+        useValues(dashboardLogic)
+    const { changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
         useActions(dashboardLogic)
 
     if (!dashboard) {
@@ -43,23 +31,6 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
 
     return (
         <SceneMenuBarSubMenu label="Customize">
-            {layoutAvailable && !layoutEditMode && (
-                <>
-                    <SceneMenuBarItem
-                        onClick={() =>
-                            setDashboardEditing(
-                                { filters: true, layout: true },
-                                DashboardEventSource.SceneCommonButtons
-                            )
-                        }
-                        data-attr="dashboard-menubar-edit-layout"
-                    >
-                        <IconGridMasonry />
-                        Edit layout
-                    </SceneMenuBarItem>
-                    <SceneMenuBarSeparator />
-                </>
-            )}
             <SceneMenuBarSubMenu label="Tile density">
                 <SceneMenuBarRadioGroup
                     value={dashboard.customization?.tile_spacing ?? 'standard'}

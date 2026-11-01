@@ -29,7 +29,7 @@ export function DashboardGridBackground({
 
     return (
         <svg
-            className="absolute top-0 left-0 pointer-events-none"
+            className="DashboardGridBackground absolute top-0 left-0 pointer-events-none"
             width={width}
             height={totalHeight}
             aria-hidden="true"

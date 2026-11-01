@@ -12,6 +12,29 @@
             padding: 0.25rem;
         }
     }
+
+    // Tiles are always movable for editors, so the cell guides and the drop space only show mid-gesture.
+    .DashboardGridBackground {
+        display: none;
+    }
+
+    &.dashboard-layout-gesture {
+        .DashboardGridBackground {
+            display: block;
+        }
+
+        // Dragging is bounded to the grid's clientHeight, so padding (counted only under content-box)
+        // opens room below the last tile to drop it into a new row.
+        .dashboard-drop-space-end {
+            box-sizing: content-box;
+            padding-bottom: 40vh;
+        }
+
+        .dashboard-drop-space-between {
+            box-sizing: content-box;
+            padding-bottom: 6rem;
+        }
+    }
 }
 
 .react-grid-layout {

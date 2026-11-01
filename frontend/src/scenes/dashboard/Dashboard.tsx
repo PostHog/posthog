@@ -41,7 +41,6 @@ import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardWarehouseSyncBanner } from './DashboardWarehouseSyncBanner'
-import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 // The modal renders the saved insights list, which no dashboard needs until someone adds an insight.
@@ -145,19 +144,16 @@ function DashboardScene({
         itemsLoading,
         dashboardLoading,
         dashboardStreaming,
-        layoutEditMode,
         dashboardFailedToLoad,
         internetConnectionIssue,
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
     } = useValues(dashboardLogic)
-    const { layoutZoom } = useValues(dashboardLogic)
     const { id: dashboardId } = useMountedLogic(dashboardLogic).props
     useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const closeAddInsightToDashboardModal = (): void => {
@@ -284,15 +280,6 @@ function DashboardScene({
 
                     <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
-                        {layoutEditMode &&
-                            canEditDashboard &&
-                            [
-                                DashboardPlacement.Dashboard,
-                                DashboardPlacement.ProjectHomepage,
-                                DashboardPlacement.Builtin,
-                            ].includes(placement) && (
-                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
-                            )}
                     </SceneStickyBar>
 
                     <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />

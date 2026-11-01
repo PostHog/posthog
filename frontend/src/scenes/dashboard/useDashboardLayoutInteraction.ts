@@ -17,7 +17,8 @@ import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/das
 type InteractionKind = 'drag' | 'resize'
 
 interface UseDashboardLayoutInteractionProps {
-    layoutEditMode: boolean
+    /** Whether the viewer can move and resize tiles. */
+    enabled: boolean
     layoutCompaction?: DashboardGridCompaction
     updateLayouts: (layouts: Partial<Record<DashboardLayoutSize, Layout>>) => void
 }
@@ -31,11 +32,14 @@ interface DashboardLayoutInteraction {
 }
 
 export function useDashboardLayoutInteraction({
-    layoutEditMode,
+    enabled,
     layoutCompaction,
     updateLayouts,
 }: UseDashboardLayoutInteractionProps): DashboardLayoutInteraction {
     const interactionInProgress = useRef(false)
+    // The grid also reports layouts it works out itself (on mount, or as tiles stream in). Only a layout from
+    // a drag or resize is the viewer's change, and the grid reports that one right after the gesture stops.
+    const acceptingGestureLayout = useRef(false)
     const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const baselineLayout = useRef<Layout | null>(null)
     const baselineById = useRef<Map<string, LayoutItem>>(new Map())
@@ -79,16 +83,18 @@ export function useDashboardLayoutInteraction({
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (!layoutEditMode) {
+            if (!enabled) {
                 return
             }
             if (interactionInProgress.current) {
                 pendingLayouts.current = newLayouts
                 return
             }
-            updateLayouts(newLayouts)
+            if (acceptingGestureLayout.current) {
+                updateLayouts(newLayouts)
+            }
         },
-        [layoutEditMode, updateLayouts]
+        [enabled, updateLayouts]
     )
 
     const startInteraction = useCallback((layout: Layout, item: LayoutItem, kind: InteractionKind): void => {
@@ -102,6 +108,10 @@ export function useDashboardLayoutInteraction({
 
     const finishInteraction = useCallback((): void => {
         interactionInProgress.current = false
+        acceptingGestureLayout.current = true
+        setTimeout(() => {
+            acceptingGestureLayout.current = false
+        }, 0)
         if (pendingLayouts.current) {
             updateLayouts(pendingLayouts.current)
             pendingLayouts.current = null

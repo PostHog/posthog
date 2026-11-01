@@ -252,16 +252,6 @@ export class DashboardPage {
         await editLink.click()
     }
 
-    async enterEditMode(): Promise<void> {
-        await this.page.getByTestId('dashboard-edit-mode-button').click()
-        await expect(this.page.getByTestId('dashboard-edit-mode-save')).toBeVisible()
-    }
-
-    async saveEditMode(): Promise<void> {
-        await this.page.getByTestId('dashboard-edit-mode-save').click()
-        await expect(this.page.getByTestId('dashboard-edit-mode-save')).not.toBeVisible()
-    }
-
     async hoverFirstCard(): Promise<void> {
         const infoButton = this.insightCards.first().locator('[data-attr="card-meta-info"]')
         await infoButton.click()
