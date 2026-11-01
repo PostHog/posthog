@@ -18,7 +18,7 @@ import httpx
 from openai import APITimeoutError, BadRequestError, omit
 from parameterized import parameterized
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.redis import TEST_clear_clients
 from posthog.token_bucket import TEST_reset_scripts
 
@@ -656,6 +656,24 @@ class TestBuildPersonalRanking(BaseTest):
         assert "next: Review the PR" in output
         assert all(f"] {report.title} (" in output for report in reports.values())
 
+    def test_a_build_keeps_only_the_newest_rows_of_that_person(self) -> None:
+        config = PersonalRankingConfig(max_rows_per_person=2)
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        start = timezone.now()
+        with time_machine.travel(start, tick=False):
+            build_personal_ranking(self.team, other_user, config=config)
+            build_personal_ranking(other_team, self.user, config=config)
+        ranking_ids = []
+        for minute in range(1, 5):
+            with time_machine.travel(start + datetime.timedelta(minutes=minute), tick=False):
+                ranking_ids.append(build_personal_ranking(self.team, self.user, config=config).ranking_id)
+
+        mine = PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id)
+        assert sorted(str(row_id) for row_id in mine.values_list("id", flat=True)) == sorted(ranking_ids[-2:])
+        assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other_user.id).count() == 1
+        assert PersonalInboxRanking.objects.for_team(other_team.id).filter(user_id=self.user.id).count() == 1
+
 
 class TestForMeEndpoint(APIBaseTest):
     def setUp(self) -> None:
@@ -757,7 +775,7 @@ class TestForMeEndpoint(APIBaseTest):
 
         self.delay.side_effect = build_personal_inbox_ranking
         body = self._get(refresh="true", wait_seconds=5)
-        assert (self._state(body), self._rows()) == ((False, False, False), 7)
+        assert (self._state(body), self._rows()) == ((False, False, False), 5)
 
     def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}
