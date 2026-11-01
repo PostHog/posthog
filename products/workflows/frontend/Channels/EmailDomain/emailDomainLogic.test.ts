@@ -119,6 +119,23 @@ describe('emailDomainLogic', () => {
         expect(backend.requestsTo('integration_get')).toHaveLength(2)
         expect(backend.requestsTo('email_status')).toHaveLength(statusChecks)
     })
+    it.each<[string, (sender: ReturnType<typeof emailDomainSenderLogic.build>) => void]>([
+        [
+            'saving the sender name',
+            (sender) => {
+                sender.actions.setSenderName('Renamed')
+                sender.actions.saveSender()
+            },
+        ],
+        ['recording the setup method', (sender) => sender.actions.recordSetupMethod('manual')],
+    ])('leaves the MAIL FROM label out when %s', async (_, edit) => {
+        await mountAndLoad()
+        const sender = emailDomainSenderLogic({ id: '42' })
+        edit(sender)
+        await jest.advanceTimersByTimeAsync(0)
+        const [update] = backend.requestsTo('email_update')
+        expect(update.body).toEqual({ config: expect.not.objectContaining({ mail_from_subdomain: expect.anything() }) })
+    })
     it.each<[HogflowTestResult['emailSendResult'], boolean]>([
         [{ status: 'accepted' }, true],
         [{ status: 'skipped', reason: 'The recipient has no reachable mail servers.' }, false],

@@ -209,6 +209,30 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             "unrelated@other.com": "feedback",
         }
 
+    @parameterized.expand(
+        [("label_resent", {"mail_from_subdomain": "feedback"}), ("label_omitted", {"name": "Renamed"})]
+    )
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_saving_a_label_a_sibling_lacks_moves_ses_to_it(self, _name, edit, mock_update_mail_from_subdomain):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        edited, sibling = (
+            Integration.objects.create(
+                team=team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": "example.com", "mail_from_subdomain": label, "provider": "ses"},
+            )
+            for team, email, label in [
+                (self.team, "edited@example.com", "feedback"),
+                (other_team, "sibling@example.com", "returns"),
+            ]
+        )
+
+        EmailIntegration(edited, acting_user=self.user).update_native_integration(edit, team_id=self.team.id)
+
+        mock_update_mail_from_subdomain.assert_called_once_with("example.com", mail_from_subdomain="feedback")
+        assert Integration.objects.get(pk=sibling.pk).config["mail_from_subdomain"] == "feedback"
+
     @parameterized.expand([("label_omitted", {"name": "Renamed"}), ("label_cleared", {"mail_from_subdomain": ""})])
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     def test_editing_a_sender_without_a_label_keeps_the_current_domain_label(

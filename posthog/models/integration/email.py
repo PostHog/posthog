@@ -248,10 +248,12 @@ class EmailIntegration:
         name: str = config.get("name", self.integration.config.get("name"))
         mail_from_subdomain = self._edited_mail_from_subdomain(config.get("mail_from_subdomain"))
 
-        mail_from_changed = mail_from_subdomain != self.mail_from_subdomain
+        ses_label_stale = mail_from_subdomain != self.mail_from_subdomain or self._domain_uses_another_label(
+            domain, mail_from_subdomain
+        )
 
         if provider == "ses":
-            if mail_from_changed:
+            if ses_label_stale:
                 from products.workflows.backend.facade.api import (
                     update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
                 )
@@ -292,6 +294,18 @@ class EmailIntegration:
         if self._shares_domain_label:
             return requested_subdomain or self.mail_from_subdomain
         return self.mail_from_subdomain if requested_subdomain is None else requested_subdomain
+
+    def _domain_uses_another_label(self, domain: str, mail_from_subdomain: str) -> bool:
+        if not self._shares_domain_label:
+            return False
+        sibling_configs = (
+            model.Integration.objects.filter(
+                kind="email", config__domain=domain, team__organization_id=self.integration.team.organization_id
+            )
+            .exclude(pk=self.integration.pk)
+            .values_list("config", flat=True)
+        )
+        return any(self._shared_mail_from_subdomain(config) != mail_from_subdomain for config in sibling_configs)
 
     def _lock_edited_sender(self, domain: str) -> tuple[model.Integration, list[model.Integration]]:
         if not self._shares_domain_label:
