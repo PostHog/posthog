@@ -72,11 +72,8 @@ def _scanner_type(team_id: int, scanner_id: str) -> str | None:
     team_ids = [team_id, *Team.objects.filter(parent_team_id=team_id).values_list("id", flat=True)]
     # Scoped to the scout's team and its environments, which the single-team rule can't express.
     # nosemgrep: idor-lookup-without-team
-    return (
-        ReplayScanner.objects.filter(id=scanner_uuid, team_id__in=team_ids)
-        .values_list("scanner_type", flat=True)
-        .first()
-    )
+    scanners = ReplayScanner.objects.filter(id=scanner_uuid, team_id__in=team_ids)
+    return scanners.values_list("scanner_type", flat=True).first()
 
 
 def _refresh(skill: signals_facade.SourceScoutSkill, scanner_type: str) -> str | None:
