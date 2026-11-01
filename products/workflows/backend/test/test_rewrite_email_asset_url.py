@@ -12,7 +12,7 @@ from posthog.models import Team
 from posthog.models.integration import Integration
 
 from products.messaging.backend.facade.api import get_template_email_content
-from products.messaging.backend.facade.templates import get_template
+from products.messaging.backend.facade.templates import get_template, save_template_fields
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.messaging.backend.facade.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
@@ -215,7 +215,7 @@ class TestRewriteEmailAssetUrl(BaseTest):
     @parameterized.expand(
         [("default_run", False, False), ("workflow_id", True, False), ("template_draft", False, True)]
     )
-    def test_rewrites_a_transactional_workflow_whose_template_lacks_the_url(
+    def test_rewrites_a_transactional_workflow_whose_template_content_lacks_the_url(
         self, _name: str, by_id: bool, old_draft: bool
     ) -> None:
         sender = Integration.objects.create(
@@ -236,6 +236,30 @@ class TestRewriteEmailAssetUrl(BaseTest):
         call_command(
             "rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id), *id_args
         )
+
+        actions = json.dumps(HogFlow.objects.get(id=workflow_id).actions)
+        assert (OLD in actions, NEW in actions) == (False, True)
+
+    def test_rewrites_the_workflow_of_a_template_deleted_during_the_run(self) -> None:
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        template = create_message_template_for_test(
+            team_id=self.team.id,
+            name="Welcome",
+            content={"email": {"subject": "Welcome", "html": f'<img src="{OLD}?w=960px" />'}},
+        )
+        workflow_id = make_transactional(self.team.id, template, user_id=self.user.id, from_integration_id=None)
+
+        def delete_instead(template_id, *_args, **_kwargs) -> int:
+            save_template_fields(
+                self.team.id, template_id, {"deleted": True}, user_id=None, require_workflow_editor=lambda _: None
+            )
+            return 0
+
+        with patch.object(rewrite_email_asset_url, "rewrite_template_content", side_effect=delete_instead):
+            call_command("rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id))
 
         actions = json.dumps(HogFlow.objects.get(id=workflow_id).actions)
         assert (OLD in actions, NEW in actions) == (False, True)

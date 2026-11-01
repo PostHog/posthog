@@ -14,7 +14,7 @@ from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reloa
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.messaging.backend.facade.api import (
     find_template_ids_containing,
-    find_transactional_workflow_ids_containing,
+    find_workflow_ids_synced_from_content_containing,
 )
 from products.messaging.backend.facade.templates import rewrite_template_content
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -138,14 +138,11 @@ class Command(BaseCommand):
         self.stdout.write(f"Scope: {scope}")
         self.stdout.write(f"Replacing {from_url}\n       with {to_url}\n")
 
-        template_owned = (
-            find_transactional_workflow_ids_containing(from_url, team_ids=team_ids, template_id=options.get("row_id"))
-            if MESSAGE_TEMPLATES in targets
-            else set()
-        )
         totals = RewriteCounts()
         for target in targets:
-            counts = self._process_target(target, from_url, to_url, options, template_owned=template_owned)
+            counts = self._process_target(
+                target, from_url, to_url, options, rewrites_templates=MESSAGE_TEMPLATES in targets
+            )
             totals.rows_scanned += counts.rows_scanned
             totals.rows_changed += counts.rows_changed
             totals.occurrences += counts.occurrences
@@ -163,15 +160,20 @@ class Command(BaseCommand):
             raise CommandError(f"{totals.errors} row(s) failed to rewrite - see the errors above and re-run")
 
     def _process_target(
-        self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, template_owned: set[Any]
+        self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, rewrites_templates: bool
     ) -> RewriteCounts:
         counts = RewriteCounts()
         if target == MESSAGE_TEMPLATES:
             row_ids, rewrite_row = self._message_template_rows(from_url, to_url, options)
         else:
-            row_ids, rewrite_row = self._model_rows(
-                target, from_url, to_url, options, template_owned=template_owned if target == "hog_flows" else set()
+            template_owned = (
+                find_workflow_ids_synced_from_content_containing(
+                    from_url, team_ids=options.get("team_id"), template_id=options.get("row_id")
+                )
+                if target == "hog_flows" and rewrites_templates
+                else set()
             )
+            row_ids, rewrite_row = self._model_rows(target, from_url, to_url, options, template_owned=template_owned)
 
         self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
         if not row_ids:

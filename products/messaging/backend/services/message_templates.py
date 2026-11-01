@@ -62,7 +62,7 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
     return list(matches.order_by("id").values_list("id", flat=True))
 
 
-def transactional_workflow_ids_containing(
+def workflow_ids_synced_from_content_containing(
     text: str, *, team_ids: list[int] | None, template_id: str | None
 ) -> set[UUID]:
     matches = _containing(text, ("content",), team_ids=team_ids, template_id=template_id)

@@ -22,7 +22,7 @@ __all__ = [
     "apply_design_operations",
     "build_push_config",
     "find_template_ids_containing",
-    "find_transactional_workflow_ids_containing",
+    "find_workflow_ids_synced_from_content_containing",
     "get_template_email_content",
     "is_push_integration_kind",
     "list_email_templates",
@@ -66,7 +66,9 @@ def find_template_ids_containing(text: str, *, team_ids: list[int] | None, templ
     return message_templates.find_ids_containing(text, team_ids=team_ids, template_id=template_id)
 
 
-def find_transactional_workflow_ids_containing(
+def find_workflow_ids_synced_from_content_containing(
     text: str, *, team_ids: list[int] | None, template_id: str | None
 ) -> set[UUID]:
-    return message_templates.transactional_workflow_ids_containing(text, team_ids=team_ids, template_id=template_id)
+    return message_templates.workflow_ids_synced_from_content_containing(
+        text, team_ids=team_ids, template_id=template_id
+    )
