@@ -14,6 +14,7 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from copy import copy
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
+from fractions import Fraction
 from functools import cache, partial
 from typing import TYPE_CHECKING, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -195,7 +196,7 @@ def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext
     if only_in_flag_evaluations:
         view_name = _view_reading_flag_calls_from_events(resolved)
         if view_name is not None:
-            raise _flag_calls_only_in_flag_evaluations_error(
+            raise flag_calls_only_in_flag_evaluations_error(
                 f"it reads the saved view {view_name}, which reads them from events"
             )
     return resolved
@@ -211,16 +212,17 @@ def _resolve_with_swaps(
     # Deferred: flag_calls_union imports this module.
     from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
         read_flag_calls_with_union,
+        union_applies,
         union_unreadable_reason,
     )
 
     if not names_flag_called_event(node):
-        return resolve(node)
+        return _without_unreadable_inline_cohort_scans(resolve(node), context, only_in_flag_evaluations)
     if not only_in_flag_evaluations and context.uses_new_events_schema():
         return resolve(node)
     with context.timings.measure("flag_calls_from_flag_evaluations"):
         # The lookup reads Postgres, so it runs only when a scan pins `$feature_flag`.
-        compares_as_string = cache(partial(_flag_key_compares_as_string, context))
+        compares_as_string = cache(partial(team_flag_key_compares_as_string, context))
         rewritten = clone_expr(node)
         clones = _join_clones(node, rewritten) if only_in_flag_evaluations else {}
         swapper = _EventsScanSwapper(
@@ -228,13 +230,14 @@ def _resolve_with_swaps(
             timezone=ZoneInfo(database.get_timezone()),
             only_in_flag_evaluations=only_in_flag_evaluations,
             flag_key_compares_as_string=compares_as_string,
+            union_reads_ratio_samples=only_in_flag_evaluations and union_applies(context),
         )
         swapper.visit(rewritten)
         union = read_flag_calls_with_union(rewritten, context, compares_as_string)
     refusals = [*swapper.refusals, *union.refusals]
     if refusals:
         if only_in_flag_evaluations:
-            raise _flag_calls_only_in_flag_evaluations_error(refusals[0])
+            raise flag_calls_only_in_flag_evaluations_error(refusals[0])
         logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=refusals[0])
     sources = JoinSources() if only_in_flag_evaluations else None
     original = resolve(node, join_sources=sources)
@@ -242,9 +245,9 @@ def _resolve_with_swaps(
         with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
             refusal = swapper.swap_scans_found_by_type(original, sources, clones)
         if refusal is not None:
-            raise _flag_calls_only_in_flag_evaluations_error(refusal)
+            raise flag_calls_only_in_flag_evaluations_error(refusal)
     if not swapper.swapped and not union.renamed:
-        return original
+        return _without_unreadable_inline_cohort_scans(original, context, only_in_flag_evaluations)
     try:
         swapped = resolve(rewritten)
     except BaseHogQLError as error:
@@ -261,15 +264,32 @@ def _resolve_with_swaps(
         elif not only_in_flag_evaluations and not _swap_reads_properties_alike(original, swapped, context):
             reason = "it reads a property from a different kind of column there"
         else:
+            context.flag_called_union_spans.update(union.literal_spans)
             return swapped
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
-        raise _flag_calls_only_in_flag_evaluations_error(reason)
+        raise flag_calls_only_in_flag_evaluations_error(reason)
     logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=reason)
     return original
 
 
-def _flag_key_compares_as_string(context: HogQLContext) -> bool:
+def _without_unreadable_inline_cohort_scans(
+    resolved: _T_AST, context: HogQLContext, only_in_flag_evaluations: bool
+) -> _T_AST:
+    """`resolved`, or a QueryError when an organization with flag calls only in `flag_evaluations` reads a union scan
+    that the union cannot supply. The resolver splices an inline cohort in after the rename, so only the resolved
+    query shows its scans."""
+    if only_in_flag_evaluations:
+        # Deferred: flag_calls_union imports this module.
+        from posthog.hogql.transforms.flag_calls_union import union_unreadable_reason  # noqa: PLC0415
+
+        unreadable = union_unreadable_reason(resolved, context)
+        if unreadable is not None:
+            raise flag_calls_only_in_flag_evaluations_error(unreadable)
+    return resolved
+
+
+def team_flag_key_compares_as_string(context: HogQLContext) -> bool:
     if context.team_id is None:
         return True
     return flag_key_typed_as_string(
@@ -286,7 +306,7 @@ def flag_key_typed_as_string(metadata: PropertyMetadata | None) -> bool:
     return metadata is None or metadata.event_properties.get(_FLAG_KEY_PROPERTY, {}).get("type") in (None, "String")
 
 
-def _flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
+def flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
     return QueryError(
         f"Your organization's {FLAG_CALLED_EVENT} events are only in posthog.flag_evaluations, and this query "
         f"can't read them there because {reason}. Change that part of the query, or query "
@@ -399,14 +419,17 @@ class EventsScan:
             return None
         return _below_posthog_events(chain)
 
-    def shape_refusal(self, node: ast.SelectQuery) -> str | None:
-        """Why another table cannot stand in for this scan whatever its filters say, or None."""
+    def shape_refusal(self, node: ast.SelectQuery, *, ratio_sample_ok: bool = False) -> str | None:
+        """Why another table cannot stand in for this scan whatever its filters say, or None. With `ratio_sample_ok`,
+        a SAMPLE that `ratio_sample_fraction` reads does not count, for a table that applies the ratio itself."""
         if self.join.table_args is not None or self.join.table_final:
             return "it uses FINAL or table arguments on events"
         if self.join.column_aliases:
             return "it names the events columns with column aliases"
-        if self.join.sample is not None and not self.join.sample.samples_all_rows():
-            return "it uses SAMPLE"
+        sample = self.join.sample
+        if sample is not None and not sample.samples_all_rows():
+            if not ratio_sample_ok or ratio_sample_fraction(sample) is None:
+                return "it uses SAMPLE"
         for item in node.select:
             while isinstance(item, ast.Alias):
                 item = item.expr
@@ -571,6 +594,23 @@ def flag_key_predicate(table: str, keys: list[str]) -> ast.Expr | None:
         left=ast.Field(chain=[table, "flag_key"]),
         right=ast.Tuple(exprs=[ast.Constant(value=key) for key in keys]),
     )
+
+
+def ratio_sample_fraction(sample: ast.SampleExpr) -> Fraction | None:
+    """The share of distinct ids that `SAMPLE k` or `SAMPLE a/b` keeps, or None for any other form.
+
+    ClickHouse reads `SAMPLE n` with n above 1 as a row count, and `OFFSET` moves the sampled range. Neither has a
+    ratio that another table could apply.
+    """
+    if sample.offset_value is not None:
+        return None
+    ratio = sample.sample_value
+    constants = [ratio.left, ratio.right or ast.Constant(value=1)]
+    if not all(isinstance(c.value, int | float) and not isinstance(c.value, bool) for c in constants):
+        return None
+    numerator, denominator = (Fraction(str(c.value)) for c in constants)
+    fraction = numerator / denominator if denominator else None
+    return fraction if fraction is not None and 0 < fraction < 1 else None
 
 
 def point_scan_at(
@@ -879,8 +919,10 @@ class _EventsScanSwapper(ScanVisitor):
         timezone: ZoneInfo,
         only_in_flag_evaluations: bool,
         flag_key_compares_as_string: Callable[[], bool],
+        union_reads_ratio_samples: bool = False,
     ) -> None:
         super().__init__()
+        self.union_reads_ratio_samples = union_reads_ratio_samples
         self.now = now
         self.timezone = timezone
         self.only_in_flag_evaluations = only_in_flag_evaluations
@@ -900,7 +942,9 @@ class _EventsScanSwapper(ScanVisitor):
         ):
             self._swap(node, scan, conjuncts)
         else:
-            refusal = scan.shape_refusal(node)
+            # On mode 2 the union reads a scan of `events` with a ratio SAMPLE, so this refuses only the other shapes.
+            union_reads_sample = self.union_reads_ratio_samples and _table_chain(scan.join) == ["events"]
+            refusal = scan.shape_refusal(node, ratio_sample_ok=union_reads_sample)
             if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
                 self.refusals.append(refusal)
 
@@ -941,8 +985,8 @@ class _EventsScanSwapper(ScanVisitor):
 
     def _swap_clone(self, clone: "_JoinClone") -> str | None:
         chain = _table_chain(clone.join)
-        if chain == ["posthog", "flag_evaluations"]:
-            # The syntactic rules, or an earlier resolved join from the same source, already swapped it.
+        if chain in (["posthog", "flag_evaluations"], ["posthog", "events_with_flag_calls"]):
+            # The syntactic rules, the union rename, or an earlier resolved join from the same source already moved it.
             return None
         if chain != ["events"]:
             return _UNMOVABLE_SHAPE

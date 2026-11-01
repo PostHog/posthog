@@ -24,6 +24,11 @@ FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE = (
     "of flag calls."
 )
 
+FLAG_CALLED_FROM_BOTH_TABLES_NOTICE = (
+    f"This query reads {FLAG_CALLED_EVENT} events from posthog.flag_evaluations, which keeps the last 90 days "
+    "of flag calls, and other events from events."
+)
+
 
 class _FlagCalledLiteralFinder(TraversingVisitor):
     def __init__(self, table_class: type[Table]) -> None:
@@ -105,3 +110,8 @@ def flag_called_spans_read_from_flag_evaluations(prepared: ast.AST) -> set[Liter
     finder = _FlagCalledLiteralFinder(FlagEvaluationsTable)
     finder.visit(prepared)
     return {LiteralSpan(start=literal.start, end=literal.end) for literal in finder.literals}
+
+
+def flag_called_spans_read_from_union(context: HogQLContext) -> set[LiteralSpan]:
+    """The spans of the `$feature_flag_called` literals whose scan reads `events` and `flag_evaluations` together."""
+    return {LiteralSpan(start=start, end=end) for start, end in context.flag_called_union_spans}

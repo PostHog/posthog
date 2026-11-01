@@ -17,7 +17,7 @@ from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, E
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, flag_evaluations_coverage_start
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import GetFieldsTraverser
+from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 EVENTS_WITH_FLAG_CALLS_TABLE = "events_with_flag_calls"
 EVENTS_WITH_FLAG_CALLS_CHAIN: list[str] = ["posthog", EVENTS_WITH_FLAG_CALLS_TABLE]
@@ -121,9 +121,23 @@ class EventsWithFlagCallsTable(LazyTable):
             and_conditions,
             flag_key_typed_as_string,
         )
-        from posthog.hogql.transforms.flag_calls_union import union_branch_filters, union_events_filter  # noqa: PLC0415
+        from posthog.hogql.transforms.flag_calls_union import (  # noqa: PLC0415
+            sample_flag_evaluations_filter,
+            union_branch_filters,
+            union_events_filter,
+            union_scan_sample,
+        )
 
         assert context.database is not None
+        # Lazy table resolution drops the scan's SAMPLE, so each branch applies the ratio itself.
+        sample = union_scan_sample(node, self)
+
+        def sampled_scan(**kwargs) -> ast.JoinExpr:
+            return ast.JoinExpr(
+                sample=clone_expr(sample, clear_types=True, clear_locations=True) if sample is not None else None,
+                **kwargs,
+            )
+
         # `SELECT count()` reads no field, and a subquery needs at least one column.
         accessed = dict(table_to_add.fields_accessed) or {"timestamp": ["timestamp"]}
         events_columns: list[ast.Expr] = [
@@ -135,7 +149,7 @@ class EventsWithFlagCallsTable(LazyTable):
             # once. The second scan asks only for columns, and it reads the same filter from this query's WHERE.
             return ast.SelectQuery(
                 select=events_columns,
-                select_from=ast.JoinExpr(table=ast.Field(chain=list(EVENTS_WITH_FLAG_CALLS_CHAIN)), alias="events"),
+                select_from=sampled_scan(table=ast.Field(chain=list(EVENTS_WITH_FLAG_CALLS_CHAIN)), alias="events"),
                 where=union_events_filter(node, self),
             )
 
@@ -158,7 +172,7 @@ class EventsWithFlagCallsTable(LazyTable):
         def events_branch(*conditions: ast.Expr | None) -> ast.SelectQuery:
             return ast.SelectQuery(
                 select=events_columns,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                select_from=sampled_scan(table=ast.Field(chain=["events"])),
                 where=and_conditions([*conditions, filters.events]),
             )
 
@@ -179,7 +193,13 @@ class EventsWithFlagCallsTable(LazyTable):
                     table=ast.Field(chain=["posthog", "flag_evaluations"]), alias="flag_evaluations"
                 ),
                 where=and_conditions(
-                    [parse_expr("flag_evaluations.timestamp >= {cutoff}", {"cutoff": cutoff}), filters.flag_evaluations]
+                    [
+                        parse_expr("flag_evaluations.timestamp >= {cutoff}", {"cutoff": cutoff}),
+                        filters.flag_evaluations,
+                        sample_flag_evaluations_filter(sample, flag_evaluations_field(["distinct_id"]))
+                        if sample is not None
+                        else None,
+                    ]
                 ),
             )
         )
