@@ -145,14 +145,17 @@ describe('savedInsightsLogic', () => {
                 })
         })
 
-        it('falls back to All insights when a Home link opens without the flag', async () => {
-            router.actions.push(savedInsightsUrl, { tab: SavedInsightsTabs.Home })
+        it.each([
+            ['a Home link opens without the flag', { tab: SavedInsightsTabs.Home }, {}],
+            ['a legacy tab opens', { tab: 'favorites', favorited: true }, { favorited: true }],
+        ])('falls back to All insights when %s', async (_, searchParams, expectedSearchParams) => {
+            router.actions.push(savedInsightsUrl, searchParams)
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toMatchValues({
                     filters: partial({ tab: SavedInsightsTabs.All }),
                 })
-            expect(router.values.searchParams).toEqual({})
+            expect(router.values.searchParams).toEqual(expectedSearchParams)
         })
 
         it('keeps All insights explicit when a flagged user selects it', async () => {
