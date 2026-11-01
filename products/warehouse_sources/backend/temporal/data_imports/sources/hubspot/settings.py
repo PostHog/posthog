@@ -40,8 +40,7 @@ def apply_crm_api_version(path: str, api_version: str) -> str:
 # Reading leads requires Sales Hub Professional or above, so `OauthIntegration.oauth_config_for_kind`
 # asks HubSpot for this scope as an optional one and a connection can be authorized without it.
 LEADS_SCOPE = "crm.objects.leads.read"
-# Forecasts are Sales Hub / Service Hub Professional+ only, and conversation threads need a scope
-# existing connections were never granted, so both are optional scopes too.
+# Forecasts need Sales or Service Hub Professional+, and existing connections lack both scopes.
 FORECASTS_SCOPE = "crm.objects.forecasts.read"
 CONVERSATIONS_SCOPE = "conversations.read"
 
@@ -462,7 +461,6 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         should_sync_default=False,
         discover_all_properties=True,
     ),
-    # Forecast submissions. Unpartitioned for the same reason as the commerce objects above.
     "forecasts": HubspotEndpointConfig(
         name="forecasts",
         path="/crm/v3/objects/forecasts",
@@ -487,7 +485,6 @@ class HubspotMetadataEndpointConfig:
     # this set so a portal that omits an optional field doesn't shift the table's schema.
     columns: list[str]
     should_sync_default: bool = True
-    # Optional OAuth scope the table needs, as on HubspotEndpointConfig.
     required_scope: Optional[str] = None
 
 
@@ -578,8 +575,8 @@ HUBSPOT_METADATA_ENDPOINTS: dict[str, HubspotMetadataEndpointConfig] = {
         ],
         should_sync_default=False,
     ),
-    # The list endpoint can only filter on the latest message time, so a thread that is closed or
-    # reassigned without a new message would be missed by an incremental sync.
+    # The only server-side filter is the latest message time, so an incremental sync would miss a
+    # thread that is closed or reassigned without a new message.
     "conversation_threads": HubspotMetadataEndpointConfig(
         name="conversation_threads",
         primary_keys=["id"],

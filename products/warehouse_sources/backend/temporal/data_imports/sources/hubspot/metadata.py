@@ -154,7 +154,8 @@ def get_conversation_threads_rows(
         refresh_token,
         source_id,
         logger,
-        params={"limit": 100},
+        # Without it HubSpot leaves out `threadAssociations`; it does not filter the threads.
+        params={"limit": 100, "association": "TICKET"},
         follow_after_cursor=True,
     ):
         yield [_normalize_row(thread, columns) for thread in page]

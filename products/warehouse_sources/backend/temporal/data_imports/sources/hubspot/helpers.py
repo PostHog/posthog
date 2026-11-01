@@ -226,8 +226,9 @@ def fetch_data(
 
         # Follow pagination links if they exist
         _next = _data.get("paging", {}).get("next", None)
-        if _next and follow_after_cursor:
-            _data = _get(url, {**(params or {}), "after": _next["after"]})
+        if follow_after_cursor:
+            after = (_next or {}).get("after")
+            _data = _get(url, {**(params or {}), "after": after}) if after else None
         elif _next:
             _data = _get(_next["link"], None)
         else:

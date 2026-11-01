@@ -150,7 +150,8 @@ class TestMetadataFetchers:
         with patch(_SESSION, new=lambda *_a, **_k: session):
             rows = _call(get_conversation_threads_rows, api_version)
 
-        assert requests == [(path, {"limit": 100}), (path, {"limit": 100, "after": "c1"})]
+        params = {"limit": 100, "association": "TICKET"}
+        assert requests == [(path, params), (path, {**params, "after": "c1"})]
         assert [r["id"] for r in rows] == ["1", "2"]
         assert rows[1]["threadAssociations"] == '{"associatedTicketId": "9"}'
         assert set(rows[0]) >= set(HUBSPOT_METADATA_ENDPOINTS["conversation_threads"].columns)
