@@ -101,8 +101,11 @@ class ActivitySummaryConfig:
     # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
     rebuild_budget_share: float = 0.3
     mcp_buffer_enabled: bool = False
-    # Limits the buffer to the enrolled teams of these organizations. Empty means every enrolled team.
+    # The buffer keeps the enrolled teams of these organizations and of the `mcp_buffer_percentage` rollout.
+    # Use `mcp_buffer_percentage: 100` for every enrolled team.
     mcp_buffer_organization_ids: tuple[str, ...] = ()
+    # Uses the rollout buckets of `self_driving_organization_percentage`, so a higher percentage keeps the lower ones.
+    mcp_buffer_percentage: float = 0.0
     # The buffer keeps the latest calls of each user, team and day. A separate counter keeps the full count.
     mcp_calls_per_day: int = 50
     # Must cover the longest gap between two updates of one summary.
@@ -246,6 +249,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
         mcp_buffer_enabled=_bool(payload.get("mcp_buffer_enabled"), defaults.mcp_buffer_enabled),
         mcp_buffer_organization_ids=_organization_ids(payload.get("mcp_buffer_organization_ids")),
+        mcp_buffer_percentage=_percentage(payload.get("mcp_buffer_percentage"), defaults.mcp_buffer_percentage),
         mcp_calls_per_day=min(
             _positive_int(payload.get("mcp_calls_per_day"), defaults.mcp_calls_per_day), MAX_MCP_CALLS_PER_DAY
         ),
