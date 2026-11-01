@@ -24,6 +24,7 @@ INFLOWINVENTORY_BASE_URL = "https://cloudapi.inflowinventory.com"
 INFLOWINVENTORY_API_VERSION_2023_04_01 = "2023-04-01"
 INFLOWINVENTORY_API_VERSION_2026_07_10 = "2026-07-10"
 INFLOWINVENTORY_API_VERSION_2026_09_29 = "2026-09-29"
+INFLOWINVENTORY_API_VERSION_2026_10_06 = "2026-10-06"
 # The list endpoints accept up to 100 records per page; the largest page minimises round trips.
 PAGE_SIZE = 100
 # inFlow company IDs are GUIDs. Restrict to host/path-safe characters so the credential stays

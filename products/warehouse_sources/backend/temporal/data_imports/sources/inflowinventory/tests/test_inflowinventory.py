@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinve
     INFLOWINVENTORY_API_VERSION_2023_04_01,
     INFLOWINVENTORY_API_VERSION_2026_07_10,
     INFLOWINVENTORY_API_VERSION_2026_09_29,
+    INFLOWINVENTORY_API_VERSION_2026_10_06,
     PAGE_SIZE,
     InflowInventoryResumeConfig,
     check_access,
@@ -83,7 +84,8 @@ class TestPagination:
         [
             ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
             ("previous", INFLOWINVENTORY_API_VERSION_2026_07_10),
-            ("current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("previous_current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_10_06),
         ]
     )
     def test_resolved_version_reaches_session_header(self, _name: str, api_version: str) -> None:
@@ -132,7 +134,8 @@ class TestCheckAccess:
         [
             ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
             ("previous", INFLOWINVENTORY_API_VERSION_2026_07_10),
-            ("current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("previous_current", INFLOWINVENTORY_API_VERSION_2026_09_29),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_10_06),
         ]
     )
     def test_probe_session_carries_resolved_version(self, _name: str, api_version: str) -> None:
