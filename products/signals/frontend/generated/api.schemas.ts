@@ -5279,6 +5279,7 @@ export interface SignalReportStateRequestApi {
  * * `commit` - Commit
  * * `task_run` - Task Run
  * * `note` - Note
+ * * `scout_note_left` - Scout Note Left
  * * `title_change` - Title Change
  * * `summary_change` - Summary Change
  * * `code_review` - Code Review
@@ -5321,6 +5322,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     Commit: 'commit',
     TaskRun: 'task_run',
     Note: 'note',
+    ScoutNoteLeft: 'scout_note_left',
     TitleChange: 'title_change',
     SummaryChange: 'summary_change',
     CodeReview: 'code_review',
@@ -8275,6 +8277,11 @@ export interface ScoutNoteCreateRequestApi {
      * @maxLength 200
      */
     skill_name?: string
+    /**
+     * Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires read access to inbox reports, and the report must belong to this project.
+     * @nullable
+     */
+    report_id?: string | null
     /**
      * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
      * @nullable

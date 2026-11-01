@@ -1418,6 +1418,15 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
             "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
+    report_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional id of the inbox report this note is about. The note then names the report so a "
+            "scout can fetch it, and the report's activity log records that the note was left. "
+            "Requires read access to inbox reports, and the report must belong to this project."
+        ),
+    )
     expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
