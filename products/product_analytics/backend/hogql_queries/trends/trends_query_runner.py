@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from functools import cached_property, partial
@@ -105,6 +105,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     cached_response: CachedTrendsQueryResponse
     series: list[SeriesWithExtras]
     hogql_settings: HogQLGlobalSettings | None
+    # For a caller that cannot use a partial result. When set, the first failed series query calls it once,
+    # and no queued series query starts after that. The callback can cancel the series queries in flight.
+    on_series_error: Callable[[Exception], None] | None = None
 
     def __init__(
         self,
@@ -459,6 +462,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings: HogQLTimings,
             is_parallel: bool,
         ):
+            if self.on_series_error is not None and errors:
+                return
             try:
                 series_with_extra = self.series[index]
 
@@ -482,6 +487,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     debug_errors.append(response.error)
             except Exception as e:
                 errors.append(e)
+                # Only the first error calls back. A list append is atomic, so two failing threads cannot both see it first.
+                if self.on_series_error is not None and errors[0] is e:
+                    self.on_series_error(e)
             finally:
                 if is_parallel:
                     from django.db import connection
