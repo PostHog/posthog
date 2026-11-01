@@ -155,7 +155,6 @@ function TracingSceneContents(): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
-    const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
     const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
@@ -299,7 +298,7 @@ function TracingSceneContents(): JSX.Element {
                     durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
                     chartType={filters.chartType}
-                    onChartTypeChange={heatmapEnabled ? setChartType : undefined}
+                    onChartTypeChange={setChartType}
                     latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
                     latencyHeatmapLoading={latencyHeatmapLoading}
                     onHeatmapBrush={applyHeatmapBrush}
