@@ -2774,6 +2774,7 @@ dependencies = [
  "arc-swap",
  "axum 0.7.9",
  "common-alloc",
+ "common-cohort-team-access",
  "common-database",
  "common-kafka",
  "common-liveness",
@@ -2927,6 +2928,21 @@ dependencies = [
  "moka",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "common-cohort-team-access"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "common-types",
+ "lifecycle",
+ "metrics",
+ "rand 0.8.5",
+ "sqlx",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]

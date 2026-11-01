@@ -96,6 +96,8 @@ jobs:
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+                        # common-cohort-team-access tests its query against the table these migrations build
+                        - 'products/cohorts/backend/migrations/**'
                         # replay-core-v4's tests read the encryption vectors the Node writers pin
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
