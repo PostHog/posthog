@@ -142,6 +142,9 @@ const WorkflowsSendEmailSchema = () => {
     return MessagingSendEmailCreateBody.extend({
         template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
+        distinct_id: MessagingSendEmailCreateBody.shape['distinct_id'].describe(
+            "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to the recipient's email address."
+        ),
     })
 }
 

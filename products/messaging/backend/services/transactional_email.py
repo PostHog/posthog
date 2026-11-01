@@ -223,7 +223,7 @@ def _template_sender(email: dict[str, Any]) -> dict[str, Any]:
     return sender if isinstance(sender, dict) else {}
 
 
-def _content(template: MessageTemplate) -> TransactionalEmailContent:
+def transactional_email_content(template: MessageTemplate) -> TransactionalEmailContent:
     email = template.content["email"]
     sender = _template_sender(email)
     return TransactionalEmailContent(
@@ -278,7 +278,7 @@ def make_transactional(
                 raise TemplateNotSendable(address_error)
             template.content = {**template.content, "email": {**email, "from": sender}}
             hog_flow_id = create_transactional_email_workflow(
-                team_id=team_id, user_id=user_id, content=_content(template)
+                team_id=team_id, user_id=user_id, content=transactional_email_content(template)
             )
         except TransactionalEmailSenderUnavailable as e:
             raise SenderUnavailable(
@@ -338,7 +338,7 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
             team_id=team_id,
             user_id=user_id,
             hog_flow_id=hog_flow_id,
-            content=_content(template),
+            content=transactional_email_content(template),
         )
         # The save already told the workers to reload, but before the caller's transaction committed, so a
         # worker can cache the old version. This reload runs once the new version is visible.
