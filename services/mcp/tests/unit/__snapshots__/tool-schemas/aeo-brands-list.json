@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "kind": {
+            "description": "Only list brands of this kind.\n\n* `own` - Own\n* `competitor` - Competitor\n* `publisher` - Publisher\n* `unknown` - Unknown",
+            "enum": ["own", "competitor", "publisher", "unknown"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "status": {
+            "description": "Only list brands with this review status.\n\n* `suggested` - Suggested\n* `confirmed` - Confirmed\n* `ignored` - Ignored",
+            "enum": ["suggested", "confirmed", "ignored"],
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
