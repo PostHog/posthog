@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Resolve a complete change set against MERGE_TARGET without fetching history.
-set -uo pipefail
+set -euo pipefail
 
 # An API failure or a truncated file list has to widen to ALL
 # rather than upload a partial file list, which Trunk cannot
