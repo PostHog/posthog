@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.r
     MISSING_ACCOUNT_NUMBER_ERROR,
     RECON_TIMEZONE,
     RazorpayResumeConfig,
+    ReconMonth,
     build_from_param,
     validate_credentials,
 )
@@ -56,7 +57,7 @@ def _recon_items(count: int) -> list[dict[str, Any]]:
 def _current_month(year: int, month: int) -> Any:
     return patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay._current_recon_month",
-        return_value=(year, month),
+        return_value=ReconMonth(year=year, month=month),
     )
 
 
@@ -165,14 +166,20 @@ class TestRazorpaySettlementRecon:
 
 
 class TestRazorpayPaymentLinks:
-    def test_reads_every_link_from_one_unpaginated_response(self) -> None:
+    def test_pages_through_links_with_count_and_skip(self) -> None:
         links = [{"id": f"plink_{i}", "created_at": 1_750_000_000} for i in range(PAGE_SIZE + 1)]
 
-        result = _drive([ScriptedResponse(json={"payment_links": links})], endpoint="PaymentLinks")
+        result = _drive(
+            [
+                ScriptedResponse(json={"payment_links": links[:PAGE_SIZE]}),
+                ScriptedResponse(json={"payment_links": links[PAGE_SIZE:]}),
+            ],
+            endpoint="PaymentLinks",
+        )
 
         assert result.raised is None
-        assert len(result.requests) == 1
-        assert result.params("skip") == [None]
+        assert result.params("skip") == ["0", str(PAGE_SIZE)]
+        assert result.params("count") == [str(PAGE_SIZE)] * 2
         assert len(result.rows) == PAGE_SIZE + 1
 
 
@@ -190,6 +197,7 @@ class TestRazorpayXTransactions:
         )
 
         assert result.params("account_number") == ["7878780080316316", "7878780080316316"]
+        assert "7878780080316316" in result.session_options[0]["redact_values"]
         assert result.params("from") == [str(1_750_000_000 - INCREMENTAL_LOOKBACK_SECONDS)] * 2
 
     def test_fails_without_an_account_number(self) -> None:

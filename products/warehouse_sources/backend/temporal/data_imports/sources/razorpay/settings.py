@@ -18,8 +18,6 @@ class RazorpayEndpointConfig:
     primary_keys: tuple[str, ...] = ("id",)
     partition_key: str = "created_at"
     data_selector: str = "items"
-    # Endpoints that document no `count`/`skip` return every row in one response.
-    paginated: bool = True
     # RazorpayX endpoints are scoped to one business account via the `account_number` param.
     requires_account_number: bool = False
     # The settlement recon report only lists one settlement month per request (`year`/`month`).
@@ -61,14 +59,13 @@ ENDPOINT_CONFIGS: dict[str, RazorpayEndpointConfig] = {
         path="/v1/orders",
         supports_created_filter=True,
     ),
-    # The payment links list documents only payment_id/reference_id filters, no `count`/`skip`
-    # pagination and no `from`/`to`, and wraps rows in `payment_links`.
+    # The payment links docs list no `count`/`skip` or `from`/`to`, but the official SDKs page with
+    # `count`/`skip`. `from`/`to` stays unused until it is documented.
     "PaymentLinks": RazorpayEndpointConfig(
         name="PaymentLinks",
         path="/v1/payment_links",
         supports_created_filter=False,
         data_selector="payment_links",
-        paginated=False,
     ),
     "Payments": RazorpayEndpointConfig(
         name="Payments",

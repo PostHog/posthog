@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -12,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
-    BasePaginator,
     OffsetPaginator,
     SinglePagePaginator,
 )
@@ -37,8 +38,26 @@ MIN_FROM_TIMESTAMP = 946_684_800
 
 # The recon report has no "all months" query, so a full sync walks every month from before
 # Razorpay's launch to now. Months are settlement months on Razorpay's IST calendar.
-RECON_FIRST_MONTH = (2014, 1)
 RECON_TIMEZONE = ZoneInfo("Asia/Kolkata")
+
+
+@frozen(order=True)
+class ReconMonth:
+    year: int
+    month: int
+
+    @classmethod
+    def at(cls, timestamp: float) -> "ReconMonth":
+        moment = datetime.fromtimestamp(timestamp, tz=RECON_TIMEZONE)
+        return cls(year=moment.year, month=moment.month)
+
+    def next(self) -> "ReconMonth":
+        if self.month == 12:
+            return ReconMonth(year=self.year + 1, month=1)
+        return ReconMonth(year=self.year, month=self.month + 1)
+
+
+RECON_FIRST_MONTH = ReconMonth(year=2014, month=1)
 
 
 MISSING_ACCOUNT_NUMBER_ERROR = (
@@ -67,10 +86,7 @@ def build_from_param(db_incremental_field_last_value: Optional[Any]) -> Optional
     return max(watermark - INCREMENTAL_LOOKBACK_SECONDS, MIN_FROM_TIMESTAMP)
 
 
-def _build_paginator(config: RazorpayEndpointConfig) -> BasePaginator:
-    if not config.paginated:
-        return SinglePagePaginator()
-
+def _build_paginator() -> OffsetPaginator:
     # Collection responses carry `count` as the page's item count (not a grand total), so
     # termination is a short or empty page; `total_path=None` keeps the paginator from
     # misreading any body field as a total.
@@ -111,30 +127,21 @@ def get_resource(
             "data_selector": config.data_selector,
             "path": config.path,
             "params": params,
-            "paginator": _build_paginator(config),
+            "paginator": _build_paginator(),
         },
         "table_format": "delta",
     }
 
 
-def _recon_month(timestamp: float) -> tuple[int, int]:
-    moment = datetime.fromtimestamp(timestamp, tz=RECON_TIMEZONE)
-    return moment.year, moment.month
+def _current_recon_month() -> ReconMonth:
+    return ReconMonth.at(datetime.now(tz=RECON_TIMEZONE).timestamp())
 
 
-def _current_recon_month() -> tuple[int, int]:
-    return _recon_month(datetime.now(tz=RECON_TIMEZONE).timestamp())
-
-
-def _next_month(year: int, month: int) -> tuple[int, int]:
-    return (year + 1, 1) if month == 12 else (year, month + 1)
-
-
-def recon_start_month(db_incremental_field_last_value: Optional[Any]) -> tuple[int, int]:
+def recon_start_month(db_incremental_field_last_value: Optional[Any]) -> ReconMonth:
     from_timestamp = build_from_param(db_incremental_field_last_value)
     if from_timestamp is None:
         return RECON_FIRST_MONTH
-    return max(_recon_month(from_timestamp), RECON_FIRST_MONTH)
+    return max(ReconMonth.at(from_timestamp), RECON_FIRST_MONTH)
 
 
 def _iter_settlement_recon(
@@ -144,11 +151,12 @@ def _iter_settlement_recon(
     resumable_source_manager: ResumableSourceManager[RazorpayResumeConfig],
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[list[dict[str, Any]]]:
-    year, month = recon_start_month(db_incremental_field_last_value)
+    current = recon_start_month(db_incremental_field_last_value)
     skip = 0
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.recon_year is not None and resume.recon_month is not None:
-        year, month, skip = resume.recon_year, resume.recon_month, resume.skip
+        current = ReconMonth(year=resume.recon_year, month=resume.recon_month)
+        skip = resume.skip
 
     end = _current_recon_month()
     client = RESTClient(
@@ -158,18 +166,20 @@ def _iter_settlement_recon(
     )
 
     try:
-        while (year, month) <= end:
-            params = {"year": year, "month": month, "count": PAGE_SIZE, "skip": skip}
+        while current <= end:
+            params = {"year": current.year, "month": current.month, "count": PAGE_SIZE, "skip": skip}
             page = next(client.paginate(config.path, params=params, data_selector=config.data_selector), [])
             rows = [row for row in page if isinstance(row, dict)]
 
             if len(page) < PAGE_SIZE:
-                year, month = _next_month(year, month)
+                current = current.next()
                 skip = 0
             else:
                 skip += len(page)
 
-            resumable_source_manager.save_state(RazorpayResumeConfig(skip=skip, recon_year=year, recon_month=month))
+            resumable_source_manager.save_state(
+                RazorpayResumeConfig(skip=skip, recon_year=current.year, recon_month=current.month)
+            )
             if rows:
                 yield rows
             else:
@@ -215,6 +225,8 @@ def razorpay_source(
     config: RESTAPIConfig = {
         "client": {
             "base_url": API_BASE_URL,
+            # The RazorpayX account number rides in the query string, so mask it in request logs too.
+            "session": make_tracked_session(redact_values=tuple(v for v in (key_secret, account_number) if v)),
             "auth": {
                 "type": "http_basic",
                 "username": key_id,
