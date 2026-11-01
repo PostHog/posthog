@@ -162,7 +162,7 @@ export interface highlightFeedLogicMeta {
             quotaLoading: boolean,
             scopedToMine: boolean,
             recordingsBlock: RecordingsBlock | null,
-            hasRecentRecordingsLoading: any
+            hasRecentRecordingsLoading: boolean
         ) => HighlightFeedEmptyReason | null
     }
 }
