@@ -3,6 +3,7 @@ from posthog.api.routing import RouterRegistry
 from products.conversations.backend.api import (
     AIContextAccountPropertiesViewSet,
     AIReplyPlaybookViewSet,
+    PostHogSupportTicketViewSet,
     SigningSecretViewSet,
     TicketViewSet,
     TicketViewViewSet,
@@ -46,5 +47,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/signing_secret",
         SigningSecretViewSet,
         "project_conversations_signing_secret",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"posthog_support/tickets",
+        PostHogSupportTicketViewSet,
+        "project_posthog_support_tickets",
         ["team_id"],
     )

@@ -1,0 +1,52 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "actual": {
+            "description": "What happened instead, with exact error messages.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "already_tried": {
+            "description": "Docs pages read and steps already tried, so support does not repeat them.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "deletion_consent": {
+            "default": false,
+            "description": "For `data_deletion` only: true confirms that the user wants these events permanently deleted. Ask the user before you set it. Deleted events cannot be restored.",
+            "type": "boolean"
+        },
+        "deletion_query": {
+            "description": "For `data_deletion` only: a HogQL query with a time range that selects exactly the events to delete. Sent as raw text, so paste it unchanged.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "description": {
+            "description": "The full problem or question in plain text. Include event names, flag keys, SDK names and versions, and links to the PostHog pages involved. Do not include secrets, API keys or personal data.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "expected": {
+            "description": "What you expected to happen.",
+            "maxLength": 1000,
+            "type": "string"
+        },
+        "expected_event_count": {
+            "description": "For `data_deletion` only: the number of events the deletion query returns now.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "request_type": {
+            "description": "What kind of help this is. Use `data_deletion` only to ask PostHog staff to permanently delete events, and fill `deletion_query`, `expected_event_count` and `deletion_consent`.\n\n* `question` - Question\n* `bug` - Bug\n* `data_deletion` - Data deletion\n* `billing` - Billing\n* `other` - Other",
+            "enum": ["question", "bug", "data_deletion", "billing", "other"],
+            "type": "string"
+        },
+        "subject": {
+            "description": "One line that says what the problem or question is.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["request_type", "subject", "description"],
+    "type": "object"
+}
