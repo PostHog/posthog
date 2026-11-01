@@ -10217,13 +10217,14 @@ Diffed against: <https://docs.reply.io/llms.txt>
 
 ## Resend — gaps
 
-Today (8): `audiences`, `broadcast_clicked_links`, `broadcasts`, `contacts`, `domains`, `email_metrics`, `emails`, `suppressions`
+Today (9): `audiences`, `broadcast_clicked_links`, `broadcasts`, `contacts`, `domains`, `email_metrics`, `emails`, `suppressions`, `usage`
 
 Diffed against: <https://resend.com/docs/llms.txt>
 
 - [x] `/suppressions` — suppressed recipients with their origin (bounce, complaint, manual), which explain delivery gaps (medium) — synced as `suppressions`
 - [x] `/emails/metrics` — the account's delivery and engagement metrics per day, the headline numbers for sending health (high) — synced as `email_metrics`
 - [x] `/broadcasts/{broadcast_id}/clicked-links` — per-link click counts for each broadcast (medium) — synced as `broadcast_clicked_links`
+- [x] `/usage` — the account's current usage against its plan limits for emails, contacts, segments, broadcasts, domains, and the API rate limit (medium) — synced as `usage`
 
 ## Retell AI — gaps
 
