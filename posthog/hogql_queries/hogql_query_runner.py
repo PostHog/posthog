@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -27,17 +27,27 @@ from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import clone_expr
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.sql_freshness.classifier import (
+    SqlFreshness,
+    classify,
+    freshness_from_record,
+    freshness_record,
+)
+from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
+from posthog.utils import record_relative_date_reads
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
@@ -48,12 +58,14 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
+    _sql_classification: SqlFreshness | Reject | None = None
     # p95 duration of a query service HogQL query is 2.78sec
     QUERY_SERVICE_MAX_EXECUTION_TIME = 10
 
@@ -78,6 +90,61 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if last_refresh is None:
             return None
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+    @cached_property
+    def _api_sql_freshness_enabled(self) -> bool:
+        return (
+            self._reads_events_route()
+            and is_api_key_access_method(get_query_tag_value("access_method"))
+            and self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG)
+        )
+
+    @property
+    def _applicable_sql_freshness(self) -> Optional[SqlFreshness]:
+        classification = self._sql_classification
+        return classification if isinstance(classification, SqlFreshness) and self._api_sql_freshness_enabled else None
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        freshness = self._applicable_sql_freshness
+        if freshness is not None and last_refresh is not None:
+            return datetime.now(UTC) > freshness.fresh_until
+        return super()._is_stale(last_refresh, lazy=lazy)
+
+    def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(self._sql_classification, SqlFreshness):
+            return response
+        return {**response, CACHE_ENTRY_FRESHNESS_KEY: freshness_record(self._sql_classification)}
+
+    def _read_cache_entry_freshness(self, record: Any) -> None:
+        self._sql_classification = freshness_from_record(record)
+
+    def _staleness_event_properties(self) -> dict[str, Any]:
+        classification = self._sql_classification
+        if not self._api_sql_freshness_enabled or getattr(self, "_cache_age_override", None) is not None:
+            return {}
+        if isinstance(classification, Reject):
+            return {"sql_cache_reason": classification.reason.value}
+        if isinstance(classification, SqlFreshness):
+            return {f"sql_cache_{key}": value for key, value in freshness_record(classification).items()}
+        return {}
+
+    def _classify_sql_freshness(
+        self, query: ast.SelectQuery | ast.SelectSetQuery, relative_date_reads: list[str]
+    ) -> SqlFreshness | Reject:
+        if "events" not in {name.lower() for name in self._queried_table_names}:
+            return Reject(reason=FreshnessReason.NO_EVENTS)
+        try:
+            context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
+            resolved = resolve_types(clone_expr(query), context, dialect="hogql")
+        except Exception:
+            return Reject(reason=FreshnessReason.UNPARSEABLE)
+        return classify(
+            resolved,
+            now=datetime.now(UTC),
+            timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
+            week_start_day=self.team.week_start_day,
+            relative_inputs=bool(relative_date_reads),
+        )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:
@@ -259,8 +326,16 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             and self.team.pk not in app_settings.API_QUERIES_LEGACY_TEAM_LIST
         )
 
+    def _build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        with record_relative_date_reads() as relative_date_reads:
+            query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
+        if self._api_sql_freshness_enabled:
+            self._sql_classification = self._classify_sql_freshness(query, relative_date_reads)
+        return query
+
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
+        self._sql_classification = None
         if self._capped_for_query_service():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
@@ -302,7 +377,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 expected_direct_engine=self._direct_engine,
             )
 
-        query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
+        query = self._build_query()
 
         if self.is_query_service:
             validate_user_query(query, team=self.team)
