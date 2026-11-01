@@ -120,6 +120,9 @@ export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
 
 // Bar list
+export { Gauge } from './charts/Gauge/Gauge'
+export type { GaugeItem, GaugeProps } from './charts/Gauge/Gauge'
+export type { GaugeThreshold } from './charts/Gauge/gauge-geometry'
 export { BarList } from './charts/BarList/BarList'
 export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
 export { StackedBarList } from './charts/BarList/StackedBarList'

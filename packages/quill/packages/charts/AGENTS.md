@@ -26,6 +26,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `SlopeChart`           | Change between two points — one line per series, `data: [start, end]`                                                                       |
 | `Sparkline`            | Tiny inline trend, no axes — gradient line or stacked bars; tooltip off by default                                                          |
 | `MetricCard`           | Headline number + sparkline + change pill (dashboard stat tiles)                                                                            |
+| `Gauge`                | One value against a min..max range, colored by thresholds: `variant: 'radial' \| 'bar'`, one gauge per item in a grid                       |
 
 Share of total over time takes a time-series chart in its 100% form: `TimeSeriesLineChart` with `fill` series and `percentStackView` for a stacked area, or `TimeSeriesBarChart` with `barLayout: 'percent'` for bars.
 Pick the one that matches the design you are copying.
