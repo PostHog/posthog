@@ -672,7 +672,6 @@ def _fetch(
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     # One prefix for all the series queries of this fetch, so that the first failure can kill the others.
     client_query_id = f"anomaly_scoring_{uuid.uuid4().hex}"
-    tag_queries(client_query_id=client_query_id)
     if run is not None:
         # Splits the scoring queries in `query_log`, so train and score cost can be compared.
         tag_queries(name=f"anomaly_scoring_{run.value}")
@@ -691,11 +690,13 @@ def _fetch(
     if len(runner.series) > 1:
         # With `timeout_overflow_mode="throw"` no partial result is usable, so one failed series query fails the insight.
         runner.on_series_error = lambda _error: cancel_series_queries(team.id, client_query_id)
-    response = runner.run(
-        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-        insight_id=insight.pk,
-        analytics_props={"source": EventSource.SELF_DRIVING},
-    )
+    # The worker thread runs other queries after this fetch, and those must not carry this prefix.
+    with tags_context(client_query_id=client_query_id):
+        response = runner.run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            insight_id=insight.pk,
+            analytics_props={"source": EventSource.SELF_DRIVING},
+        )
     results = getattr(response, "results", None)
     if not isinstance(results, list):
         raise RuntimeError(f"No results for insight {insight.pk}")
