@@ -4,7 +4,7 @@ import React from 'react'
 import { IconPlusSmall, IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { ToolRegistration } from './max-constants'
+import type { ToolDefinition, ToolRegistration } from './max-constants'
 import { useMaxTool } from './useMaxTool'
 
 export interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
@@ -16,6 +16,24 @@ export interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'descripti
     onMaxOpen?: () => void
     className?: string
     position?: 'top-right' | 'bottom-right' | 'top-left' | 'bottom-left'
+}
+
+function toolTooltipTitle(definition: ToolDefinition, isMaxOpen: boolean): JSX.Element {
+    return !isMaxOpen ? (
+        <>
+            <IconSparkles className="mr-1.5" />
+            {definition.name} with PostHog AI
+        </>
+    ) : (
+        <>
+            PostHog AI can use this tool
+            <br />
+            <div className="flex items-center">
+                {definition.icon || <IconWrench />}
+                <i className="ml-1.5">{definition.name}</i>
+            </div>
+        </>
+    )
 }
 
 /**
@@ -48,32 +66,11 @@ export function MaxTool({
         onMaxOpen,
     })
 
-    // The button shows while the tool table loads, so a failed load still reaches the reload toast in openMax.
-    // The children keep their position in the tree, so React does not remount them when the button appears.
+    // The button shows while the tool table loads, and the children keep their tree position so they never remount.
     const content = (
         <>
             {openMax && (
-                <Tooltip
-                    title={
-                        !definition ? null : !isMaxOpen ? (
-                            <>
-                                <IconSparkles className="mr-1.5" />
-                                {definition.name} with PostHog AI
-                            </>
-                        ) : (
-                            <>
-                                PostHog AI can use this tool
-                                <br />
-                                <div className="flex items-center">
-                                    {definition.icon || <IconWrench />}
-                                    <i className="ml-1.5">{definition.name}</i>
-                                </div>
-                            </>
-                        )
-                    }
-                    placement="top-end"
-                    delayMs={0}
-                >
+                <Tooltip title={definition && toolTooltipTitle(definition, isMaxOpen)} placement="top-end" delayMs={0}>
                     <button
                         className={clsx(
                             'absolute z-[750] transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 rounded-lg border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)]',

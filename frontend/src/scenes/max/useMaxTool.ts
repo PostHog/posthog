@@ -47,8 +47,7 @@ export interface UseMaxToolReturn {
 // The chat logics stay out of the shell chunk. The shell loads them on the first open.
 const loadMaxToolOpener = (): Promise<typeof import('./maxToolOpener')> => retryImport(() => import('./maxToolOpener'))
 
-// The tool table holds the copy, icons and formatters of every tool. It stays out of the shell chunk,
-// and loads once a page turns a tool on.
+// The tool table stays out of the shell chunk, and loads once a page turns a tool on.
 type ToolDefinitionsModule = typeof import('./max-constants')
 let loadedToolDefinitions: ToolDefinitionsModule | null = null
 async function loadToolDefinitions(): Promise<ToolDefinitionsModule> {
@@ -69,7 +68,7 @@ function useToolDefinitions(active: boolean): ToolDefinitionsModule | null {
                     setToolDefinitions(module)
                 }
             },
-            // A failed load leaves only the tool name and tooltip missing. A click on openMax tells the person to reload.
+            // A failed load only hides the tool name. A click on openMax tells the person to reload.
             () => {}
         )
         return (): void => {
@@ -134,8 +133,7 @@ export function useMaxTool({
     latestRef.current = { context, active }
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
-    // The tool registers before the tool table loads, so a message sent at once still carries its context.
-    // The name and description arrive with the table.
+    // Register before the tool table loads, so a message sent at once still carries the tool context.
     useEffect(() => {
         if (!active) {
             if (activeIdentifierRef.current) {
