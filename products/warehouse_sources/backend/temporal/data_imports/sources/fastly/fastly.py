@@ -60,6 +60,22 @@ ORIGIN_INSPECTOR_UNAVAILABLE_STATUSES = frozenset({403, 404})
 # AI Runtime Control aggregates usage by `daily` or `hourly`; a day matches the other metrics tables.
 AI_USAGE_METRICS_GRANULARITY = "daily"
 
+# Metrics v2 pages hold up to 10,000 rows. A day per POP keeps a year of one service to a few pages.
+PLATFORM_METRICS_PAGE_LIMIT = 10000
+
+PLATFORM_METRICS_GROUP_BY = "datacenter"
+
+# The delivery and Compute sets cover what `/stats` reports. The response is sparse, so a set a
+# service does not use adds no columns to its rows.
+PLATFORM_METRICS_METRIC_SETS = (
+    "delivery_traffic_flow",
+    "delivery_cache_performance",
+    "delivery_errors",
+    "compute_traffic_flow",
+    "compute_performance",
+    "compute_errors",
+)
+
 
 class FastlyRetryableError(Exception):
     pass
@@ -564,6 +580,55 @@ def _get_ai_usage_metrics_rows(
         yield rows
 
 
+def _get_platform_metrics_rows(
+    session: requests.Session,
+    config: FastlyEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FastlyResumeConfig],
+    incremental_start: int | None,
+) -> Iterator[list[dict[str, Any]]]:
+    params: dict[str, Any] = {
+        "metric_set": ",".join(PLATFORM_METRICS_METRIC_SETS),
+        "group_by": PLATFORM_METRICS_GROUP_BY,
+        "limit": PLATFORM_METRICS_PAGE_LIMIT,
+    }
+    if incremental_start is not None:
+        params["from"] = datetime.fromtimestamp(incremental_start, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    for service_id in _iter_services_from_bookmark(session, config, headers, logger, resumable_source_manager):
+        url_base = f"{FASTLY_BASE_URL}{config.path.format(service_id=service_id, granularity=METRICS_DOWNSAMPLE)}"
+        cursor: str | None = None
+
+        while True:
+            page_params = {**params, "cursor": cursor} if cursor else params
+            response = _fetch(session, _build_url(url_base, page_params, safe=","), headers, logger)
+            payload = response.json()
+            if not isinstance(payload, dict):
+                break
+
+            rows: list[dict[str, Any]] = []
+            for row in payload.get("data") or []:
+                if not isinstance(row, dict):
+                    continue
+                start_time = _date_to_epoch_seconds(row.get("timestamp"))
+                if start_time is None:
+                    logger.warning(
+                        f"Fastly: skipping platform metric with an unreadable timestamp: {row.get('timestamp')!r}"
+                    )
+                    continue
+                rows.append({**row, "service_id": service_id, "start_time": start_time})
+            if rows:
+                yield rows
+
+            next_cursor = _next_cursor(payload)
+            if not next_cursor:
+                break
+            if next_cursor == cursor:
+                raise FastlyPaginationError(f"Fastly returned an unchanged cursor for {url_base}")
+            cursor = next_cursor
+
+
 def _get_service_list_rows(
     session: requests.Session,
     headers: dict[str, str],
@@ -786,6 +851,10 @@ def get_rows(
         )
     elif config.kind == "ai_usage_metrics":
         yield from _get_ai_usage_metrics_rows(session, config, headers, logger, incremental_start)
+    elif config.kind == "platform_metrics":
+        yield from _get_platform_metrics_rows(
+            session, config, headers, logger, resumable_source_manager, incremental_start
+        )
     elif config.kind == "service_list":
         yield from _get_service_list_rows(session, headers, logger, resumable_source_manager)
     elif config.kind == "version_resource_child":

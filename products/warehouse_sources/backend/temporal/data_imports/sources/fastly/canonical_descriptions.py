@@ -179,6 +179,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "latency_1000_to_5000ms": "Number of responses from origin with latency between 1,000 and 5,000 milliseconds.",
         },
     },
+    "platform_metrics": {
+        "description": "Daily delivery and Compute traffic, cache and error metrics per service and POP, from Fastly's Metrics v2 API.",
+        "docs_url": "https://www.fastly.com/documentation/reference/api/metrics-stats/metrics-v2/platform/",
+        "columns": {
+            "service_id": "Alphanumeric string identifying the service (entity) the sample belongs to.",
+            "datacenter": "The POP the sample was measured at.",
+            "timestamp": "The start of the reported time period.",
+            "start_time": "Start of the day the sample covers, as a Unix timestamp.",
+            "requests": "Number of requests processed.",
+            "bandwidth": "Total bytes delivered.",
+            "hit_ratio": "Ratio of cache hits to cache hits and misses, between 0 and 1.",
+            "origin_offload": "Share of bytes served from cache rather than fetched from origin, between 0 and 1.",
+        },
+    },
     "service_authorizations": {
         "description": "Which users can reach which services, and the permission each one holds.",
         "docs_url": "https://www.fastly.com/documentation/reference/api/account/service-authorization/",
