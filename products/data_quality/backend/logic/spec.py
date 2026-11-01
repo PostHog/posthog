@@ -14,7 +14,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..facade.enums import CheckType, SubjectType
-from .contracts import CheckPlan, SubjectRef
+from .contracts import BulkQuestionPlan, CheckPlan, SubjectRef
 from .errors import CheckConfigError
 
 
@@ -108,7 +108,7 @@ class CheckTypeSpec(ABC):
         column_name: str,
         config: CheckConfig,
         related: SubjectRef | None = None,
-    ) -> CheckPlan:
+    ) -> CheckPlan | BulkQuestionPlan:
         """Select the rows that violate the assertion. The compiler aggregates over them."""
 
 
