@@ -118391,9 +118391,9 @@ export namespace Schemas {
 
     export interface StartTrainingRequest {
       /**
-         * Iterations for this training run. Defaults to the pipeline's iterations_per_run.
+         * Iterations for this training run. Defaults to the pipeline's iterations_per_run. The project's iteration limit per run can lower it.
          * @minimum 1
-         * @maximum 500
+         * @maximum 50
          */
       iteration_budget?: number;
     }
@@ -123134,6 +123134,20 @@ export namespace Schemas {
     export interface TraceSummaryRequest {
       /** Replace a ready summary with a new one. A pending summary is never replaced. */
       regenerate?: boolean;
+    }
+
+    export interface TrainingRunCapReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      used: number;
+      /** Sandbox training runs the project may start in any 24 hours. */
+      limit: number;
+      /**
+         * When the next training run can start. Null when training runs are turned off for the project.
+         * @nullable
+         */
+      next_slot_at: string | null;
     }
 
     /**

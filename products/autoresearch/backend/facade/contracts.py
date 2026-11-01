@@ -45,6 +45,26 @@ class AutoresearchConflict(ValueError):
     """
 
 
+class TrainingRunCapReached(Exception):
+    """The project has started its limit of sandbox training runs in the last 24 hours.
+
+    The viewset maps it to a 429, so the message is user-facing copy.
+    """
+
+    def __init__(self, *, used: int, limit: int, next_slot_at: datetime | None) -> None:
+        self.used = used
+        self.limit = limit
+        self.next_slot_at = next_slot_at
+        if limit == 0 or next_slot_at is None:
+            message = "Training runs are turned off for this project. Contact support to turn them on."
+        else:
+            message = (
+                f"This project started {used} training runs in the last 24 hours, and its limit is {limit}. "
+                f"The next run can start after {next_slot_at:%H:%M} UTC."
+            )
+        super().__init__(message)
+
+
 class InvalidTarget(ValueError):
     """The target names something the labeler cannot honor.
 

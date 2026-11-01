@@ -2017,8 +2017,23 @@ class StartTrainingRequestSerializer(serializers.Serializer):
     iteration_budget = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=500,
-        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run.",
+        max_value=50,
+        help_text=(
+            "Iterations for this training run. Defaults to the pipeline's iterations_per_run. "
+            "The project's iteration limit per run can lower it."
+        ),
+    )
+
+
+class TrainingRunCapReachedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the run did not start.")
+    used = serializers.IntegerField(
+        help_text="Sandbox training runs the project started in the last 24 hours, across all its pipelines."
+    )
+    limit = serializers.IntegerField(help_text="Sandbox training runs the project may start in any 24 hours.")
+    next_slot_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the next training run can start. Null when training runs are turned off for the project.",
     )
 
 
