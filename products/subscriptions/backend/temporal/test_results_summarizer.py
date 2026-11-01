@@ -120,6 +120,24 @@ class TestBuildResultsSummaryEmpty:
             ["Row 1: just a string row", "Row 2: 42"],
         ),
         (
+            "trends_kind_with_table_rows_uses_generic",
+            "TrendsQuery",
+            [["2026-04-20", 12345], ["2026-04-21", 67890]],
+            ["col0=2026-04-20", "col1=12345", "col0=2026-04-21"],
+        ),
+        (
+            "funnels_kind_with_table_rows_uses_generic",
+            "FunnelsQuery",
+            [["Visit page", 1000], ["Sign up", 100]],
+            ["col0=Visit page", "col1=1000"],
+        ),
+        (
+            "retention_kind_with_table_rows_uses_generic",
+            "RetentionQuery",
+            [["Week 0", 1000], ["Week 1", 800]],
+            ["col0=Week 0", "col1=800"],
+        ),
+        (
             "trends_boxplot_quantile_rows",
             "TrendsQuery",
             [
