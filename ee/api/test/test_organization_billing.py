@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -151,18 +152,20 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
+    @parameterized.expand([("session", status.HTTP_200_OK), ("oauth_token", status.HTTP_429_TOO_MANY_REQUESTS)])
     @patch("ee.billing.billing_manager.http_session.get")
-    def test_session_callers_are_throttled_too(self, mock_get):
+    def test_token_callers_are_throttled_and_the_app_is_not(self, credential, second_status, mock_get):
         mock_get.return_value = _response(SUBSCRIPTION)
+        headers = {}
+        if credential == "oauth_token":
+            headers = {"authorization": f"Bearer {self._oauth_token('billing:read')}"}
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch.object(BillingReadBurstRateThrottle, "rate", "1/minute"),
         ):
-            first = self.client.get(self._url("subscription/"))
-            second = self.client.get(self._url("subscription/"))
-        self.assertEqual(
-            (first.status_code, second.status_code), (status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS)
-        )
+            first = self.client.get(self._url("subscription/"), headers=headers)
+            second = self.client.get(self._url("subscription/"), headers=headers)
+        self.assertEqual((first.status_code, second.status_code), (status.HTTP_200_OK, second_status))
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_subscription_is_reshaped_to_the_organization_contract(self, mock_get):
@@ -454,6 +457,13 @@ USAGE_STATUS: dict[str, Any] = {
             "approaching_limit": False,
             "addons": [],
         },
+    ],
+}
+
+PROJECT_USAGE_STATUS: dict[str, Any] = {
+    **USAGE_STATUS,
+    "products": [
+        {key: value for key, value in product.items() if key != "usage_limit"} for product in USAGE_STATUS["products"]
     ],
 }
 
@@ -927,6 +937,39 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(json.loads(mock_get.call_args.kwargs["params"]["team_ids"]), [self.team.id])
 
+    @parameterized.expand(
+        [
+            (path, credential, allowed)
+            for path in ("features/", "products/summary/", "usage/status/")
+            for credential, allowed in (
+                ("session", True),
+                ("personal_key_for_this_project", True),
+                ("personal_key_for_another_project", False),
+                ("project_secret_key_for_this_project", True),
+                ("project_secret_key_for_another_project", False),
+            )
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_organization_reads_keep_the_credentials_project_scope(self, path, credential, allowed, mock_get):
+        mock_get.return_value = _response({"available_product_features": [], "products": []})
+        response = self.client.get(self._project_url(path), **self._credential(credential))
+        if not allowed:
+            self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+            mock_get.assert_not_called()
+            return
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        billing_path = {"products/summary/": "products/catalog/", "usage/status/": "project/usage/status/"}.get(
+            path, path
+        )
+        self.assertTrue(
+            mock_get.call_args.args[0].endswith(f"/api/v2/billing/{billing_path}"), mock_get.call_args.args[0]
+        )
+        token = mock_get.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = jwt.decode(token, options={"verify_signature": False})
+        expected_projects = None if credential == "session" else [self.team.id]
+        self.assertEqual(claims["projects"], expected_projects)
+
     @parameterized.expand([("usage",), ("spend",)])
     @patch("ee.billing.billing_manager.http_session.get")
     async def test_project_export_sends_billing_only_the_project_in_the_path(self, kind, mock_get):
@@ -950,7 +993,7 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
     @parameterized.expand([("billing_period_read", 0), ("usage_read", 1)])
     @patch("ee.billing.billing_manager.http_session.get")
     def test_project_usage_timeout_tells_the_person_to_ask_for_less(self, _name, timed_out_call, mock_get):
-        answers: list[Any] = [_response(SUBSCRIPTION), _response(SERIES)]
+        answers: list[Any] = [_response(PROJECT_USAGE_STATUS), _response(SERIES)]
         answers[timed_out_call] = requests.Timeout()
         mock_get.side_effect = answers
         response = self.client.get(self._project_url("usage/"))
@@ -972,7 +1015,7 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
                 }
             ],
         }
-        mock_get.side_effect = [_response(SUBSCRIPTION), _response(series)]
+        mock_get.side_effect = [_response(PROJECT_USAGE_STATUS), _response(series)]
         response = self.client.get(self._project_url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(
@@ -980,3 +1023,84 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         )
         sent = mock_get.call_args.kwargs["params"]
         self.assertEqual((sent["start_date"], json.loads(sent["team_ids"])), ("2026-09-01", [self.team.id]))
+
+    @parameterized.expand(
+        [
+            ("session",),
+            ("organization_oauth_token",),
+            ("personal_key_for_this_project",),
+            ("project_secret_key_for_this_project",),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_reads_the_period_without_the_subscription(self, credential, mock_get):
+        mock_get.side_effect = [_response(PROJECT_USAGE_STATUS), _response(SERIES)]
+        response = self.client.get(self._project_url("usage/"), **self._credential(credential))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        called = [call.args[0].split("/api/v2/billing/")[1] for call in mock_get.call_args_list]
+        self.assertEqual(called, ["project/usage/status/", "usage/timeseries/"])
+        self.assertEqual(response.json()["billing_period"]["current_period_start"], "2026-09-01T00:00:00Z")
+
+    @parameterized.expand(
+        [
+            (
+                "current_annual",
+                ["2026-03-01T00:00:00Z", "2027-03-01T00:00:00Z"],
+                ["usage/timeseries/"],
+                {
+                    "current_period_start": "2026-03-01T00:00:00Z",
+                    "current_period_end": "2027-03-01T00:00:00Z",
+                    "interval": "year",
+                },
+            ),
+            (
+                "current_31_days",
+                ["2026-08-20T00:00:00Z", "2026-09-20T00:00:00Z"],
+                ["usage/timeseries/"],
+                {
+                    "current_period_start": "2026-08-20T00:00:00Z",
+                    "current_period_end": "2026-09-20T00:00:00Z",
+                    "interval": "month",
+                },
+            ),
+            (
+                "ended",
+                ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+                ["project/usage/status/", "usage/timeseries/"],
+                {
+                    "current_period_start": "2026-09-01T00:00:00Z",
+                    "current_period_end": "2026-10-01T00:00:00Z",
+                    "interval": "month",
+                },
+            ),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_reads_the_stored_period_until_it_ends(
+        self, _name, stored, expected_paths, expected_period, mock_get
+    ):
+        self.organization.usage = {"period": stored}
+        self.organization.save()
+        responses = {"project/usage/status/": PROJECT_USAGE_STATUS, "usage/timeseries/": SERIES}
+        mock_get.side_effect = [_response(responses[path]) for path in expected_paths]
+        with time_machine.travel(datetime(2026, 9, 15, tzinfo=UTC), tick=False):
+            response = self.client.get(self._project_url("usage/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        called = [call.args[0].split("/api/v2/billing/")[1] for call in mock_get.call_args_list]
+        self.assertEqual(called, expected_paths)
+        self.assertEqual(response.json()["billing_period"], expected_period)
+        self.assertEqual(
+            mock_get.call_args.kwargs["params"]["start_date"], expected_period["current_period_start"][:10]
+        )
+
+    @parameterized.expand([("session",), ("organization_oauth_token",), ("personal_key_for_this_project",)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_status_has_no_limit_for_any_credential(self, credential, mock_get):
+        mock_get.return_value = _response(PROJECT_USAGE_STATUS)
+        response = self.client.get(self._project_url("usage/status/"), **self._credential(credential))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/project/usage/status/"))
+        for product in response.json()["products"]:
+            self.assertNotIn("usage_limit", product)
+            self.assertIn("approaching_limit", product)
+            self.assertIn("quota_limited_until", product)
