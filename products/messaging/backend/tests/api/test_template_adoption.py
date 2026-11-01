@@ -6,11 +6,15 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import ProjectSecretAPIKey
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, ProjectSecretAPIKey
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.workflows.backend.models import HogFlow
 
 DOCS_URL = "https://posthog.com/docs/workflows/transactional-email-api"
 
@@ -71,6 +75,26 @@ class TestTemplateAdoption(APIBaseTest):
         assert (adopted["id"], adopted["key"], adopted["managed_by"]) == (str(self.template.id), "welcome", None)
         assert adopted["content"]["email"]["subject"] == "Hello"
         assert self._stored_key() == "welcome"
+
+    def test_refuses_a_key_whose_code_send_workflow_the_member_cannot_edit(self):
+        key_workflow = HogFlow.objects.create(team=self.team, name="welcome", status="active")
+        TransactionalEmailKey.objects.for_team(self.team.id).create(
+            team=self.team, key="welcome", hog_flow_id=key_workflow.id
+        )
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team, resource="hog_flow", resource_id=str(key_workflow.id), access_level="viewer"
+        )
+
+        response = self._adopt("welcome")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert self._stored_key() is None
 
     def test_a_project_secret_api_key_cannot_adopt(self):
         response = self._adopt("welcome", self._project_secret_api_key_client())
