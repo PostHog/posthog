@@ -388,11 +388,20 @@ class TestTransactionalEmail(APIBaseTest):
             **fields,
         }
 
-    @parameterized.expand([("new_key", "welcome"), ("key_of_an_uploaded_template", "password-reset")])
-    def test_a_code_send_goes_out_as_is_under_the_keys_workflow(self, mock_post, _flag, capture, _name, key):
+    @parameterized.expand(
+        [
+            ("new_key", "welcome", True),
+            ("key_of_an_uploaded_template", "password-reset", True),
+            ("key_of_a_template_no_upload_claimed", "password-reset", False),
+        ]
+    )
+    def test_a_code_send_goes_out_as_is_under_the_keys_workflow(
+        self, mock_post, _flag, capture, _name, key, template_claimed
+    ):
         MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset")
         self._cdp_accepts(mock_post)
-        self._claim_by_upload(self.template)
+        if template_claimed:
+            self._claim_by_upload(self.template)
         templates_before = MessageTemplate.objects.filter(team=self.team).count()
         psak = self._psak_client(["hog_flow:write"])
 
@@ -406,7 +415,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert first_url == second_url
         assert first_url.endswith("/transactional_email/send")
         hog_flow_id = first_url.split("/hog_flows/")[1].split("/")[0]
-        if key == "password-reset":
+        if key == "password-reset" and template_claimed:
             assert hog_flow_id == str(self.hog_flow_id)
         else:
             assert TransactionalEmailKey.objects.for_team(self.team.id).get(key=key).hog_flow_id == UUID(hog_flow_id)
@@ -429,6 +438,20 @@ class TestTransactionalEmail(APIBaseTest):
             "template_key",
             "queued",
         )
+
+    def test_a_code_send_makes_a_new_workflow_when_its_keys_workflow_was_deleted(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+        first = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
+        deleted_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
+        HogFlow.objects.filter(team=self.team, id=deleted_workflow_id).delete()
+
+        second = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
+
+        assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, second.json()
+        new_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
+        assert new_workflow_id != deleted_workflow_id
+        assert f"/hog_flows/{new_workflow_id}/" in mock_post.call_args_list[1].args[0]
 
     @parameterized.expand(
         [
@@ -685,6 +708,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
         assert "may still go out" in response.json()["detail"]
+        assert "same Idempotency-Key" in response.json()["detail"]
 
     def test_the_send_schema_gives_a_template_send_no_code_only_field(self, _mock_post, _flag, _capture):
         schema = self.client.get("/api/schema/").data

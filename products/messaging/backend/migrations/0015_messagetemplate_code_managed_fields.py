@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 blank=True,
                 choices=[("gui", "GUI"), ("code", "Code")],
-                help_text="Who owns the template content: `gui` for the PostHog app, `code` for uploads from a repository. Empty means `gui`.",
+                help_text="Who owns the template content: `code` for uploads from a repository, `gui` for a template released from code to the PostHog app. Null for a template made in PostHog and never uploaded.",
                 max_length=400,
                 null=True,
             ),
