@@ -1,7 +1,8 @@
 """Scoring settings, and the levers of the scheduled tick, read from the `anomaly-scoring` flag payload.
 
 The payload parse fails closed: a missing, malformed or unreadable payload turns the tick off. An invalid
-field falls back to its default, and no default is unbounded.
+field falls back to its default, and no default is unbounded. A malformed team allowlist also turns the tick
+off, because its default enrolls every team of the listed organizations.
 """
 
 import uuid
@@ -193,6 +194,14 @@ def _team_ids(value: Any) -> tuple[int, ...]:
     return tuple(item for item in value if isinstance(item, int) and not isinstance(item, bool))
 
 
+def _allow_team_ids(value: Any) -> tuple[int, ...] | None:
+    """`None` when the allowlist is malformed. An empty allowlist enrolls every team of the listed organizations."""
+    if not isinstance(value, list):
+        return None
+    team_ids = _team_ids(value)
+    return team_ids if team_ids or not value else None
+
+
 def _canonical_uuid(value: str) -> str | None:
     try:
         return str(uuid.UUID(value))
@@ -247,11 +256,15 @@ def parse_limits(payload: Any) -> ScoringLimits:
 def parse_config(payload: Any) -> AnomalyScoringConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return DISABLED
+    allow_team_ids = _allow_team_ids(payload.get("allow_team_ids", []))
+    if allow_team_ids is None:
+        logger.warning("anomaly_scoring_config_malformed_allowlist")
+        return DISABLED
     defaults = AnomalyScoringConfig()
     return AnomalyScoringConfig(
         enabled=True,
         organization_ids=_organization_ids(payload.get("organization_ids")),
-        allow_team_ids=_team_ids(payload.get("allow_team_ids")),
+        allow_team_ids=allow_team_ids,
         self_driving_organization_percentage=_percentage(
             payload.get("self_driving_organization_percentage"), defaults.self_driving_organization_percentage
         ),
