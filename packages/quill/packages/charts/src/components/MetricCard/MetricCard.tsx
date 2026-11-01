@@ -36,6 +36,9 @@ export interface MetricCardProps {
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
     color?: string
+    /** Headline number color, e.g. a threshold color for a status tile. Defaults to the inherited
+     *  text color. A concrete color or a `var(--…)` reference. */
+    valueColor?: string
     sparklineHeight?: number
     /** Fill the card's remaining height with the sparkline instead of using a fixed `sparklineHeight`. */
     sparklineFill?: boolean
@@ -96,6 +99,7 @@ function MetricCardInner({
     formatLabel,
     theme,
     color,
+    valueColor,
     sparklineHeight = 120,
     sparklineFill = false,
     sparklineFillOpacity = 0.35,
@@ -171,7 +175,10 @@ function MetricCardInner({
     const showHeader = title != null || headerDelta != null
     const headerJustify = title != null ? 'justify-between' : 'justify-end'
     const renderedHeadline = (
-        <div className={`${headlineClassName} font-bold tracking-tight tabular-nums${showHeader ? ' mt-2' : ''}`}>
+        <div
+            className={`${headlineClassName} font-bold tracking-tight tabular-nums${showHeader ? ' mt-2' : ''}`}
+            style={valueColor ? { color: valueColor } : undefined}
+        >
             {headlineDisplay}
         </div>
     )

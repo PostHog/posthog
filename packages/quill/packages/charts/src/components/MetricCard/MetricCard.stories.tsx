@@ -137,3 +137,28 @@ export const NumberOnly: Story = {
         </Stage>
     ),
 }
+
+/** `valueColor` tints the headline number, e.g. with a threshold status color, while `color` tints
+ *  the sparkline. */
+export const ValueColor: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={360} height={320}>
+                <div className="rounded-xl border border-primary bg-surface-primary p-5 shadow-sm w-full h-full flex flex-col">
+                    <MetricCard
+                        title="Error rate"
+                        data={[0.8, 1.1, 0.9, 1.6, 2.4, 3.1, 4.2]}
+                        labels={['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']}
+                        theme={theme}
+                        color="#f04438"
+                        valueColor="#f04438"
+                        goodDirection="down"
+                        sparklineClassName="mt-4 -mx-5 -mb-5"
+                        formatValue={(v) => `${v.toFixed(1)}%`}
+                    />
+                </div>
+            </Stage>
+        )
+    },
+}
