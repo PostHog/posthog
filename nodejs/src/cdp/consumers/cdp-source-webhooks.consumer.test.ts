@@ -16,7 +16,6 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFun
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
-import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -284,15 +283,28 @@ describe('SourceWebhooksConsumer', () => {
 
             it.each([
                 ['*', 'ok', 200, [['first', 'second']]],
-                ['*', 'throw', 500, []],
-                ['*', 'answer500', 500, []],
+                ['own team', 'throw', 500, []],
+                ['own team', 'answer500', 500, []],
+                ['other team', 'ok', 200, [['first']]],
                 ['', 'ok', 200, [['first']]],
                 ['', 'throw', 500, [['first']]],
             ])(
                 'with multi-capture teams %j and outcome %s, answers %s and captures %j',
                 async (multiCaptureTeams, outcome, expectedStatus, expectedRequests) => {
-                    api['cdpSourceWebhooksConsumer']['multiCaptureTeams'] =
-                        buildIntegerMatcherWithPercentage(multiCaptureTeams)
+                    await api.stop()
+                    hub.CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS =
+                        { 'own team': `${team.id}`, 'other team': `${team.id + 1}` }[multiCaptureTeams] ??
+                        multiCaptureTeams
+                    api = new CdpApi(
+                        hub,
+                        { ...createCdpConsumerDeps(hub), idempotencyValkey },
+                        { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
+                    )
+                    app = setupExpressApp()
+                    app.use('/', api.router())
+                    server.close()
+                    server = app.listen(0, () => {})
+                    await api.start()
                     const code = `
                         postHogCapture({'event': 'first', 'distinct_id': 'd', 'properties': {}})
                         postHogCapture({'event': 'second', 'distinct_id': 'd', 'properties': {}})

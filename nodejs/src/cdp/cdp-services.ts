@@ -151,6 +151,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CYCLOTRON_NODE_MAX_CONNECTIONS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
+        | 'CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
         | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
@@ -503,7 +504,13 @@ export function createCdpCoreServices(
     )
 
     const hogExecutorAsync = new HogExecutorAsyncService(
-        new HogExecutorService({ executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
+        new HogExecutorService(
+            {
+                executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                sourceWebhookMultiCaptureTeams: config.CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS,
+            },
+            hogInputsService
+        ),
         {
             googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
             fetchRetries: config.CDP_FETCH_RETRIES,
