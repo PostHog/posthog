@@ -451,7 +451,7 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         r"^[a-zA-Z0-9_-]+$",
         max_length=400,
         required=False,
-        help_text="Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs "
+        help_text="Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs "
         "and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` "
         "and `html` or `text`. PostHog sends the content as is and never stores it as a template.",
     )
@@ -583,7 +583,8 @@ class TransactionalEmailUnavailable(exceptions.APIException):
 
 class UnconfirmedEmailSend(TransactionalEmailUnavailable):
     default_detail = (
-        "The email pipeline did not confirm the send. The email may still go out, so check before you send it again."
+        "The email pipeline did not confirm the send, so the email may still go out. To retry, send it again with the "
+        "same Idempotency-Key, which never sends it twice. A retry without that key may send it twice."
     )
 
 
