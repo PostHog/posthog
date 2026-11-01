@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { compareDataNodeQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -32,7 +33,6 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, CompareLabelType, InsightLogicProps, TrendResult } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'

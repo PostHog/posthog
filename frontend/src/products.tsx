@@ -12,6 +12,12 @@ import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
+import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -28,7 +34,6 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'

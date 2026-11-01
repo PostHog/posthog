@@ -20,6 +20,7 @@ import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownL
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
+import { isRetentionQuery, hasBreakdownFilter } from '~/queries/schema/node-guards'
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
 import type {
     BreakdownFilter,
@@ -36,7 +37,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isRetentionQuery, hasBreakdownFilter } from '~/queries/utils'
 import { BreakdownKeyType, CohortType, DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import { ProcessedRetentionPayload } from './types'

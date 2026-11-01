@@ -5,6 +5,20 @@ import { Variable } from '~/queries/nodes/DataVisualization/types'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
+    isEventsNode,
+    isFunnelsDataWarehouseNode,
+    isFunnelsQuery,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
+import {
     DataNode,
     FunnelsQuery,
     HogQLVariable,
@@ -18,19 +32,7 @@ import {
     filterForQuery,
     filterKeyForQuery,
     getMathTypeWarning,
-    isEventsNode,
-    isFunnelsDataWarehouseNode,
-    isFunnelsQuery,
-    isHogQLQuery,
-    isInsightQueryNode,
     isInsightQueryWithDisplay,
-    isInsightQueryWithSeries,
-    isInsightVizNode,
-    isLifecycleQuery,
-    isPathsQuery,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType } from '~/types'

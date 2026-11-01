@@ -53,9 +53,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { RESPONSE_CACHE_TTL } from '~/queries/nodes/DataNode/responseCache'
-import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
-    convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
     isLifecycleQuery,
     isNodeWithSource,
@@ -63,8 +61,9 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
-    isValidQueryForExperiment,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import { convertDataTableNodeToDataVisualizationNode, isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,

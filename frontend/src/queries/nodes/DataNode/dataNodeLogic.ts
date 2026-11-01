@@ -44,6 +44,14 @@ import {
 } from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
 import {
+    isActorsQuery,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+    isWebStatsTableQuery,
+} from '~/queries/schema/node-guards'
+import {
     AccountsQuery,
     AccountsQueryResponse,
     AccountsTableQuery,
@@ -88,21 +96,15 @@ import {
 import {
     isAccountsQuery,
     isAccountsTableQuery,
-    isActorsQuery,
     isErrorTrackingIssueEventsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
-    isDataVisualizationNode,
-    isHogQLQuery,
     isInsightActorsQuery,
-    isInsightQueryNode,
     isMarketingAnalyticsTableQuery,
-    isPersonsNode,
     isSessionQuery,
     isSessionsQuery,
     isTracesQuery,
-    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 

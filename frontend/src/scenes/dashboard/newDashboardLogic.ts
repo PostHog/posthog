@@ -27,8 +27,8 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import {
     DashboardTemplateStoredTile,
     DashboardTemplateType,

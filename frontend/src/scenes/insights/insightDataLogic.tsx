@@ -44,18 +44,16 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys
 import { compareQuery, isDraftQueryWorthSaving } from '~/queries/nodes/InsightViz/queryUtils'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
-import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
     isHogQLQuery,
-    isHogQuery,
     isInsightQueryNode,
     isInsightVizNode,
-    isWebAnalyticsInsightQuery,
-    shouldQueryBeAsync,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQuery, isWebAnalyticsInsightQuery, shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
