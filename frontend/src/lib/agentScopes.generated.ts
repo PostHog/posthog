@@ -107,6 +107,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'organization_member:read',
     'person:read',
     'person:write',
+    'posthog_support:read',
+    'posthog_support:write',
     'product_enablement:write',
     'project:read',
     'project:write',

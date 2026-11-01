@@ -287,6 +287,12 @@ export const API_SCOPES: APIScope[] = [
         objectPlural: 'projects',
         info: 'If you grant write access, this scope can be used to create or modify projects, including settings about how data is ingested.',
     },
+    {
+        key: 'posthog_support',
+        objectName: 'PostHog support',
+        objectPlural: 'PostHog support tickets',
+        info: 'Read your own tickets with PostHog support and draft new ones. You always review and send a draft yourself in PostHog.',
+    },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
@@ -634,6 +640,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'usage_metric',
             'ticket',
             'support_ticket',
+            'posthog_support',
         ],
     },
     {
