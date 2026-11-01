@@ -136,6 +136,14 @@ class ExternalDataSourceHealth:
     latest_error: str | None
 
 
+@dataclass(frozen=True)
+class ExternalDataSourceSummary:
+    """A minimal external data source summary for consumers identifying dependencies."""
+
+    id: str
+    name: str
+
+
 # --- Schema ---
 
 
