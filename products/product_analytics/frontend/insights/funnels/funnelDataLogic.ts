@@ -4,6 +4,7 @@ import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { formatEventName } from 'lib/insights/entityFilterNames'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils/numbers'
@@ -22,7 +23,6 @@ import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     getFunnelDatasetKey,
     getFunnelDatasetPosition,

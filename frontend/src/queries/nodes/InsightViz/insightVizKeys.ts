@@ -1,4 +1,4 @@
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 
 import { InsightLogicProps } from '~/types'
 
