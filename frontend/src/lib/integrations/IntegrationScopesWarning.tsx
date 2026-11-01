@@ -37,13 +37,17 @@ export function IntegrationScopesWarning({
                     to: integrationAuthorizeUrl({
                         kind: integration.kind,
                         next: reconnectReturnUrl(window.location.pathname, window.location.search),
+                        // Lets the backend pin the provider's consent screen to this install's account.
+                        extraParams: { integration_id: String(integration.id) },
                     }),
                     onClick: () =>
                         reportIntegrationConnectClicked(integration.kind, integration.kind, 'missing_scopes_reconnect'),
                     disabledReason: restrictedReason,
                 }}
             >
-                <span>Required scopes are missing: [{missingScopes.join(', ')}].</span>
+                <span>
+                    Required scopes are missing for {integration.display_name}: [{missingScopes.join(', ')}].
+                </span>
                 {integration.kind === 'hubspot' ? (
                     <span>
                         Note that some features may not be available on your current HubSpot plan. Check out{' '}
