@@ -12,6 +12,7 @@ from typing import Any
 
 from django.db import models
 
+from products.signals.backend.activity_summary.computed import MIN_WATCHED_OPEN_DAYS
 from products.signals.backend.activity_summary.render import (
     PRODUCT_LABELS,
     PROFILE_MAX_CHARS,
@@ -20,9 +21,13 @@ from products.signals.backend.activity_summary.render import (
     days_text,
 )
 
-PROMPT_VERSION = 7
+PROMPT_VERSION = 8
 
 MAX_THEMES = 6
+MAX_MODES = 3
+# The computed lists whose refs a theme can cite. A "p" ref is the pages of one product.
+_REF_LISTS = ("owned", "watched", "pages", "tasks", "mcp_sessions")
+_PAGES_REF_PREFIX = "p"
 # Per-field caps, so one runaway field cannot make the stored summary large. A cut ends at a word boundary.
 MAX_LABEL_CHARS = 60
 MAX_RECENT_SHIFT_CHARS = 300
@@ -54,11 +59,11 @@ MODES = tuple(str(mode) for mode in ActivitySummaryMode)
 _SYSTEM_PROMPT = """You write an activity summary: what one person works on and cares about in one PostHog project, built only from the input below. Other features read it to rank inbox reports, to pick reviewers and to route work. Write for a reader who needs facts they can act on.
 
 The input has these parts:
-- Objects and pages: a list that code computed from the last weeks of activity. Each line starts with a ref. An "o" ref is an object. An object they edited shows the number of days with edits, and "created" when they made it. An object they only opened shows the number of days they opened it, and "not theirs" when someone else made it. A "p" ref is the pages of one product. The list ends with the products they work in and the products they only visit.
-- Tasks: work the person gave to PostHog AI or the Slack agent. Each line has the day, the tags in brackets and the goal. "(xN)" is the number of runs.
+- Objects and pages: a list that code computed from the last weeks of activity. Each line starts with a ref. An "o" ref is an object. An object they edited shows the number of days with edits, and "created" when they made it. An object they only opened shows the number of days they opened it, and "not theirs" when someone else made it. An object they edited and opened shows both counts. A "p" ref is the pages of one product. The list ends with the products they work in and the products they only visit.
+- Tasks: work the person gave to PostHog AI or the Slack agent. Each line starts with a "t" ref, then has the day, the tags in brackets and the goal. "(xN)" is the number of runs.
 - Things they created or changed in PostHog: each line has the day, the action, the type and the name of the object. "(xN)" is the number of changes. "agent" is the reason their coding agent gave for the change.
-- What their AI agent looked into over MCP: one line per agent session, with the day, the number of calls and the intents the agent stated, in order. The agent looked these up for the person, and changed nothing. Treat them as the person's interests and open questions. Never write that the person built or changed something because of them.
-- Things they opened in PostHog: one line per object, or per product for its pages, with the number of days they opened it and the last day.
+- What their AI agent looked into over MCP: one line per agent session. Each line starts with an "m" ref, then has the day, the number of calls and the intents the agent stated, in order. The agent looked these up for the person, and changed nothing. Treat them as the person's interests and open questions. Never write that the person built or changed something because of them.
+- Things they opened in PostHog: one line per object, with the number of days they opened it and the last day.
 - The previous summary, when there is one.
 
 The tasks and the lines of changes, MCP sessions and opens cover only the time since the previous summary. Keep what the previous summary says unless the new activity changes it.
@@ -69,18 +74,21 @@ How to write:
 - Summarize a long list by count and topic, such as "12 insights about checkout conversion".
 - Write plain statements. Do not hedge, and do not write about what the input does not show.
 - Write about the work, not a job title.
+- Settings, integrations, API keys and project configuration are setup. They are never a theme and never in the headline.
+- Day counts, change counts and dates in the input are for ranking. Do not repeat them in the headline or the profile. Say how often in words.
+- Never write `<token>` or a numeric id.
 
 Return JSON:
 - `headline`: one or two sentences about what they work on and care about in this project.
-- `themes`: 3 to 6 threads of work, the strongest first. Give fewer only when the input shows fewer. Each theme has:
-  - `label`: the topic of the thread in at most 60 characters, such as "Experiment recalculation reliability". Name the topic, not a list of objects.
-  - `mode`: one of {modes}.
+- `themes`: at most 6 threads of work, the strongest first. A thread is work that repeats or a question the person keeps coming back to. Give only the threads that the input shows. One or two themes, or none, is correct for thin input. Do not add a theme to reach a number. Each theme has:
+  - `label`: the topic of the thread in at most 60 characters, such as "Experiment recalculation reliability". Name the topic, not a list of objects. Not "Feature flag updates": name what the flags are for, such as "Live stream rollout".
+  - `mode`: one of {modes}. `building` is creating or changing objects, including dashboards and alerts. `analyzing` is querying or reading to answer a question, without saving. `monitoring` is opening the same things again and again. `investigating` is finding the cause of a specific problem. `operating` is running day-to-day work, such as tickets. `experimenting` is A/B tests and controlled rollouts.
   - `strength`: high, medium or low, by how much of the activity is about this thread.
-  - `refs`: the refs from the objects and pages list that show this thread. Every theme needs at least one ref.
-- `modes`: the modes that describe how they work in this project overall, from the same list, the main one first.
+  - `refs`: the refs that show this thread. A ref is the evidence for the theme, so cite only lines that are about this thread. Use the "o" refs of its objects, the "t" refs of its tasks and the "m" refs of its MCP sessions. A "p" ref only shows that the person opened the pages of a product, so cite one only when no other ref shows the thread. Every theme needs at least one ref. Leave out a theme that no ref shows.
+- `modes`: at most {max_modes} modes that describe how they work in this project overall, from the same list, the main one first. Use only modes that a theme has.
 - `profile`: markdown, at most {profile_max_chars} characters, with these sections in this order:
-  - `## Working on`: the threads they build or change, with the objects by name.
-  - `## Keeps an eye on`: what they open again and again but do not change.
+  - `## Working on`: the threads they build or change, with the objects by name. A task or MCP session never goes here.
+  - `## Keeps an eye on`: objects they opened on {min_watched_days} or more days and did not edit. Mention product pages at most once, without counts. Leave out this section when there is nothing to name.
   - `## Recently asked about`: what they asked PostHog AI or the Slack agent, and what their agent looked into over MCP. Only when there are tasks or MCP sessions.
   - `## Earlier context`: what the previous summary says that the new activity does not repeat. Only when there is a previous summary.
   Leave out a section that has nothing to say. Do not add other sections, such as one for page visits or for evidence.
@@ -88,7 +96,12 @@ Return JSON:
 
 
 def system_prompt(profile_max_chars: int = PROFILE_MAX_CHARS) -> str:
-    return _SYSTEM_PROMPT.format(profile_max_chars=profile_max_chars, modes=", ".join(MODES))
+    return _SYSTEM_PROMPT.format(
+        profile_max_chars=profile_max_chars,
+        modes=", ".join(MODES),
+        max_modes=MAX_MODES,
+        min_watched_days=MIN_WATCHED_OPEN_DAYS,
+    )
 
 
 # Strict structured output. The normalization below still checks every rule, because a provider
@@ -256,7 +269,23 @@ def ref_days(computed: Mapping[str, Any] | None) -> dict[str, str]:
     """The last day of each ref in the computed lists."""
     if not computed:
         return {}
-    return {item["ref"]: item["last_at"] for key in ("owned", "watched", "pages") for item in computed.get(key, [])}
+    return {item["ref"]: item["last_at"] for key in _REF_LISTS for item in computed.get(key, [])}
+
+
+def _page_open_days(computed: Mapping[str, Any] | None) -> dict[str, int]:
+    return {item["ref"]: item["open_days"] for item in computed.get("pages", [])} if computed else {}
+
+
+def _theme_refs(raw_refs: Any, days: Mapping[str, str], page_open_days: Mapping[str, int]) -> list[str]:
+    """The known refs, once each. "p" refs go when another ref exists, and a "p" ref alone needs
+    `MIN_WATCHED_OPEN_DAYS` open days, so a page visit cannot carry a theme."""
+    refs: list[str] = []
+    for raw in raw_refs if isinstance(raw_refs, list) else []:
+        if (ref := _clean(raw)) is not None and ref in days and ref not in refs:
+            refs.append(ref)
+    if other := [ref for ref in refs if not ref.startswith(_PAGES_REF_PREFIX)]:
+        return other
+    return [ref for ref in refs if page_open_days.get(ref, 0) >= MIN_WATCHED_OPEN_DAYS]
 
 
 def _mode(value: Any) -> str | None:
@@ -264,19 +293,17 @@ def _mode(value: Any) -> str | None:
     return mode if mode in MODES else None
 
 
-def _themes(value: Any, days: Mapping[str, str]) -> list[dict[str, Any]]:
-    """At most `MAX_THEMES` themes. A theme keeps only the refs in `days`, and a theme with none is dropped."""
+def _themes(value: Any, computed: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """At most `MAX_THEMES` themes. A theme keeps only the refs that `_theme_refs` keeps, and a theme with none is dropped."""
     if not isinstance(value, list):
         return []
+    days = ref_days(computed)
+    page_open_days = _page_open_days(computed)
     themes: list[dict[str, Any]] = []
     for item in value:
         if not isinstance(item, dict) or (label := _clean(item.get("label"), MAX_LABEL_CHARS)) is None:
             continue
-        raw_refs = item.get("refs")
-        refs: list[str] = []
-        for raw in raw_refs if isinstance(raw_refs, list) else []:
-            if (ref := _clean(raw)) is not None and ref in days and ref not in refs:
-                refs.append(ref)
+        refs = _theme_refs(item.get("refs"), days, page_open_days)
         if not refs:
             continue
         strength = (_clean(item.get("strength")) or "").lower()
@@ -297,7 +324,7 @@ def _themes(value: Any, days: Mapping[str, str]) -> list[dict[str, Any]]:
 def _modes(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
-    return list(dict.fromkeys(mode for item in value if (mode := _mode(item)) is not None))
+    return list(dict.fromkeys(mode for item in value if (mode := _mode(item)) is not None))[:MAX_MODES]
 
 
 def normalize_summary(
@@ -334,7 +361,7 @@ def normalize_summary(
     return {
         "profile": profile,
         "headline": cap_line(headline, MAX_HEADLINE_CHARS),
-        "themes": _themes(parsed.get("themes"), ref_days(computed)),
+        "themes": _themes(parsed.get("themes"), computed),
         "modes": _modes(parsed.get("modes")),
         "recent_shift": recent_shift,
     }

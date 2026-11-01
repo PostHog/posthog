@@ -26,7 +26,7 @@ SUMMARY = {
     "recent_shift": "Moved from dashboards to funnels.",
 }
 COMPUTED = {
-    "schema_version": 1,
+    "schema_version": 2,
     "owned": [
         {
             "ref": "o1",
@@ -41,7 +41,13 @@ COMPUTED = {
     "watched": [],
     "pages": [{"ref": "p1", "product": "session_replay", "open_days": 2, "last_at": "2026-10-17"}],
     "products": {"works_in": ["product_analytics"], "visits": ["session_replay"]},
-    "task_count": 0,
+    "task_count": 1,
+    "tasks": [{"ref": "t1", "last_at": "2026-10-16"}],
+    "mcp_sessions": [{"ref": "m1", "last_at": "2026-10-18"}],
+}
+COMPUTED_V1 = {
+    **{key: value for key, value in COMPUTED.items() if key not in ("tasks", "mcp_sessions")},
+    "schema_version": 1,
 }
 
 
@@ -58,7 +64,14 @@ class TestActivitySummaryAPI(APIBaseTest):
         read_config.start()
         self.addCleanup(read_config.stop)
 
-    def _summary(self, user: User | None = None, *, summary: dict[str, Any] | None = None, version: int = 1) -> None:
+    def _summary(
+        self,
+        user: User | None = None,
+        *,
+        summary: dict[str, Any] | None = None,
+        version: int = 1,
+        computed: dict[str, Any] = COMPUTED,
+    ) -> None:
         UserActivitySummary.objects.for_team(self.team.id).create(
             team=self.team,
             user=user or self.user,
@@ -69,7 +82,7 @@ class TestActivitySummaryAPI(APIBaseTest):
             prompt_version=PROMPT_VERSION,
             render_version=RENDER_VERSION,
             version=version,
-            computed=COMPUTED,
+            computed=computed,
         )
 
     def _versions(self, count: int) -> None:
@@ -183,6 +196,23 @@ class TestActivitySummaryAPI(APIBaseTest):
         properties = capture.call_args.kwargs["properties"]
         assert properties["status"] == expected["status"]
         assert not any(isinstance(value, str) and "funnel" in value.lower() for value in properties.values())
+
+    @parameterized.expand(
+        [
+            ("current", COMPUTED, COMPUTED),
+            ("version_1", COMPUTED_V1, {**COMPUTED_V1, "tasks": [], "mcp_sessions": []}),
+            ("unknown_version", {**COMPUTED, "schema_version": 99}, None),
+        ]
+    )
+    def test_get_reads_the_computed_fields_of_older_schema_versions(
+        self, _name: str, computed: dict[str, Any], expected: dict[str, Any] | None
+    ) -> None:
+        self._summary(computed=computed)
+
+        response = self._get()
+
+        assert response.status_code == 200
+        assert response.json()["computed"] == expected
 
     def test_versions_come_newest_first_and_the_limit_is_capped(self) -> None:
         self.config = ActivitySummaryConfig(enabled=True, organization_ids=(str(self.organization.id),), max_versions=3)
