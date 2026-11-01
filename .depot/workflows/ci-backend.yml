@@ -1148,6 +1148,32 @@ jobs:
               timeout-minutes: 5
               retry: 1
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
+            # The Temporal SDK downloads each ephemeral server binary to $TMPDIR on first use, with no read timeout.
+            # Restore the binaries, or download them under a step timeout, so tests never make that request.
+            - name: Read Temporal SDK version
+              id: temporal-sdk
+              run: echo "version=$(python -c 'from importlib.metadata import version; print(version("temporalio"))')" >> "$GITHUB_OUTPUT"
+            - name: Restore Temporal test servers
+              id: temporal-test-servers
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                      /tmp/temporal-test-server-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                  key: temporal-test-servers-${{ runner.os }}-${{ runner.arch }}-${{ steps.temporal-sdk.outputs.version }}
+            - name: Download Temporal test servers
+              if: steps.temporal-test-servers.outputs.cache-hit != 'true'
+              timeout-minutes: 3
+              retry: 2
+              run: python posthog/test/temporal_test_servers.py
+            - name: Save Temporal test servers
+              if: env.IS_MASTER == 'true' && steps.temporal-test-servers.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                      /tmp/temporal-test-server-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                  key: ${{ steps.temporal-test-servers.outputs.cache-primary-key }}
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
             - name: Set up needed files
@@ -3236,6 +3262,32 @@ jobs:
               retry: 1
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
+            # The Temporal SDK downloads each ephemeral server binary to $TMPDIR on first use, with no read timeout.
+            # Restore the binaries, or download them under a step timeout, so tests never make that request.
+            - name: Read Temporal SDK version
+              id: temporal-sdk
+              run: echo "version=$(python -c 'from importlib.metadata import version; print(version("temporalio"))')" >> "$GITHUB_OUTPUT"
+            - name: Restore Temporal test servers
+              id: temporal-test-servers
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                      /tmp/temporal-test-server-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                  key: temporal-test-servers-${{ runner.os }}-${{ runner.arch }}-${{ steps.temporal-sdk.outputs.version }}
+            - name: Download Temporal test servers
+              if: steps.temporal-test-servers.outputs.cache-hit != 'true'
+              timeout-minutes: 3
+              retry: 2
+              run: python posthog/test/temporal_test_servers.py
+            - name: Save Temporal test servers
+              if: env.IS_MASTER == 'true' && steps.temporal-test-servers.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      /tmp/temporal-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                      /tmp/temporal-test-server-sdk-python-${{ steps.temporal-sdk.outputs.version }}
+                  key: ${{ steps.temporal-test-servers.outputs.cache-primary-key }}
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
