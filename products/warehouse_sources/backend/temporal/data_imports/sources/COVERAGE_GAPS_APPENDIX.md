@@ -10030,9 +10030,9 @@ Note: Ramp publishes a full OpenAPI spec (2.1 MB) plus llms-api.txt; the docs HT
 
 Diffed against: <https://help.rapid7.com/insightvm/en-us/api/insightvm-api-v4.json>
 
-- [ ] `sites (POST /vm/v4/integration/sites)` — Lookup table resolving the site IDs carried on every asset we already sync (high)
-- [ ] `scan (GET /vm/v4/integration/scan)` — Scan history - when each site was assessed, which is needed to judge how stale asset and vulnerability data is (medium)
-- [ ] `scan/engine` — Lookup resolving the engine that produced each scan (low)
+- [x] `sites (POST /vm/v4/integration/sites)` — Lookup table resolving the site IDs carried on every asset we already sync (high)
+- [x] `scan (GET /vm/v4/integration/scan)` — Scan history - when each site was assessed, which is needed to judge how stale asset and vulnerability data is (medium)
+- [x] `scan/engine` — Lookup resolving the engine that produced each scan (low)
 
 Note: PostHog targets the InsightVM Cloud Integrations API (/vm/v4/integration on \*.api.insight.rapid7.com), whose spec exposes only 5 resources: assets, sites, vulnerabilities, scan and scan/engine. So 2 of 5 is not as thin as it looks. The much larger on-prem console API v3 (207 paths - solutions, tags, asset_groups, policies, exploits, vulnerability_exceptions, per-asset findings) is a different product surface at help.rapid7.com/insightvm/en-us/api/api-v3.json requiring a console host and Basic auth; adding it would be a new source variant, not extra endpoints on this one. Endpoints are static (products/warehouse_sources/.../sources/rapid7_insightvm/settings.py), no dynamic discovery.
 

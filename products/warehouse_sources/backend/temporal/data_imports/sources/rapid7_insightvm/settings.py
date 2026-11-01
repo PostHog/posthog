@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -20,16 +21,27 @@ REGION_HOSTS: dict[str, str] = {
 API_BASE_PATH = "/vm/v4/integration"
 MAX_PAGE_SIZE = 1000
 
+# The v4 docs cap a page at 500 rows. The GET collections (scans, scan engines) page with zero-based
+# `page` + `size` and no cursor, which serves at most 10,000 results, so the walk stops at the last
+# page inside that window instead of requesting one the API refuses.
+DOCUMENTED_MAX_PAGE_SIZE = 500
+PAGE_NUMBER_MAX_PAGE = 10_000 // DOCUMENTED_MAX_PAGE_SIZE - 1
 
-@dataclass
+
+@dataclass(frozen=True)
 class Rapid7InsightvmEndpointConfig:
     name: str
     # Path segment appended to `{host}{API_BASE_PATH}/` (e.g. "assets").
     path: str
     primary_keys: list[str]
+    # Search endpoints are POST + cursor; plain collection endpoints are GET + page number.
+    method: Literal["GET", "POST"] = "POST"
+    pagination: Literal["cursor", "page_number"] = "cursor"
+    page_size: int = MAX_PAGE_SIZE
+    params: dict[str, str] = field(default_factory=dict)
     # Incremental sync is only advertised where the API exposes a confirmed server-side timestamp
     # filter. The v4 search body accepts filter expressions but their timestamp-filter fidelity is
-    # unverified, so both endpoints ship full refresh only.
+    # unverified and the GET collections have no time filter, so every endpoint ships full refresh.
     supports_incremental: bool = False
     supports_append: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -52,6 +64,30 @@ RAPID7_INSIGHTVM_ENDPOINTS: dict[str, Rapid7InsightvmEndpointConfig] = {
         name="vulnerabilities",
         path="vulnerabilities",
         primary_keys=["id"],
+    ),
+    # Sites have no id in the v4 API; a site name is unique and is how assets reference their site.
+    "sites": Rapid7InsightvmEndpointConfig(
+        name="sites",
+        path="sites",
+        primary_keys=["name"],
+        page_size=DOCUMENTED_MAX_PAGE_SIZE,
+    ),
+    "scans": Rapid7InsightvmEndpointConfig(
+        name="scans",
+        path="scan",
+        primary_keys=["id"],
+        method="GET",
+        pagination="page_number",
+        page_size=DOCUMENTED_MAX_PAGE_SIZE,
+        params={"includeDetails": "true"},
+    ),
+    "scan_engines": Rapid7InsightvmEndpointConfig(
+        name="scan_engines",
+        path="scan/engine",
+        primary_keys=["id"],
+        method="GET",
+        pagination="page_number",
+        page_size=DOCUMENTED_MAX_PAGE_SIZE,
     ),
 }
 
