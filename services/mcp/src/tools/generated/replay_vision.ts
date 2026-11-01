@@ -1566,6 +1566,9 @@ const visionScannersScoutsCreate = (): ToolBase<
         if (params.variant_analysis !== undefined) {
             body['variant_analysis'] = params.variant_analysis
         }
+        if (params.template_key !== undefined) {
+            body['template_key'] = params.template_key
+        }
         const result = await context.api.request<Schemas.ScannerScoutCreateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/scouts/`,

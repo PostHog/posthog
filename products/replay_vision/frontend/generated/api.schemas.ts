@@ -2200,6 +2200,27 @@ export interface SignalScoutConfigOptionsApi {
 }
 
 /**
+ * * `variant-analysis` - Variant analysis
+ * * `daily-digest` - Daily digest
+ * * `root-cause` - Root cause
+ * * `weekly-themes` - Weekly themes
+ * * `trend-watch` - Trend watch
+ * * `new-issues` - New issue watch
+ * * `scratch` - Start from scratch
+ */
+export type ScoutTemplateKeyEnumApi = (typeof ScoutTemplateKeyEnumApi)[keyof typeof ScoutTemplateKeyEnumApi]
+
+export const ScoutTemplateKeyEnumApi = {
+    VariantAnalysis: 'variant-analysis',
+    DailyDigest: 'daily-digest',
+    RootCause: 'root-cause',
+    WeeklyThemes: 'weekly-themes',
+    TrendWatch: 'trend-watch',
+    NewIssues: 'new-issues',
+    Scratch: 'scratch',
+} as const
+
+/**
  * A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is
  * what the caller's access is checked against, and what the scout is recorded as belonging to.
  *
@@ -2228,6 +2249,16 @@ export interface ScannerScoutCreateApi {
     config?: SignalScoutConfigOptionsApi
     /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
     variant_analysis?: boolean
+    /** The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.
+     *
+     * * `variant-analysis` - Variant analysis
+     * * `daily-digest` - Daily digest
+     * * `root-cause` - Root cause
+     * * `weekly-themes` - Weekly themes
+     * * `trend-watch` - Trend watch
+     * * `new-issues` - New issue watch
+     * * `scratch` - Start from scratch */
+    template_key?: ScoutTemplateKeyEnumApi
 }
 
 /**
@@ -2532,27 +2563,6 @@ export interface ScannerScoutCreateResponseApi {
     /** The scout's config, including the source recorded for it. */
     config: SignalScoutConfigApi
 }
-
-/**
- * * `variant-analysis` - Variant analysis
- * * `daily-digest` - Daily digest
- * * `root-cause` - Root cause
- * * `weekly-themes` - Weekly themes
- * * `trend-watch` - Trend watch
- * * `new-issues` - New issue watch
- * * `scratch` - Start from scratch
- */
-export type ScoutTemplateKeyEnumApi = (typeof ScoutTemplateKeyEnumApi)[keyof typeof ScoutTemplateKeyEnumApi]
-
-export const ScoutTemplateKeyEnumApi = {
-    VariantAnalysis: 'variant-analysis',
-    DailyDigest: 'daily-digest',
-    RootCause: 'root-cause',
-    WeeklyThemes: 'weekly-themes',
-    TrendWatch: 'trend-watch',
-    NewIssues: 'new-issues',
-    Scratch: 'scratch',
-} as const
 
 export interface ScannerScoutTemplateApi {
     /** The template's id.

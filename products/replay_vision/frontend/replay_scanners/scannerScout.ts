@@ -1,7 +1,10 @@
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import type { ScannerScoutCreateApi } from 'products/replay_vision/frontend/generated/api.schemas'
+import type {
+    ScannerScoutCreateApi,
+    ScannerTypeEnumApi,
+    ScoutTemplateKeyEnumApi,
+} from 'products/replay_vision/frontend/generated/api.schemas'
 import type {
     SignalScoutConfigApi,
     SignalScoutOutputDestinationsApi,
@@ -88,14 +91,7 @@ export function scoutSkillName(
     }
 }
 
-export type ScannerScoutTemplateKey =
-    | 'variant-analysis'
-    | 'daily-digest'
-    | 'root-cause'
-    | 'weekly-themes'
-    | 'trend-watch'
-    | 'new-issues'
-    | 'scratch'
+export type ScannerScoutTemplateKey = ScoutTemplateKeyEnumApi
 
 export interface ScannerScoutTemplate {
     key: ScannerScoutTemplateKey
@@ -639,6 +635,8 @@ export function scannerScoutCreatePayload(
     return {
         // Asks the server to attach the record schema the variants view reads.
         ...(overrides.templateKey === 'variant-analysis' ? { variant_analysis: true } : {}),
+        // Lets the server keep a body left exactly as the template rendered it on the template's latest text.
+        ...(overrides.templateKey ? { template_key: overrides.templateKey } : {}),
         name: overrides.name,
         description:
             `Replay Vision scout for the scanner "${scannerName}". Reads the scanner's new observations on a schedule and files an inbox report when something is worth reporting.`.slice(
