@@ -567,8 +567,9 @@ def is_integer_timezone(timezone: str) -> bool:
         parsed = pytz.timezone(timezone)
     except pytz.UnknownTimeZoneError:
         return False
-    now = datetime.now()
-    offset = parsed.utcoffset(now)
+    # An aware datetime avoids pytz raising on a naive time in a DST transition hour.
+    offset = datetime.now(parsed).utcoffset()
+    assert offset is not None
     return offset.total_seconds() % 3600 == 0
 
 

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import unittest
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -804,6 +805,21 @@ GROUP BY date
         assert not is_integer_timezone("Asia/Kathmandu")  # UTC+5:45
         assert not is_integer_timezone("Asia/Kolkata")  # UTC+5:30
         assert not is_integer_timezone("Australia/Adelaide")  # UTC+9:30
+
+    @parameterized.expand(
+        [
+            ("new_york_ambiguous", "America/New_York", datetime(2026, 11, 1, 1, 30, tzinfo=UTC)),
+            ("new_york_nonexistent", "America/New_York", datetime(2026, 3, 8, 2, 30, tzinfo=UTC)),
+            ("london_ambiguous", "Europe/London", datetime(2026, 10, 25, 1, 30, tzinfo=UTC)),
+            ("london_nonexistent", "Europe/London", datetime(2026, 3, 29, 1, 30, tzinfo=UTC)),
+            ("sydney_ambiguous", "Australia/Sydney", datetime(2026, 4, 5, 2, 30, tzinfo=UTC)),
+            ("sydney_nonexistent", "Australia/Sydney", datetime(2026, 10, 4, 2, 30, tzinfo=UTC)),
+            ("adelaide_ambiguous", "Australia/Adelaide", datetime(2026, 4, 5, 2, 30, tzinfo=UTC)),
+        ]
+    )
+    def test_integer_timezones_in_dst_transition_hour(self, _name, timezone, instant):
+        with time_machine.travel(instant, tick=False):
+            assert is_integer_timezone(timezone) == (timezone != "Australia/Adelaide")
 
     def test_enable_for_integer_team_timezones(self):
         self.team.timezone = "Europe/London"
