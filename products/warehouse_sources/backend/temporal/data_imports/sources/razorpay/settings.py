@@ -15,8 +15,20 @@ class RazorpayEndpointConfig:
     # Whether the endpoint documents the standard `from`/`to` created_at window filters.
     # Endpoints without them sync as full refresh only.
     supports_created_filter: bool
-    primary_key: str = "id"
+    primary_keys: tuple[str, ...] = ("id",)
     partition_key: str = "created_at"
+    data_selector: str = "items"
+    # Endpoints that document no `count`/`skip` return every row in one response.
+    paginated: bool = True
+    # RazorpayX endpoints are scoped to one business account via the `account_number` param.
+    requires_account_number: bool = False
+    # The settlement recon report only lists one settlement month per request (`year`/`month`).
+    monthly_recon: bool = False
+    incremental_field: str = "created_at"
+
+    @property
+    def supports_incremental(self) -> bool:
+        return self.supports_created_filter or self.monthly_recon
 
 
 ENDPOINT_CONFIGS: dict[str, RazorpayEndpointConfig] = {
@@ -49,6 +61,15 @@ ENDPOINT_CONFIGS: dict[str, RazorpayEndpointConfig] = {
         path="/v1/orders",
         supports_created_filter=True,
     ),
+    # The payment links list documents only payment_id/reference_id filters, no `count`/`skip`
+    # pagination and no `from`/`to`, and wraps rows in `payment_links`.
+    "PaymentLinks": RazorpayEndpointConfig(
+        name="PaymentLinks",
+        path="/v1/payment_links",
+        supports_created_filter=False,
+        data_selector="payment_links",
+        paginated=False,
+    ),
     "Payments": RazorpayEndpointConfig(
         name="Payments",
         path="/v1/payments",
@@ -64,10 +85,26 @@ ENDPOINT_CONFIGS: dict[str, RazorpayEndpointConfig] = {
         path="/v1/refunds",
         supports_created_filter=True,
     ),
+    "RazorpayXTransactions": RazorpayEndpointConfig(
+        name="RazorpayXTransactions",
+        path="/v1/transactions",
+        supports_created_filter=True,
+        requires_account_number=True,
+    ),
     "Settlements": RazorpayEndpointConfig(
         name="Settlements",
         path="/v1/settlements",
         supports_created_filter=True,
+    ),
+    # One row per settled payment, refund, transfer or adjustment. `entity_id` identifies the
+    # transaction and `settlement_id` the settlement it was paid out in.
+    "SettlementRecon": RazorpayEndpointConfig(
+        name="SettlementRecon",
+        path="/v1/settlements/recon/combined",
+        supports_created_filter=False,
+        primary_keys=("entity_id", "settlement_id"),
+        monthly_recon=True,
+        incremental_field="settled_at",
     ),
     "Subscriptions": RazorpayEndpointConfig(
         name="Subscriptions",
@@ -84,17 +121,17 @@ ENDPOINT_CONFIGS: dict[str, RazorpayEndpointConfig] = {
 
 ENDPOINTS = tuple(ENDPOINT_CONFIGS.keys())
 
-# Razorpay only filters on created_at (there is no updated-at filter), advertised as a DateTime
-# cursor stored as a UNIX-seconds integer.
+# Razorpay only filters on created_at (there is no updated-at filter), and the recon report only on
+# settlement month. Both are advertised as a DateTime cursor stored as a UNIX-seconds integer.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: [
         {
-            "label": "created_at",
+            "label": config.incremental_field,
             "type": IncrementalFieldType.DateTime,
-            "field": "created_at",
+            "field": config.incremental_field,
             "field_type": IncrementalFieldType.Integer,
         }
     ]
     for name, config in ENDPOINT_CONFIGS.items()
-    if config.supports_created_filter
+    if config.supports_incremental
 }

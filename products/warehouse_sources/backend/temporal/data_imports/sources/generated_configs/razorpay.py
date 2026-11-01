@@ -8,3 +8,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class RazorpaySourceConfig(config.Config):
     key_id: str
     key_secret: str
+    razorpayx_account_number: str | None = None

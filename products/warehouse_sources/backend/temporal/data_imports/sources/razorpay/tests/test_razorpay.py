@@ -1,6 +1,8 @@
+from datetime import datetime
 from typing import Any, Optional
 
 import pytest
+from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -15,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay import (
     INCREMENTAL_LOOKBACK_SECONDS,
     MIN_FROM_TIMESTAMP,
+    MISSING_ACCOUNT_NUMBER_ERROR,
+    RECON_TIMEZONE,
     RazorpayResumeConfig,
     build_from_param,
     validate_credentials,
@@ -34,10 +38,26 @@ def _items(count: int, start: int = 0) -> list[dict[str, Any]]:
 def _drive(
     responses: list[ScriptedResponse | BaseException],
     endpoint: str = "Payments",
+    account_number: Optional[str] = None,
     **inputs: Any,
 ) -> DriveResult:
-    config = RazorpaySourceConfig(key_id="rzp_test_key", key_secret="secret")
+    config = RazorpaySourceConfig(key_id="rzp_test_key", key_secret="secret", razorpayx_account_number=account_number)
     return SourceDriver(RazorpaySource(), config).run(endpoint, responses, **inputs)
+
+
+def _ist_timestamp(year: int, month: int, day: int) -> int:
+    return int(datetime(year, month, day, tzinfo=RECON_TIMEZONE).timestamp())
+
+
+def _recon_items(count: int) -> list[dict[str, Any]]:
+    return [{"entity_id": f"pay_{i}", "settlement_id": "setl_1", "created_at": 1_750_000_000} for i in range(count)]
+
+
+def _current_month(year: int, month: int) -> Any:
+    return patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay._current_recon_month",
+        return_value=(year, month),
+    )
 
 
 class TestRazorpayPagination:
@@ -92,6 +112,92 @@ class TestRazorpayIncremental:
     )
     def test_build_from_param(self, last_value: Any, expected: Optional[int]) -> None:
         assert build_from_param(last_value) == expected
+
+
+class TestRazorpaySettlementRecon:
+    def test_walks_each_month_page_by_page_up_to_the_current_month(self) -> None:
+        with _current_month(2026, 2):
+            result = _drive(
+                [
+                    _collection_response(_recon_items(PAGE_SIZE)),
+                    _collection_response(_recon_items(2)),
+                    _collection_response([]),
+                ],
+                endpoint="SettlementRecon",
+                incremental_field="settled_at",
+                db_incremental_field_last_value=_ist_timestamp(2026, 1, 20),
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/settlements/recon/combined"] * 3
+        assert list(zip(result.params("year"), result.params("month"), result.params("skip"))) == [
+            ("2026", "1", "0"),
+            ("2026", "1", str(PAGE_SIZE)),
+            ("2026", "2", "0"),
+        ]
+        assert len(result.rows) == PAGE_SIZE + 2
+        assert result.committed_states[-1] == RazorpayResumeConfig(skip=0, recon_year=2026, recon_month=3)
+
+    @pytest.mark.parametrize(
+        ("current_month", "inputs", "expected_first_request"),
+        [
+            ((2014, 1), {}, ("2014", "1", "0")),
+            (
+                (2026, 2),
+                {"incremental_field": "settled_at", "db_incremental_field_last_value": _ist_timestamp(2026, 3, 2)},
+                ("2026", "2", "0"),
+            ),
+            (
+                (2025, 6),
+                {"resume_state": RazorpayResumeConfig(skip=200, recon_year=2025, recon_month=6)},
+                ("2025", "6", "200"),
+            ),
+        ],
+    )
+    def test_start_month(
+        self, current_month: tuple[int, int], inputs: dict[str, Any], expected_first_request: tuple[str, str, str]
+    ) -> None:
+        with _current_month(*current_month):
+            result = _drive([_collection_response([])], endpoint="SettlementRecon", **inputs)
+
+        assert result.raised is None
+        assert (result.params("year")[0], result.params("month")[0], result.params("skip")[0]) == expected_first_request
+
+
+class TestRazorpayPaymentLinks:
+    def test_reads_every_link_from_one_unpaginated_response(self) -> None:
+        links = [{"id": f"plink_{i}", "created_at": 1_750_000_000} for i in range(PAGE_SIZE + 1)]
+
+        result = _drive([ScriptedResponse(json={"payment_links": links})], endpoint="PaymentLinks")
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert result.params("skip") == [None]
+        assert len(result.rows) == PAGE_SIZE + 1
+
+
+class TestRazorpayXTransactions:
+    def test_sends_account_number_on_every_page(self) -> None:
+        result = _drive(
+            [
+                _collection_response(_items(PAGE_SIZE)),
+                _collection_response(_items(1, start=PAGE_SIZE)),
+            ],
+            endpoint="RazorpayXTransactions",
+            account_number="7878780080316316",
+            incremental_field="created_at",
+            db_incremental_field_last_value=1_750_000_000,
+        )
+
+        assert result.params("account_number") == ["7878780080316316", "7878780080316316"]
+        assert result.params("from") == [str(1_750_000_000 - INCREMENTAL_LOOKBACK_SECONDS)] * 2
+
+    def test_fails_without_an_account_number(self) -> None:
+        result = _drive([], endpoint="RazorpayXTransactions")
+
+        assert result.requests == []
+        assert result.raised is not None
+        assert MISSING_ACCOUNT_NUMBER_ERROR in str(result.raised)
 
 
 class TestRazorpayValidateCredentials:

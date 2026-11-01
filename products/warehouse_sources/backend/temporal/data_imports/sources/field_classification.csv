@@ -1023,7 +1023,7 @@ RakutenAdvertising,,,,,,rakuten-advertising
 Ramp,environment client_id client_secret,,,,,ramp
 Rapid7Insightvm,api_key region,,,,,rapid7-insightvm
 Raygun,personal_access_token,,,,,raygun
-Razorpay,key_id key_secret,,,,,razorpay
+Razorpay,key_id key_secret razorpayx_account_number,,,,,razorpay
 RecallAI,api_key region,,,,,recall-ai
 Recharge,api_key,,,,,recharge
 Recreation,api_key,,,,,recreation
