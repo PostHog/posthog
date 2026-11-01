@@ -33,6 +33,7 @@ use serde_json::Value;
 use crate::errors::{Error, Result};
 use crate::limits::{env_switch, switch_setting};
 use crate::logprobe::{check_anchor, commit_path, probe_log, trust_window, LogAnchor, LogProbe};
+use crate::logstats;
 use crate::prefetch::CheckpointCache;
 use crate::store::{CommitProbe, OPTIMISTIC_COMMIT_VERSION_ENV};
 use crate::table::{open_table_prefetched, wrap_multipart_view, MultipartConfig};
@@ -211,6 +212,12 @@ impl TableHandle {
                 }
             })
             .collect())
+    }
+
+    /// Whole-table column statistics folded from the live files' Add actions, as one row
+    /// (see [`crate::logstats::add_action_stats`]).
+    pub fn add_action_stats(&self, columns: Option<&[String]>) -> Result<RecordBatch> {
+        logstats::add_action_stats(self.table.snapshot()?, columns)
     }
 
     /// Bring the snapshot up to date with commits made elsewhere. Incremental (applies

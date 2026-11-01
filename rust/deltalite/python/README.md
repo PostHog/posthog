@@ -114,11 +114,12 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 | `.num_files()` | Number of active data files (`int`). |
 | `.files()` | Active data files as dicts: `path` (relative to the table root), `size`, `modification_time` (epoch ms), `partition_values` (`dict[str, str \| None]`). |
 | `.file_uris()` | URIs of the table's active data files. |
+| `.add_action_stats(columns=None)` | Whole-table column statistics folded from the live files' Add actions, as a one-row pyarrow `RecordBatch`: `num_files`, `num_records` and, per column with log statistics, `null_count.<col>`, `min.<col>`, `max.<col>` in the column's own type, the names and types of `DeltaTable.get_add_actions(flatten=True)`. `columns` restricts the fold. The fold walks the snapshot one file at a time, so memory stays per column however many files the table has. |
 | `.history(limit)` | Recent commit history entries. |
 
 `version`, `table_id`, `configuration`, `schema_*`, `partition_columns`,
-`num_files`, `files` and `file_uris` read the loaded snapshot in memory and do
-no I/O; call `reload()` first when the table may have moved. `history` reads the
+`num_files`, `files`, `file_uris` and `add_action_stats` read the loaded snapshot in
+memory and do no I/O; call `reload()` first when the table may have moved. `history` reads the
 log.
 
 ### `UpsertStats`
