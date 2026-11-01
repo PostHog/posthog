@@ -120,7 +120,7 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
             caption=(
                 "Import Qdrant Cloud infrastructure metadata. "
                 "Create a Cloud Management Key in the Cloud Console under Access Management > Cloud Management Keys. "
-                "Grant `read:clusters`, `read:backups`, `read:backup_schedules`, and `read:payment_information` for the tables you select. "
+                "Grant `read:clusters`, `read:backups`, `read:backup_schedules`, `read:payment_information`, and `read:users` for the tables you select. "
                 "Copy your account ID from the Cloud Console. Vector data and collections are not included."
             ),
             fields=cast(
