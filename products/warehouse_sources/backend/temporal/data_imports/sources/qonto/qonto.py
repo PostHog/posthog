@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qonto.sett
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     PERMISSION_ERROR,
+    SORT_ORDER,
 )
 
 
@@ -69,15 +70,18 @@ def get_resource(name: str, incremental: bool, last_value: str | datetime | None
     if name != "bank_accounts":
         params["per_page"] = 100
     if name in INCREMENTAL_FIELDS:
-        params["sort_by"] = "updated_at:desc"
+        params["sort_by"] = f"updated_at:{SORT_ORDER[name]}"
         if incremental and last_value is not None:
             watermark = parse_datetime_value(last_value)
             if watermark is None:
                 raise ValueError("Invalid Qonto incremental timestamp")
-            params["updated_at_from"] = watermark.isoformat()
-    if name == "client_invoices":
+            # Supplier invoices take their filters inside filter[...], unlike transactions and transfers.
+            filter_param = "filter[updated_at_from]" if name == "supplier_invoices" else "updated_at_from"
+            params[filter_param] = watermark.isoformat()
+    if name in ("client_invoices", "credit_notes"):
         # Ascending creation order keeps earlier pages stable when new invoices arrive during a sync.
         params["sort_by"] = "created_at:asc"
+    if name == "client_invoices":
         # Qonto leaves out imported invoices unless the request asks for them.
         params["exclude_imported"] = "false"
     if name == "transactions":
@@ -150,5 +154,5 @@ def qonto_source(
         name=endpoint,
         items=lambda: selected,
         primary_keys=["bank_account_id", "id"] if endpoint == "transactions" else ["id"],
-        sort_mode="desc",
+        sort_mode=SORT_ORDER.get(endpoint, "desc"),
     )

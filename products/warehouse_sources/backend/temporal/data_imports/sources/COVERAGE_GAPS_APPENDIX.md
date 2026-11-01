@@ -9905,7 +9905,7 @@ Note: Official generated Swagger specs were inspected for monitoring, billing, m
 
 ## Qonto — **thin**
 
-Today (5): `bank_accounts`, `labels`, `memberships`, `transactions`, `transfers`
+Today (9): `bank_accounts`, `beneficiaries`, `client_invoices`, `credit_notes`, `labels`, `memberships`, `supplier_invoices`, `transactions`, `transfers`
 
 Diffed against: <https://docs.qonto.com/llms.txt>
 
@@ -9913,10 +9913,10 @@ Diffed against: <https://docs.qonto.com/llms.txt>
 - [ ] `Cash flow categories (GET /v2/cash_flow_categories)` — resolve transaction cash flow categories and subcategories into readable labels (high)
 - [x] `SEPA beneficiaries (GET /v2/sepa/beneficiaries)` — resolve beneficiary identifiers in existing transfer records (high)
 - [x] `Client invoices (GET /v2/client_invoices)` — analyze receivables, due dates, and invoice payment status (high)
-- [ ] `Supplier invoices (GET /v2/supplier_invoices)` — analyze payables and documents requiring payment or review (high)
+- [x] `Supplier invoices (GET /v2/supplier_invoices)` — analyze payables and documents requiring payment or review (high)
 - [ ] `Teams (GET /v2/teams)` — group memberships and spending by organizational team (medium)
 - [ ] `Clients (GET /v2/clients)` — enrich invoice analysis with customer identities and billing details (medium)
-- [ ] `Credit notes (GET /v2/credit_notes)` — reconcile refunded or reduced amounts against client invoices (medium)
+- [x] `Credit notes (GET /v2/credit_notes)` — reconcile refunded or reduced amounts against client invoices (medium)
 - [ ] `Quotes (GET /v2/quotes)` — compare quoted sales with invoiced revenue (medium)
 - [ ] `Requests (GET /v2/requests)` — measure spending requests, approval outcomes, and pending transfers (medium)
 
