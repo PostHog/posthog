@@ -69,6 +69,10 @@ class WarehouseMigrationItem(TeamScopedRootMixin, CreatedMetaFields, UpdatedMeta
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     external_data_source_id = models.UUIDField(null=True, blank=True)
     error = models.TextField(blank=True, default="")
+    # When the latest apply claimed the item, and the prefix it created the source with. A failed or
+    # dead apply can leave a source behind, and these let the next attempt find it instead of a second one.
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claimed_prefix = models.CharField(max_length=100, null=True, blank=True)
 
     class Meta:
         constraints = [

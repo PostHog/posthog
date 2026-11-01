@@ -14021,6 +14021,59 @@ export namespace Schemas {
       Agents: 'agents',
     } as const;
 
+    export interface MigrationTableOverride {
+      /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+      vendor_table: string;
+      /**
+         * The PostHog table to sync it as. Null leaves the table out.
+         * @nullable
+         */
+      posthog_table: string | null;
+    }
+
+    /**
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     */
+    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
+
+
+    export const ExternalDataSourceCreateCreatedViaEnum = {
+      Web: 'web',
+      Api: 'api',
+      Mcp: 'mcp',
+    } as const;
+
+    export interface ApplyMigrationItem {
+      /** The migration item to create a PostHog source for. */
+      item_id: string;
+      /** Stored credential from the source connect page, for the item's PostHog source type. */
+      credential_id: string;
+      /**
+         * Table name prefix to use instead of the planned one, for example when the planned one is taken.
+         * @maxLength 100
+         */
+      prefix?: string;
+      /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
+      destination_ids?: string[];
+      /** Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out. */
+      table_overrides?: MigrationTableOverride[];
+      /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
+       *
+       * * `web` - web
+       * * `api` - api
+       * * `mcp` - mcp */
+      created_via?: ExternalDataSourceCreateCreatedViaEnum;
+    }
+
+    export interface ApplyMigrationItemResponse {
+      /** The PostHog source created for the item. */
+      source_id: string;
+      /** Every difference from the Fivetran connection, including new ones. */
+      caveats: string[];
+    }
+
     export interface ApplyPathCleaningSuggestionResponse {
       /** Number of rules merged into the team's path_cleaning_filters. */
       applied: number;
@@ -53568,20 +53621,6 @@ export namespace Schemas {
      * Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings.
      */
     export type ExternalDataSourceCreatePayload = { [key: string]: unknown };
-
-    /**
-     * * `web` - web
-     * * `api` - api
-     * * `mcp` - mcp
-     */
-    export type ExternalDataSourceCreateCreatedViaEnum = typeof ExternalDataSourceCreateCreatedViaEnum[keyof typeof ExternalDataSourceCreateCreatedViaEnum];
-
-
-    export const ExternalDataSourceCreateCreatedViaEnum = {
-      Web: 'web',
-      Api: 'api',
-      Mcp: 'mcp',
-    } as const;
 
     export interface ExternalDataSourceCreate {
       /** The source type (e.g. 'Postgres', 'Stripe').
@@ -137103,6 +137142,10 @@ export namespace Schemas {
     };
 
     export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * Optional warehouse migration item. The connect page then shows the item's non-secret settings from the vendor, so the user only enters the secret.
+     */
+    migration_item_id?: string;
     /**
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */

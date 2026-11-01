@@ -612,6 +612,54 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const externalDataSourcesApplyMigrationItemCreateBodyPrefixMax = 100
+
+export const externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault = `api`
+
+export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ zod.object({
+    item_id: zod.uuid().describe('The migration item to create a PostHog source for.'),
+    credential_id: zod
+        .uuid()
+        .describe("Stored credential from the source connect page, for the item's PostHog source type."),
+    prefix: zod
+        .string()
+        .max(externalDataSourcesApplyMigrationItemCreateBodyPrefixMax)
+        .optional()
+        .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
+    table_overrides: zod
+        .array(
+            zod.object({
+                vendor_table: zod
+                    .string()
+                    .describe(
+                        "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+                    ),
+                posthog_table: zod
+                    .string()
+                    .nullable()
+                    .describe('The PostHog table to sync it as. Null leaves the table out.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out.'
+        ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+        .default(externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault)
+        .describe(
+            'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
+        ),
+})
+
+/**
  * List the accounts a source's typed-in credentials can reach, in the shared
  * IntegrationAccount shape.
  *

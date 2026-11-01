@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import Q, TextChoices
 from django.utils import timezone
 
 import temporalio
@@ -759,6 +759,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
+class ExternalDataSourceCreateCreatedVia(TextChoices):
+    """The `CreatedVia` values a caller may set. The class name keeps the generated enum name.
+
+    `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+    caller (that would let any client self-label as wizard- or self-driving-created). They
+    are derived server-side by upgrading a machine-injected `mcp` value based on the request
+    transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
+    """
+
+    WEB = "web", "web"
+    API = "api", "api"
+    MCP = "mcp", "mcp"
+
+
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
     source_type = serializers.ChoiceField(
         choices=ExternalDataSourceType.choices,
@@ -787,15 +801,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
-        # caller (that would let any client self-label as wizard- or self-driving-created). They
-        # are derived server-side by upgrading a machine-injected `mcp` value based on the request
-        # transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
-        choices=[
-            ExternalDataSource.CreatedVia.WEB,
-            ExternalDataSource.CreatedVia.API,
-            ExternalDataSource.CreatedVia.MCP,
-        ],
+        choices=ExternalDataSourceCreateCreatedVia.choices,
         required=False,
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
@@ -2118,6 +2124,37 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if secret_ref_response is not None:
             return secret_ref_response
 
+        return self._setup_source(
+            request,
+            source_type=source_type,
+            payload=payload,
+            build_schemas=lambda source_schemas, permission_errors: build_default_schemas(
+                source_schemas, permission_errors=permission_errors
+            ),
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+        )
+
+    def _setup_source(
+        self,
+        request: Request,
+        *,
+        source_type: str,
+        payload: dict,
+        build_schemas: Callable[[list[SourceSchema], Mapping[str, str | None]], list[dict]],
+        prefix: str | None,
+        description: str | None,
+        created_via: str,
+        direct_query_enabled: bool = False,
+        destination_ids: list | None = None,
+        webhook_tables: Callable[[], Collection[str]] | None = None,
+    ) -> Response:
+        """Validate a payload, discover its tables, and create the source with `build_schemas(tables, permission_errors)`.
+
+        `webhook_tables`, read after `build_schemas` runs, limits which tables a registered webhook may turn on.
+        """
         resolved = self._resolve_stored_credential(source_type, payload)
         if resolved.error_response is not None:
             return resolved.error_response
@@ -2194,18 +2231,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Build the schemas array server-side so the caller never has to. We've already validated
         # config + credentials above, so `_create_external_data_source` skips that second gate
         # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
-        payload["schemas"] = build_default_schemas(source_schemas, permission_errors=setup_permissions)
+        payload["schemas"] = build_schemas(source_schemas, setup_permissions)
 
         response = self._create_external_data_source(
             request,
             source_type=source_type,
             payload=payload,
-            prefix=serializer.validated_data.get("prefix"),
-            description=serializer.validated_data.get("description"),
+            prefix=prefix,
+            description=description,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
-            created_via=ExternalDataSource.CreatedVia.MCP,
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            created_via=created_via,
+            direct_query_enabled=direct_query_enabled,
             skip_credential_validation=True,
+            destination_ids=destination_ids,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
@@ -2213,7 +2251,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
             webhook_result = self._auto_register_webhook(
-                source, source_config, str(response.data["id"]), source_schemas, permission_errors=setup_permissions
+                source,
+                source_config,
+                str(response.data["id"]),
+                source_schemas,
+                permission_errors=setup_permissions,
+                only_tables=webhook_tables() if webhook_tables else None,
             )
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result

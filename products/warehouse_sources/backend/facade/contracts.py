@@ -367,6 +367,22 @@ class WarehouseMigrationItemClaimedError(ValueError):
     """An apply has already claimed or finished this migration item."""
 
 
+class WarehouseMigrationEmptySourceError(ValueError):
+    """An earlier apply left a source with no tables behind. The message says how to recover."""
+
+
+class WarehouseMigrationTableOverrideError(ValueError):
+    """The table overrides do not fit the item's plan. The message says why."""
+
+
+@dataclass(frozen=True)
+class MigrationTableOverride:
+    """Map one Fivetran table to a PostHog table at apply, or drop it with `posthog_table=None`."""
+
+    vendor_table: str
+    posthog_table: str | None
+
+
 @dataclass(frozen=True)
 class WarehouseMigrationBulkSkip:
     skipped_item_ids: list[UUID]
@@ -411,3 +427,33 @@ class WarehouseMigrationItem:
     status: str
     external_data_source_id: UUID | None
     error: str
+
+
+@dataclass(frozen=True)
+class ClaimedWarehouseMigrationItem:
+    """A migration item that one apply request now owns."""
+
+    id: UUID
+    caveats: list[str]
+    source_type: str
+    # The prefix this attempt creates the source with: the caller's override, else the planned one.
+    prefix: str | None
+    description: str
+    sync_frequency: str
+    start_paused: bool
+    # The stored plan, passed back to `plan_migration_schemas`.
+    proposal: dict[str, Any]
+    # Set when an earlier attempt already created the source: the claim linked it and applied the item.
+    recovered_source_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class PlannedMigrationSchemas:
+    # The `schemas` payload for source creation, one entry per discovered table.
+    schemas: list[dict[str, Any]]
+    # Planned tables that PostHog did not find or cannot sync with these credentials.
+    unavailable: list[str]
+    # Planned tables that only sync through a webhook.
+    webhook_only: list[str]
+    # Discovered tables the plan covers.
+    planned: list[str]
