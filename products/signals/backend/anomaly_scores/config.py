@@ -116,6 +116,14 @@ DEFAULT_TICK_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONT
 
 
 @frozen
+class TickFanOut:
+    """How the tick runs its picks: this many shards side by side, each with this many picks in flight."""
+
+    shards: int
+    concurrency: int
+
+
+@frozen
 class AnomalyScoringConfig:
     enabled: bool = False
     organization_ids: tuple[str, ...] = ()
@@ -129,9 +137,14 @@ class AnomalyScoringConfig:
     skip_team_ids: tuple[int, ...] = ()
     intervals: tuple[IntervalType, ...] = DEFAULT_TICK_INTERVALS
     # Smooths the spend over the hour, so one tick cannot use the whole query budget. With the split on,
-    # the two passes use the per-pass caps below instead.
+    # the two passes use the per-pass caps below instead. Each pick cap is per shard, see `fan_out`.
     max_insights_per_tick: int = 8
+    # Picks in flight in each shard.
     max_concurrency: int = 2
+    # Shards of the tick. Each shard runs its own picks, and all the picks of one team go to one shard.
+    shards: int = 1
+    # Picks in flight over all the shards. It lowers the shard count, so the cluster load has one upper limit.
+    max_total_concurrency: int = 8
     # Scoring queries per clock hour. One pick sends one query per series, see `scoring.query_cost`.
     max_queries_per_hour: int = 120
     max_queries_per_project_per_hour: int = 30
@@ -157,11 +170,19 @@ class AnomalyScoringConfig:
     # Each enrolled team's due list refreshes about this often.
     due_list_refresh_hours: int = 6
 
+    def fan_out(self) -> TickFanOut:
+        concurrency = min(self.max_concurrency, self.max_total_concurrency)
+        return TickFanOut(
+            shards=max(1, min(self.shards, self.max_total_concurrency // concurrency)), concurrency=concurrency
+        )
+
 
 DISABLED = AnomalyScoringConfig()
 # The largest value a flag payload can set for each lever of the tick.
 MAX_INSIGHTS_PER_TICK = 50
 MAX_CONCURRENCY = 8
+MAX_SHARDS = 8
+MAX_TOTAL_CONCURRENCY = 32
 MAX_QUERIES_PER_HOUR = 2000
 MAX_QUERIES_PER_PROJECT_PER_HOUR = 500
 MAX_SCORE_QUERIES_PER_HOUR = 5000
@@ -258,6 +279,10 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
             _positive_int(payload.get("max_insights_per_tick"), defaults.max_insights_per_tick), MAX_INSIGHTS_PER_TICK
         ),
         max_concurrency=min(_positive_int(payload.get("max_concurrency"), defaults.max_concurrency), MAX_CONCURRENCY),
+        shards=min(_positive_int(payload.get("shards"), defaults.shards), MAX_SHARDS),
+        max_total_concurrency=min(
+            _positive_int(payload.get("max_total_concurrency"), defaults.max_total_concurrency), MAX_TOTAL_CONCURRENCY
+        ),
         max_queries_per_hour=min(
             _positive_int(payload.get("max_queries_per_hour"), defaults.max_queries_per_hour), MAX_QUERIES_PER_HOUR
         ),
