@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
     FanOutConfig,
     PaginationType,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -236,14 +237,20 @@ class ClaudeCodeDayPaginator(BasePaginator):
         return f"ClaudeCodeDayPaginator(current_day={self._current_day}, today={self._today})"
 
 
+def _wire_version(api_version: str) -> str:
+    # Sources created before this source declared versions were backfilled with the unversioned
+    # label. They always sent 2023-06-01, so they keep sending it.
+    return ANTHROPIC_VERSION_2023_06_01 if api_version == UNVERSIONED_API_VERSION else api_version
+
+
 def _version_headers(api_version: str) -> dict[str, str]:
     # Auth (x-api-key) is supplied via the framework auth config so its value is redacted from
     # logs; only the non-secret version/accept headers are set here.
-    return {"anthropic-version": api_version, "accept": "application/json"}
+    return {"anthropic-version": _wire_version(api_version), "accept": "application/json"}
 
 
 def _is_legacy_version(api_version: str) -> bool:
-    return api_version == ANTHROPIC_VERSION_2023_06_01
+    return _wire_version(api_version) == ANTHROPIC_VERSION_2023_06_01
 
 
 # Response fields 2026-10-21 renamed, per endpoint, mapped from the new name back to the column name.

@@ -811,6 +811,14 @@ class TestApiVersionDispatch:
                 [],
             ),
             (
+                "backfilled_unversioned_pin_stays_legacy",
+                "rbac_roles",
+                "v1",
+                [_token_page([{"id": "r1", "name": "Admins"}], has_more=False, next_page=None)],
+                {"name": "Admins"},
+                [],
+            ),
+            (
                 "unpinned_follows_default",
                 "rbac_roles",
                 None,
@@ -839,7 +847,8 @@ class TestApiVersionDispatch:
         result = _driver().run(endpoint, script, api_version=api_version, **incremental)
 
         assert result.raised is None
-        assert {request.headers["anthropic-version"] for request in result.requests} == {api_version or _V2}
+        sent_version = {None: _V2, "v1": _V1}.get(api_version, api_version)
+        assert {request.headers["anthropic-version"] for request in result.requests} == {sent_version}
         assert len(result.rows) == 1
         row = result.rows[0]
         assert {key: row.get(key) for key in expected} == expected
