@@ -35,6 +35,7 @@ from products.product_analytics.backend.facade.api import record_insight_view
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.artifacts import clear_artifact_cache
 from products.signals.backend.anomaly_scores.config import (
+    DEFAULT_LIMITS,
     DEFAULT_PROFILE,
     DISABLED,
     AnomalyScoringConfig,
@@ -42,6 +43,7 @@ from products.signals.backend.anomaly_scores.config import (
     covers_team,
     parse_config,
 )
+from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
 from products.signals.backend.anomaly_scores.queue import (
     SKIP_COOLDOWN,
@@ -87,7 +89,12 @@ from products.signals.backend.anomaly_scores.tick import (
     plan_tick,
     run_insight,
 )
-from products.signals.backend.models import AnomalyScoringState, SignalSourceConfig, SignalTeamConfig
+from products.signals.backend.models import (
+    AnomalyScoringDueInsight,
+    AnomalyScoringState,
+    SignalSourceConfig,
+    SignalTeamConfig,
+)
 from products.subscriptions.backend.facade.testing import create_subscription
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -502,6 +509,7 @@ class TestRunInsight(SimpleTestCase):
             patch(f"{tick}.Team"),
             patch(f"{tick}.score_insight", side_effect=error),
             patch(f"{tick}.mark_attempted") as mark_attempted,
+            patch(f"{tick}.record_failed") as record_failed,
             patch("products.signals.backend.anomaly_scores.metrics.posthoganalytics.default_client", client),
         ):
             pick = InsightPick(team_id=1, insight_id=7, scored_through={}, interval=IntervalType.DAY)
@@ -510,6 +518,9 @@ class TestRunInsight(SimpleTestCase):
             except Exception:
                 status = "raised"
         cooldowns = [call.args[1] for call in mark_attempted.call_args_list]
+        # The due list row waits as long as the cache cooldown, so a failed pick does not stay due.
+        [row_cooldown] = [call.args[3] for call in record_failed.call_args_list]
+        assert row_cooldown == cooldowns[-1]
         [pick_event] = [
             call.kwargs for call in capture.call_args_list if call.kwargs["event"] == "anomaly scoring pick"
         ]
@@ -905,6 +916,115 @@ class TestActiveInsights(BaseTest):
         assert [active.insight_id for active in active_insights([self.team.id], _DEFAULT_INTERVALS, later, 30)] == [
             insight.id
         ]
+
+
+class TestDueList(ClickhouseTestMixin, BaseTest):
+    def _config(self, *team_ids: int) -> AnomalyScoringConfig:
+        return AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=team_ids or (self.team.id,),
+            due_list=True,
+        )
+
+    def _row(self, insight: Insight, next_due_at: datetime, watermarks: dict[str, datetime]) -> None:
+        AnomalyScoringDueInsight.all_teams.create(
+            team_id=insight.team_id,
+            insight_id=insight.id,
+            interval="day",
+            next_due_at=next_due_at,
+            refreshed_at=NOW,
+            series_scored_through={key: bucket.isoformat() for key, bucket in watermarks.items()},
+        )
+
+    @time_machine.travel(NOW, tick=False)
+    def test_the_tick_picks_due_rows_only_and_sends_no_clickhouse_query(self) -> None:
+        today = NOW.replace(hour=0)
+        due = Insight.objects.create(team=self.team, name="due", query=_trends(interval="day"))
+        waiting = Insight.objects.create(team=self.team, name="waiting", query=_trends(interval="day"))
+        watermarks = {"a": today - timedelta(days=6), "b": today - timedelta(days=3)}
+        self._row(due, NOW - timedelta(hours=1), watermarks)
+        self._row(waiting, NOW + timedelta(hours=1), {})
+        cache.delete_many(
+            [
+                _cooldown_key(due.id),
+                _cooldown_key(waiting.id),
+                _fleet_budget_key(NOW),
+                _project_budget_key(self.team.id, NOW),
+            ]
+        )
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.queue.scored_buckets", side_effect=AssertionError),
+        ):
+            selection = select_insights(self._config(), SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
+
+        assert [(pick.insight_id, pick.scored_through) for pick in selection.picks] == [(due.id, watermarks)]
+        assert (selection.active, selection.due_insights, selection.oldest_due_seconds) == (2, 1, 3600)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_scored_pick_keeps_the_watermark_of_a_series_that_it_did_not_return(self) -> None:
+        today = NOW.replace(hour=0)
+        insight = Insight.objects.create(team=self.team, name="breakdown", query=_trends(interval="day"))
+        self._row(insight, NOW, {"gone": today - timedelta(days=5), "kept": today - timedelta(days=2)})
+
+        record_scored(self.team, insight.id, {"kept": today - timedelta(days=1)}, NOW, DEFAULT_LIMITS)
+
+        row = AnomalyScoringDueInsight.all_teams.get(team_id=self.team.id, insight_id=insight.id)
+        assert row.series_scored_through == {
+            "gone": (today - timedelta(days=5)).isoformat(),
+            "kept": (today - timedelta(days=1)).isoformat(),
+        }
+        # Today's bucket completes at midnight, and the insight is due in its slot after that.
+        assert row.next_due_at >= today + timedelta(days=1)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_failed_pick_moves_its_row_past_the_cooldown(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="slow", query=_trends(interval="day"))
+        self._row(insight, NOW, {})
+        tick = "products.signals.backend.anomaly_scores.tick"
+
+        with (
+            patch(f"{tick}.ph_background_capture"),
+            patch(f"{tick}.score_insight", side_effect=ClickHouseQueryTimeOut()),
+        ):
+            run_insight(
+                ScoreInsightInput(
+                    pick=InsightPick(
+                        team_id=self.team.id, insight_id=insight.id, scored_through={}, interval=IntervalType.DAY
+                    )
+                ),
+                NOW,
+            )
+
+        row = AnomalyScoringDueInsight.all_teams.get(team_id=self.team.id, insight_id=insight.id)
+        assert row.next_due_at == NOW + SKIP_COOLDOWN
+
+    @time_machine.travel(NOW, tick=False)
+    def test_the_refresh_removes_inactive_insights_and_resumes_with_the_teams_that_waited(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        active = {
+            team.id: Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
+            for team in (self.team, other_team)
+        }
+        inactive = Insight.objects.create(team=self.team, name="inactive", query=_trends(interval="day"))
+        Insight.objects.filter(id=inactive.id).update(last_modified_at=_LONG_AGO)
+        self._row(inactive, NOW, {})
+        cache.delete_many(
+            [f"signals:anomaly_scores:due_list_refreshed:{team_id}" for team_id in (self.team.id, other_team.id)]
+        )
+        config = self._config(self.team.id, other_team.id)
+
+        refreshes = []
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            for later in (NOW, NOW + timedelta(minutes=15), NOW + timedelta(minutes=30)):
+                refresh = refresh_due_list(config, later, deadline=0.0)
+                refreshes.append((refresh.teams_refreshed, refresh.teams_waiting))
+
+        assert refreshes == [(1, 1), (1, 0), (0, 0)]
+        rows = AnomalyScoringDueInsight.all_teams.filter(team_id__in=list(active)).values_list("team_id", "insight_id")
+        assert sorted(rows) == sorted((team_id, insight.id) for team_id, insight in active.items())
 
 
 class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
