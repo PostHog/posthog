@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  normalizeBranchPrefix,
   sanitizeBranchName,
   suggestBranchName,
   validateBranchName,
@@ -90,9 +91,28 @@ describe("validateBranchName", () => {
   });
 });
 
+describe("normalizeBranchPrefix", () => {
+  it.each([
+    ["posthog/", "posthog/"],
+    ["posthog", "posthog/"],
+    ["/posthog/", "posthog/"],
+    ["", ""],
+    ["   ", ""],
+    ["my team/", "my-team/"],
+  ])("normalizes %j to %j", (input, expected) => {
+    expect(normalizeBranchPrefix(input)).toBe(expected);
+  });
+});
+
 describe("suggestBranchName", () => {
   it("returns the base name when no collision exists", () => {
     expect(suggestBranchName("Fix bug", "abc", [])).toBe("posthog/fix-bug");
+  });
+
+  it("applies a custom prefix before resolving collisions", () => {
+    expect(suggestBranchName("Fix bug", "abc", ["dev/fix-bug"], "dev")).toBe(
+      "dev/fix-bug-2",
+    );
   });
 
   it("appends -2 on first collision", () => {
