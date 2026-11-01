@@ -13,6 +13,7 @@ import math
 import random
 import hashlib
 import datetime
+import functools
 import dataclasses
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -24,7 +25,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 9
+RENDER_VERSION = 10
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -58,12 +59,16 @@ ACTIVITY_INTENT_CHARS = 160
 ACTIVITY_MAX_INTENTS = 2
 VIEW_LINE_CHARS = 160
 MCP_LINES = 10
-MCP_LINE_CHARS = 400
-MCP_CHAIN_MAX_INTENTS = 6
+MCP_LINE_CHARS = 480
+MCP_CHAIN_MAX_INTENTS = 4
 # The MCP intent buffer cuts an intent to this many characters.
 MCP_INTENT_CHARS = 200
 # An intent on a long chain keeps at least this many characters, even when the line cap then cuts the chain.
-MIN_MCP_INTENT_CHARS = 30
+MIN_MCP_INTENT_CHARS = 60
+# An agent can keep one MCP session open all day. A longer pause between two calls starts a new line.
+MCP_SESSION_IDLE_GAP = datetime.timedelta(minutes=30)
+# Intents that open with the same text keep it on the first intent only, if the shared text is at least this long.
+MIN_SHARED_OPENING_CHARS = 20
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
 MAX_COMPLETION_TOKENS = 4000
@@ -100,12 +105,24 @@ _AUTO_NAME = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|model report", re.IGNORECASE)
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _URL = re.compile(r"<?https?://[^\s<>]+>?")
-# Long runs of word characters: a run that mixes letters and digits is an API key, session token,
-# hash or UUID. The digit and letter checks run in `_mask_token`, because lookaheads in the pattern
-# rescan the run at every word boundary inside it and take quadratic time on a long input.
-_WORD_RUN = re.compile(r"[\w-]{24,}")
+# Long runs of word characters. A run that mixes letters and digits is masked when one segment looks like
+# an API key, session token or hash, or when a long run does not read as a name. The checks run in
+# `_mask_token`, because lookaheads in the pattern rescan the run at every word boundary inside it and
+# take quadratic time on a long input.
+_WORD_RUN = re.compile(r"[\w-]{16,}")
+_RUN_SEPARATORS = re.compile(r"[-_]")
+MIN_SECRET_SEGMENT_CHARS = 16
+# Masking is the default for a run this long, because a URL-safe credential can have only short segments.
+MIN_SECRET_RUN_CHARS = 24
+# A name such as "new-onboarding-flow-q4-2026" has few segments with digits, and they are short.
+MAX_NAME_DIGIT_SEGMENTS = 2
+MAX_NAME_DIGIT_SEGMENT_CHARS = 4
+# UUID segments are shorter than `MIN_SECRET_SEGMENT_CHARS`, so they have their own pattern.
+_UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
 _DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[A-Za-z]")
+# A name that is only masks, digits and punctuation after `clean_text` names nothing.
+_MEANINGLESS_NAME = re.compile(r"(?:<token>|<email>|\d|[^\w<>]|_)*")
 _WHITESPACE = re.compile(r"\s+")
 
 # Inbox onboarding creates a scout config for each canonical scout, named after its skill.
@@ -116,11 +133,16 @@ API_KEY_SCOPES: frozenset[str] = frozenset({"PersonalAPIKey"})
 # CI writes deploy markers as annotations through a personal API key.
 ANNOTATION_SCOPE = "Annotation"
 PERSONAL_API_KEY_CREDENTIAL = "personal_api_key"
-TEAM_SCOPE = "Team"
+# Project settings live on both scopes.
+TEAM_SETTINGS_SCOPES: frozenset[str] = frozenset({"Team", "Project"})
 # Team settings rows without an intent are dropped when the person has at least this many: one change
 # can be deliberate, but repeated ones come from setup flows.
 MIN_TEAM_SETTINGS_ROWS = 2
 TICKET_SCOPE = "Ticket"
+# Setup chores, such as Inbox settings, integrations and their diagnostics, are not work in the project.
+SETUP_SCOPES: frozenset[str] = frozenset({"SignalTeamConfig", "Integration", "ProjectSecretAPIKey", "ExportedAsset"})
+# Person deletes come from data cleanup, such as removing test users.
+PERSON_SCOPE = "Person"
 # Changes to this many distinct tickets on one UTC day collapse to one line with a count.
 MIN_TICKET_BURST = 3
 # Changes of one kind to this many distinct objects of one type inside the window are a bulk job,
@@ -287,6 +309,7 @@ class Drop(StrEnum):
     API_KEY_CHANGE = "api_key_change"
     API_KEY_ANNOTATION = "api_key_annotation"
     TEAM_SETTINGS = "team_settings"
+    SETUP_SCOPE = "setup_scope"
     BULK_SAME_TYPE = "bulk_same_type"
     TICKET_BURST = "ticket_burst"
     REPEATED_TASK = "repeated_task"
@@ -414,15 +437,35 @@ class RenderedInput:
     mcp_chars: int = 0
     # MCP sessions that passed the named filters, before the caps.
     mcp_pool: int = 0
+    # Products whose pages the person opened. They render in the computed block, not here, but count as units.
+    n_page_units: int = 0
 
     @property
     def units(self) -> int:
-        return self.n_tasks + self.n_activity_lines + self.n_view_lines + self.n_mcp_lines
+        return self.n_tasks + self.n_activity_lines + self.n_view_lines + self.n_mcp_lines + self.n_page_units
+
+
+def _reads_as_name(segments: Sequence[str]) -> bool:
+    with_digits = [segment for segment in segments if _DIGIT.search(segment)]
+    if len(with_digits) > MAX_NAME_DIGIT_SEGMENTS:
+        return False
+    if any(len(segment) > MAX_NAME_DIGIT_SEGMENT_CHARS for segment in with_digits):
+        return False
+    # Random URL-safe text mixes cases inside a segment. The words of a name do not.
+    return all(segment in (segment.lower(), segment.upper(), segment.capitalize()) for segment in segments)
 
 
 def _mask_token(match: re.Match[str]) -> str:
     run = match.group()
-    return "<token>" if _DIGIT.search(run) and _LETTER.search(run) else run
+    if not (_DIGIT.search(run) and _LETTER.search(run)):
+        return run
+    segments = _RUN_SEPARATORS.split(run)
+    for segment in segments:
+        if len(segment) >= MIN_SECRET_SEGMENT_CHARS and _DIGIT.search(segment) and _LETTER.search(segment):
+            return "<token>"
+    if len(run) >= MIN_SECRET_RUN_CHARS and not _reads_as_name(segments):
+        return "<token>"
+    return run
 
 
 def _url_host(match: re.Match[str]) -> str:
@@ -455,6 +498,7 @@ def clean_text(text: str, max_chars: int) -> str:
     text = bounded_raw(text, max_chars * RAW_TEXT_FACTOR)
     text = _URL.sub(_url_host, text)
     text = _EMAIL.sub("<email>", text)
+    text = _UUID.sub("<token>", text)
     text = _WORD_RUN.sub(_mask_token, text)
     return _WHITESPACE.sub(" ", text).strip()[:max_chars].strip()
 
@@ -615,12 +659,17 @@ def _usable_parents(parents: Sequence[Parent]) -> list[Parent]:
     return usable
 
 
+def _day_span(rows: Sequence[ActivityItem]) -> str:
+    """The UTC day of the rows, or the first and the last day when they span more than one."""
+    first, last = _day(min(row.at for row in rows)), _day(max(row.at for row in rows))
+    return last.isoformat() if first == last else f"{first.isoformat()} to {last.isoformat()}"
+
+
 def _object_line(
     scope: str, activity: str, name: str, rows: Sequence[ActivityItem], context: str, limits: RenderLimits
 ) -> _ActivityLine:
-    latest = max(row.at for row in rows)
     count = f" (x{len(rows)})" if len(rows) > 1 else ""
-    line = f'- {_day(latest).isoformat()} {activity} {scope} "{_display_name(name)}"{context}{count}'
+    line = f'- {_day_span(rows)} {activity} {scope} "{_display_name(name)}"{context}{count}'
     return _activity_line(line, rows, limits, created=activity == "created")
 
 
@@ -633,7 +682,6 @@ def _group_line(
 ) -> _ActivityLine:
     """One line for a parent and the children merged into it, children ranked like lines."""
     rows = [row for key in (*own, *children) for row in collapsed[key]]
-    latest = max(row.at for row in rows)
     ranked_children = sorted(
         children,
         key=lambda key: (
@@ -652,7 +700,7 @@ def _group_line(
     else:
         activities = sorted({key[1] for key in children}, key=lambda activity: (activity != "created", activity))
         head = f"{' and '.join(activities)} {child_text} on {parent_text}: "
-    head = f"- {_day(latest).isoformat()} {head}"
+    head = f"- {_day_span(rows)} {head}"
     intent, _ = _intent_text(rows, limits)
     suffix_chars = len(f" (agent: {intent})") if intent else 0
     line = head + _quoted_names(names, limits.activity_line_chars - len(head) - suffix_chars)
@@ -735,6 +783,13 @@ def is_auto_named(name: str) -> bool:
     return _AUTO_NAME.search(name) is not None
 
 
+# Every `person_activity` call checks each row, and a window repeats the same names many times.
+@functools.lru_cache(maxsize=4096)
+def is_unnamed(name: str) -> bool:
+    """True for an empty name, and for a name that is only masks or digits once `clean_text` masks it."""
+    return _MEANINGLESS_NAME.fullmatch(clean_text(name, ACTIVITY_NAME_CHARS * 2)) is not None
+
+
 def _has_intent(item: ActivityItem) -> bool:
     return bool(item.intent and item.intent.strip())
 
@@ -752,7 +807,10 @@ def _row_drop(item: ActivityItem) -> Drop | None:
         return Drop.API_KEY_ANNOTATION
     if item.scope in ONBOARDING_CONFIG_SCOPES and name.startswith(CANONICAL_SCOUT_PREFIX) and not _has_intent(item):
         return Drop.ONBOARDING_SCOUT_CONFIG
-    if not name:
+    is_setup = item.scope in SETUP_SCOPES or (item.scope == PERSON_SCOPE and item.activity == "deleted")
+    if is_setup and not _has_intent(item):
+        return Drop.SETUP_SCOPE
+    if is_unnamed(name):
         return Drop.UNNAMED_OBJECT
     if _AUTO_NAME.search(name):
         return Drop.AUTO_NAMED_OBJECT
@@ -846,7 +904,7 @@ def _collapse_bulk(
 
 def _drop_team_settings(items: Sequence[ActivityItem], drops: Counter[str]) -> list[ActivityItem]:
     """Without the team settings rows that state no intent, when there are `MIN_TEAM_SETTINGS_ROWS` or more."""
-    unstated = [item for item in items if item.scope == TEAM_SCOPE and not _has_intent(item)]
+    unstated = [item for item in items if item.scope in TEAM_SETTINGS_SCOPES and not _has_intent(item)]
     if len(unstated) < MIN_TEAM_SETTINGS_ROWS:
         return list(items)
     drops[Drop.TEAM_SETTINGS] += len(unstated)
@@ -953,8 +1011,21 @@ def without_products(
     return kept_activity, kept_views
 
 
-def _days(count: int) -> str:
+def days_text(count: int) -> str:
     return f"{count} day" if count == 1 else f"{count} days"
+
+
+def page_products(views: Iterable[ViewItem], drops: Counter[str]) -> set[Product]:
+    """The products of the opened scenes. The "p" lines of the computed block show them, so they get no view line."""
+    products: set[Product] = set()
+    for view in views:
+        if view.type != SCENE_VIEW_TYPE:
+            continue
+        if (product := scene_product(view.ref)) is None:
+            drops[Drop.GENERIC_SCENE] += 1
+        else:
+            products.add(product)
+    return products
 
 
 def view_units(
@@ -963,7 +1034,7 @@ def view_units(
     drops: Counter[str],
     limits: RenderLimits = DEFAULT_LIMITS,
 ) -> list[Unit]:
-    """One line per opened object and one per product of the opened scenes, the most opened first.
+    """One line per opened object, the most opened first. Scenes are in `page_products`.
 
     An object line also counts the days the person edited it, matched to their activity rows by
     scope and name. These lines skip the per-day burst cap."""
@@ -971,18 +1042,11 @@ def view_units(
     for item in person_activity(activity, Counter(), limits)[0]:
         edit_days.setdefault((item.scope, (item.name or "").strip()), set()).add(_day(item.at))
     ranked: list[tuple[int, datetime.datetime, str]] = []
-    scenes: dict[Product, tuple[datetime.datetime, set[datetime.date]]] = {}
     for view in views:
         if view.type == SCENE_VIEW_TYPE:
-            product = scene_product(view.ref)
-            if product is None:
-                drops[Drop.GENERIC_SCENE] += 1
-                continue
-            at, days = scenes.get(product, (view.at, set()))
-            scenes[product] = (max(at, view.at), days | set(view.days))
             continue
         name = (view.name or "").strip()
-        if not name:
+        if is_unnamed(name):
             drops[Drop.UNNAMED_OBJECT] += 1
             continue
         if _AUTO_NAME.search(name):
@@ -990,21 +1054,13 @@ def view_units(
             continue
         opened = len(set(view.days))
         name_text = cap_line(clean_text(name, ACTIVITY_NAME_CHARS * 2), ACTIVITY_NAME_CHARS)
-        facts = [f"opened {_days(opened)}", f"last {_day(view.at).isoformat()}"]
+        facts = [f"opened {days_text(opened)}", f"last {_day(view.at).isoformat()}"]
         if edited := len(edit_days.get((scope_of(view.type), name), ())):
-            facts.append(f"edited {_days(edited)}")
+            facts.append(f"edited {days_text(edited)}")
         if view.not_theirs:
             facts.append("not theirs")
         label = view.type.split("/")[0].replace("_", " ").capitalize()
         ranked.append((opened, view.at, f'- {label} "{name_text}": {", ".join(facts)}'))
-    for product, (at, days) in scenes.items():
-        ranked.append(
-            (
-                len(days),
-                at,
-                f"- {PRODUCT_LABELS[product]} pages: opened {_days(len(days))}, last {_day(at).isoformat()}",
-            )
-        )
     ranked.sort(key=lambda entry: (-entry[0], -entry[1].timestamp(), entry[2]))
     if len(ranked) > limits.view_lines:
         drops[Drop.SAMPLE_CAP] += len(ranked) - limits.view_lines
@@ -1025,10 +1081,44 @@ class _McpSession:
     chain: tuple[str, ...]
 
 
+def _split_on_idle(calls: list[McpItem]) -> list[list[McpItem]]:
+    """The calls in time order, in runs that no pause of more than `MCP_SESSION_IDLE_GAP` interrupts."""
+    calls = sorted(calls, key=lambda call: call.at)
+    runs = [calls[:1]]
+    for previous, call in zip(calls, calls[1:]):
+        if call.at - previous.at > MCP_SESSION_IDLE_GAP:
+            runs.append([])
+        runs[-1].append(call)
+    return runs
+
+
+def _shared_opening(first: str, other: str) -> int:
+    """The length of the whole words that open both texts, or 0 when they are shorter than `MIN_SHARED_OPENING_CHARS`."""
+    end = 0
+    while end < min(len(first), len(other)) and first[end].casefold() == other[end].casefold():
+        end += 1
+    if not ((end == len(first) or first[end] == " ") and (end == len(other) or other[end] == " ")):
+        end = max(first.rfind(" ", 0, end), 0)
+    return end if end >= MIN_SHARED_OPENING_CHARS else 0
+
+
+def _distinct_chain(intents: Iterable[str]) -> tuple[str, ...]:
+    """The intents without repeats, and without the opening that later intents share with the first one."""
+    chain: list[str] = []
+    seen: set[str] = set()
+    for intent in intents:
+        if chain:
+            intent = intent[_shared_opening(chain[0], intent) :].lstrip(" ,;:.-–—").strip()
+        if intent and intent.casefold() not in seen:
+            seen.add(intent.casefold())
+            chain.append(intent)
+    return tuple(chain)
+
+
 def _mcp_sessions(records: Iterable[McpItem], shown_intents: frozenset[str], drops: Counter[str]) -> list[_McpSession]:
     """The records grouped by session, without plumbing routes and the intents that `shown_intents` holds.
 
-    A record without a session id is its own session. Consecutive equal intents collapse to one."""
+    A record without a session id is its own session, and a long pause splits a session in two."""
     grouped: dict[tuple[str, int], list[McpItem]] = {}
     for index, record in enumerate(records):
         if _is_plumbing_route(record.route_name):
@@ -1036,34 +1126,59 @@ def _mcp_sessions(records: Iterable[McpItem], shown_intents: frozenset[str], dro
             continue
         grouped.setdefault((record.session_id, -1) if record.session_id else ("", index), []).append(record)
     sessions: list[_McpSession] = []
-    for calls in grouped.values():
-        calls.sort(key=lambda call: call.at)
-        chain: list[str] = []
-        for call in calls:
-            text = clean_text(call.intent, MCP_INTENT_CHARS)
+    for run in (run for calls in grouped.values() for run in _split_on_idle(calls)):
+        intents: list[str] = []
+        for call in run:
+            text = _SUMMARY_LABEL.sub("", clean_text(call.intent, MCP_INTENT_CHARS))
             if not text:
                 continue
             if intent_key(call.intent) in shown_intents:
                 drops[Drop.MCP_IN_ACTIVITY] += 1
                 continue
-            if not chain or chain[-1].casefold() != text.casefold():
-                chain.append(text)
+            intents.append(text)
+        chain = _distinct_chain(intents)
         if not chain:
             drops[Drop.MCP_THIN_SESSION] += 1
             continue
-        sessions.append(_McpSession(at=calls[-1].at, calls=len(calls), chain=tuple(chain)))
+        sessions.append(_McpSession(at=run[-1].at, calls=len(run), chain=chain))
     return sessions
 
 
+def _shorten_chain(chain: Sequence[str], max_intents: int) -> list[str]:
+    """The first and last intents and the longest ones between them, in order, with "…" where intents were left out."""
+    if len(chain) <= max_intents:
+        return list(chain)
+    middle = sorted(range(1, len(chain) - 1), key=lambda index: (-len(chain[index]), index))
+    kept = sorted([0, len(chain) - 1, *middle[: max(max_intents - 2, 0)]])
+    shortened = [chain[kept[0]]]
+    for previous, index in zip(kept, kept[1:]):
+        if index - previous > 1:
+            shortened.append("…")
+        shortened.append(chain[index])
+    return shortened
+
+
+def _intent_room(lengths: Sequence[int], budget: int) -> int:
+    """The longest an intent may be, so the intents fit the budget. Short intents leave their unused share to long ones."""
+    room = budget
+    for remaining, length in enumerate(sorted(lengths)):
+        share = budget // (len(lengths) - remaining)
+        if length > share:
+            room = share
+            break
+        budget -= length
+    return max(room, MIN_MCP_INTENT_CHARS)
+
+
 def _mcp_line(session: _McpSession, limits: RenderLimits) -> str:
-    """The session's intents in order. A long chain keeps its first intents and its last one, with "…" between."""
-    chain = list(session.chain)
-    if len(chain) > limits.mcp_chain_max_intents:
-        chain = [*chain[: limits.mcp_chain_max_intents - 1], "…", chain[-1]]
+    """The session's intents in order. A long chain keeps its first, its last and its longest intents."""
+    chain = _shorten_chain(session.chain, limits.mcp_chain_max_intents)
     calls = "1 call" if session.calls == 1 else f"{session.calls} calls"
     head = f"- {_day(session.at).isoformat()}, {calls}: "
-    # Each intent gets an equal share of the line, so a long first intent cannot push the last one out.
-    room = max((limits.mcp_line_chars - len(head)) // len(chain) - len(MCP_CHAIN_SEPARATOR), MIN_MCP_INTENT_CHARS)
+    intents = [intent for intent in chain if intent != "…"]
+    fixed = len(head) + len(MCP_CHAIN_SEPARATOR) * (len(chain) - 1) + len("…") * (len(chain) - len(intents))
+    # A cap on each intent, so a long first intent cannot push the last one out.
+    room = _intent_room([len(intent) for intent in intents], limits.mcp_line_chars - fixed)
     return cap_line(head + MCP_CHAIN_SEPARATOR.join(cap_line(intent, room) for intent in chain), limits.mcp_line_chars)
 
 
@@ -1073,7 +1188,7 @@ def mcp_units(
     drops: Counter[str],
     limits: RenderLimits = DEFAULT_LIMITS,
 ) -> list[Unit]:
-    """One line per MCP session of the person's agent, with the intents it stated in order.
+    """One line per MCP session of the person's agent, with the distinct intents it stated in order.
 
     An intent that an activity line already shows goes, so a write does not show twice. A chain that
     repeats in `MIN_REPEATED_MCP_CHAINS` or more sessions is a scheduled job, and all its sessions go."""
@@ -1178,16 +1293,18 @@ def build_input(
     person's agent from the MCP intent buffer, and gets its own section after the activity."""
     drops: Counter[str] = Counter()
     activity = list(activity)
+    views = list(views)
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
     capped_before = drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP]
     activity_lines = activity_units(activity, drops, parents, limits)
     # Lines that `activity_units` dropped for its line cap or its per-day cap.
     activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP] - capped_before
     view_lines = view_units(views, activity, drops, limits)
+    pages = page_products(views, drops)
     mcp_pool = burst_cap(
         dedupe_latest(mcp_units(mcp, activity_lines, drops, limits), drops), drops, limits.max_units_per_day
     )
-    if not task_pool and not activity_lines and not view_lines and not mcp_pool:
+    if not task_pool and not activity_lines and not view_lines and not mcp_pool and not pages:
         return None
     chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
@@ -1221,4 +1338,5 @@ def build_input(
         n_mcp_lines=len(sections[2][1]),
         mcp_chars=len(rendered[2]),
         mcp_pool=len(mcp_pool),
+        n_page_units=len(pages),
     )
