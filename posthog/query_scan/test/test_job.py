@@ -266,7 +266,11 @@ class TestQueryScanJobOnClickhouse(ClickhouseTestMixin, BaseTest):
                     stubbed_sql=print_prepared_ast(stub.stubbed, context, dialect="clickhouse"),
                     subqueries=tuple(
                         Subquery(
-                            sql=print_prepared_ast(stub_in_subqueries(subquery).stubbed, context, dialect="clickhouse")
+                            sql=print_prepared_ast(
+                                stub_in_subqueries(subquery.query, subquery.outer_ctes).stubbed,
+                                context,
+                                dialect="clickhouse",
+                            )
                         )
                         for subquery in stub.subqueries
                     ),
