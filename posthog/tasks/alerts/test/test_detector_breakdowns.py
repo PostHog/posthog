@@ -35,7 +35,6 @@ from products.product_analytics.backend.facade.models import Insight
 def _make_trend_result(label: str, data: list[float], breakdown_value: str = "") -> dict[str, Any]:
     days = [f"2024-06-{i + 1:02d}" for i in range(len(data))]
     return {
-        "action": {},
         "actions": [],
         "count": sum(data),
         "data": data,
@@ -49,7 +48,6 @@ def _make_trend_result(label: str, data: list[float], breakdown_value: str = "")
         "compare": False,
         "persons_urls": [],
         "persons": {},
-        "filter": {},
     }
 
 
