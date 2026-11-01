@@ -387,11 +387,20 @@ class TestTransactionalEmail(APIBaseTest):
             **fields,
         }
 
-    @parameterized.expand([("new_key", "welcome"), ("key_of_an_uploaded_template", "password-reset")])
-    def test_a_code_send_goes_out_as_is_under_the_keys_workflow(self, mock_post, _flag, capture, _name, key):
+    @parameterized.expand(
+        [
+            ("new_key", "welcome", True),
+            ("key_of_an_uploaded_template", "password-reset", True),
+            ("key_of_a_template_no_upload_claimed", "password-reset", False),
+        ]
+    )
+    def test_a_code_send_goes_out_as_is_under_the_keys_workflow(
+        self, mock_post, _flag, capture, _name, key, template_claimed
+    ):
         MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset")
         self._cdp_accepts(mock_post)
-        self._claim_by_upload(self.template)
+        if template_claimed:
+            self._claim_by_upload(self.template)
         templates_before = MessageTemplate.objects.filter(team=self.team).count()
         psak = self._psak_client(["hog_flow:write"])
 
@@ -405,7 +414,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert first_url == second_url
         assert first_url.endswith("/transactional_email/send")
         hog_flow_id = first_url.split("/hog_flows/")[1].split("/")[0]
-        if key == "password-reset":
+        if key == "password-reset" and template_claimed:
             assert hog_flow_id == str(self.hog_flow_id)
         else:
             assert TransactionalEmailKey.objects.for_team(self.team.id).get(key=key).hog_flow_id == UUID(hog_flow_id)

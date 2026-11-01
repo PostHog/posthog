@@ -90,10 +90,6 @@ def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
     return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
 
 
-def team_template_with_key(team_id: int, key: str) -> MessageTemplate:
-    return MessageTemplate.objects.get(team_id=team_id, deleted=False, key=key)
-
-
 def category_id_for_team(team_id: int, category_id: Any) -> UUID:
     # Not filtered on deleted, as the related field this serves never was.
     return MessageCategory.objects.get(team_id=team_id, pk=category_id).pk
