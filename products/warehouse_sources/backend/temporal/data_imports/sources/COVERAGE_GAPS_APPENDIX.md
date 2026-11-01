@@ -10007,7 +10007,7 @@ Note: No published SDL file; I ran an unauthenticated GraphQL introspection quer
 
 ## Ramp — **thin**
 
-Today (5): `cards`, `departments`, `reimbursements`, `transactions`, `users`
+Today (6): `billing_statements`, `cards`, `departments`, `reimbursements`, `transactions`, `users`
 
 Diffed against: <https://docs.ramp.com/openapi/developer-api.json>
 
@@ -10023,6 +10023,7 @@ Diffed against: <https://docs.ramp.com/openapi/developer-api.json>
 - [ ] `accounting/fields and accounting/field-options` — Custom accounting dimensions and their allowed values - the breakdown dimensions for coded spend (medium)
 - [ ] `receipts and item-receipts` — Receipt records and line-item detail attached to transactions, for compliance reporting (medium)
 - [ ] `spend-programs / unified-requests` — Spend limits and the approval-request stream that explains why spend was allowed or blocked (medium)
+- [x] `billing/statements` — Ramp billing statements per statement period, with the amount due and statement PDF link (medium)
 
 Note: Ramp publishes a full OpenAPI spec (2.1 MB) plus llms-api.txt; the docs HTML explicitly points machine readers at /openapi/developer-api.json. The spec has ~95 GET paths across ~40 resources; PostHog exposes 5. Also note PostHog syncs the legacy /cards path, which no longer appears in the current spec (now /cards/physical and /cards/virtual) - worth confirming it still returns data.
 

@@ -78,7 +78,7 @@ class RampSource(ResumableSource[RampSourceConfig, RampResumeConfig]):
             label="Ramp",
             caption="""Connect your Ramp account to pull your spend data into the PostHog Data warehouse.
 
-A Ramp admin can create a developer app under Settings > Developer API. Grant it the `transactions:read`, `reimbursements:read`, `users:read`, `cards:read`, and `departments:read` scopes (scopes are fixed at app creation) and enable client credentials, then enter the app's client ID and secret here.""",
+A Ramp admin can create a developer app under Settings > Developer API. Grant it the `transactions:read`, `reimbursements:read`, `users:read`, `cards:read`, and `departments:read` scopes, plus `billing_statements:read` to sync billing statements (scopes are fixed at app creation) and enable client credentials, then enter the app's client ID and secret here.""",
             iconPath="/static/services/ramp.png",
             docsUrl="https://posthog.com/docs/cdp/sources/ramp",
             releaseStatus=ReleaseStatus.GA,

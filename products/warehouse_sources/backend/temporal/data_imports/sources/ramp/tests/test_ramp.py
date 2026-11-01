@@ -39,8 +39,8 @@ def _token(status_code: int = 200, expires_in: int = 864000) -> ScriptedResponse
     return ScriptedResponse(status=status_code, json=body)
 
 
-def _source(endpoint: str, pages: list[ScriptedResponse], **inputs: Any) -> DriveResult:
-    script = route({"/token": [_token()], f"/developer/v1/{endpoint}": pages})
+def _source(endpoint: str, pages: list[ScriptedResponse], path: str | None = None, **inputs: Any) -> DriveResult:
+    script = route({"/token": [_token()], f"/developer/v1/{path or endpoint}": pages})
     config = RampSourceConfig(environment="production", client_id="cid", client_secret="sec")
     return SourceDriver(RampSource(), config).run(endpoint, script, **inputs)
 
@@ -99,6 +99,21 @@ class TestGetRows:
         data_requests = [request for request in result.requests if request.path.endswith("/transactions")]
         assert data_requests[0].param("from_date") == "2024-01-02T00:00:00Z"
         assert data_requests[0].param("page_size") == str(PAGE_SIZE)
+
+    def test_billing_statements_mint_only_their_own_scope_and_walk_pages(self):
+        result = _source(
+            "billing_statements",
+            [
+                _page([{"id": "s1"}], next_url="https://api.ramp.com/developer/v1/billing/statements?start=s1"),
+                _page([{"id": "s2"}]),
+            ],
+            path="billing/statements",
+        )
+
+        assert result.raised is None
+        token_request = next(request for request in result.requests if request.path.endswith("/token"))
+        assert parse_qs((token_request.body or b"").decode())["scope"] == ["billing_statements:read"]
+        assert [row["id"] for row in result.rows] == ["s1", "s2"]
 
     def test_a_run_with_no_saved_state_starts_from_the_first_page(self):
         result = _source("transactions", [_page([{"id": "t1"}])])

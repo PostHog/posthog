@@ -88,4 +88,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The department's name.",
         },
     },
+    "billing_statements": {
+        "description": "A billing statement for one statement period, with the total amount due.",
+        "docs_url": "https://docs.ramp.com/developer-api/v1/api/billing-statements",
+        "columns": {
+            "id": "Unique identifier of the billing statement.",
+            "amount": "The total amount due for this billing statement.",
+            "statement_period": "The billing statement period date range (start and end dates; end is null while the period is open).",
+            "statement_url": "Presigned URL to download the billing statement PDF, or null if unavailable.",
+        },
+    },
 }
