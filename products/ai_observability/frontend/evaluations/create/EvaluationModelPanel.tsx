@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EvaluationJudgeModelPicker } from '../components/EvaluationJudgeModelPicker'
 import { decisionModelHint } from '../constants'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
+import { EvaluationProviderKeyBanner } from './EvaluationProviderKeyBanner'
 
 /** The model a judge or decision model runs on, from the team's AI providers, with what that model does. */
 export function EvaluationModelPanel(): JSX.Element | null {
@@ -21,6 +22,7 @@ export function EvaluationModelPanel(): JSX.Element | null {
     }
     return (
         <div className="flex flex-col gap-4">
+            <EvaluationProviderKeyBanner />
             <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
                 <div className="w-80 max-w-full">
                     <EvaluationJudgeModelPicker />

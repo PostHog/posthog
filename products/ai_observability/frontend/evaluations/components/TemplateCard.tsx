@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { IconEye } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -18,9 +18,12 @@ function isNewOutputType(template: EvaluationTemplate): boolean {
 export function TemplateCard({
     template,
     onSelect,
+    missingProviderKey,
 }: {
     template: EvaluationTemplate
     onSelect: (template: EvaluationTemplate, placement: 'card' | 'example') => void
+    /** True when the team has no AI provider key, which an LLM judge needs. */
+    missingProviderKey: boolean
 }): JSX.Element {
     return (
         <div className="relative flex h-full gap-3 p-3 overflow-hidden rounded-lg border border-primary bg-surface-primary hover:border-accent transition-colors motion-reduce:transition-none">
@@ -52,7 +55,16 @@ export function TemplateCard({
                 {/* As a flex item with hidden overflow, the description would shrink in a short card and cut its clamped lines in half. */}
                 <p className="m-0 shrink-0 text-xs text-secondary line-clamp-2">{template.description}</p>
                 <div className="flex items-center justify-between gap-2 mt-auto pt-1">
-                    <span className="text-xs text-muted truncate">{templateOutputText(template)}</span>
+                    <div className="flex items-center min-w-0 gap-2">
+                        <span className="text-xs text-muted truncate">{templateOutputText(template)}</span>
+                        {missingProviderKey && template.evaluation_type === 'llm_judge' && (
+                            <Tooltip title="An LLM judge runs on your own AI provider key. You can add one while you set it up.">
+                                <LemonTag type="warning" size="small" className="relative z-10 shrink-0">
+                                    Needs API key
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                    </div>
                     <div className="relative z-10 shrink-0">
                         <LemonDropdown
                             overlay={

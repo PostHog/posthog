@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -12,15 +12,12 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { ScratchTemplateCard } from './components/ScratchTemplateCard'
 import { TemplateCard } from './components/TemplateCard'
 import { getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
-import { RECOMMENDED_TEMPLATE_KEYS } from './EvaluationTemplates'
+import { recommendedTemplateKeys } from './EvaluationTemplates'
 import { type EvaluationTemplate, defaultEvaluationTemplates } from './templates'
-
-const QUICK_START_TEMPLATES = RECOMMENDED_TEMPLATE_KEYS.slice(0, 3).flatMap((key) =>
-    defaultEvaluationTemplates.filter((template) => template.key === key)
-)
 
 export function EvaluationQuickStart({
     mode,
@@ -30,6 +27,10 @@ export function EvaluationQuickStart({
     preview: boolean
 }): JSX.Element | null {
     const { reportSetupInteraction } = useActions(productSetupStatusLogic({ productKey: ProductKey.LLM_EVALUATIONS }))
+    const { requiresProviderKey } = useValues(llmProviderKeysLogic)
+    const quickStartTemplates = recommendedTemplateKeys(requiresProviderKey)
+        .slice(0, 3)
+        .flatMap((key) => defaultEvaluationTemplates.filter((template) => template.key === key))
 
     const selectTemplate = (template: EvaluationTemplate, placement: 'card' | 'example'): void => {
         // pinned: same analytics event as the template picker, so template funnels count both entry points
@@ -61,8 +62,13 @@ export function EvaluationQuickStart({
     return (
         <div className="flex flex-col gap-2">
             <div className="grid gap-2">
-                {QUICK_START_TEMPLATES.map((template) => (
-                    <TemplateCard key={template.key} template={template} onSelect={selectTemplate} />
+                {quickStartTemplates.map((template) => (
+                    <TemplateCard
+                        key={template.key}
+                        template={template}
+                        onSelect={selectTemplate}
+                        missingProviderKey={requiresProviderKey}
+                    />
                 ))}
                 <ScratchTemplateCard onSelect={startFromScratch} />
             </div>
