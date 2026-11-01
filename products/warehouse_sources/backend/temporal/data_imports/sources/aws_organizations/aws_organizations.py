@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -29,6 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organi
     SIGNING_REGION,
     TARGET_PREFIXES,
     AwsOrganizationsEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
@@ -175,19 +178,12 @@ class AwsOrganizationsClient:
     in our HTTP logs and metrics.
     """
 
-    def __init__(
-        self,
-        access_key_id: str,
-        secret_access_key: str,
-        session_token: Optional[str] = None,
-        api_version: Optional[str] = None,
-    ) -> None:
+    def __init__(self, credentials: Credentials, api_version: Optional[str] = None) -> None:
         self.target_prefix = target_prefix(api_version)
-        self._credentials = Credentials(access_key_id, secret_access_key, session_token or None)
-        self._signer = SigV4Auth(self._credentials, SIGNING_NAME, SIGNING_REGION)
+        self._credentials = credentials
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(value for value in (secret_access_key, session_token) if value),
+            redact_values=aws_redact_values(credentials),
         )
 
     def _signed_headers(self, operation: str, body: bytes) -> dict[str, str]:
@@ -200,7 +196,7 @@ class AwsOrganizationsClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        self._signer.add_auth(request)
+        sign_aws_request(request, self._credentials, SIGNING_NAME, SIGNING_REGION)
         return dict(request.headers)
 
     def send(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -706,18 +702,14 @@ def _resource_tag_rows(
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     api_version: Optional[str],
     resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AWS_ORGANIZATIONS_ENDPOINTS[endpoint]
-    client = AwsOrganizationsClient(
-        aws_access_key_id, aws_secret_access_key, aws_session_token, api_version=api_version
-    )
+    client = AwsOrganizationsClient(credentials, api_version=api_version)
 
     if endpoint_config.object_key is not None:
         yield from _single_object_rows(client, endpoint_config)
@@ -838,31 +830,20 @@ def endpoint_permission_reason(client: AwsOrganizationsClient, endpoint: str) ->
 
 
 def probe_endpoint_permissions(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoints: list[str],
     api_version: Optional[str] = None,
 ) -> dict[str, str | None]:
-    client = AwsOrganizationsClient(
-        aws_access_key_id, aws_secret_access_key, aws_session_token, api_version=api_version
-    )
+    client = AwsOrganizationsClient(credentials, api_version=api_version)
     return {endpoint: endpoint_permission_reason(client, endpoint) for endpoint in endpoints}
 
 
 def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     schema_name: Optional[str] = None,
     api_version: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
-
-    client = AwsOrganizationsClient(
-        aws_access_key_id, aws_secret_access_key, aws_session_token, api_version=api_version
-    )
+    client = AwsOrganizationsClient(credentials, api_version=api_version)
 
     if schema_name is not None and schema_name in AWS_ORGANIZATIONS_ENDPOINTS:
         reason = endpoint_permission_reason(client, schema_name)
@@ -880,7 +861,7 @@ def validate_credentials(
         if error.code == "AWSOrganizationsNotInUseException":
             return (
                 False,
-                "This AWS account isn't a member of an organization. Connect a key from an account in an AWS organization.",
+                "This AWS account isn't a member of an organization. Connect credentials from an account in an AWS organization.",
             )
         return False, str(error)
     except Exception:
@@ -890,9 +871,7 @@ def validate_credentials(
 
 
 def aws_organizations_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     api_version: Optional[str],
     resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
@@ -903,9 +882,7 @@ def aws_organizations_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             endpoint=endpoint,
             api_version=api_version,
             resumable_source_manager=resumable_source_manager,

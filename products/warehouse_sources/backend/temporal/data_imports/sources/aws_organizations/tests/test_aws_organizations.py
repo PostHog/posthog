@@ -5,6 +5,7 @@ from typing import Any, Optional
 import pytest
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.aws_organizations import (
     AwsOrganizationsClient,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsOrganizationsSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "secret")
+
 ACCOUNTS = AWS_ORGANIZATIONS_ENDPOINTS["accounts"]
 
 JAN_2025 = 1735689600.0  # 2025-01-01T00:00:00Z
@@ -61,7 +64,7 @@ def page(key: str, items: list[dict[str, Any]], next_token: Optional[str] = None
 def driver() -> SourceDriver:
     return SourceDriver(
         AwsOrganizationsSource(),
-        AwsOrganizationsSourceConfig(aws_access_key_id="AKIAEXAMPLE", aws_secret_access_key="secret"),
+        AwsOrganizationsSourceConfig.from_dict({"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"}),
     )
 
 
@@ -105,7 +108,7 @@ class TestNormalizeRow:
 class TestSignedRequest:
     def test_request_is_signed_for_the_global_endpoint_and_names_the_operation(self) -> None:
         with scripted_network([ScriptedResponse(json={"Organization": {"Id": "o-example"}})]) as network:
-            client = AwsOrganizationsClient("AKIAEXAMPLE", "secret", None)
+            client = AwsOrganizationsClient(CREDENTIALS)
             body = client.send("DescribeOrganization", {})
 
         assert body == {"Organization": {"Id": "o-example"}}
@@ -449,7 +452,7 @@ class TestValidateCredentials:
         self, code: str, expected_valid: bool
     ) -> None:
         with scripted_network([aws_error(code, "message")]) as network:
-            valid, reason = validate_credentials("AKIAEXAMPLE", "secret", None)
+            valid, reason = validate_credentials(CREDENTIALS)
 
         assert valid is expected_valid
         assert (reason is None) is expected_valid
@@ -457,7 +460,7 @@ class TestValidateCredentials:
 
     def test_a_reachable_organization_validates(self) -> None:
         with scripted_network([ScriptedResponse(json={"Organization": {"Id": "o-example"}})]) as network:
-            assert validate_credentials("AKIAEXAMPLE", "secret", None) == (True, None)
+            assert validate_credentials(CREDENTIALS) == (True, None)
 
         assert [request_operation(request) for request in network.requests_log] == ["DescribeOrganization"]
 
@@ -468,18 +471,21 @@ class TestValidateCredentials:
     def test_missing_credentials_are_rejected_without_a_request(
         self, access_key_id: str, secret_access_key: str
     ) -> None:
+        config = AwsOrganizationsSourceConfig.from_dict(
+            {"aws_access_key_id": access_key_id, "aws_secret_access_key": secret_access_key}
+        )
         with scripted_network([]) as network:
-            valid, reason = validate_credentials(access_key_id, secret_access_key, None)
+            valid, reason = AwsOrganizationsSource().validate_credentials(config, team_id=1)
 
         assert valid is False
-        assert reason == "AWS access key ID and secret access key are required"
+        assert reason == "Enter both an AWS access key ID and a secret access key."
         assert network.requests_log == []
 
     def test_a_schema_name_probes_that_table_rather_than_the_organization(self) -> None:
         with scripted_network(
             [aws_error("AccessDeniedException", "not authorized to perform organizations:ListAccounts")]
         ) as network:
-            valid, reason = validate_credentials("AKIAEXAMPLE", "secret", None, schema_name="accounts")
+            valid, reason = validate_credentials(CREDENTIALS, schema_name="accounts")
 
         assert valid is False
         assert reason is not None
@@ -508,9 +514,7 @@ class TestProbeEndpointPermissions:
 
         with scripted_network(responder) as network:
             reasons = probe_endpoint_permissions(
-                "AKIAEXAMPLE",
-                "secret",
-                None,
+                CREDENTIALS,
                 ["accounts", "organization", "organizational_units", "policies", "account_parents"],
             )
 
@@ -536,6 +540,6 @@ class TestProbeEndpointPermissions:
     def test_a_transient_failure_is_not_reported_as_a_permission_problem(self, error: Exception) -> None:
         assert isinstance(error, AwsOrganizationsRetryableError)
         with scripted_network(always(aws_error(error.code, error.message))) as network:
-            assert probe_endpoint_permissions("AKIAEXAMPLE", "secret", None, ["accounts"]) == {"accounts": None}
+            assert probe_endpoint_permissions(CREDENTIALS, ["accounts"]) == {"accounts": None}
 
         assert {request_operation(request) for request in network.requests_log} == {"ListAccounts"}

@@ -44,11 +44,8 @@ def make_inputs(
 class TestAwsCostExplorerSource:
     def setup_method(self) -> None:
         self.source = AwsCostExplorerSource()
-        self.config = AwsCostExplorerSourceConfig(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-            aws_session_token=None,
-            start_date="2024-01-01",
+        self.config = AwsCostExplorerSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret", "start_date": "2024-01-01"}
         )
 
     @pytest.mark.parametrize(

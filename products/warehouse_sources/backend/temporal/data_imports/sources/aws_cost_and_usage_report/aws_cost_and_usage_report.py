@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     S3_NAMESPACE,
     S3_SIGNING_NAME,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import aws_redact_values
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     iter_file_rows,
     normalize_column_name,
@@ -171,17 +172,15 @@ class S3Client:
 
     def __init__(
         self,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
-        aws_session_token: Optional[str],
+        credentials: Credentials,
         aws_region: str,
         bucket: str,
     ) -> None:
-        redact = tuple(value for value in (aws_secret_access_key, aws_session_token) if value)
+        redact = aws_redact_values(credentials)
         self._session = make_tracked_session(redact_values=redact, allow_redirects=False)
         # Data files run to hundreds of megabytes, so they stay out of the sampled request capture.
         self._download_session = make_tracked_session(redact_values=redact, allow_redirects=False, capture=False)
-        self._credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
+        self._credentials = credentials
         self._region = aws_region.strip()
         self._bucket = bucket.strip()
 
@@ -199,7 +198,9 @@ class S3Client:
 
     def _signed_headers(self, url: str, extra_headers: Optional[dict[str, str]] = None) -> dict[str, str]:
         aws_request = AWSRequest(method="GET", url=url, headers=dict(extra_headers or {}))
-        S3SigV4Auth(self._credentials, S3_SIGNING_NAME, self._region).add_auth(aws_request)
+        # S3 needs its own signer, so this cannot use `sign_aws_request`. Role credentials refresh, so
+        # sign each request with one consistent snapshot of them.
+        S3SigV4Auth(self._credentials.get_frozen_credentials(), S3_SIGNING_NAME, self._region).add_auth(aws_request)
         return dict(aws_request.headers.items())
 
     def _get(
@@ -550,9 +551,7 @@ def iter_data_file(
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     bucket: str,
     prefix: Optional[str],
@@ -561,7 +560,7 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CostAndUsageReportResumeConfig],
 ) -> Iterator[pa.Table]:
-    client = S3Client(aws_access_key_id, aws_secret_access_key, aws_session_token, aws_region, bucket)
+    client = S3Client(credentials, aws_region, bucket)
     base = export_base(prefix, export_name)
     periods = list_billing_periods(client, base, parse_billing_period(first_billing_period))
     if not periods:
@@ -638,13 +637,13 @@ NO_EXPORT_MESSAGE = (
     "AWS can take up to 24 hours to deliver the first export after you create it."
 )
 
-GENERIC_VALIDATION_ERROR = "AWS didn't accept the request. Check the access key can read the bucket, then try again."
+GENERIC_VALIDATION_ERROR = (
+    "AWS didn't accept the request. Check that the access key or IAM role can read the bucket, then try again."
+)
 
 
 def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     bucket: str,
     prefix: Optional[str],
@@ -652,8 +651,6 @@ def validate_credentials(
     first_billing_period: Optional[str],
 ) -> tuple[bool, Optional[str]]:
     """Check the inputs, then list the export's partitions once: the call every sync starts with."""
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
     if not aws_region or aws_dns_suffix(aws_region.strip()) is None:
         return False, "Enter an AWS region code, for example us-east-1."
     if not bucket or not BUCKET_NAME.match(bucket.strip()):
@@ -665,7 +662,7 @@ def validate_credentials(
     except ValueError as error:
         return False, str(error)
 
-    client = S3Client(aws_access_key_id, aws_secret_access_key, aws_session_token, aws_region, bucket)
+    client = S3Client(credentials, aws_region, bucket)
     try:
         page = client.list_page(f"{export_base(prefix, export_name)}/data/", max_keys=1)
     except AwsCostAndUsageReportError as error:
@@ -690,9 +687,7 @@ def validate_credentials(
 
 
 def aws_cost_and_usage_report_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     aws_region: str,
     bucket: str,
     prefix: Optional[str],
@@ -704,9 +699,7 @@ def aws_cost_and_usage_report_source(
     return SourceResponse(
         name=COST_AND_USAGE,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             aws_region=aws_region,
             bucket=bucket,
             prefix=prefix,

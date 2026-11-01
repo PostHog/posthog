@@ -50,10 +50,8 @@ def make_inputs(
 class TestAwsBudgetsSource:
     def setup_method(self) -> None:
         self.source = AwsBudgetsSource()
-        self.config = AwsBudgetsSourceConfig(
-            aws_access_key_id="AKIAEXAMPLE",
-            aws_secret_access_key="secret",
-            aws_session_token=None,
+        self.config = AwsBudgetsSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"}
         )
 
     def test_endpoint_permissions_are_probed_for_the_requested_endpoints(self) -> None:
@@ -62,7 +60,7 @@ class TestAwsBudgetsSource:
                 "budgets": None
             }
 
-        assert probe.call_args[0][3] == ["budgets"]
+        assert probe.call_args[0][1] == ["budgets"]
 
     @pytest.mark.parametrize(
         "should_use_incremental_field,expected_watermark",
