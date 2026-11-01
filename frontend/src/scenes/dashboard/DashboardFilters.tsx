@@ -11,6 +11,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardPlacement } from '~/types'
 
 import { BIDashboardFilterBar } from 'products/business_intelligence/frontend/BIDashboardFilterBar'
+import { DashboardRefreshAction } from 'products/dashboards/frontend/components/DashboardRefreshAction/DashboardRefreshAction'
 import { DashboardUnsavedChangesIndicator } from 'products/dashboards/frontend/dashboardSettings/DashboardUnsavedChangesIndicator'
 import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
@@ -25,6 +26,7 @@ interface DashboardFilterBarProps {
 export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Element {
     const { placement, dashboard, layoutEditMode, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     return (
         <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
@@ -46,7 +48,8 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             )}
                         {placement === DashboardPlacement.Dashboard && (
                             <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 empty:hidden">
-                                <DashboardUnsavedChangesIndicator />
+                                {/* With the quill filter bar, the unsaved changes sit at the end of the bar itself. */}
+                                {!todayRailNav && <DashboardUnsavedChangesIndicator />}
                                 {dashboard && !layoutEditMode && !isSharedView() && (
                                     <BIDashboardFilterBar dashboardId={dashboard.id} />
                                 )}
@@ -60,13 +63,17 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             'flex flex-col @4xl/dashboard-filters:flex-row items-end @4xl/dashboard-filters:items-center gap-4 dashoard-items-actions',
                             'min-w-0 @max-4xl/dashboard-filters:basis-full @max-4xl/dashboard-filters:w-full @max-4xl/dashboard-filters:ml-0 shrink-0 @4xl/dashboard-filters:ml-auto',
                             {
-                                'mt-7': hasVariables,
+                                'mt-7': hasVariables && !todayRailNav,
+                                'basis-full w-full ml-0 @4xl/dashboard-filters:ml-0 @4xl/dashboard-filters:justify-end':
+                                    todayRailNav,
                             }
                         )}
                     >
                         <div className={`left-item ${placement === DashboardPlacement.Public ? 'text-right' : ''}`}>
                             {[DashboardPlacement.Public].includes(placement) ? (
                                 <LastRefreshText />
+                            ) : todayRailNav ? (
+                                <DashboardRefreshAction />
                             ) : (
                                 <DashboardReloadAction />
                             )}
