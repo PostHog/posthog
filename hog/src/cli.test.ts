@@ -46,8 +46,8 @@ describe('hog', () => {
         ],
         [
             'an --output that the legacy command owns',
-            ['endpoints', 'pull', 'example', '--output', './queries'],
-            'posthog-cli exp endpoints pull example --output ./queries',
+            ['logs', 'import', '--output', './logs'],
+            'posthog-cli exp logs import --output ./logs',
         ],
     ])('%s points to posthog-cli', async (_name, argv, invocation) => {
         const result = await runHog(argv)
@@ -68,6 +68,7 @@ describe('hog', () => {
     test.each([
         ['login', 'Did you mean `hog auth login`?'],
         ['sourcemap', '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+        ['exp', '`exp` is `hog query|endpoints|schema` in hog.'],
     ])('a command that moved, like %s, points to its new name', async (name, message) => {
         const result = await runHog([name, 'upload'])
         expect(result.exitCode).toBe(2)
@@ -99,10 +100,31 @@ describe('hog', () => {
             'query run',
             'query check',
             'query editor',
+            'api groups',
+            'api tools',
+            'api search',
+            'api info',
+            'api schema',
+            'api call',
+            'api access',
+            'api skill',
+            'api agents-md',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',
             'error-tracking process',
+            'error-tracking release',
+            'error-tracking download',
+            'error-tracking extract',
+            'endpoints list',
+            'endpoints get',
+            'endpoints open',
+            'endpoints run',
+            'endpoints push',
+            'endpoints pull',
+            'endpoints diff',
+            'schema pull',
+            'schema status',
             'config check',
             'config schema',
             'commands',

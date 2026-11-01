@@ -92,6 +92,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "survey",
     "ticket",
     "web_analytics",
+    "marketing_analytics",
     "activity_log",
     "business_knowledge",
     "error_tracking",
@@ -122,11 +123,6 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
-    # Marketing analytics doesn't have its own RBAC resource yet — inherit from
-    # web_analytics so the existing per-team controls actually gate it (matches
-    # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
-    # AccessControlResourceType.WebAnalytics).
-    "marketing_analytics": "web_analytics",
     # Vision alerts are configured via the scanner's access level rather than a
     # separate resource.
     "vision_alert": "replay_scanner",
@@ -220,8 +216,11 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         # Product name: a proper noun, and it does not take a plural
         return "Stamphog"
 
-    # Default: replace underscores and add 's' for plural
-    return f"{resource.replace('_', ' ')}s"
+    name = resource.replace("_", " ")
+    # Names such as "marketing analytics", "logs" and "metrics" are already plural
+    if name.endswith("s"):
+        return name
+    return f"{name}s"
 
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:

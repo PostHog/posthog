@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconInfo, IconWarning } from '@posthog/icons'
+import { IconInfo, IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
@@ -116,6 +116,8 @@ function OverviewSection({
 
 /** One kind of filter on the drafted scanner, with the values it holds. */
 export interface EligibleFilterGroup {
+    /** Unique within one scanner's groups, because two page filters share the label "Page". */
+    key: string
     label: string
     values: string[]
 }
@@ -130,19 +132,17 @@ function experimentValues(scanner: ReplayScanner, experimentName?: string): stri
     return [`${experimentName ?? `Experiment ${scope.experimentId}`} (${variant})`]
 }
 
-/** The pages a session must have visited.
+/** The pages a session must have visited, one list per page filter.
  *
  * Read by key, not by position: the properties list can hold a cohort alongside the pages, and
- * taking whichever came first would render a cohort id as a page.
+ * taking whichever came first would render a cohort id as a page. A filter's pages are alternatives,
+ * but separate filters must all match, as when a draft narrows a chosen page with one of its own, so
+ * each filter keeps its own list.
  */
-function pageValues(scanner: ReplayScanner): string[] {
-    const property = scanner.query?.properties?.find(
-        (candidate) => 'key' in candidate && candidate.key === 'visited_page'
-    )
-    if (!property || !('value' in property) || !Array.isArray(property.value)) {
-        return []
-    }
-    return property.value.map(String)
+function pageValueLists(scanner: ReplayScanner): string[][] {
+    return (scanner.query?.properties ?? [])
+        .filter((property) => 'key' in property && property.key === 'visited_page')
+        .map((property) => ('value' in property && Array.isArray(property.value) ? property.value.map(String) : []))
 }
 
 /** Each event or action the scan watches, with its own property conditions appended.
@@ -218,6 +218,7 @@ function topLevelPropertyGroups(scanner: ReplayScanner): EligibleFilterGroup[] {
         byKind.set(singular, group)
     }
     return [...byKind.values()].map(({ singular, plural, values }) => ({
+        key: `property:${singular}`,
         label: pluralize(values.length, singular, plural, false),
         values,
     }))
@@ -236,17 +237,23 @@ export function eligibleFilterGroups(
     scanner: ReplayScanner,
     { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
 ): EligibleFilterGroup[] {
-    const kinds: [singular: string, plural: string, values: string[]][] = [
-        ['Experiment', 'Experiments', experimentValues(scanner, experimentName)],
-        ['Page', 'Pages', pageValues(scanner)],
-        ['Event', 'Events', namedQueryEntities(scanner, 'events')],
-        ['Action', 'Actions', namedQueryEntities(scanner, 'actions')],
-        ['Cohort', 'Cohorts', cohortValues(scanner, cohortNames)],
+    const kinds: [key: string, singular: string, plural: string, values: string[]][] = [
+        ['experiment', 'Experiment', 'Experiments', experimentValues(scanner, experimentName)],
+        ...pageValueLists(scanner).map((values, index): [string, string, string, string[]] => [
+            `page:${index}`,
+            'Page',
+            'Pages',
+            values,
+        ]),
+        ['event', 'Event', 'Events', namedQueryEntities(scanner, 'events')],
+        ['action', 'Action', 'Actions', namedQueryEntities(scanner, 'actions')],
+        ['cohort', 'Cohort', 'Cohorts', cohortValues(scanner, cohortNames)],
     ]
     return [
         ...kinds
-            .filter(([, , values]) => values.length > 0)
-            .map(([singular, plural, values]) => ({
+            .filter(([, , , values]) => values.length > 0)
+            .map(([key, singular, plural, values]) => ({
+                key,
                 label: pluralize(values.length, singular, plural, false),
                 values,
             })),
@@ -283,12 +290,20 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
+    const cohortNames = Object.fromEntries(
+        Object.entries(cohortsById).map(([id, cohort]) => [id, cohort?.name ?? `Cohort ${id}`])
+    )
     const filterGroups = eligibleFilterGroups(scanner, {
         experimentName: experimentContext?.experiment.name,
-        cohortNames: Object.fromEntries(
-            Object.entries(cohortsById).map(([id, cohort]) => [id, cohort?.name ?? `Cohort ${id}`])
-        ),
+        cohortNames,
     })
+    // Read against the form, so an addition the person removed by hand is not credited to the AI.
+    const currentFilterValues = new Set(filterGroups.flatMap((group) => group.values))
+    const aiAddedValues = goalDraft?.query_additions
+        ? eligibleFilterGroups({ query: goalDraft.query_additions } as ReplayScanner, { cohortNames })
+              .flatMap((group) => group.values)
+              .filter((value) => currentFilterValues.has(value))
+        : []
 
     // The draft is still generating: show the page's shape so the wait reads as progress.
     if (goalDraftLoading) {
@@ -362,7 +377,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 {filterGroups.length > 0 ? (
                     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
-                            <StatRow key={group.label} label={group.label}>
+                            <StatRow key={group.key} label={group.label}>
                                 <span className="flex flex-wrap gap-1">
                                     {group.values.map((value) => (
                                         <LemonSnack key={value} wrap>
@@ -376,6 +391,17 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : (
                     <div className="text-sm">Every recording (no filter)</div>
                 )}
+                {aiAddedValues.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1 text-xs text-secondary">
+                        <IconSparkles className="text-ai" />
+                        <span>PostHog AI added to your filters:</span>
+                        {aiAddedValues.map((value) => (
+                            <LemonSnack key={value} wrap>
+                                {value}
+                            </LemonSnack>
+                        ))}
+                    </div>
+                ) : null}
                 {scannerEstimateLoading ? (
                     <div className="flex items-center gap-2 text-sm text-muted">
                         <Spinner />

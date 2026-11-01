@@ -29,7 +29,7 @@ describe('reports api', () => {
     })
 
     test.each([0, INBOX_PAGE_SIZE])('the inbox asks for personal reports at offset %i', async (offset) => {
-        await fetchInboxPage(offset)
+        await expect(fetchInboxPage(offset)).resolves.toEqual({ count: 0, next: null, results: [] })
 
         const url = new URL(urls[0] ?? '')
         expect(url.pathname).toBe('/api/projects/2/signals/reports/')
@@ -40,6 +40,20 @@ describe('reports api', () => {
             offset: String(offset),
         })
     })
+
+    test.each([undefined, [], { count: 1 }, { results: [null] }, { results: [{}] }])(
+        'rejects an invalid inbox page: %p',
+        async (body) => {
+            globalThis.fetch = jest.fn(async () => ({
+                ok: true,
+                status: 200,
+                headers: { get: () => null },
+                text: async () => JSON.stringify(body) ?? '',
+            })) as unknown as typeof fetch
+
+            await expect(fetchInboxPage(0)).rejects.toThrow("Couldn't load your inbox. Try again.")
+        }
+    )
 
     test('finds the newest reviewer assignment beyond the first artefact page', async () => {
         const assignment = { id: 'assignment', type: 'suggested_reviewers', content: [{ github_login: 'reviewer' }] }

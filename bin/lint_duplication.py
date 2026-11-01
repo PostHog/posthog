@@ -2,10 +2,10 @@
 # ruff: noqa: T201 allow print statements
 """Gate a branch on new code duplication in Python and TypeScript.
 
-Runs jscpd over this tree and over a worktree of the branch point, and
-diffs the two clone sets, so only duplication the branch introduces can
-fail the gate. Existing duplication is grandfathered in. App code and
-test code are held to different bars: a clone between two test files may
+Runs jscpd over this tree and, when it has reportable candidates, over a
+worktree of the branch point. Diffs the two clone sets so only duplication
+the branch introduces can fail the gate. Existing duplication is grandfathered
+in. App code and test code are held to different bars: a clone between two test files may
 run longer before it fails, because repeated setup is idiomatic in tests.
 
 With --report-dir, also writes one findings file per language for the CI
@@ -212,6 +212,25 @@ def changed_files_between(baseline: str, current: str, repo: Path) -> set[str]:
     )
 
 
+def scan_revision(repo: Path, revision: str, scan_dir: Path) -> list[dict]:
+    worktree = scan_dir / "worktree"
+    scan_dir.mkdir()
+    try:
+        add = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree), revision],
+            capture_output=True,
+            text=True,
+            cwd=repo,
+        )
+        if add.returncode != 0:
+            print(add.stderr[-2000:])
+            print(f"duplication lint could not check out {revision}")
+            raise SystemExit(2)
+        return run_jscpd(worktree, scan_dir / "report")
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="origin/master", help="git ref to compare clones against")
@@ -241,6 +260,7 @@ def main() -> int:
 
     baseline = resolve_baseline(args.base, repo)
     print(f"Comparing clones against {baseline}")
+    changed_files = changed_files_between(baseline, "HEAD", repo)
 
     # jscpd's own --baseline-from-ref mismatches clones whose files moved on
     # the base since the branch forked, and some stable pairs it re-flags
@@ -253,41 +273,29 @@ def main() -> int:
     scan_failed = False
     with tempfile.TemporaryDirectory(prefix="jscpd-") as tmp:
         tmp_path = Path(tmp)
-        current_worktree = tmp_path / "current-worktree"
-        baseline_worktree = tmp_path / "baseline-worktree"
-        scan_worktrees = ((current_worktree, "HEAD"), (baseline_worktree, baseline))
         # Registrations from runs killed mid-scan point at paths that no
         # longer exist; drop them before adding a fresh one.
         subprocess.run(["git", "worktree", "prune"], capture_output=True, cwd=repo)
         try:
-            for worktree, revision in scan_worktrees:
-                add = subprocess.run(
-                    ["git", "worktree", "add", "--detach", str(worktree), revision],
-                    capture_output=True,
-                    text=True,
-                    cwd=repo,
+            current_clones = scan_revision(repo, "HEAD", tmp_path / "current")
+            # A baseline can only grandfather candidates; it cannot add a finding.
+            mark_new_clones(current_clones, [], changed_files)
+            if find_gate_failures(current_clones):
+                baseline_clones = scan_revision(repo, baseline, tmp_path / "baseline")
+                mark_new_clones(current_clones, baseline_clones, changed_files)
+                print(
+                    f"{len(current_clones)} clones in this tree, "
+                    f"{sum(1 for c in current_clones if c['isNew'])} not in the baseline"
                 )
-                if add.returncode != 0:
-                    print(add.stderr[-2000:])
-                    print(f"duplication lint could not check out {revision}")
-                    return 2
-            current_clones = run_jscpd(current_worktree, tmp_path / "current-report")
-            baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
+            else:
+                print("No reportable clones touch changed files; skipping the baseline scan.")
         except SystemExit:
             scan_failed = True
             current_clones = []
-        finally:
-            for worktree, _ in scan_worktrees:
-                subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
 
     if scan_failed:
         return 2
 
-    changed_files = changed_files_between(baseline, "HEAD", repo)
-    mark_new_clones(current_clones, baseline_clones, changed_files)
-    print(
-        f"{len(current_clones)} clones in this tree, {sum(1 for c in current_clones if c['isNew'])} not in the baseline"
-    )
     if args.report_dir:
         (Path(args.report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "ok"}) + "\n")
 
