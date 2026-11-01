@@ -1,3 +1,4 @@
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -16,9 +17,12 @@ import {
     ChartDisplayType,
     FilterLogicalOperator,
     FunnelVizType,
+    InsightModel,
     PropertyFilterType,
     StepOrderValue,
 } from '~/types'
+
+import { DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
 
 import { eventUsageLogic, getEventPropertiesForMetric, sanitizeQuery } from './eventUsageLogic'
 
@@ -43,6 +47,36 @@ describe('eventUsageLogic', () => {
                     { experiments_shown: 2, status_filter: 'running', page: 2, has_search: true, archived: true },
                 ],
             ])
+            capture.mockRestore()
+        })
+    })
+
+    describe('saved insight to dashboard', () => {
+        it.each([
+            [
+                'a BI insight',
+                {
+                    kind: NodeKind.BIVisualizationNode,
+                    source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                    config: DEFAULT_BI_CONFIG,
+                },
+                ['saved insight to dashboard', 'bi-worksheet-action'],
+            ],
+            [
+                'a trends insight',
+                { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } },
+                ['saved insight to dashboard'],
+            ],
+        ])('captures the dashboard events for %s', async (_, query, expectedEvents) => {
+            initKeaTests()
+            eventUsageLogic.mount()
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+            await expectLogic(eventUsageLogic, () => {
+                eventUsageLogic.actions.reportSavedInsightToDashboard({ id: 1, query } as Partial<InsightModel>, 2)
+            }).toFinishAllListeners()
+
+            expect(capture.mock.calls.map(([event]) => event)).toEqual(expectedEvents)
             capture.mockRestore()
         })
     })

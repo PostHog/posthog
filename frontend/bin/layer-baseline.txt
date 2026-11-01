@@ -365,7 +365,6 @@ frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/lib/logic/preflightLog
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/product-tours/constants.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/userLogic.ts
-frontend/src/lib/utils/eventUsageLogic.ts -> products/business_intelligence/frontend/biEditorAnalytics.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/experimentStatus.ts
 frontend/src/lib/utils/events.ts -> frontend/src/taxonomy/taxonomy.tsx
 frontend/src/loadPostHogJS.tsx -> products/webmcp/frontend/webmcpToolError.ts
