@@ -225,8 +225,10 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 try {
                     let integration: IntegrationType
                     if (values.savedIntegration) {
+                        const { mail_from_subdomain, ...unchanged } = config
+                        const labelEdited = mail_from_subdomain !== values.savedIntegration.config?.mail_from_subdomain
                         integration = await api.integrations.updateEmailConfig(values.savedIntegration.id, {
-                            config,
+                            config: labelEdited ? config : unchanged,
                         })
                     } else {
                         integration = await api.integrations.create({

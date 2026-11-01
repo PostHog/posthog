@@ -33,4 +33,40 @@ describe('emailSetupModalLogic', () => {
             emailSender: expect.objectContaining({ email: '', name: '', provider: 'ses' }),
         })
     })
+
+    it.each([
+        ['leaves out an unchanged MAIL FROM label', {}, undefined],
+        ['sends an edited MAIL FROM label', { mail_from_subdomain: 'bounce' }, 'bounce'],
+    ])('%s when saving a sender', async (_, edit, expectedLabel) => {
+        const updates: Record<string, any>[] = []
+        useMocks({
+            get: { '/api/environments/:team_id/integrations': { results: [] } },
+            patch: {
+                '/api/environments/:team_id/integrations/:id/email': async ({ request }) => {
+                    const body = await request.json()
+                    updates.push(body.config)
+                    return [200, { id: 1, kind: 'email', config: body.config }]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/integrations/:id/email/verify': { status: 'pending', dnsRecords: [] },
+            },
+        })
+        const logic = emailSetupModalLogic({
+            integration: {
+                id: 1,
+                kind: 'email',
+                config: { email: 'hello@example.com', name: 'Hello', provider: 'ses', mail_from_subdomain: 'feedback' },
+            } as IntegrationType,
+            onComplete: () => {},
+            onClose: () => {},
+        })
+        logic.mount()
+
+        logic.actions.setEmailSenderValues({ name: 'Renamed', ...edit })
+        await expectLogic(logic, () => logic.actions.submitEmailSender()).toFinishAllListeners()
+
+        expect(updates).toHaveLength(1)
+        expect(updates[0].mail_from_subdomain).toBe(expectedLabel)
+    })
 })
