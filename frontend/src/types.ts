@@ -2,7 +2,7 @@ import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
 import { eventWithTime } from 'posthog-js/rrweb-types'
-import { ReactNode } from 'react'
+import { ComponentType, ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
@@ -7969,6 +7969,8 @@ export interface ProductManifest {
     setupProbe?: ProductSetupProbe
     /** Aggregated into `productActivityDescribers`, which loads each one on demand. */
     activityDescribers?: Partial<Record<ActivityScope, () => Promise<Describer>>>
+    /** Aggregated into `productGlobalModals`. Each one renders on every logged-in page and owns its open state. */
+    globalModals?: Record<string, () => Promise<ComponentType>>
 }
 
 export interface ProjectTreeRef {
