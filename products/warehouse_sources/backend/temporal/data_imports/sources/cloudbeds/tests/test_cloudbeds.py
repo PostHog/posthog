@@ -6,6 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
     CLOUDBEDS_API_VERSION_V1_2,
     CLOUDBEDS_API_VERSION_V1_3,
     PAGE_SIZE,
+    PROPERTY_ID_REQUIRED_MESSAGE,
     CloudbedsResumeConfig,
     validate_credentials,
 )
@@ -36,6 +37,14 @@ def _response(rows: list[dict[str, Any]] | None = None, *, body: dict[str, Any] 
     )
 
 
+def _transactions(rows: list[dict[str, Any]], next_page_token: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"transactions": rows, "nextPageToken": next_page_token})
+
+
+def _hotels(*property_ids: str) -> ScriptedResponse:
+    return _response([{"propertyID": property_id} for property_id in property_ids])
+
+
 class TestPagination:
     def _full_page(self, start: int) -> list[dict[str, Any]]:
         return [{"reservationID": str(start + i)} for i in range(PAGE_SIZE)]
@@ -60,6 +69,27 @@ class TestPagination:
         assert result.rows == [{"reservationID": "5"}]
         # Page 1 and 2 must never be fetched on resume.
         assert result.params("pageNumber") == ["3"]
+
+    def test_transactions_page_by_body_token_and_checkpoint_it(self) -> None:
+        result = _driver(property_id="12345").run(
+            "transactions", [_transactions([{"id": "1"}], "tok-2"), _transactions([{"id": "2"}])]
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "1"}, {"id": "2"}]
+        bodies = [request.json() for request in result.requests]
+        assert "pageToken" not in bodies[0]
+        assert bodies[1]["pageToken"] == "tok-2"
+        assert result.saved_states == [CloudbedsResumeConfig(page_token="tok-2")]
+
+    def test_transactions_resume_from_saved_token(self) -> None:
+        result = _driver(property_id="12345").run(
+            "transactions", [_transactions([{"id": "9"}])], resume_state=CloudbedsResumeConfig(page_token="tok-5")
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "9"}]
+        assert [request.json()["pageToken"] for request in result.requests] == ["tok-5"]
 
     def test_rooms_are_flattened_with_property_id(self) -> None:
         result = _driver().run(
@@ -135,6 +165,34 @@ class TestApiVersion:
         # onto v1.3 (the default) or vice versa.
         assert result.paths == [f"/api/{api_version}/getReservations"]
 
+    @parameterized.expand([(CLOUDBEDS_API_VERSION_V1_2,), (CLOUDBEDS_API_VERSION_V1_3,)])
+    def test_transactions_read_the_accounting_api_under_every_version(self, api_version: str) -> None:
+        result = _driver().run(
+            "transactions", [_hotels("12345"), _transactions([{"id": "1"}])], api_version=api_version
+        )
+
+        assert result.raised is None
+        # getTransactions stops serving under every PMS version, so no pin may fall back to it. The
+        # property lookup still uses the pinned PMS version.
+        assert result.paths == [f"/api/{api_version}/getHotels", "/accounting/v1.0/transactions"]
+        transactions_request = result.requests[1]
+        assert transactions_request.method == "POST"
+        assert transactions_request.headers["x-property-id"] == "12345"
+        assert transactions_request.headers["authorization"] == "Bearer cbat_key"
+        body = transactions_request.json()
+        assert body["filters"]["and"][0]["field"] == "transaction_datetime"
+        assert body["limit"] == 1100
+
+    @parameterized.expand([("no_property", ()), ("several_properties", ("1", "2"))])
+    def test_transactions_without_a_resolvable_property_fail_loud(
+        self, _name: str, property_ids: tuple[str, ...]
+    ) -> None:
+        result = _driver().run("transactions", [_hotels(*property_ids)])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == PROPERTY_ID_REQUIRED_MESSAGE
+        assert PROPERTY_ID_REQUIRED_MESSAGE in CloudbedsSource().get_non_retryable_errors()
+
 
 class TestFailLoud:
     @parameterized.expand(
@@ -208,7 +266,9 @@ class TestCloudbedsSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
         body: dict[str, Any] = {"success": True, "data": {} if endpoint == "users" else []}
-        result = _driver().run(endpoint, [_response(body=body)])
+        if endpoint == "transactions":
+            body = {"transactions": [], "nextPageToken": None}
+        result = _driver(property_id="12345").run(endpoint, [_response(body=body)])
 
         assert result.raised is None
         assert result.response is not None
