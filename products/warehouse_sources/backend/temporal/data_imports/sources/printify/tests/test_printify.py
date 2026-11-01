@@ -32,8 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.printify.s
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
 _fetch_page_unwrapped = printify._fetch_page.__wrapped__  # type: ignore[attr-defined]
 
-# (path, page) -> (items, has_more), the shape the vendor answers per request.
-_Pages = dict[tuple[str, int | None], tuple[list[dict], bool]]
+# (path, page) -> (body, has_more), the shape the vendor answers per request. Unpaginated bodies are
+# returned as-is; a body of None answers 404.
+_Pages = dict[tuple[str, int | None], tuple[Any, bool]]
 
 
 def _script(pages: _Pages) -> Callable[[RecordedRequest], ScriptedResponse]:
@@ -45,6 +46,8 @@ def _script(pages: _Pages) -> Callable[[RecordedRequest], ScriptedResponse]:
         if key not in pages:
             raise UnexpectedRequest(f"the script has no page for {key}")
         items, has_more = pages[key]
+        if items is None:
+            return ScriptedResponse(status=404, json={"error": "Not found"})
         if key[1] is None:
             return ScriptedResponse(json=items)
         current = key[1]
@@ -229,6 +232,146 @@ class TestGetRows:
         assert [(s.shop_id, s.page) for s in result.saved_states] == [(111, 1), (222, 1)]
 
 
+class TestFanOut:
+    @staticmethod
+    def _run(pages: _Pages, endpoint: str, resume_state: PrintifyResumeConfig | None = None) -> DriveResult:
+        result = _driver().run(endpoint, _script(pages), resume_state=resume_state)
+        assert result.raised is None
+        return result
+
+    _SHOPS_WITH_PRODUCTS: _Pages = {
+        ("/shops.json", None): ([{"id": 111}, {"id": 222}], False),
+        ("/shops/111/products.json", 1): (
+            [
+                {"id": "p1", "blueprint_id": 6, "print_provider_id": 3},
+                {"id": "p2", "blueprint_id": 5, "print_provider_id": 9},
+            ],
+            True,
+        ),
+        ("/shops/111/products.json", 2): ([{"id": "p3", "blueprint_id": 6, "print_provider_id": 3}], False),
+        ("/shops/222/products.json", 1): ([{"id": "p4", "blueprint_id": 6, "print_provider_id": None}], False),
+    }
+
+    @parameterized.expand(
+        [
+            ("from_the_start", None, [3, 7]),
+            ("resume_after_saved_blueprint", PrintifyResumeConfig(blueprint_id=3), [7]),
+        ]
+    )
+    def test_blueprint_fan_out_walks_sorted_blueprints_and_skips_404(
+        self, _name: str, resume: PrintifyResumeConfig | None, expected_blueprints: list[int]
+    ) -> None:
+        pages: _Pages = {
+            ("/catalog/blueprints.json", None): ([{"id": 7}, {"id": 3}, {"id": 5}], False),
+            ("/catalog/blueprints/3/print_providers.json", None): ([{"id": 1, "title": "DJ"}], False),
+            ("/catalog/blueprints/5/print_providers.json", None): (None, False),
+            ("/catalog/blueprints/7/print_providers.json", None): ([{"id": 1, "title": "DJ"}], False),
+        }
+        result = self._run(pages, "blueprint_print_providers", resume)
+        assert [(r["blueprint_id"], r["id"]) for r in result.rows] == [(b, 1) for b in expected_blueprints]
+        if resume is None:
+            assert [s.blueprint_id for s in result.saved_states] == [3, 5, 7]
+
+    def test_catalog_pair_fan_out_requests_each_product_pair_once(self) -> None:
+        pages: _Pages = {
+            **self._SHOPS_WITH_PRODUCTS,
+            ("/catalog/blueprints/5/print_providers/9/variants.json", None): (
+                {"id": 9, "variants": [{"id": 501, "title": "Black / S"}]},
+                False,
+            ),
+            ("/catalog/blueprints/6/print_providers/3/variants.json", None): (
+                {"id": 3, "variants": [{"id": 601, "title": "White / M"}, {"id": 602, "title": "White / L"}]},
+                False,
+            ),
+        }
+        result = self._run(pages, "catalog_variants")
+        assert [(r["blueprint_id"], r["print_provider_id"], r["id"]) for r in result.rows] == [
+            (5, 9, 501),
+            (6, 3, 601),
+            (6, 3, 602),
+        ]
+        variant_requests = [r for r in result.requests if r.path.endswith("variants.json")]
+        assert [r.param("show-out-of-stock") for r in variant_requests] == ["1", "1"]
+
+    def test_catalog_pair_fan_out_resumes_after_saved_pair(self) -> None:
+        pages: _Pages = {
+            **self._SHOPS_WITH_PRODUCTS,
+            ("/catalog/blueprints/6/print_providers/3/variants.json", None): (
+                {"id": 3, "variants": [{"id": 601}]},
+                False,
+            ),
+        }
+        result = self._run(pages, "catalog_variants", PrintifyResumeConfig(blueprint_id=5, print_provider_id=9))
+        assert [r["id"] for r in result.rows] == [601]
+
+    def test_shipping_profiles_explode_to_one_row_per_variant_and_country(self) -> None:
+        pages: _Pages = {
+            ("/shops.json", None): ([{"id": 111}], False),
+            ("/shops/111/products.json", 1): ([{"id": "p1", "blueprint_id": 6, "print_provider_id": 3}], False),
+            ("/catalog/blueprints/6/print_providers/3/shipping.json", None): (
+                {
+                    "handling_time": {"value": 30, "unit": "day"},
+                    "profiles": [
+                        {
+                            "variant_ids": [601, 602],
+                            "first_item": {"cost": 450, "currency": "USD"},
+                            "additional_items": {"cost": 0, "currency": "USD"},
+                            "countries": ["US", "CA"],
+                        },
+                        {
+                            "variant_ids": [601],
+                            "first_item": {"cost": 999, "currency": "USD"},
+                            "additional_items": {"cost": 0, "currency": "USD"},
+                            "countries": ["US", "REST_OF_THE_WORLD"],
+                        },
+                    ],
+                },
+                False,
+            ),
+        }
+        result = self._run(pages, "catalog_shipping_rates")
+        assert [(r["variant_id"], r["country"], r["first_item"]["cost"]) for r in result.rows] == [
+            (601, "US", 450),
+            (601, "CA", 450),
+            (602, "US", 450),
+            (602, "CA", 450),
+            (601, "REST_OF_THE_WORLD", 999),
+        ]
+        assert all(r["handling_time"] == {"value": 30, "unit": "day"} for r in result.rows)
+
+    def test_product_gpsr_yields_one_row_per_product_with_sections(self) -> None:
+        pages: _Pages = {
+            ("/shops.json", None): ([{"id": 111}], False),
+            ("/shops/111/products.json", 1): ([{"id": "p1"}, {"id": "p2"}], True),
+            ("/shops/111/products.json", 2): ([{"id": "p3"}], False),
+            ("/shops/111/products/p1/gpsr.json", None): ([{"title": "Care instructions", "text": "Wash"}], False),
+            ("/shops/111/products/p2/gpsr.json", None): ([], False),
+            ("/shops/111/products/p3/gpsr.json", None): (None, False),
+        }
+        result = self._run(pages, "product_gpsr")
+        assert result.rows == [
+            {"shop_id": 111, "product_id": "p1", "sections": [{"title": "Care instructions", "text": "Wash"}]}
+        ]
+        assert [(s.shop_id, s.page, s.product_id) for s in result.saved_states] == [
+            (111, 1, "p1"),
+            (111, 1, "p2"),
+            (111, 2, "p3"),
+        ]
+
+    @parameterized.expand(
+        [("checkpoint_product_present", ["p3", "p1", "p2"]), ("checkpoint_product_deleted", ["p3", "p1"])]
+    )
+    def test_product_gpsr_resumes_after_saved_product_on_saved_page(self, _name: str, page_ids: list[str]) -> None:
+        # p1's and p2's GPSR pages are absent, so fetching either again would fail the run.
+        pages: _Pages = {
+            ("/shops.json", None): ([{"id": 111}], False),
+            ("/shops/111/products.json", 1): ([{"id": product_id} for product_id in page_ids], False),
+            ("/shops/111/products/p3/gpsr.json", None): ([{"title": "Warnings", "text": "None"}], False),
+        }
+        result = self._run(pages, "product_gpsr", PrintifyResumeConfig(shop_id=111, page=1, product_id="p2"))
+        assert [r["product_id"] for r in result.rows] == ["p3"]
+
+
 class TestPrintifySourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
@@ -240,5 +383,7 @@ class TestPrintifySourceResponse:
 
     def test_shop_scoped_endpoints_use_composite_primary_key(self) -> None:
         for config in PRINTIFY_ENDPOINTS.values():
+            if config.fan_out is not None:
+                continue
             expected = ["shop_id", "id"] if config.shop_scoped else ["id"]
             assert config.primary_keys == expected, config.name
