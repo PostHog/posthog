@@ -100,7 +100,7 @@ export const OnboardingStep = ({
                     </div>
                 </div>
             </div>
-            <div className={clsx('px-4 py-2 sm:p-2', !fullWidth && 'max-w-screen-md mx-auto')}>
+            <div className={clsx('px-4 py-2 sm:p-2', !fullWidth && 'w-full max-w-screen-md mx-auto')}>
                 {subtitle && (
                     <div className="max-w-screen-md mx-auto">
                         <p>{subtitle}</p>
