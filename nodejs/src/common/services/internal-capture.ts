@@ -58,18 +58,24 @@ export class InternalCaptureService {
 
     async capture(event: InternalCaptureEvent): Promise<FetchResponse> {
         logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
-        return await this.post(this.prepareEvent(event))
+        return await this.post(this.prepareEvent(event), 1)
     }
 
     async captureBatch(events: InternalCaptureEvent[]): Promise<FetchResponse> {
-        return await this.post({
-            api_key: events[0].team_token,
-            sent_at: DateTime.utc().toISO(),
-            batch: events.map((event) => this.prepareEvent(event)),
-        })
+        return await this.post(
+            {
+                api_key: events[0].team_token,
+                sent_at: DateTime.utc().toISO(),
+                batch: events.map((event) => this.prepareEvent(event)),
+            },
+            events.length
+        )
     }
 
-    private async post(payload: CapturePayloadFormat | CaptureBatchPayloadFormat): Promise<FetchResponse> {
+    private async post(
+        payload: CapturePayloadFormat | CaptureBatchPayloadFormat,
+        eventCount: number
+    ): Promise<FetchResponse> {
         try {
             const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
                 method: 'POST',
@@ -80,10 +86,10 @@ export class InternalCaptureService {
             })
             logger.debug('Internal capture event captured', { status: response.status })
 
-            internalCaptureCounter.inc({ status: response.status.toString() })
+            internalCaptureCounter.inc({ status: response.status.toString() }, eventCount)
             return response
         } catch (e) {
-            internalCaptureCounter.inc({ status: 'error' })
+            internalCaptureCounter.inc({ status: 'error' }, eventCount)
             logger.error('Error capturing internal event', { error: e })
             throw e
         }
