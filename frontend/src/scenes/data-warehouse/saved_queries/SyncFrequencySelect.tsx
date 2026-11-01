@@ -1,5 +1,7 @@
+import { useState } from 'react'
+
 import { IconRabbit, IconTortoise } from '@posthog/icons'
-import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
 import { DataModelingSyncInterval } from '~/types'
 
@@ -87,6 +89,9 @@ export function SyncFrequencySelect({
     disabledReason,
     'data-attr': dataAttr,
 }: SyncFrequencySelectProps): JSX.Element {
+    // A cadence that also speeds up upstream views waits here until it is confirmed.
+    const [pending, setPending] = useState<DataModelingSyncInterval | null>(null)
+    const pendingWarning = pending ? speedUpWarning(bounds, pending) : null
     const options = buildOptions(bounds)
     const explanation = buildExplanation(bounds)
     const modeReason = modeDisabledReason(bounds)
@@ -119,15 +124,80 @@ export function SyncFrequencySelect({
                 <IconRabbit className={PACE_ICON_CLASS} aria-hidden />
                 <LemonSegmentedButton<DataModelingSyncInterval>
                     size="small"
-                    value={value && value !== 'never' ? value : undefined}
-                    onChange={(next) => onChange(next)}
+                    value={pending ?? (value && value !== 'never' ? value : undefined)}
+                    onChange={(next) => {
+                        if (next !== value && speedUpWarning(bounds, next)) {
+                            setPending(next)
+                            return
+                        }
+                        setPending(null)
+                        if (next !== value) {
+                            onChange(next)
+                        }
+                    }}
                     options={options}
                     disabledReason={reason}
                 />
                 <IconTortoise className={PACE_ICON_CLASS} aria-hidden />
             </div>
+            {pending && pendingWarning && (
+                <div
+                    className="flex flex-wrap items-center gap-x-4 gap-y-2 border rounded bg-surface-primary px-3 py-2 max-w-prose"
+                    role="alert"
+                >
+                    <span className="text-xs flex-1 min-w-60">{pendingWarning}</span>
+                    <div className="flex gap-2 ml-auto">
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => setPending(null)}
+                            data-attr="sync-frequency-speeds-up-cancel"
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            size="xsmall"
+                            type="primary"
+                            onClick={() => {
+                                setPending(null)
+                                onChange(pending)
+                            }}
+                            data-attr="sync-frequency-speeds-up-confirm"
+                        >
+                            Refresh every {CADENCE_LABELS[pending]}
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
             {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
+    )
+}
+
+/**
+ * What else a cadence changes, or null when it only changes this view.
+ *
+ * A view can't be fresher than its inputs, so the scheduler lowers every slower upstream view to
+ * the picked cadence. Saying so before the write keeps those views from changing unannounced.
+ */
+export function speedUpWarning(
+    bounds: SyncFrequencyBoundsApi | null | undefined,
+    cadence: DataModelingSyncInterval
+): string | null {
+    const option = bounds?.options.find((candidate) => candidate.cadence === cadence)
+    if (!option || (!option.speeds_up?.length && !option.speeds_up_withheld)) {
+        return null
+    }
+
+    const named = option.speeds_up.map((view) => view.name).filter(Boolean)
+    const subject = named.length
+        ? `${named.join(', ')}${option.speeds_up_withheld ? ' and other upstream views' : ''}`
+        : 'Some upstream views'
+    const plural = named.length > 1 || option.speeds_up_withheld || !named.length
+    return (
+        `${subject} ${plural ? 'refresh' : 'refreshes'} less often than this. ` +
+        `${plural ? 'They' : 'It'} will also refresh every ${CADENCE_LABELS[cadence]}, ` +
+        `because this view can't be fresher than what it reads.`
     )
 }
 

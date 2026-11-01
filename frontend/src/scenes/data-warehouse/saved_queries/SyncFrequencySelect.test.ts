@@ -5,6 +5,7 @@ import {
     buildOptions,
     defaultCadenceWithin,
     modeDisabledReason,
+    speedUpWarning,
     unsatisfiableReason,
 } from './SyncFrequencySelect'
 
@@ -194,6 +195,46 @@ describe('SyncFrequencySelect', () => {
 
         it('leaves a tiered view editable', () => {
             expect(modeDisabledReason(bounds())).toBeNull()
+        })
+    })
+
+    describe('speedUpWarning', () => {
+        const withSpeedsUp = (names: string[], withheld = false): SyncFrequencyBoundsApi =>
+            bounds({
+                options: [
+                    {
+                        cadence: '6hour',
+                        allowed: true,
+                        blocked_by: null,
+                        blocker: null,
+                        speeds_up: names.map(blocker),
+                        speeds_up_withheld: withheld,
+                    },
+                ],
+            } as Partial<SyncFrequencyBoundsApi>)
+
+        it.each([
+            ['nothing upstream is slower', [], false, null],
+            [
+                'one upstream view is slower',
+                ['org_universe'],
+                false,
+                "org_universe refreshes less often than this. It will also refresh every 6 hours, because this view can't be fresher than what it reads.",
+            ],
+            [
+                'a slower upstream view is withheld',
+                ['org_universe'],
+                true,
+                "org_universe and other upstream views refresh less often than this. They will also refresh every 6 hours, because this view can't be fresher than what it reads.",
+            ],
+            [
+                'every slower upstream view is withheld',
+                [],
+                true,
+                "Some upstream views refresh less often than this. They will also refresh every 6 hours, because this view can't be fresher than what it reads.",
+            ],
+        ])('when %s', (_case, names, withheld, expected) => {
+            expect(speedUpWarning(withSpeedsUp(names, withheld), '6hour')).toBe(expected)
         })
     })
 })
