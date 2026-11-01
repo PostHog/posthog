@@ -1,5 +1,7 @@
 from typing import Any
 
+from unittest import mock
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.cloudbeds import (
@@ -8,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.
     PAGE_SIZE,
     PROPERTY_ID_REQUIRED_MESSAGE,
     CloudbedsResumeConfig,
+    cloudbeds_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.settings import (
@@ -90,6 +93,33 @@ class TestPagination:
         assert result.raised is None
         assert result.rows == [{"id": "9"}]
         assert [request.json()["pageToken"] for request in result.requests] == ["tok-5"]
+
+    @parameterized.expand(
+        [
+            ("legacy_page_checkpoint", CloudbedsResumeConfig(page=3), True),
+            ("accounting_token_checkpoint", CloudbedsResumeConfig(page_token="tok-5"), False),
+        ]
+    )
+    def test_transactions_drop_a_checkpoint_from_the_retired_wire(
+        self, _name: str, saved: CloudbedsResumeConfig, expect_cleared: bool
+    ) -> None:
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = saved
+
+        cloudbeds_source(
+            api_key="cbat_key",
+            endpoint="transactions",
+            team_id=1,
+            job_id="job",
+            resumable_source_manager=manager,
+            api_version=CLOUDBEDS_API_VERSION_V1_3,
+            property_id="12345",
+        )
+
+        # The pipeline reads can_resume() after the source is built. A getTransactions page number
+        # left in place would make it append Accounting rows to the old table instead of replacing it.
+        assert manager.clear_state.called is expect_cleared
 
     def test_rooms_are_flattened_with_property_id(self) -> None:
         result = _driver().run(

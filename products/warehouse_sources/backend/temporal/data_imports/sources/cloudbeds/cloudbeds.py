@@ -67,7 +67,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/getHotels"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CloudbedsResumeConfig:
     # Next pageNumber to fetch (1-based). Cloudbeds paginates by page number, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes the
@@ -300,6 +300,10 @@ def _accounting_source(
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.page_token is not None:
             initial_paginator_state = {"cursor": resume.page_token}
+        else:
+            # A checkpoint without a token comes from the retired getTransactions wire. Drop it so the
+            # pipeline rebuilds the table instead of appending to the rows that wire loaded.
+            resumable_source_manager.clear_state()
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("cursor") is not None:
