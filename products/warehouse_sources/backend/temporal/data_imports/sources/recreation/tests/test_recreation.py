@@ -1,4 +1,7 @@
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+
+import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -11,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.recreation import (
     RecreationResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import PAGE_LIMIT
+from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import (
+    PAGE_LIMIT,
+    RESERVATIONS_FORWARD_DAYS,
+    RESERVATIONS_LOOKBACK_DAYS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.source import RecreationSource
 
 
@@ -29,6 +36,11 @@ def _ridb_response(records: list[dict[str, Any]], total_count: int, offset: int)
 
 def _facility_rows(start: int, count: int) -> list[dict[str, Any]]:
     return [{"FacilityID": str(i), "FacilityName": f"Facility {i}"} for i in range(start, start + count)]
+
+
+def _reservations_response(start: int, count: int) -> ScriptedResponse:
+    rows = [{"HistoricalReservationID": str(i), "OrderDate": "2026-10-01"} for i in range(start, start + count)]
+    return ScriptedResponse(json={"data": rows, "total_results": 120})
 
 
 class TestRecreationSourceTransport:
@@ -72,3 +84,102 @@ class TestRecreationSourceTransport:
         result = self._drive("Facilities", responses)
 
         assert result.params("offset") == ["0"]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path", "parent_rows", "expected_rows"),
+        [
+            (
+                "CampsiteAttributes",
+                "/api/v1/campsites",
+                [
+                    {
+                        "CampsiteID": "10",
+                        "ATTRIBUTES": [
+                            {"AttributeName": "Max Num of People", "AttributeValue": "6"},
+                            {"AttributeName": "Driveway Length", "AttributeValue": "40"},
+                        ],
+                    },
+                    {"CampsiteID": "11", "ATTRIBUTES": []},
+                    {"CampsiteID": "12", "ATTRIBUTES": None},
+                    {"CampsiteID": "13", "ATTRIBUTES": [{"AttributeName": "Shade", "AttributeValue": "Yes"}]},
+                ],
+                [
+                    {"CampsiteID": "10", "AttributeName": "Max Num of People", "AttributeValue": "6"},
+                    {"CampsiteID": "10", "AttributeName": "Driveway Length", "AttributeValue": "40"},
+                    {"CampsiteID": "13", "AttributeName": "Shade", "AttributeValue": "Yes"},
+                ],
+            ),
+            (
+                "PermitEntranceZones",
+                "/api/v1/permitentrances",
+                [
+                    {
+                        "PermitEntranceID": "200",
+                        "ATTRIBUTES": [{"AttributeName": "Quota", "AttributeValue": "10"}],
+                        "ZONES": [{"PermitEntranceZoneID": "1", "Zone": "North"}],
+                    }
+                ],
+                [{"PermitEntranceID": "200", "PermitEntranceZoneID": "1", "Zone": "North"}],
+            ),
+        ],
+    )
+    def test_nested_tables_explode_the_parent_list_arrays(
+        self,
+        endpoint: str,
+        expected_path: str,
+        parent_rows: list[dict[str, Any]],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = self._drive(endpoint, [_ridb_response(parent_rows, total_count=len(parent_rows), offset=0)])
+
+        assert result.rows == expected_rows
+        assert result.requests[0].path == expected_path
+
+    def test_reservations_walk_pages_to_the_first_empty_page_and_checkpoint_the_page(self) -> None:
+        responses: list[ScriptedResponse | BaseException] = [
+            _reservations_response(0, PAGE_LIMIT),
+            _reservations_response(PAGE_LIMIT, PAGE_LIMIT),
+            _reservations_response(2 * PAGE_LIMIT, 0),
+        ]
+        result = self._drive("Reservations", responses)
+
+        assert len(result.rows) == 2 * PAGE_LIMIT
+        assert result.params("page") == ["0", "1", "2"]
+        assert result.params("limit") == [str(PAGE_LIMIT)] * 3
+        assert result.saved_states[0] == RecreationResumeConfig(page=1)
+
+    def test_reservations_resume_from_the_saved_page(self) -> None:
+        result = self._drive(
+            "Reservations", [_reservations_response(0, 0)], resume_state=RecreationResumeConfig(page=7)
+        )
+
+        assert result.params("page") == ["7"]
+
+    @pytest.mark.parametrize(
+        ("inputs", "expected_from"),
+        [
+            ({}, None),
+            ({"incremental_field": "OrderDate"}, None),
+            ({"incremental_field": "OrderDate", "db_incremental_field_last_value": "2026-03-04"}, date(2026, 3, 4)),
+            (
+                {"incremental_field": "OrderDate", "db_incremental_field_last_value": datetime(2026, 3, 4, 15, 0)},
+                date(2026, 3, 4),
+            ),
+            (
+                {
+                    "incremental_field": "OrderDate",
+                    "should_use_incremental_field": False,
+                    "db_incremental_field_last_value": "2026-03-04",
+                },
+                None,
+            ),
+        ],
+    )
+    def test_reservations_date_range(self, inputs: dict[str, Any], expected_from: date | None) -> None:
+        result = self._drive("Reservations", [_reservations_response(0, 0)], **inputs)
+
+        today = datetime.now(UTC).date()
+        if expected_from is None:
+            expected_from = today - timedelta(days=RESERVATIONS_LOOKBACK_DAYS)
+        assert result.params("dateFrom") == [expected_from.isoformat()]
+        assert result.params("dateTo") == [(today + timedelta(days=RESERVATIONS_FORWARD_DAYS)).isoformat()]

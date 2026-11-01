@@ -93,6 +93,8 @@ class RecreationSource(ResumableSource[RecreationSourceConfig, RecreationResumeC
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -101,7 +103,7 @@ class RecreationSource(ResumableSource[RecreationSourceConfig, RecreationResumeC
             name=ExternalDataSourceType.RECREATION,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Recreation.gov",
-            caption="""Import public US federal recreation data from the Recreation Information Database (RIDB) behind Recreation.gov: recreation areas, facilities, campsites, tours, permit entrances, and more.
+            caption="""Import public US federal recreation data from the Recreation Information Database (RIDB) behind Recreation.gov: recreation areas, facilities, campsites, tours, permit entrances, reservations, and more.
 
 To get an API key, sign in at [ridb.recreation.gov](https://ridb.recreation.gov/), open your profile from the account menu, and copy the API key shown there.""",
             keywords=["ridb", "recreation.gov", "campgrounds", "campsites"],

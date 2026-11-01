@@ -1,13 +1,18 @@
 import dataclasses
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
     OffsetPaginator,
+    PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -15,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import (
     PAGE_LIMIT,
     RECREATION_ENDPOINTS,
+    RESERVATIONS_ENDPOINT,
+    RESERVATIONS_FORWARD_DAYS,
+    RESERVATIONS_LOOKBACK_DAYS,
     RIDB_BASE_URL,
+    NestedRowsConfig,
 )
 
 VALIDATION_TIMEOUT_SECONDS = 10
@@ -23,7 +32,9 @@ VALIDATION_TIMEOUT_SECONDS = 10
 
 @dataclasses.dataclass
 class RecreationResumeConfig:
-    offset: int
+    offset: int | None = None
+    # `/reservations` pages by page number instead of offset.
+    page: int | None = None
 
 
 def _build_paginator() -> OffsetPaginator:
@@ -32,19 +43,72 @@ def _build_paginator() -> OffsetPaginator:
     return OffsetPaginator(limit=PAGE_LIMIT, total_path="METADATA.RESULTS.TOTAL_COUNT")
 
 
-def get_resource(endpoint: str) -> EndpointResource:
+def _nested_rows(nested: NestedRowsConfig) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    def _explode(row: dict[str, Any]) -> list[dict[str, Any]]:
+        parent_id = row.get(nested.parent_id_field)
+        return [
+            {nested.parent_id_field: parent_id, **item}
+            for item in row.get(nested.field) or []
+            if isinstance(item, dict)
+        ]
+
+    return _explode
+
+
+def _as_date(value: Any) -> date | None:
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    parsed = parse_datetime_value(value)
+    return parsed.date() if parsed is not None else None
+
+
+def _reservations_date_range(
+    should_use_incremental_field: bool, db_incremental_field_last_value: Any, today: date
+) -> tuple[date, date]:
+    date_from = today - timedelta(days=RESERVATIONS_LOOKBACK_DAYS)
+    if should_use_incremental_field:
+        # Restart from the watermark day itself: the filter is day-grained, and merge drops the repeats.
+        last_value = _as_date(db_incremental_field_last_value)
+        if last_value is not None:
+            date_from = last_value
+    return date_from, today + timedelta(days=RESERVATIONS_FORWARD_DAYS)
+
+
+def get_resource(
+    endpoint: str,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> EndpointResource:
     config = RECREATION_ENDPOINTS[endpoint]
-    return {
+    params: dict[str, Any] = {}
+    data_selector = "RECDATA"
+    paginator: BasePaginator = _build_paginator()
+
+    if endpoint == RESERVATIONS_ENDPOINT:
+        date_from, date_to = _reservations_date_range(
+            should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date()
+        )
+        params = {"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat(), "limit": PAGE_LIMIT}
+        data_selector = "data"
+        # `page` is the number of pages to skip, so the first page is 0. `total_results` counts rows,
+        # not pages, so the paginator stops on the first empty page.
+        paginator = PageNumberPaginator(base_page=0, page_param="page")
+
+    resource: EndpointResource = {
         "name": config.name,
         "table_name": config.name.lower(),
-        "write_disposition": "replace",
+        "write_disposition": "merge" if should_use_incremental_field else "replace",
         "endpoint": {
-            "data_selector": "RECDATA",
+            "data_selector": data_selector,
             "path": config.path,
-            "paginator": _build_paginator(),
+            "params": params,
+            "paginator": paginator,
         },
         "table_format": "delta",
     }
+    if config.nested is not None:
+        resource["data_map"] = _nested_rows(config.nested)
+    return resource
 
 
 def recreation_source(
@@ -53,6 +117,8 @@ def recreation_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[RecreationResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint_config = RECREATION_ENDPOINTS[endpoint]
 
@@ -73,20 +139,32 @@ def recreation_source(
         "resource_defaults": {
             "write_disposition": "replace",
         },
-        "resources": [get_resource(endpoint)],
+        "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
         if resume_config is not None:
-            initial_paginator_state = {"offset": resume_config.offset}
+            initial_paginator_state = {
+                key: value
+                for key, value in (("offset", resume_config.offset), ("page", resume_config.page))
+                if value is not None
+            } or None
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Only persist when there's a next page to resume to; the Redis TTL
         # handles cleanup on completion.
-        if state and state.get("offset") is not None:
-            resumable_source_manager.save_state(RecreationResumeConfig(offset=int(state["offset"])))
+        if not state:
+            return
+        offset, page = state.get("offset"), state.get("page")
+        if offset is not None or page is not None:
+            resumable_source_manager.save_state(
+                RecreationResumeConfig(
+                    offset=int(offset) if offset is not None else None,
+                    page=int(page) if page is not None else None,
+                )
+            )
 
     resource = rest_api_resource(
         config,
@@ -107,10 +185,15 @@ def recreation_source(
             "partition_keys": [endpoint_config.partition_key],
         }
 
+    primary_keys = [endpoint_config.primary_key]
+    if endpoint_config.nested is not None:
+        # Attribute and zone rows are unique only within their parent.
+        primary_keys = [endpoint_config.nested.parent_id_field, endpoint_config.primary_key]
+
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=primary_keys,
         **partition_kwargs,
     )
 
