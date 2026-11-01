@@ -6,6 +6,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { buildGithubDisconnectDescription } from 'lib/integrations/githubDisconnectCopy'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
 import { describeScopeShortfall, getMissingScopes, requestedScopesForKind } from 'lib/integrations/integrationScopes'
@@ -14,6 +15,7 @@ import {
     INTEGRATION_ERROR_PARAM,
     OAUTH_STATE_EXPIRED,
 } from 'lib/integrations/oauthCallbackErrors'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
@@ -40,6 +42,7 @@ import type {
     IntegrationConfigApi,
     IntegrationKindEnumApi,
 } from 'products/integrations/frontend/generated/api.schemas'
+import { offerSlackWorkspaceSetup } from 'products/slack_app/frontend/workspace-setup/offerSlackWorkspaceSetup'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../generated/core/api.schemas'
@@ -108,6 +111,8 @@ export interface integrationsLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     siteUrlMisconfigured: boolean // preflightLogic
     currentProjectId: number | string // teamLogic
+    currentTeamId: number | null // teamLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     accessRequest: IntegrationKind | null
     accessRequestLoading: boolean
     accessRequestReason: string
@@ -784,7 +789,14 @@ export type integrationsLogicType = MakeLogicType<
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
     connect(() => ({
-        values: [preflightLogic, ['siteUrlMisconfigured', 'preflight'], teamLogic, ['currentProjectId']],
+        values: [
+            preflightLogic,
+            ['siteUrlMisconfigured', 'preflight'],
+            teamLogic,
+            ['currentProjectId', 'currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [
             globalSetupLogic,
             ['markTaskAsCompleted'],
@@ -1367,6 +1379,19 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         })
                     } else {
                         lemonToast.success(`Integration successful.`)
+                    }
+
+                    // The Slack landing page offers the setup itself, so only the other entry points get the toast.
+                    const landsOnSlackPage = removeProjectIdIfPresent(url.pathname) === urls.integration('slack')
+                    const sameTeam = initiatingTeamId === undefined || initiatingTeamId === values.currentTeamId
+                    if (
+                        integration.kind === 'slack' &&
+                        values.featureFlags[FEATURE_FLAGS.SLACK_APP_WORKSPACE_SETUP] &&
+                        !landsOnSlackPage &&
+                        sameTeam &&
+                        values.currentTeamId
+                    ) {
+                        void offerSlackWorkspaceSetup(values.currentTeamId, integration.id, url.pathname)
                     }
                 }
             } catch (e) {
