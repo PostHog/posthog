@@ -25,7 +25,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 INTERNAL_CLIENT = "internal-bot"
@@ -1046,11 +1046,16 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 {"$mcp_oauth_client_name": "cursor-vscode"},
                 mcp_harness.UNIDENTIFIED_HARNESS_LABEL,
             ),
+            ("custom_rule_on_client_name", {"$mcp_client_name": "acme-agent"}, "Acme Agent"),
+            ("custom_rule_on_user_agent_only", {"$mcp_client_user_agent": "acme-agent/2.0 (node)"}, "Acme Agent"),
+            ("custom_rule_beats_built_in", {"$mcp_client_name": "cursor-internal"}, "Our Cursor"),
         ]
     )
     def test_attributes_clients_from_every_identity_signal(
         self, _name: str, properties: dict[str, Any], expected: str
     ) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit_call(properties, count=2)
 
         overview = api.get_activity_overview(self.team)

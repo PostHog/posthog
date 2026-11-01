@@ -5,11 +5,14 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import serializers, status
 from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.schema import MCPHarnessBreakdownQuery
 
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
@@ -20,7 +23,15 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
+from products.mcp_analytics.backend.facade.api import custom_harness_rules
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
+from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.models import (
+    MCPAnalyticsSubmission,
+    MCPCustomHarness,
+    MCPIntentClusterSnapshot,
+    MCPSession,
+)
 from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
     MCP_SESSION_LIST_MAX_LIMIT,
@@ -629,6 +640,144 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["count"] == 101
         assert len(data["results"]) == 100
         assert data["next"] is not None
+
+
+class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/environments/{self.team.id}/mcp_analytics/custom_harnesses/{suffix}"
+
+    def test_create_lowercases_the_pattern_and_lists_it(self) -> None:
+        response = self.client.post(self._url(), {"name": "Acme Agent", "match_pattern": " Acme-Agent "}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["match_pattern"] == "acme-agent"
+        listed = self.client.get(self._url()).json()
+        assert [(row["name"], row["match_pattern"]) for row in listed] == [("Acme Agent", "acme-agent")]
+
+    @parameterized.expand(
+        [
+            ("quote_in_name", {"name": "Bad'name", "match_pattern": "ok"}),
+            ("brace_in_name", {"name": "Bad{name}", "match_pattern": "ok"}),
+            ("quote_in_pattern", {"name": "Ok", "match_pattern": "bad'pattern"}),
+            ("empty_pattern", {"name": "Ok", "match_pattern": " "}),
+            ("reserved_other", {"name": "other", "match_pattern": "ok"}),
+            ("reserved_unidentified", {"name": "Unidentified client", "match_pattern": "ok"}),
+        ]
+    )
+    def test_create_rejects_unsafe_values(self, _name: str, payload: dict[str, str]) -> None:
+        response = self.client.post(self._url(), payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_rejects_duplicate_pattern_and_enforces_the_limit(self) -> None:
+        self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json")
+        duplicate = self.client.post(self._url(), {"name": "Again", "match_pattern": "ONE"}, format="json")
+        assert duplicate.status_code == status.HTTP_400_BAD_REQUEST
+
+        MCPCustomHarness.objects.bulk_create(
+            [MCPCustomHarness(team=self.team, name=f"H{i}", match_pattern=f"h{i}") for i in range(19)]
+        )
+        over_limit = self.client.post(self._url(), {"name": "Extra", "match_pattern": "extra"}, format="json")
+        assert over_limit.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_a_redis_outage_falls_back_to_postgres_without_reporting_an_exception(self) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="One", match_pattern="one")
+        outage = Exception("redis is down")
+
+        with (
+            patch("posthoganalytics.api_key", "phc_test"),
+            patch("posthoganalytics.capture_exception") as capture_exception,
+        ):
+            with patch.object(cache, "get", side_effect=outage), patch.object(cache, "add", side_effect=outage):
+                rules = custom_harness_rules(self.team)
+            with self.captureOnCommitCallbacks() as on_commit_callbacks:
+                response = self.client.post(self._url(), {"name": "Two", "match_pattern": "two"}, format="json")
+            with patch.object(cache, "delete", side_effect=outage):
+                for callback in on_commit_callbacks:
+                    callback()
+
+        assert rules == (CustomHarnessRule(name="One", pattern="one"),)
+        assert response.status_code == status.HTTP_201_CREATED
+        capture_exception.assert_not_called()
+
+    def test_a_save_drops_rules_another_writer_cached_before_it_committed(self) -> None:
+        self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self._url(), {"name": "Two", "match_pattern": "two"}, format="json")
+            cache.set(f"mcp_analytics:custom_harness_rules:{self.team.pk}", (("One", "one"),))
+
+        assert custom_harness_rules(self.team) == (
+            CustomHarnessRule(name="One", pattern="one"),
+            CustomHarnessRule(name="Two", pattern="two"),
+        )
+
+    def test_create_returns_a_400_when_the_unique_constraint_wins_a_race(self) -> None:
+        with patch(
+            "products.mcp_analytics.backend.models.MCPCustomHarness.objects.create",
+            side_effect=IntegrityError("duplicate key"),
+        ):
+            response = self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "match_pattern"
+
+    def _breakdown_cache_key(self) -> str:
+        return MCPHarnessBreakdownQueryRunner(query=MCPHarnessBreakdownQuery(), team=self.team).get_cache_key()
+
+    def test_create_update_and_delete_refresh_the_cached_rules_and_query_cache_keys(self) -> None:
+        assert custom_harness_rules(self.team) == ()
+        cache_keys = [self._breakdown_cache_key()]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json").json()
+        assert custom_harness_rules(self.team) == (CustomHarnessRule(name="One", pattern="one"),)
+        with self.assertNumQueries(0):
+            assert custom_harness_rules(self.team) == (CustomHarnessRule(name="One", pattern="one"),)
+        cache_keys.append(self._breakdown_cache_key())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            updated = self.client.patch(self._url(f"{created['id']}/"), {"name": "Uno"}, format="json")
+        assert updated.status_code == status.HTTP_200_OK
+        assert updated.json()["name"] == "Uno"
+        assert custom_harness_rules(self.team) == (CustomHarnessRule(name="Uno", pattern="one"),)
+        cache_keys.append(self._breakdown_cache_key())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            deleted = self.client.delete(self._url(f"{created['id']}/"))
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert self.client.get(self._url()).json() == []
+        assert custom_harness_rules(self.team) == ()
+        cache_keys.append(self._breakdown_cache_key())
+
+        assert len(set(cache_keys[:3])) == 3
+        assert cache_keys[3] == cache_keys[0]
+
+    def test_a_longer_pattern_matches_before_a_shorter_one_it_contains(self) -> None:
+        self.client.post(self._url(), {"name": "Acme", "match_pattern": "acme"}, format="json")
+        self.client.post(self._url(), {"name": "Acme agent", "match_pattern": "acme-agent"}, format="json")
+
+        assert custom_harness_rules(self.team) == (
+            CustomHarnessRule(name="Acme agent", pattern="acme-agent"),
+            CustomHarnessRule(name="Acme", pattern="acme"),
+        )
+
+    def test_other_teams_harnesses_are_not_listed(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other-team")
+        MCPCustomHarness.objects.create(team=other_team, name="Elsewhere", match_pattern="elsewhere")
+
+        assert self.client.get(self._url()).json() == []
+
+    def test_child_environment_lists_and_deletes_the_rules_it_creates(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        child_url = f"/api/environments/{child.id}/mcp_analytics/custom_harnesses/"
+
+        created = self.client.post(child_url, {"name": "Acme", "match_pattern": "acme"}, format="json").json()
+
+        assert [row["name"] for row in self.client.get(child_url).json()] == ["Acme"]
+        assert self.client.delete(f"{child_url}{created['id']}/").status_code == status.HTTP_204_NO_CONTENT
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
