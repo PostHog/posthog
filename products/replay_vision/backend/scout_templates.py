@@ -5,6 +5,8 @@ rewrites every scout whose text still matches what it was given, so editing a te
 existing scouts too.
 """
 
+import re
+
 from django.db import models
 
 from posthog.dataclasses import frozen
@@ -16,6 +18,9 @@ SCANNER_SCOUT_CRON = "0 9 * * *"
 # Mondays at 9:00, for templates that compare whole weeks. A daily run of a weekly comparison
 # finds the same shift seven days in a row.
 SCANNER_SCOUT_WEEKLY_CRON = "0 9 * * 1"
+
+# `<ALL CAPS>` slots the scratch template leaves for the author; the create form uses the same pattern.
+PLACEHOLDER_PATTERN = re.compile(r"<[A-Z][^<>]*>")
 
 # Kept in sync with the `display_name` maxLength on the Signals scout config API.
 SCOUT_DISPLAY_NAME_MAX_LENGTH = 200

@@ -103,6 +103,15 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         assert [t["key"] for t in templates] == ["daily-digest", "root-cause", "trend-watch", "new-issues", "scratch"]
         assert all(f"`vision-scanners-get` with id `{self.scanner.id}`" in t["body"] for t in templates)
 
+    def test_a_body_with_unfilled_placeholders_is_rejected(self) -> None:
+        response = self.client.post(
+            self._scouts_url(str(self.scanner.id)),
+            data=self._payload(body="Report on <WHAT THIS SCOUT WATCHES FOR> every day."),
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "body"
+
     def test_a_scout_can_be_created_with_a_slack_destination(self) -> None:
         # The create modal offers a Slack channel, so the destination arrives on the create call
         # rather than a follow-up PATCH. Validating it needs the project and the request in the

@@ -15,7 +15,7 @@ from products.replay_vision.backend.api.scout_permissions import ScoutDataAccess
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
-from products.replay_vision.backend.scout_templates import ScoutTemplateKey, scout_templates_for
+from products.replay_vision.backend.scout_templates import PLACEHOLDER_PATTERN, ScoutTemplateKey, scout_templates_for
 from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG, variant_analysis_config
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigSerializer, SignalScoutCreateSerializer
@@ -37,6 +37,15 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
             "of the variants, which the scanner's variants readout shows. Experiment scanners only."
         ),
     )
+
+    def validate_body(self, value: str) -> str:
+        # A scout saved with its slots unfilled runs on a schedule with no idea what to report.
+        placeholders = sorted(set(PLACEHOLDER_PATTERN.findall(value)))
+        if placeholders:
+            raise serializers.ValidationError(
+                f"Replace these placeholders before creating the scout: {', '.join(placeholders)}"
+            )
+        return super().validate_body(value)
 
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
