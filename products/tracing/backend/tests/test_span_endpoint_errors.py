@@ -1,3 +1,7 @@
+import json
+import base64
+import datetime as dt
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -5,6 +9,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework.exceptions import ParseError
+
+from posthog.schema import CachedTraceSpansQueryResponse
 
 from posthog.errors import CHQueryErrorTooManyBytes
 
@@ -95,3 +101,45 @@ class TestSpanCountErrorHandling(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, 400, response.content)
+
+
+class TestSpanQueryCachedResponse(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("trace_list", False, {"trace_id": "bb"}),
+            ("flat_spans", True, {"span_id": "02"}),
+        ]
+    )
+    def test_cursor_from_cached_string_timestamps(self, _name, flat_spans, expected_secondary):
+        rows = [
+            {
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "timestamp": timestamp,
+                "trace_start": timestamp,
+                "trace_duration": 1,
+            }
+            for trace_id, span_id, timestamp in [
+                ("aa", "01", "2026-06-02T08:00:00.300000+00:00"),
+                ("bb", "02", "2026-06-02T08:00:00.200000+00:00"),
+                ("cc", "03", "2026-06-02T08:00:00.100000+00:00"),
+            ]
+        ]
+        now = dt.datetime.now(dt.UTC)
+        cached = CachedTraceSpansQueryResponse(
+            cache_key="key",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            timezone="UTC",
+            results=rows,
+        )
+        with patch("products.tracing.backend.presentation.views.TraceSpansQueryRunner.run", return_value=cached):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/tracing/spans/query/",
+                {"query": {"limit": 2, "flatSpans": flat_spans}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        cursor = json.loads(base64.b64decode(response.json()["nextCursor"]))
+        self.assertEqual(cursor, {"timestamp": "2026-06-02T08:00:00.200000+00:00", **expected_secondary})
