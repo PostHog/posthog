@@ -24,7 +24,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 9
+RENDER_VERSION = 10
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -393,6 +393,14 @@ class _ActivityLine:
 
 
 @frozen
+class LineRef:
+    """The ref of one rendered task or MCP line, such as "t1" or "m2", with the day of the line."""
+
+    ref: str
+    last_at: str
+
+
+@frozen
 class RenderedInput:
     text: str
     n_tasks: int
@@ -414,6 +422,9 @@ class RenderedInput:
     mcp_chars: int = 0
     # MCP sessions that passed the named filters, before the caps.
     mcp_pool: int = 0
+    # The refs of the task and MCP lines in `text`, in the order of the lines.
+    task_refs: tuple[LineRef, ...] = ()
+    mcp_refs: tuple[LineRef, ...] = ()
 
     @property
     def units(self) -> int:
@@ -1158,6 +1169,20 @@ def enforce_budget(
         drops[Drop.SECTIONS_BUDGET] += 1
 
 
+def _with_refs(units: Sequence[Unit], prefix: str, max_chars: int) -> list[Unit]:
+    """The units with a ref after the leading "- " of each line, numbered from 1 in the order of the units."""
+    return [
+        dataclasses.replace(unit, text=cap_line(f"- {prefix}{index} {unit.text.removeprefix('- ')}", max_chars))
+        for index, unit in enumerate(units, start=1)
+    ]
+
+
+def _line_refs(units: Sequence[Unit], prefix: str) -> tuple[LineRef, ...]:
+    return tuple(
+        LineRef(ref=f"{prefix}{index}", last_at=_day(unit.at).isoformat()) for index, unit in enumerate(units, start=1)
+    )
+
+
 def build_input(
     tasks: Iterable[TaskItem],
     activity: Iterable[ActivityItem],
@@ -1193,13 +1218,18 @@ def build_input(
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
     chosen_mcp = sample_units(mcp_pool, limit=limits.mcp_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(mcp_pool) - len(chosen_mcp)
+    # The budget counts the refs too. It drops the oldest lines, so the numbers after it only get shorter.
     sections = [
-        (TASKS_HEADER, chosen_tasks),
+        (TASKS_HEADER, _with_refs(chosen_tasks, "t", limits.task_line_chars)),
         (ACTIVITY_HEADER, activity_lines),
-        (MCP_HEADER, chosen_mcp),
+        (MCP_HEADER, _with_refs(chosen_mcp, "m", limits.mcp_line_chars)),
         (VIEWS_HEADER, view_lines),
     ]
     enforce_budget(sections, drops, limits.sections_max_chars)
+    kept_tasks = chosen_tasks[len(chosen_tasks) - len(sections[0][1]) :]
+    kept_mcp = chosen_mcp[len(chosen_mcp) - len(sections[2][1]) :]
+    sections[0] = (TASKS_HEADER, _with_refs(kept_tasks, "t", limits.task_line_chars))
+    sections[2] = (MCP_HEADER, _with_refs(kept_mcp, "m", limits.mcp_line_chars))
     sections[3] = (VIEWS_HEADER, sorted(sections[3][1], key=lambda unit: unit.text))
     rendered = [_section(header, units) for header, units in sections]
     text = "\n\n".join(part for part in rendered if part)
@@ -1221,4 +1251,6 @@ def build_input(
         n_mcp_lines=len(sections[2][1]),
         mcp_chars=len(rendered[2]),
         mcp_pool=len(mcp_pool),
+        task_refs=_line_refs(kept_tasks, "t"),
+        mcp_refs=_line_refs(kept_mcp, "m"),
     )

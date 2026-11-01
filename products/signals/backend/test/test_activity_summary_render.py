@@ -33,6 +33,7 @@ from products.signals.backend.activity_summary.render import (
     VIEWS_HEADER,
     ActivityItem,
     Drop,
+    LineRef,
     McpItem,
     Parent,
     Product,
@@ -583,13 +584,13 @@ def test_build_input_renders_the_four_sections_in_order() -> None:
     assert rendered.text == "\n".join(
         [
             TASKS_HEADER,
-            "- 2026-10-16 [growth] why did signups drop?",
+            "- t1 2026-10-16 [growth] why did signups drop?",
             "",
             ACTIVITY_HEADER,
             '- 2026-10-18 created Dashboard "Growth overview"',
             "",
             MCP_HEADER,
-            "- 2026-10-17, 1 call: signups by country",
+            "- m1 2026-10-17, 1 call: signups by country",
             "",
             VIEWS_HEADER,
             '- Dashboard "Growth overview": opened 3 days, last 2026-10-17, edited 1 day',
@@ -598,6 +599,10 @@ def test_build_input_renders_the_four_sections_in_order() -> None:
     )
     assert (rendered.n_tasks, rendered.n_activity_lines, rendered.n_mcp_lines, rendered.n_view_lines) == (1, 1, 1, 2)
     assert rendered.units == 5
+    assert (rendered.task_refs, rendered.mcp_refs) == (
+        (LineRef(ref="t1", last_at="2026-10-16"),),
+        (LineRef(ref="m1", last_at="2026-10-17"),),
+    )
     assert rendered.input_chars == len(rendered.text)
     assert build_input([_task("root cause")], [], as_of=AS_OF, seed=1) is None
     assert build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "Settings")]) is None
@@ -726,7 +731,7 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
     computed = compute_fields(tasks, activity, views).as_json()
 
     assert computed == {
-        "schema_version": 1,
+        "schema_version": 2,
         "owned": [
             {
                 "ref": "o1",
@@ -785,6 +790,8 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
             "visits": ["session_replay"],
         },
         "task_count": 1,
+        "tasks": [],
+        "mcp_sessions": [],
     }
 
 
@@ -823,6 +830,23 @@ def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str
     assert rendered.input_chars <= limits.sections_max_chars
     assert rendered.intent_lines == limits.activity_lines and rendered.intent_chars > 0
     assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
+
+
+def test_build_input_numbers_the_task_refs_that_survive_the_budget_from_one() -> None:
+    tasks = [
+        _task("old", summary="Asked: why did signups drop last month?", days_ago=3),
+        _task("new", summary="Asked: why did signups drop?", days_ago=1),
+    ]
+    expected = f"{TASKS_HEADER}\n- t1 2026-10-18 why did signups drop?"
+    # Each of the four sections adds a two-character separator to the budget, empty or not.
+    budget = len(expected.replace("t1", "t2")) + 2 * 4
+
+    rendered = build_input(tasks, [], as_of=AS_OF, seed=1, limits=RenderLimits(sections_max_chars=budget))
+
+    assert rendered is not None
+    assert rendered.text == expected
+    assert rendered.task_refs == (LineRef(ref="t1", last_at="2026-10-18"),)
+    assert rendered.drops[Drop.SECTIONS_BUDGET] == 1
 
 
 def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() -> None:
@@ -871,9 +895,14 @@ COMPUTED = {
             "not_theirs": True,
         }
     ],
-    "pages": [{"ref": "p1", "product": "session_replay", "open_days": 2, "last_at": "2026-10-18"}],
+    "pages": [
+        {"ref": "p1", "product": "session_replay", "open_days": 2, "last_at": "2026-10-18"},
+        {"ref": "p2", "product": "feature_flags", "open_days": 3, "last_at": "2026-10-15"},
+    ],
     "products": {"works_in": ["product_analytics"], "visits": ["session_replay"]},
-    "task_count": 0,
+    "task_count": 1,
+    "tasks": [{"ref": "t1", "last_at": "2026-10-17"}],
+    "mcp_sessions": [{"ref": "m1", "last_at": "2026-10-19"}],
 }
 PREVIOUS_BEFORE_PROFILES = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": []}
 
@@ -908,7 +937,8 @@ def test_user_message_lists_the_computed_objects_and_pages_with_their_refs() -> 
         "Products they only visit: Session replay\n"
         '- o1 insight "Signup funnel": edited on 3 days, last 2026-10-16, created\n'
         '- o2 dashboard "Growth overview": opened on 4 days, last 2026-10-17, not theirs\n'
-        "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n\n"
+        "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n"
+        "- p2 Feature flags pages: opened on 3 days, last 2026-10-15\n\n"
     ) in message
 
 
@@ -954,9 +984,21 @@ def _answer(**overrides: Any) -> str:
         ),
         (
             "a theme keeps only known refs, once each, and its last_seen is the last day of its refs",
-            _answer(themes=[_theme(refs=["o1", "o7", "p1", "o1", 3])]),
+            _answer(themes=[_theme(refs=["o1", "o7", "t1", "o1", 3, "m1", "m9"])]),
             False,
-            {"themes": [{**_theme(refs=["o1", "p1"]), "last_seen": "2026-10-18"}]},
+            {"themes": [{**_theme(refs=["o1", "t1", "m1"]), "last_seen": "2026-10-19"}]},
+        ),
+        (
+            "a theme drops its page refs when it has another ref",
+            _answer(themes=[_theme(refs=["p2", "t1"])]),
+            False,
+            {"themes": [{**_theme(refs=["t1"]), "last_seen": "2026-10-17"}]},
+        ),
+        (
+            "a theme with only page refs keeps the pages opened on enough days",
+            _answer(themes=[_theme("Flags", refs=["p1", "p2"]), _theme("Replay", refs=["p1"])]),
+            False,
+            {"themes": [{**_theme("Flags", refs=["p2"]), "last_seen": "2026-10-15"}]},
         ),
         (
             "a theme with no known ref or no label is dropped",
@@ -976,10 +1018,10 @@ def _answer(**overrides: Any) -> str:
             },
         ),
         (
-            "modes keep only known modes, once each",
-            _answer(modes=["Building", "leading", "building", "monitoring"]),
+            "modes keep only known modes, once each, and at most three",
+            _answer(modes=["Building", "leading", "building", "monitoring", "operating", "analyzing"]),
             False,
-            {"modes": ["building", "monitoring"]},
+            {"modes": ["building", "monitoring", "operating"]},
         ),
         (
             "label and recent_shift are cut at a word boundary inside their caps",

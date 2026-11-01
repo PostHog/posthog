@@ -19,7 +19,9 @@ from products.signals.backend.activity_summary.render import (
     ACTIVITY_NAME_CHARS,
     SCENE_VIEW_TYPE,
     ActivityItem,
+    LineRef,
     Product,
+    RenderedInput,
     TaskItem,
     ViewItem,
     cap_line,
@@ -33,7 +35,9 @@ from products.signals.backend.activity_summary.render import (
 )
 
 # Bump on any change to the shape or the meaning of a field, so a consumer can tell old rows apart.
-COMPUTED_SCHEMA_VERSION = 1
+COMPUTED_SCHEMA_VERSION = 2
+# Versions that `read.py` still serves. Version 1 has no `tasks` and no `mcp_sessions`.
+READABLE_COMPUTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, COMPUTED_SCHEMA_VERSION})
 MAX_OWNED = 20
 MAX_WATCHED = 20
 # An object opened on fewer days than this is a visit, not something the person keeps an eye on.
@@ -89,6 +93,12 @@ class ComputedFields:
     pages: tuple[PageVisits, ...]
     products: ProductSplit
     task_count: int
+    # The task and MCP lines of the rendered input, which themes cite as "t" and "m" refs.
+    tasks: tuple[LineRef, ...] = ()
+    mcp_sessions: tuple[LineRef, ...] = ()
+
+    def with_line_refs(self, rendered: RenderedInput) -> "ComputedFields":
+        return dataclasses.replace(self, tasks=rendered.task_refs, mcp_sessions=rendered.mcp_refs)
 
     def as_json(self) -> dict[str, Any]:
         # JSON has no tuples, so the stored value and this one compare equal.

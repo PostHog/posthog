@@ -212,7 +212,7 @@ class TestUpdateActivitySummary(BaseTest):
         assert off.rendered_input is not None and MCP_HEADER not in off.rendered_input
         assert off.inputs_used is not None and "mcp_records" not in off.inputs_used
         assert on.status == UpdateStatus.OK and on.rendered_input is not None
-        section = f"{MCP_HEADER}\n- 2026-10-18, 2 calls: why signups dropped --> signups by country"
+        section = f"{MCP_HEADER}\n- m1 2026-10-18, 2 calls: why signups dropped --> signups by country"
         assert section in on.rendered_input
         assert on.inputs_used is not None
         assert {key: value for key, value in on.inputs_used.items() if key.startswith("mcp_")} == {
@@ -225,6 +225,7 @@ class TestUpdateActivitySummary(BaseTest):
         }
         stored = self._stored()
         assert stored is not None and stored.input_watermark == newest
+        assert stored.computed["mcp_sessions"] == [{"ref": "m1", "last_at": "2026-10-18"}]
 
         self._changes(3, days_ago=0.5)
         with time_machine.travel(NOW + datetime.timedelta(days=2), tick=False):
