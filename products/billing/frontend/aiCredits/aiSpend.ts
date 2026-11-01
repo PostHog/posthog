@@ -8,6 +8,15 @@ import type {
     AISpendResponseApi,
 } from 'products/billing/frontend/generated/api.schemas'
 
+// A year of billing periods, like billing's usage and spend ranges. The spend route allows one more
+// period back, because the page compares each period with the one before it.
+export const BILLING_PERIODS_SHOWN = 12
+
+export interface BillingPeriodOption {
+    periodsAgo: number
+    label: string
+}
+
 export interface ChartedProduct extends AISpendProductApi {
     color: string
     /** This product's part of the period's spend, from 0 to 1. */
@@ -120,4 +129,25 @@ export function reloadedSince(history: AICreditHistoryResponseApi | null, period
     return history.results
         .filter((entry) => entry.kind === 'automatic_reload' && !dayjs(entry.created_at).isBefore(start))
         .reduce((sum, entry) => sum + Number(entry.amount_usd), 0)
+}
+
+function periodLabel(start: Dayjs, end: Dayjs): string {
+    const last = end.subtract(1, 'day')
+    const first = start.year() === last.year() ? start.format('MMM D') : start.format('MMM D, YYYY')
+    return `${first} – ${last.format('MMM D, YYYY')}`
+}
+
+/**
+ * The current billing period and the ones before it. Each bound counts back from the current start, as
+ * the spend route does, so a period anchored on the 31st stays on the 31st.
+ */
+export function billingPeriodOptions(periodStart: string, periodEnd: string, count: number): BillingPeriodOption[] {
+    const currentStart = dayjs.utc(periodStart)
+    return Array.from({ length: count }, (_, periodsAgo) => ({
+        periodsAgo,
+        label: periodLabel(
+            currentStart.subtract(periodsAgo, 'month'),
+            periodsAgo === 0 ? dayjs.utc(periodEnd) : currentStart.subtract(periodsAgo - 1, 'month')
+        ),
+    }))
 }

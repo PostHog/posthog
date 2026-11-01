@@ -17,7 +17,7 @@ export function AISpendSettingsModal(): JSX.Element {
         isSpendSettingsFormSubmitting,
         settings,
         card,
-        spendSummary,
+        currentSpendSummary,
         reloadedThisPeriodText,
     } = useValues(aiCreditsLogic)
     const { closeSettingsModal, submitSpendSettingsForm } = useActions(aiCreditsLogic)
@@ -126,10 +126,10 @@ export function AISpendSettingsModal(): JSX.Element {
                             )}
                         </LemonField>
                     </div>
-                    {spendSummary && (
+                    {currentSpendSummary && (
                         <span className="text-xs text-tertiary">
-                            {humanFriendlyCurrency(spendSummary.spendUsd)} spent this period · resets{' '}
-                            {spendSummary.periodEnd.format('MMM D')}
+                            {humanFriendlyCurrency(currentSpendSummary.spendUsd)} spent this period · resets{' '}
+                            {currentSpendSummary.periodEnd.format('MMM D')}
                         </span>
                     )}
                 </div>

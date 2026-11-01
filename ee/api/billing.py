@@ -897,9 +897,9 @@ class AISpendUnavailable(APIException):
     default_detail = "AI spend isn't available right now. Try again in a few minutes."
 
 
-class AISpendPeriod(models.TextChoices):
-    CURRENT = "current", "Current"
-    PREVIOUS = "previous", "Previous"
+# The page offers a year of billing periods, like billing's usage and spend ranges, and compares each
+# period with the one before it, so the oldest read is one more period back.
+AI_SPEND_MAX_PERIODS_AGO = 12
 
 
 def _spend_field(help_text: str) -> serializers.DecimalField:
@@ -908,10 +908,11 @@ def _spend_field(help_text: str) -> serializers.DecimalField:
 
 
 class AISpendRequestSerializer(serializers.Serializer):
-    period = serializers.ChoiceField(
-        choices=AISpendPeriod.choices,
-        default=AISpendPeriod.CURRENT,
-        help_text="The current billing period, or the one before it.",
+    periods_ago = serializers.IntegerField(
+        min_value=0,
+        max_value=AI_SPEND_MAX_PERIODS_AGO,
+        default=0,
+        help_text=f"How many billing periods before the current one, from 0 for the current period to {AI_SPEND_MAX_PERIODS_AGO}.",
     )
 
 
@@ -940,17 +941,18 @@ class AISpendResponseSerializer(serializers.Serializer):
     days = AISpendDaySerializer(many=True, help_text="Spend by day, for the days so far.")
 
 
-def ai_spend_period(organization: Organization, period: str, now: datetime) -> tuple[date, date]:
-    """The period's first day and the next period's first day. An organization with no billing period gets the calendar month."""
+def ai_spend_period(organization: Organization, periods_ago: int, now: datetime) -> tuple[date, date]:
+    """The period's first day and the next period's first day. An organization with no billing period gets calendar months."""
     billing_period = organization.current_billing_period
     if billing_period:
         start, end = billing_period.start.date(), billing_period.end.date()
     else:
         start = now.date().replace(day=1)
         end = start + relativedelta(months=1)
-    if period == AISpendPeriod.PREVIOUS:
-        return start - relativedelta(months=1), start
-    return start, end
+    if periods_ago == 0:
+        return start, end
+    # Each bound counts back from the current start, so a period anchored on the 31st stays on the 31st.
+    return start - relativedelta(months=periods_ago), start - relativedelta(months=periods_ago - 1)
 
 
 def _ai_credits_error(
@@ -1609,7 +1611,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not get_cached_instance_license():
             raise NotFound("AI credits need PostHog Cloud.")
         organization = self._get_org_required()
-        start, end = ai_spend_period(organization, request.validated_query_data["period"], timezone.now())
+        start, end = ai_spend_period(organization, request.validated_query_data["periods_ago"], timezone.now())
         try:
             spend = get_org_spend(str(organization.id), start, end)
         except AIGatewayInternalError as error:

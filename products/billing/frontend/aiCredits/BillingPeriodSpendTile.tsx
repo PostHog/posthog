@@ -8,28 +8,40 @@ import { aiCreditsLogic, settingAmount } from './aiCreditsLogic'
 import { AICreditsTile } from './AICreditsTile'
 import { AISpendSummary, SpendLimitOutlook, spendLimitOutlook } from './aiSpend'
 
-function ChangeFromPrevious({ summary }: { summary: AISpendSummary }): JSX.Element | null {
-    if (summary.changeFromPrevious === null) {
-        return null
-    }
-    const percent = Math.round(summary.changeFromPrevious * 100)
+function ChangeFromPrevious({ change, before }: { change: number; before: string }): JSX.Element {
+    const percent = Math.round(change * 100)
     if (percent === 0) {
-        return <>Level with last period · </>
+        return <>Level with {before} · </>
     }
     return (
         <>
             <span className={percent > 0 ? 'text-danger' : 'text-success'}>
                 {percent > 0 ? '↗' : '↘'} {Math.abs(percent)}%
             </span>{' '}
-            vs last period ·{' '}
+            vs {before} ·{' '}
         </>
     )
 }
 
-function OutlookNote({ outlook, resets }: { outlook: SpendLimitOutlook | null; resets: string }): JSX.Element | null {
-    if (!outlook) {
-        return null
+function PeriodLine({ summary, isCurrentPeriod }: { summary: AISpendSummary; isCurrentPeriod: boolean }): JSX.Element {
+    const end = isCurrentPeriod
+        ? `resets ${summary.periodEnd.format('MMM D')}`
+        : `ended ${summary.periodEnd.subtract(1, 'day').format('MMM D')}`
+    if (summary.changeFromPrevious === null) {
+        return <span className="pt-1 text-sm text-tertiary">{end.charAt(0).toUpperCase() + end.slice(1)}</span>
     }
+    return (
+        <span className="pt-1 text-sm text-tertiary">
+            <ChangeFromPrevious
+                change={summary.changeFromPrevious}
+                before={isCurrentPeriod ? 'last period' : 'the period before'}
+            />
+            {end}
+        </span>
+    )
+}
+
+function OutlookNote({ outlook, resets }: { outlook: SpendLimitOutlook; resets: string }): JSX.Element {
     if (outlook.reached) {
         return (
             <span className="text-xs font-medium text-danger">
@@ -67,22 +79,7 @@ function LimitBar({
     )
 }
 
-function PeriodLine({ summary }: { summary: AISpendSummary }): JSX.Element {
-    const resets = summary.periodEnd.format('MMM D')
-    return (
-        <span className="pt-1 text-sm text-tertiary">
-            {summary.changeFromPrevious === null ? (
-                `Resets ${resets}`
-            ) : (
-                <>
-                    <ChangeFromPrevious summary={summary} />
-                    resets {resets}
-                </>
-            )}
-        </span>
-    )
-}
-
+/** The limit is a setting for the current period, so the footer describes the current period whichever one the tile shows. */
 function SpendLimitFooter({
     limitUsd,
     outlook,
@@ -90,7 +87,7 @@ function SpendLimitFooter({
     limitUsd: number | null
     outlook: SpendLimitOutlook | null
 }): JSX.Element {
-    const { spendSummary } = useValues(aiCreditsLogic)
+    const { currentSpendSummary } = useValues(aiCreditsLogic)
     const { openSettingsModal } = useActions(aiCreditsLogic)
     return (
         <>
@@ -99,7 +96,9 @@ function SpendLimitFooter({
                 <span className="text-sm text-secondary">
                     {limitUsd !== null ? `${settingAmount(limitUsd)} per billing period` : 'No limit'}
                 </span>
-                <OutlookNote outlook={outlook} resets={spendSummary?.periodEnd.format('MMM D') ?? ''} />
+                {outlook && currentSpendSummary && (
+                    <OutlookNote outlook={outlook} resets={currentSpendSummary.periodEnd.format('MMM D')} />
+                )}
             </div>
             <Link onClick={openSettingsModal} className="text-sm font-medium" data-attr="ai-credits-edit-spend-limit">
                 Edit
@@ -115,7 +114,7 @@ function SpendDetails({
     limitUsd: number | null
     outlook: SpendLimitOutlook | null
 }): JSX.Element | null {
-    const { spendSummary, spendUnavailable } = useValues(aiCreditsLogic)
+    const { spendSummary, spendUnavailable, isCurrentPeriod } = useValues(aiCreditsLogic)
     if (spendUnavailable) {
         return <span className="text-sm text-tertiary">Spend isn't available right now</span>
     }
@@ -124,26 +123,29 @@ function SpendDetails({
     }
     return (
         <>
-            {limitUsd !== null && (
+            {isCurrentPeriod && limitUsd !== null && (
                 <LimitBar spendUsd={spendSummary.spendUsd} limitUsd={limitUsd} reached={!!outlook?.reached} />
             )}
-            <PeriodLine summary={spendSummary} />
+            <PeriodLine summary={spendSummary} isCurrentPeriod={isCurrentPeriod} />
         </>
     )
 }
 
-export function SpendThisPeriodTile(): JSX.Element {
-    const { spendSummary, spendUnavailable, settings } = useValues(aiCreditsLogic)
+export function BillingPeriodSpendTile(): JSX.Element {
+    const { spendSummary, spendUnavailable, currentSpendSummary, isCurrentPeriod, settings } = useValues(aiCreditsLogic)
 
     const limitUsd = settings?.monthly_spend_limit_usd ? Number(settings.monthly_spend_limit_usd) : null
-    const outlook = spendSummary && limitUsd !== null ? spendLimitOutlook(spendSummary, limitUsd, dayjs()) : null
+    const outlook =
+        currentSpendSummary && limitUsd !== null ? spendLimitOutlook(currentSpendSummary, limitUsd, dayjs()) : null
 
     return (
         <AICreditsTile
-            label="Spend this period"
+            label={isCurrentPeriod ? 'Spend this period' : 'Spend'}
             amountUsd={spendSummary?.spendUsd ?? null}
             unavailable={spendUnavailable}
-            suffix={spendSummary && limitUsd !== null ? `of ${settingAmount(limitUsd)} limit` : undefined}
+            suffix={
+                isCurrentPeriod && spendSummary && limitUsd !== null ? `of ${settingAmount(limitUsd)} limit` : undefined
+            }
             footer={<SpendLimitFooter limitUsd={limitUsd} outlook={outlook} />}
         >
             <SpendDetails limitUsd={limitUsd} outlook={outlook} />

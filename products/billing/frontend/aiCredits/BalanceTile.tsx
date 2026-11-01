@@ -120,23 +120,25 @@ function ReloadFooter(): JSX.Element {
 }
 
 function BalanceNote(): JSX.Element | null {
-    const { spend, spendSummary, spendUnavailable, history, pendingUsd } = useValues(aiCreditsLogic)
-    if (spendUnavailable) {
+    const { currentSpend, currentSpendSummary, currentSpendUnavailable, history, pendingUsd } =
+        useValues(aiCreditsLogic)
+    if (currentSpendUnavailable) {
         return <span className="text-sm text-tertiary">The balance isn't available right now</span>
     }
-    if (!spend || !spendSummary) {
+    if (!currentSpend || !currentSpendSummary) {
         return null
     }
-    const balanceUsd = Number(spend.balance_usd)
-    const runwayDays = balanceRunwayDays(balanceUsd, spendSummary.dailyAverageUsd)
+    const balanceUsd = Number(currentSpend.balance_usd)
+    const runwayDays = balanceRunwayDays(balanceUsd, currentSpendSummary.dailyAverageUsd)
     const note = balanceNote(balanceUsd, runwayDays, pendingUsd, (history?.results.length ?? 0) > 0)
     return note ? <span className="text-sm text-tertiary">{note}</span> : null
 }
 
 export function BalanceTile(): JSX.Element {
-    const { spend, spendUnavailable, settings, settingsLoading, card, history } = useValues(aiCreditsLogic)
+    const { currentSpend, currentSpendUnavailable, settings, settingsLoading, card, history } =
+        useValues(aiCreditsLogic)
 
-    const balanceUsd = spend ? Number(spend.balance_usd) : null
+    const balanceUsd = currentSpend ? Number(currentSpend.balance_usd) : null
     const thresholdUsd = settings?.low_balance_threshold_usd ? Number(settings.low_balance_threshold_usd) : null
     const declined = declinedMessage(settings?.automatic_reload, card?.card ?? null)
 
@@ -144,7 +146,7 @@ export function BalanceTile(): JSX.Element {
         <AICreditsTile
             label="Balance"
             amountUsd={balanceUsd}
-            unavailable={spendUnavailable}
+            unavailable={currentSpendUnavailable}
             valueClassName={
                 balanceUsd !== null
                     ? balanceClassName(balanceUsd, thresholdUsd, (history?.results.length ?? 0) > 0)

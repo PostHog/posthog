@@ -129369,22 +129369,12 @@ export namespace Schemas {
 
     export type BillingAiCreditsSpendRetrieveParams = {
     /**
-     * The current billing period, or the one before it.
-     *
-     * * `current` - Current
-     * * `previous` - Previous
-     * @minLength 1
+     * How many billing periods before the current one, from 0 for the current period to 12.
+     * @minimum 0
+     * @maximum 12
      */
-    period?: BillingAiCreditsSpendRetrievePeriod;
+    periods_ago?: number;
     };
-
-    export type BillingAiCreditsSpendRetrievePeriod = typeof BillingAiCreditsSpendRetrievePeriod[keyof typeof BillingAiCreditsSpendRetrievePeriod];
-
-
-    export const BillingAiCreditsSpendRetrievePeriod = {
-      Current: 'current',
-      Previous: 'previous',
-    } as const;
 
     export type BillingSpendRetrieveParams = {
     /**

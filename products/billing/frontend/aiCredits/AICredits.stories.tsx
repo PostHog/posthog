@@ -2,6 +2,8 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { dayjs } from 'lib/dayjs'
+
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -93,19 +95,27 @@ const PRODUCTS = [
     { product: 'ai_workflows', name: 'AI workflows', share: 0.02, free: 5 },
 ]
 
-// Spend for each day from Oct 18 up to the story's date, Nov 3.
+// The current period starts on Oct 18, and its days run up to the story's date, Nov 3. Earlier
+// periods are full and a little quieter each month back.
+const CURRENT_PERIOD_START = dayjs.utc('2026-10-18')
 const DAY_TOTALS = [17.5, 14.8, 25.8, 13.4, 23.5, 19.6, 13.1, 22.7, 12.6, 21.4, 35.14, 14.2, 21.1, 29.6, 15.2, 16.9]
 
-function spend(balanceUsd: string): Record<string, unknown> {
-    const days = DAY_TOTALS.map((total, index) => ({
-        date: `2026-${index < 14 ? '10' : '11'}-${String(index < 14 ? 18 + index : index - 13).padStart(2, '0')}`,
-        spend_usd: Object.fromEntries(PRODUCTS.map((p) => [p.product, (total * p.share).toFixed(6)])),
+function spendFor(periodsAgo: number, balanceUsd: string): Record<string, unknown> {
+    const start = CURRENT_PERIOD_START.subtract(periodsAgo, 'month')
+    const end = CURRENT_PERIOD_START.subtract(periodsAgo - 1, 'month')
+    const dayCount = periodsAgo === 0 ? DAY_TOTALS.length : end.diff(start, 'day')
+    const scale = Math.max(1 - periodsAgo * 0.15, 0.2)
+    const days = Array.from({ length: dayCount }, (_, index) => ({
+        date: start.add(index, 'day').format('YYYY-MM-DD'),
+        spend_usd: Object.fromEntries(
+            PRODUCTS.map((p) => [p.product, (DAY_TOTALS[index % DAY_TOTALS.length] * scale * p.share).toFixed(6)])
+        ),
     }))
     const productSpend = (product: string): number => days.reduce((sum, day) => sum + Number(day.spend_usd[product]), 0)
     return {
         balance_usd: balanceUsd,
-        period_start: '2026-10-18',
-        period_end: '2026-11-18',
+        period_start: start.format('YYYY-MM-DD'),
+        period_end: end.format('YYYY-MM-DD'),
         spend_usd: PRODUCTS.reduce((sum, p) => sum + productSpend(p.product), 0).toFixed(6),
         free_usd: PRODUCTS.reduce((sum, p) => sum + p.free, 0).toFixed(6),
         products: PRODUCTS.map((p) => ({
@@ -118,20 +128,8 @@ function spend(balanceUsd: string): Record<string, unknown> {
     }
 }
 
-const PREVIOUS_SPEND = {
-    balance_usd: '118.400000',
-    period_start: '2026-09-18',
-    period_end: '2026-10-18',
-    spend_usd: '480.600000',
-    free_usd: '30.000000',
-    products: [],
-    days: [],
-}
-
-function mocks(
-    settings: Record<string, unknown>,
-    current: Record<string, unknown> | null
-): ReturnType<typeof mswDecorator> {
+/** A null balance means the AI gateway doesn't answer. */
+function mocks(settings: Record<string, unknown>, balanceUsd: string | null): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
             '/_preflight': { ...preflightJson, cloud: true, realm: 'cloud' },
@@ -141,9 +139,9 @@ function mocks(
             '/api/billing/ai_credits/history/': HISTORY,
             '/api/billing/ai_credits/quote/': { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' },
             '/api/billing/ai_credits/spend/': ({ request }) =>
-                current === null
+                balanceUsd === null
                     ? [503, { code: 'ai_spend_unavailable', detail: "AI spend isn't available right now." }]
-                    : [200, new URL(request.url).searchParams.get('period') === 'previous' ? PREVIOUS_SPEND : current],
+                    : [200, spendFor(Number(new URL(request.url).searchParams.get('periods_ago')), balanceUsd)],
         },
     })
 }
@@ -163,9 +161,9 @@ export default meta
 
 type Story = StoryObj<typeof AICredits>
 
-export const ReloadOn: Story = { decorators: [mocks(RELOAD_ON, spend('118.400000'))] }
+export const ReloadOn: Story = { decorators: [mocks(RELOAD_ON, '118.400000')] }
 
-export const ReloadOffAfterADecline: Story = { decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, spend('6.100000'))] }
+export const ReloadOffAfterADecline: Story = { decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, '6.100000')] }
 
 export const SpendNotReportedYet: Story = { decorators: [mocks(RELOAD_ON, null)] }
 
@@ -176,7 +174,7 @@ function AICreditsWithAddFundsOpen(): JSX.Element {
 }
 
 export const AddFunds: Story = {
-    decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, spend('6.100000'))],
+    decorators: [mocks(RELOAD_OFF_AFTER_DECLINE, '6.100000')],
     render: () => <AICreditsWithAddFundsOpen />,
 }
 
@@ -193,6 +191,23 @@ function AICreditsWithSettingsOpen(): JSX.Element {
 }
 
 export const SpendSettings: Story = {
-    decorators: [mocks(RELOAD_ON, spend('118.400000'))],
+    decorators: [mocks(RELOAD_ON, '118.400000')],
     render: () => <AICreditsWithSettingsOpen />,
+}
+
+function AICreditsWithAnEarlierPeriod(): JSX.Element {
+    const { periodOptions } = useValues(aiCreditsLogic)
+    const { selectPeriod } = useActions(aiCreditsLogic)
+    // The options come from the current period, so the story picks one once they exist.
+    useEffect(() => {
+        if (periodOptions.length > 0) {
+            selectPeriod(1)
+        }
+    }, [periodOptions.length, selectPeriod])
+    return <AICredits />
+}
+
+export const EarlierBillingPeriod: Story = {
+    decorators: [mocks(RELOAD_ON, '118.400000')],
+    render: () => <AICreditsWithAnEarlierPeriod />,
 }

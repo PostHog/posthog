@@ -1622,7 +1622,7 @@ class TestAICreditsBillingAPI(APILicensedTest):
         self.organization.save()
         mock_get.return_value = httpx.Response(200, json=GATEWAY_SPEND, request=httpx.Request("GET", "http://gw"))
 
-        response = self.client.get("/api/billing/ai_credits/spend?period=previous")
+        response = self.client.get("/api/billing/ai_credits/spend?periods_ago=1")
 
         assert response.status_code == status.HTTP_200_OK
         assert mock_get.call_args.args[0] == f"http://gateway.example/internal/accounts/{self.organization.id}/spend"
@@ -1652,27 +1652,24 @@ class TestAICreditsBillingAPI(APILicensedTest):
 class TestAISpendPeriod(SimpleTestCase):
     @parameterized.expand(
         [
+            ("current", ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"], 0, date(2026, 10, 18), date(2026, 11, 18)),
+            ("previous", ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"], 1, date(2026, 9, 18), date(2026, 10, 18)),
             (
-                "current",
-                ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"],
-                "current",
-                date(2026, 10, 18),
-                date(2026, 11, 18),
+                "anchored_on_the_31st",
+                ["2026-05-31T00:00:00Z", "2026-06-30T00:00:00Z"],
+                2,
+                date(2026, 3, 31),
+                date(2026, 4, 30),
             ),
-            (
-                "previous",
-                ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"],
-                "previous",
-                date(2026, 9, 18),
-                date(2026, 10, 18),
-            ),
-            ("calendar_month_without_a_billing_period", None, "current", date(2026, 11, 1), date(2026, 12, 1)),
+            ("calendar_months_without_a_billing_period", None, 1, date(2026, 10, 1), date(2026, 11, 1)),
         ]
     )
-    def test_period_bounds(self, _name: str, period: list[str] | None, which: str, start: date, end: date) -> None:
+    def test_period_bounds(
+        self, _name: str, period: list[str] | None, periods_ago: int, start: date, end: date
+    ) -> None:
         organization = Organization(usage={"period": period} if period else None)
 
-        assert ai_spend_period(organization, which, datetime(2026, 11, 3, 12, tzinfo=UTC)) == (start, end)
+        assert ai_spend_period(organization, periods_ago, datetime(2026, 11, 3, 12, tzinfo=UTC)) == (start, end)
 
 
 class TestPartnerManagedBillingAPI(APILicensedTest):

@@ -7,6 +7,20 @@ import { aiCreditsLogic } from './aiCreditsLogic'
 
 const QUOTE = { amount_usd: '50.00', tax_usd: '4.13', total_usd: '54.13' }
 
+// The current period starts on Oct 18, so each read names its own period.
+function spendFor(periodsAgo: number): Record<string, unknown> {
+    const month = 10 - periodsAgo
+    return {
+        balance_usd: '100.000000',
+        period_start: `2026-${String(month).padStart(2, '0')}-18`,
+        period_end: `2026-${String(month + 1).padStart(2, '0')}-18`,
+        spend_usd: '0.000000',
+        free_usd: '0.000000',
+        products: [],
+        days: [],
+    }
+}
+
 describe('aiCreditsLogic', () => {
     let logic: ReturnType<typeof aiCreditsLogic.build>
     let purchaseKeys: string[]
@@ -36,6 +50,10 @@ describe('aiCreditsLogic', () => {
                 ],
                 '/api/billing/ai_credits/history/': () => [200, { results: [], has_more: false }],
                 '/api/billing/ai_credits/quote/': () => [200, QUOTE],
+                '/api/billing/ai_credits/spend/': ({ request }) => {
+                    const periodsAgo = Number(new URL(request.url).searchParams.get('periods_ago'))
+                    return [200, spendFor(periodsAgo)]
+                },
             },
             post: {
                 '/api/billing/ai_credits/purchase/': async ({ request }) => {
@@ -72,5 +90,21 @@ describe('aiCreditsLogic', () => {
         expect(purchaseKeys).toHaveLength(2)
         expect(purchaseKeys[0] === purchaseKeys[1]).toEqual(sameKey)
         expect(logic.values.addFundsModalOpen).toEqual(false)
+    })
+
+    it('shows the chosen billing period, and keeps the balance and reloads on the current one', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.selectPeriod(2)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.spend?.period_start).toEqual('2026-08-18')
+        expect(logic.values.spendSummary?.previousDailyAverageUsd).not.toBeNull()
+        expect(logic.values.currentSpend?.period_start).toEqual('2026-10-18')
+
+        logic.actions.selectPeriod(0)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.spend?.period_start).toEqual('2026-10-18')
     })
 })

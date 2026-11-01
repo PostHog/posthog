@@ -31,7 +31,16 @@ import type {
     PatchedAIAutomaticReloadRequestApi,
 } from 'products/billing/frontend/generated/api.schemas'
 
-import { AISpendSummary, ChartedProduct, chartedProducts, reloadedSince, summarizeSpend } from './aiSpend'
+import {
+    AISpendSummary,
+    BILLING_PERIODS_SHOWN,
+    BillingPeriodOption,
+    billingPeriodOptions,
+    ChartedProduct,
+    chartedProducts,
+    reloadedSince,
+    summarizeSpend,
+} from './aiSpend'
 
 export const AI_CREDIT_PRESET_AMOUNTS_USD = [20, 50, 100]
 export const MINIMUM_AI_CREDIT_USD = 20
@@ -146,6 +155,16 @@ function errorMessage(error: unknown, fallback: string): string {
 
 class PaymentNotConfirmed extends Error {}
 
+// The AI gateway doesn't report spend everywhere yet, so a failed read leaves the spend out
+// instead of showing an error on every visit.
+async function readSpend(periodsAgo: number): Promise<AISpendResponseApi | null> {
+    try {
+        return await billingAiCreditsSpendRetrieve({ periods_ago: periodsAgo })
+    } catch {
+        return null
+    }
+}
+
 interface PurchaseFailure {
     code: string | null
     message: string
@@ -235,15 +254,25 @@ export interface aiCreditsLogicValues {
     addFundsModalOpen: boolean
     card: AICreditCardResponseApi | null
     cardLoading: boolean
+    currentSpend: AISpendResponseApi | null
+    currentSpendLoading: boolean
+    currentSpendSummary: AISpendSummary | null
+    currentSpendUnavailable: boolean
     history: AICreditHistoryResponseApi | null
     historyLoading: boolean
     isAddFundsFormSubmitting: boolean
     isAddFundsFormValid: boolean
+    isCurrentPeriod: boolean
     isSpendSettingsFormSubmitting: boolean
     isSpendSettingsFormValid: boolean
+    pastSpend: AISpendResponseApi | null
+    pastSpendLoading: boolean
+    pastSpendPeriodsAgo: number | null
     pendingUsd: number
+    periodOptions: BillingPeriodOption[]
     previousSpend: AISpendResponseApi | null
     previousSpendLoading: boolean
+    previousSpendPeriodsAgo: number | null
     purchaseError: string | null
     purchaseKey: string | null
     quote: AICreditQuoteResponseApi | null
@@ -251,13 +280,13 @@ export interface aiCreditsLogicValues {
     quoteLoading: boolean
     reloadedThisPeriodText: string | null
     reloadedThisPeriodUsd: number | null
+    selectedPeriodsAgo: number
     settings: AICreditSettingsResponseApi | null
     settingsLoading: boolean
     settingsModalOpen: boolean
     showAddFundsFormErrors: boolean
     showSpendSettingsFormErrors: boolean
     spend: AISpendResponseApi | null
-    spendLoading: boolean
     spendProducts: ChartedProduct[]
     spendSettingsForm: AISpendSettingsForm
     spendSettingsFormAllErrors: Record<string, any>
@@ -296,6 +325,21 @@ export interface aiCreditsLogicActions {
         card: AICreditCardResponseApi
         payload?: any
     }
+    loadCurrentSpend: () => any
+    loadCurrentSpendFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCurrentSpendSuccess: (
+        currentSpend: AISpendResponseApi | null,
+        payload?: any
+    ) => {
+        currentSpend: AISpendResponseApi | null
+        payload?: any
+    }
     loadHistory: () => any
     loadHistoryFailure: (
         error: string,
@@ -326,7 +370,22 @@ export interface aiCreditsLogicActions {
         history: AICreditHistoryResponseApi | null
         payload?: any
     }
-    loadPreviousSpend: () => any
+    loadPastSpend: (periodsAgo: number) => number
+    loadPastSpendFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPastSpendSuccess: (
+        pastSpend: AISpendResponseApi | null,
+        payload?: number
+    ) => {
+        pastSpend: AISpendResponseApi | null
+        payload?: number
+    }
+    loadPreviousSpend: (periodsAgo: number) => number
     loadPreviousSpendFailure: (
         error: string,
         errorObject?: any
@@ -336,10 +395,10 @@ export interface aiCreditsLogicActions {
     }
     loadPreviousSpendSuccess: (
         previousSpend: AISpendResponseApi | null,
-        payload?: any
+        payload?: number
     ) => {
         previousSpend: AISpendResponseApi | null
-        payload?: any
+        payload?: number
     }
     loadQuote: (amountUsd: number | null) => {
         amountUsd: number | null
@@ -357,21 +416,6 @@ export interface aiCreditsLogicActions {
         payload?: any
     ) => {
         settings: AICreditSettingsResponseApi
-        payload?: any
-    }
-    loadSpend: () => any
-    loadSpendFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadSpendSuccess: (
-        spend: AISpendResponseApi | null,
-        payload?: any
-    ) => {
-        spend: AISpendResponseApi | null
         payload?: any
     }
     openAddFundsModal: () => {
@@ -392,6 +436,9 @@ export interface aiCreditsLogicActions {
     }
     resetSpendSettingsForm: (values?: AISpendSettingsForm) => {
         values?: AISpendSettingsForm
+    }
+    selectPeriod: (periodsAgo: number) => {
+        periodsAgo: number
     }
     setAddFundsFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -474,15 +521,32 @@ export interface aiCreditsLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface aiCreditsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        isCurrentPeriod: (selectedPeriodsAgo: number) => boolean
+        spend: (
+            selectedPeriodsAgo: number,
+            currentSpend: AISpendResponseApi | null,
+            pastSpend: AISpendResponseApi | null,
+            pastSpendPeriodsAgo: number | null
+        ) => AISpendResponseApi | null
+        spendUnavailable: (
+            selectedPeriodsAgo: number,
+            currentSpendUnavailable: boolean,
+            pastSpend: AISpendResponseApi | null,
+            pastSpendPeriodsAgo: number | null
+        ) => boolean
         spendSummary: (
             spend: AISpendResponseApi | null,
-            previousSpend: AISpendResponseApi | null
+            previousSpend: AISpendResponseApi | null,
+            previousSpendPeriodsAgo: number | null,
+            selectedPeriodsAgo: number
         ) => AISpendSummary | null
+        currentSpendSummary: (currentSpend: AISpendResponseApi | null) => AISpendSummary | null
+        periodOptions: (currentSpend: AISpendResponseApi | null) => BillingPeriodOption[]
         spendProducts: (spend: AISpendResponseApi | null) => ChartedProduct[]
         pendingUsd: (history: AICreditHistoryResponseApi | null) => number
         reloadedThisPeriodUsd: (
             history: AICreditHistoryResponseApi | null,
-            spend: AISpendResponseApi | null
+            currentSpend: AISpendResponseApi | null
         ) => number | null
         addFundsConsent: (
             card: AICreditCardResponseApi | null,
@@ -517,6 +581,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         loadQuote: (amountUsd: number | null) => ({ amountUsd }),
         setQuote: (quote: AICreditQuoteResponseApi | null) => ({ quote }),
         setQuoteError: (error: string) => ({ error }),
+        selectPeriod: (periodsAgo: number) => ({ periodsAgo }),
     }),
     loaders(({ values }) => ({
         settings: [
@@ -524,29 +589,26 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             { loadSettings: async () => await billingAiCreditsSettingsRetrieve() },
         ],
         card: [null as AICreditCardResponseApi | null, { loadCard: async () => await billingAiCreditsCardRetrieve() }],
-        // The AI gateway doesn't report spend everywhere yet, so a failed read leaves the spend out
-        // instead of showing an error on every visit.
-        spend: [
+        // The current period carries the balance, the reloads and the limit, whichever period the page shows.
+        currentSpend: [null as AISpendResponseApi | null, { loadCurrentSpend: async () => await readSpend(0) }],
+        pastSpend: [
             null as AISpendResponseApi | null,
             {
-                loadSpend: async () => {
-                    try {
-                        return await billingAiCreditsSpendRetrieve()
-                    } catch {
-                        return null
-                    }
+                loadPastSpend: async (periodsAgo: number, breakpoint) => {
+                    const spend = await readSpend(periodsAgo)
+                    breakpoint()
+                    return spend
                 },
             },
         ],
+        // The period before the one shown, to compare the daily average with.
         previousSpend: [
             null as AISpendResponseApi | null,
             {
-                loadPreviousSpend: async () => {
-                    try {
-                        return await billingAiCreditsSpendRetrieve({ period: 'previous' })
-                    } catch {
-                        return null
-                    }
+                loadPreviousSpend: async (periodsAgo: number, breakpoint) => {
+                    const spend = await readSpend(periodsAgo + 1)
+                    breakpoint()
+                    return spend
                 },
             },
         ],
@@ -584,7 +646,14 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         quote: [null as AICreditQuoteResponseApi | null, { loadQuote: () => null, setQuote: (_, { quote }) => quote }],
         quoteLoading: [false, { loadQuote: () => true, setQuote: () => false, setQuoteError: () => false }],
         quoteError: [null as string | null, { loadQuote: () => null, setQuoteError: (_, { error }) => error }],
-        spendUnavailable: [false, { loadSpendSuccess: (_, { spend }) => spend === null }],
+        selectedPeriodsAgo: [0, { selectPeriod: (_, { periodsAgo }) => periodsAgo }],
+        currentSpendUnavailable: [false, { loadCurrentSpendSuccess: (_, { currentSpend }) => currentSpend === null }],
+        // Which period each read answered, so the page never shows a read for another period.
+        pastSpendPeriodsAgo: [null as number | null, { loadPastSpendSuccess: (_, { payload }) => payload ?? null }],
+        previousSpendPeriodsAgo: [
+            null as number | null,
+            { loadPreviousSpendSuccess: (_, { payload }) => payload ?? null },
+        ],
         unavailable: [
             false,
             {
@@ -695,10 +764,50 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         },
     })),
     selectors({
+        isCurrentPeriod: [(s) => [s.selectedPeriodsAgo], (periodsAgo: number): boolean => periodsAgo === 0],
+        spend: [
+            (s) => [s.selectedPeriodsAgo, s.currentSpend, s.pastSpend, s.pastSpendPeriodsAgo],
+            (
+                periodsAgo: number,
+                currentSpend: AISpendResponseApi | null,
+                pastSpend: AISpendResponseApi | null,
+                pastSpendPeriodsAgo: number | null
+            ): AISpendResponseApi | null =>
+                periodsAgo === 0 ? currentSpend : pastSpendPeriodsAgo === periodsAgo ? pastSpend : null,
+        ],
+        spendUnavailable: [
+            (s) => [s.selectedPeriodsAgo, s.currentSpendUnavailable, s.pastSpend, s.pastSpendPeriodsAgo],
+            (
+                periodsAgo: number,
+                currentSpendUnavailable: boolean,
+                pastSpend: AISpendResponseApi | null,
+                pastSpendPeriodsAgo: number | null
+            ): boolean =>
+                periodsAgo === 0 ? currentSpendUnavailable : pastSpendPeriodsAgo === periodsAgo && pastSpend === null,
+        ],
         spendSummary: [
-            (s) => [s.spend, s.previousSpend],
-            (spend: AISpendResponseApi | null, previousSpend: AISpendResponseApi | null): AISpendSummary | null =>
-                spend ? summarizeSpend(spend, previousSpend, dayjs()) : null,
+            (s) => [s.spend, s.previousSpend, s.previousSpendPeriodsAgo, s.selectedPeriodsAgo],
+            (
+                spend: AISpendResponseApi | null,
+                previousSpend: AISpendResponseApi | null,
+                previousSpendPeriodsAgo: number | null,
+                periodsAgo: number
+            ): AISpendSummary | null =>
+                spend
+                    ? summarizeSpend(spend, previousSpendPeriodsAgo === periodsAgo ? previousSpend : null, dayjs())
+                    : null,
+        ],
+        currentSpendSummary: [
+            (s) => [s.currentSpend],
+            (currentSpend: AISpendResponseApi | null): AISpendSummary | null =>
+                currentSpend ? summarizeSpend(currentSpend, null, dayjs()) : null,
+        ],
+        periodOptions: [
+            (s) => [s.currentSpend],
+            (currentSpend: AISpendResponseApi | null): BillingPeriodOption[] =>
+                currentSpend
+                    ? billingPeriodOptions(currentSpend.period_start, currentSpend.period_end, BILLING_PERIODS_SHOWN)
+                    : [],
         ],
         spendProducts: [
             (s) => [s.spend],
@@ -712,9 +821,9 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                     .reduce((sum, entry) => sum + Number(entry.amount_usd), 0),
         ],
         reloadedThisPeriodUsd: [
-            (s) => [s.history, s.spend],
-            (history: AICreditHistoryResponseApi | null, spend: AISpendResponseApi | null): number | null =>
-                spend ? reloadedSince(history, spend.period_start) : null,
+            (s) => [s.history, s.currentSpend],
+            (history: AICreditHistoryResponseApi | null, currentSpend: AISpendResponseApi | null): number | null =>
+                currentSpend ? reloadedSince(history, currentSpend.period_start) : null,
         ],
         addFundsConsent: [
             (s) => [s.card, s.quote, s.addFundsForm, s.settings],
@@ -793,10 +902,17 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 noSpendLimit: !settings?.monthly_spend_limit_usd,
             })
         },
-        loadSpendSuccess: ({ spend }) => {
-            if (spend) {
-                actions.loadPreviousSpend()
+        loadCurrentSpendSuccess: ({ currentSpend }) => {
+            if (currentSpend && values.selectedPeriodsAgo === 0) {
+                actions.loadPreviousSpend(0)
             }
+        },
+        selectPeriod: ({ periodsAgo }) => {
+            if (periodsAgo > 0) {
+                actions.loadPastSpend(periodsAgo)
+            }
+            actions.loadPreviousSpend(periodsAgo)
+            posthog.capture('ai credits period selected', { periods_ago: periodsAgo })
         },
         purchaseCompleted: ({ amountUsd, authenticated }) => {
             posthog.capture('ai credits purchase completed', { amount_usd: amountUsd, authenticated })
@@ -804,13 +920,13 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             actions.closeAddFundsModal()
             actions.loadHistory()
             actions.loadSettings()
-            actions.loadSpend()
+            actions.loadCurrentSpend()
         },
     })),
     afterMount(({ actions }) => {
         actions.loadSettings()
         actions.loadCard()
         actions.loadHistory()
-        actions.loadSpend()
+        actions.loadCurrentSpend()
     }),
 ])

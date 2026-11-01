@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type { AICreditHistoryEntryApi, AISpendResponseApi } from 'products/billing/frontend/generated/api.schemas'
 
-import { reloadedSince, spendLimitOutlook, summarizeSpend } from './aiSpend'
+import { billingPeriodOptions, reloadedSince, spendLimitOutlook, summarizeSpend } from './aiSpend'
 
 const SPEND: AISpendResponseApi = {
     balance_usd: '60.000000',
@@ -78,5 +78,13 @@ describe('aiSpend', () => {
         }
 
         expect(reloadedSince(history, SPEND.period_start)).toEqual(expected)
+    })
+
+    it('counts each billing period back from the current start, so the 31st stays the 31st', () => {
+        expect(billingPeriodOptions('2026-01-31', '2026-02-28', 3)).toEqual([
+            { periodsAgo: 0, label: 'Jan 31 – Feb 27, 2026' },
+            { periodsAgo: 1, label: 'Dec 31, 2025 – Jan 30, 2026' },
+            { periodsAgo: 2, label: 'Nov 30 – Dec 30, 2025' },
+        ])
     })
 })

@@ -7,7 +7,7 @@ import { aiCreditsLogic } from './aiCreditsLogic'
 import { AICreditsTile } from './AICreditsTile'
 
 export function DailyAverageTile(): JSX.Element {
-    const { spendSummary, spendUnavailable } = useValues(aiCreditsLogic)
+    const { spendSummary, spendUnavailable, isCurrentPeriod } = useValues(aiCreditsLogic)
 
     return (
         <AICreditsTile
@@ -27,7 +27,8 @@ export function DailyAverageTile(): JSX.Element {
                     {spendSummary?.previousDailyAverageUsd !== null &&
                         spendSummary?.previousDailyAverageUsd !== undefined && (
                             <span className="text-xs text-tertiary">
-                                Last period averaged {humanFriendlyCurrency(spendSummary.previousDailyAverageUsd)} a day
+                                {isCurrentPeriod ? 'Last period' : 'The period before'} averaged{' '}
+                                {humanFriendlyCurrency(spendSummary.previousDailyAverageUsd)} a day
                             </span>
                         )}
                 </div>
@@ -37,7 +38,7 @@ export function DailyAverageTile(): JSX.Element {
                 <span className="text-sm text-tertiary">
                     {spendSummary.productsWithSpend > 0
                         ? `Across ${pluralize(spendSummary.productsWithSpend, 'AI product')}`
-                        : 'No AI spend this period yet'}
+                        : 'No AI spend in this period'}
                 </span>
             )}
         </AICreditsTile>
