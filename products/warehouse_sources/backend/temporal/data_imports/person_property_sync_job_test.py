@@ -91,7 +91,7 @@ async def _backfill_activity_killed_by_worker_shutdown(inputs: PersonPropertyBac
 
 
 @pytest.mark.parametrize(
-    "workflow_cls,replaced_activity,killed_activity,real_activities,inputs,expected_job_id",
+    "workflow_cls,replaced_activity,killed_activity,real_activities,inputs,expected_job_id,expected_next_step",
     [
         (
             SyncWarehousePersonPropertiesWorkflow,
@@ -109,6 +109,7 @@ async def _backfill_activity_killed_by_worker_shutdown(inputs: PersonPropertyBac
                 saved_query_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
             ),
             "job-1",
+            "Run a Backfill to deliver any rows left by the interrupted sync.",
         ),
         (
             BackfillWarehousePersonPropertiesWorkflow,
@@ -124,11 +125,12 @@ async def _backfill_activity_killed_by_worker_shutdown(inputs: PersonPropertyBac
                 saved_query_id=uuid.UUID("00000000-0000-4000-8000-000000000001"),
             ),
             None,
+            "Click Backfill to continue from where it stopped.",
         ),
     ],
 )
 async def test_run_is_marked_failed_when_the_activity_dies_without_its_own_handler(
-    workflow_cls, replaced_activity, killed_activity, real_activities, inputs, expected_job_id
+    workflow_cls, replaced_activity, killed_activity, real_activities, inputs, expected_job_id, expected_next_step
 ) -> None:
     recorded: list[PersonPropertySyncRunRecord] = []
     source = PersonPropertySyncSource(
@@ -162,6 +164,7 @@ async def test_run_is_marked_failed_when_the_activity_dies_without_its_own_handl
     assert failed[0].source_id == source.source_id
     assert failed[0].job_id == expected_job_id
     assert (failed[0].error or "").startswith("This run was interrupted before it finished.")
+    assert (failed[0].error or "").endswith(expected_next_step)
     assert failed[0].finished_at
     assert failed[0].count_failure is False
 
