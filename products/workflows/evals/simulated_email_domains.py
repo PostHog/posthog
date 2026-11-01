@@ -31,7 +31,7 @@ from posthog import domain_connect
 from posthog.dataclasses import frozen
 
 from products.workflows.backend import providers
-from products.workflows.backend.facade.contracts import EmailDomainVerification
+from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
 from products.workflows.backend.providers.ses import SESProvider
 
 __all__ = [
@@ -210,21 +210,32 @@ class _SimulatedSes:
     def get_identity_verification_attributes(self, *, Identities: list[str]) -> dict[str, Any]:
         return {
             "VerificationAttributes": {
-                domain: {"VerificationStatus": self._status([_ownership_record(domain)])} for domain in Identities
+                domain: {
+                    "VerificationStatus": self._status([_ownership_record(domain)]),
+                    "VerificationToken": verification_token(domain),
+                }
+                for domain in Identities
             }
         }
 
     def get_identity_dkim_attributes(self, *, Identities: list[str]) -> dict[str, Any]:
         return {
             "DkimAttributes": {
-                domain: {"DkimVerificationStatus": self._status(_dkim_records(domain))} for domain in Identities
+                domain: {
+                    "DkimVerificationStatus": self._status(_dkim_records(domain)),
+                    "DkimTokens": dkim_tokens(domain),
+                }
+                for domain in Identities
             }
         }
 
     def get_identity_mail_from_domain_attributes(self, *, Identities: list[str]) -> dict[str, Any]:
         return {
             "MailFromDomainAttributes": {
-                domain: {"MailFromDomainStatus": self._status([_mail_from_mx_record(mail_from_domain)])}
+                domain: {
+                    "MailFromDomainStatus": self._status([_mail_from_mx_record(mail_from_domain)]),
+                    "MailFromDomain": mail_from_domain,
+                }
                 for domain in Identities
                 if (mail_from_domain := self._domains.mail_from_domain(domain))
             }
@@ -278,6 +289,8 @@ class SimulatedSESProvider(SESProvider):
         self.ses_client = cast(Any, _SimulatedSes(domains))
         self.ses_v2_client = cast(Any, self._simulated_v2)
         self.ses_v2_metrics_client = self.ses_v2_client
+        self.ses_status_client = self.ses_client
+        self.ses_v2_status_client = self.ses_v2_client
 
     def create_email_domain(
         self, domain: str, mail_from_subdomain: str, team_id: int, org_team_ids: Iterable[int] | None = None
@@ -288,6 +301,10 @@ class SimulatedSESProvider(SESProvider):
     def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
         self._simulated_v2.team_id = team_id
         return super().verify_email_domain(domain, mail_from_subdomain, team_id)
+
+    def get_email_domain_status(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
+        self._simulated_v2.team_id = team_id
+        return super().get_email_domain_status(domain, mail_from_subdomain, team_id)
 
 
 def _rdata(record_type: str, value: str) -> dns.rdata.Rdata:
@@ -301,6 +318,8 @@ def _rdata(record_type: str, value: str) -> dns.rdata.Rdata:
 
 def _simulated_answers(domains: SimulatedEmailDomains, qname: Any, rdtype: Any) -> list[dns.rdata.Rdata]:
     record_type = dns.rdatatype.to_text(dns.rdatatype.RdataType.make(rdtype))
+    if record_type == "SOA":
+        raise dns.resolver.NoNameservers()
     values = domains.answers(str(qname), record_type)
     if not values:
         raise dns.resolver.NXDOMAIN()

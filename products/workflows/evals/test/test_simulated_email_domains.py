@@ -12,7 +12,12 @@ from posthog.models.organization import OrganizationMembership
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.workflows.backend import providers
 from products.workflows.evals.scorers import APPLY_URL_PATH
-from products.workflows.evals.seeders import DOMAIN_CONNECT_SENDER, seed_domain_connect_support
+from products.workflows.evals.seeders import (
+    DOMAIN_CONNECT_SENDER,
+    VERIFIED_SENDER,
+    seed_domain_connect_support,
+    seed_verified_sender,
+)
 from products.workflows.evals.simulated_email_domains import (
     DOMAIN_CONNECT_ROOT_DOMAIN,
     SimulatedEmailDomains,
@@ -94,6 +99,13 @@ class TestEvalCasesThroughTheApi(APIBaseTest):
         assert response.status_code == 200, response.json()
         return response.json()["status"]
 
+    def _status(self, integration_id: int) -> dict:
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration_id}/email/status", {"refresh": "true"}
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
     def _context(self) -> CustomPromptSandboxContext:
         return CustomPromptSandboxContext(team_id=self.team.pk, user_id=self.user.pk)
 
@@ -117,3 +129,22 @@ class TestEvalCasesThroughTheApi(APIBaseTest):
         assert check.json()["supported"] is True
         assert apply_url.status_code == 200, apply_url.json()
         assert apply_url.json()["url"].startswith(APPLY_URL_PATH)
+
+    def test_a_new_sender_reads_the_records_it_has_to_publish(self) -> None:
+        domain = DOMAIN_CONNECT_SENDER.split("@")[1]
+        with simulated_email_domains(), patch("posthoganalytics.feature_enabled", return_value=True):
+            status = self._status(self._create_sender(DOMAIN_CONNECT_SENDER))
+
+        assert status["status"] == "pending"
+        assert {(record["hostname"], record["type"]) for record in status["records"]} == {
+            (record.name, record.record_type) for record in ses_records(domain)
+        }
+
+    def test_a_seeded_verified_sender_reads_as_verified(self) -> None:
+        seeded = seed_verified_sender(self._context())
+        with simulated_email_domains(), patch("posthoganalytics.feature_enabled", return_value=True):
+            status = self._status(seeded["integration_id"])
+
+        assert status["status"] == "verified", status
+        assert {record["status"] for record in status["records"]} <= {"found", "verified"}
+        assert VERIFIED_SENDER.split("@")[1] in {record["hostname"] for record in status["records"]}

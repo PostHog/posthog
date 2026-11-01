@@ -117,6 +117,7 @@ def _create_sender(context: CustomPromptSandboxContext, address: str, *, mail_fr
 def _publish_verified_domain(context: CustomPromptSandboxContext, domain: str, mail_from_subdomain: str) -> None:
     SIMULATED_EMAIL_DOMAINS.publish(ses_records(domain, mail_from_subdomain))
     SIMULATED_EMAIL_DOMAINS.associate(context.team_id, domain)
+    SIMULATED_EMAIL_DOMAINS.set_mail_from_domain(domain, f"{mail_from_subdomain}.{domain}")
 
 
 def seed_domain_connect_support(context: CustomPromptSandboxContext) -> dict[str, Any]:
