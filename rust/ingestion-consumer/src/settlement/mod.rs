@@ -38,7 +38,9 @@ pub(crate) trait Settlement: Send + Sync {
 
     fn take_all(&self) -> Option<Commit>;
 
-    fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+    fn on_assigned(&self, assigned: &[TopicPartition]);
+
+    fn on_revoked(&self, revoked: &[TopicPartition]);
 }
 
 pub(crate) trait Accounting: Send + Sync {

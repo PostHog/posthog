@@ -22,7 +22,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 use ingestion_consumer::aperture;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::{Batcher, BatcherObserver};
-use ingestion_consumer::config::Config;
+use ingestion_consumer::config::{Config, GRACEFUL_SHUTDOWN, LIVENESS_DEADLINE};
 use ingestion_consumer::consumer::IngestionConsumer;
 use ingestion_consumer::debug_recorder::{
     BatcherLoad, DebugLoad, DebugRecorder, DebugState, GovernorLoad, RoutingDebug, WorkerStatus,
@@ -56,13 +56,19 @@ fn main() -> Result<()> {
     config
         .in_flight_limit()
         .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
+    config
+        .revoke_drain_timeout()
+        .map_err(|err| anyhow::anyhow!("invalid revoke drain timeout: {err}"))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("Failed to build tokio runtime")?;
 
-    runtime.block_on(async_main(config))
+    let result = runtime.block_on(async_main(config));
+    // A blocking commit that outlived its timeout must not hold the exit.
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    result
 }
 
 async fn async_main(config: Config) -> Result<()> {
@@ -116,8 +122,8 @@ async fn async_main(config: Config) -> Result<()> {
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(60))
-            .with_liveness_deadline(Duration::from_secs(60))
+            .with_graceful_shutdown(GRACEFUL_SHUTDOWN)
+            .with_liveness_deadline(LIVENESS_DEADLINE)
             .with_stall_threshold(3),
     );
 
