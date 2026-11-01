@@ -23,6 +23,7 @@ import * as transformer from '@posthog/brand/hoggies/png/transformer'
 import * as workflows from '@posthog/brand/hoggies/png/workflows'
 import * as xRay from '@posthog/brand/hoggies/png/x-ray'
 import { IconGithub } from '@posthog/icons'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -237,9 +238,12 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
     },
     [ProductKey.POSTHOG_DESKTOP]: {
         Icon: (
-            <Suspense fallback={null}>
-                <Logomark size="xl" />
-            </Suspense>
+            // The logo is decorative: if its chunk fails to load, hide it rather than reload the whole app.
+            <PostHogErrorBoundary fallback={<></>}>
+                <Suspense fallback={null}>
+                    <Logomark size="xl" />
+                </Suspense>
+            </PostHogErrorBoundary>
         ),
         iconUpright: true,
         accentColor: 'var(--color-accent)',
