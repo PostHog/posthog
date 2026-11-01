@@ -8,9 +8,9 @@ import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { escapeHogQLString, hogql } from '~/queries/utils'
 import { HogFunctionTypeType, LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'

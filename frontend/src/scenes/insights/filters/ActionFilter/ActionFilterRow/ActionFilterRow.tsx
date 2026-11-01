@@ -61,7 +61,7 @@ import {
 
 import {
     FLAG_CALLS_SERIES_DESCRIPTION,
-    FLAG_CALLS_SERIES_NAME,
+    flagCallsSeriesName,
     FLAG_CALLS_UNSUPPORTED_MATH_TYPES,
     FLAG_EVALUATIONS_SERIES_FIELDS,
     flagCallsFiltersFromEventFilters,
@@ -308,7 +308,7 @@ export function ActionFilterRow({
                 updateSeriesEntity(index, {
                     kind: dataWarehouseNodeKind ?? NodeKind.DataWarehouseNode,
                     key: FLAG_EVALUATIONS_TABLE,
-                    name: FLAG_CALLS_SERIES_NAME,
+                    name: flagCallsSeriesName(),
                     ...FLAG_EVALUATIONS_SERIES_FIELDS,
                 })
                 if (isEventsSeriesNode(node) && node.event === FEATURE_FLAG_CALLED_EVENT) {
@@ -317,7 +317,7 @@ export function ActionFilterRow({
                     const removedCount = (node.properties?.length ?? 0) - flagCallsFilters.length
                     if (removedCount > 0) {
                         lemonToast.info(
-                            `${FLAG_CALLS_SERIES_NAME} supports only flag key, response and SQL filters, so ${removedCount} other ${removedCount === 1 ? 'filter was' : 'filters were'} removed.`
+                            `${flagCallsSeriesName()} supports only flag key, response and SQL filters, so ${removedCount} other ${removedCount === 1 ? 'filter was' : 'filters were'} removed.`
                         )
                     }
                 }

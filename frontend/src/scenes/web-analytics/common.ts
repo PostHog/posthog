@@ -7,6 +7,7 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { UnexpectedNeverError } from 'lib/utils/guards'
+import { hogql } from 'lib/utils/hogql'
 
 import { pageCollectionId } from '~/queries/nodes/DataNode/pageCollections'
 import { hogqlQuery } from '~/queries/query'
@@ -19,7 +20,6 @@ import {
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
 } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { InsightLogicProps, PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
 
 /** Matches BREAKDOWN_NULL_DISPLAY in products/web_analytics/backend/hogql_queries/stats_table.py */

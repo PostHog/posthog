@@ -34,6 +34,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
 import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -1195,7 +1196,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return null
                     }
 
-                    if (!validateQuery(query)) {
+                    if (!validateQuery(query, hasInvalidRegexFilter)) {
                         return null
                     }
 
