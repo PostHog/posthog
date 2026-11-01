@@ -90,6 +90,7 @@ export interface messageTemplateLogicValues {
     agentPrompt: string
     agentPromptEventProperties: AgentPromptEventProperties
     agentPromptOpen: boolean
+    canEditWithAgent: boolean
     changePromptStarter: string
     changeSentence: string
     changeSentenceDraft: string | null
@@ -208,13 +209,13 @@ export interface messageTemplateLogicActions {
     deleteTemplate: () => {
         value: true
     }
+    discardChangeSentence: () => {
+        value: true
+    }
     discardDraft: () => {
         value: true
     }
     discardDraftDone: () => {
-        value: true
-    }
-    discardChangeSentence: () => {
         value: true
     }
     duplicateTemplate: () => {
@@ -631,6 +632,7 @@ export interface messageTemplateLogicMeta {
         ) => boolean
         isCodeManaged: (originalTemplate: MessageTemplate) => boolean
         templateSource: (originalTemplate: MessageTemplate) => TemplateSource | null
+        canEditWithAgent: (isCodeManaged: boolean, originalTemplate: MessageTemplate) => boolean
         changePromptStarter: (originalTemplate: MessageTemplate) => string
         changeSentence: (changeSentenceDraft: string | null, changePromptStarter: string) => string
         agentPrompt: (changeSentence: string, originalTemplate: MessageTemplate) => string
