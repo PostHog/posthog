@@ -15,25 +15,67 @@ from django.conf import settings
 
 import brotli
 import orjson
-import psycopg
 import pyarrow as pa
 import psycopg.adapt
 import pyarrow.parquet as pq
 import psycopg.types.array
-from psycopg import sql
 
+from posthog.temporal.common.arrow_pipeline.table import Field, Table, TypeTupleToCastMapping, are_types_compatible
+from posthog.temporal.common.arrow_pipeline.worker_init import init_worker
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
-from products.batch_exports.backend.temporal.pipeline.table import (
-    Field,
-    Table,
-    TypeTupleToCastMapping,
-    are_types_compatible,
-)
-from products.batch_exports.backend.temporal.pipeline.worker_init import init_worker
-
 logger = get_write_only_logger()
+
+RecursionLimitHandler = collections.abc.Callable[[dict[str, typing.Any]], bool]
+"""Try to make a record that hit orjson's recursion limit dumpable, by changing it in place.
+
+Return `True` to dump the changed record with orjson again, or `False` to fall back to the
+stdlib `json` module. Transformers send the handler to worker processes, so it must be a
+module-level function that pickle can import.
+"""
+
+
+class TransformTimer(typing.Protocol):
+    """Time one transform step, for example to record a metric.
+
+    Transformers call the timer once per step and run the step inside the returned context
+    manager. `log_message` is a printf-style message that can use `num_records`,
+    `mb_processed`, `duration_seconds` and `mb_per_second`.
+    """
+
+    def __call__(
+        self,
+        name: str,
+        /,
+        *,
+        description: str,
+        log_message: str,
+        num_records: int,
+        num_bytes: int,
+    ) -> contextlib.AbstractContextManager[object]: ...
+
+
+def _time_transform(
+    timer: TransformTimer | None,
+    name: str,
+    /,
+    *,
+    description: str,
+    log_message: str,
+    num_records: int,
+    num_bytes: int,
+) -> contextlib.AbstractContextManager[object]:
+    if timer is None:
+        return contextlib.nullcontext()
+    return timer(name, description=description, log_message=log_message, num_records=num_records, num_bytes=num_bytes)
+
+
+def _remove_fields(schema: pa.Schema, field_names: collections.abc.Iterable[str]) -> pa.Schema:
+    """Return `schema` without the fields named `field_names`, ignoring names that it does not have."""
+    for name in field_names:
+        if (index := schema.get_field_index(name)) >= 0:
+            schema = schema.remove(index)
+    return schema
 
 
 class Chunk(typing.NamedTuple):
@@ -66,38 +108,46 @@ ChunkTransformerProtocol = TransformerProtocol[Chunk]
 
 
 def get_json_stream_transformer(
-    include_inserted_at: bool = False,
+    exclude_columns: collections.abc.Iterable[str] = (),
     compression: str | None = None,
     max_file_size_bytes: int = 0,
     max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
+    on_recursion_limit: RecursionLimitHandler | None = None,
 ) -> ChunkTransformerProtocol:
     if compression == "brotli":
         return JSONLBrotliStreamTransformer(
-            include_inserted_at=include_inserted_at, max_file_size_bytes=max_file_size_bytes, max_workers=max_workers
+            exclude_columns=exclude_columns,
+            max_file_size_bytes=max_file_size_bytes,
+            max_workers=max_workers,
+            on_recursion_limit=on_recursion_limit,
         )
 
     return JSONLStreamTransformer(
         compression=compression,
-        include_inserted_at=include_inserted_at,
+        exclude_columns=exclude_columns,
         max_file_size_bytes=max_file_size_bytes,
         max_workers=max_workers,
+        on_recursion_limit=on_recursion_limit,
     )
 
 
 class JSONLStreamTransformer:
     """A transformer to convert record batches into lines of JSON.
 
-    Each record in a record batch corresponds to one JSON line.
+    Each record in a record batch corresponds to one JSON line. Columns in `exclude_columns`
+    are not written.
     """
 
     def __init__(
         self,
         compression: str | None = None,
-        include_inserted_at: bool = False,
+        exclude_columns: collections.abc.Iterable[str] = (),
         max_file_size_bytes: int = 0,
         max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
+        on_recursion_limit: RecursionLimitHandler | None = None,
     ):
-        self.include_inserted_at = include_inserted_at
+        self.exclude_columns = frozenset(exclude_columns)
+        self.on_recursion_limit = on_recursion_limit
         self.compression = compression
         self.max_workers = max_workers
         self.max_file_size_bytes = max_file_size_bytes
@@ -132,7 +182,8 @@ class JSONLStreamTransformer:
                 executor=executor,
                 semaphore=self._semaphore,
                 futures_pending=self._futures_pending,
-                include_inserted_at=self.include_inserted_at,
+                exclude_columns=self.exclude_columns,
+                on_recursion_limit=self.on_recursion_limit,
                 compression=self.compression,
             ) as producer_task:
                 while True:
@@ -164,11 +215,13 @@ class JSONLStreamTransformer:
 class JSONLBrotliStreamTransformer:
     def __init__(
         self,
-        include_inserted_at: bool = False,
+        exclude_columns: collections.abc.Iterable[str] = (),
         max_file_size_bytes: int = 0,
         max_workers: int = settings.BATCH_EXPORT_TRANSFORMER_MAX_WORKERS,
+        on_recursion_limit: RecursionLimitHandler | None = None,
     ):
-        self.include_inserted_at = include_inserted_at
+        self.exclude_columns = frozenset(exclude_columns)
+        self.on_recursion_limit = on_recursion_limit
         self.max_file_size_bytes = max_file_size_bytes
         self.max_workers = max_workers
 
@@ -201,7 +254,8 @@ class JSONLBrotliStreamTransformer:
                 executor=executor,
                 semaphore=self._semaphore,
                 futures_pending=self._futures_pending,
-                include_inserted_at=self.include_inserted_at,
+                exclude_columns=self.exclude_columns,
+                on_recursion_limit=self.on_recursion_limit,
                 compression=None,
             ) as producer_task:
                 while True:
@@ -268,7 +322,8 @@ async def _record_batches_producer(
     executor: concurrent.futures.ProcessPoolExecutor,
     semaphore: asyncio.Semaphore,
     futures_pending: set[asyncio.Future[list[bytes]]],
-    include_inserted_at: bool,
+    exclude_columns: frozenset[str],
+    on_recursion_limit: RecursionLimitHandler | None,
     compression: str | None = None,
 ):
     """Manage a task to produce record batches to run in executor."""
@@ -279,7 +334,9 @@ async def _record_batches_producer(
         async for record_batch in record_batches:
             _ = await semaphore.acquire()
 
-            future = loop.run_in_executor(executor, dump_record_batch, record_batch, compression, include_inserted_at)
+            future = loop.run_in_executor(
+                executor, dump_record_batch, record_batch, compression, exclude_columns, on_recursion_limit
+            )
             futures_pending.add(future)
 
     producer_task = asyncio.create_task(producer())
@@ -299,16 +356,11 @@ async def _record_batches_producer(
 def dump_record_batch(
     record_batch: pa.RecordBatch,
     compression: str | None,
-    include_inserted_at: bool = False,
+    exclude_columns: collections.abc.Container[str] = (),
+    on_recursion_limit: RecursionLimitHandler | None = None,
 ) -> list[bytes]:
-    """Dump all records in a record batch to JSON lines."""
-    column_names = record_batch.column_names
-    if not include_inserted_at:
-        try:
-            _ = column_names.pop(column_names.index("_inserted_at"))
-        except ValueError:
-            # Already not included, filtered upstream.
-            pass
+    """Dump all records in a record batch to JSON lines, without the columns in `exclude_columns`."""
+    column_names = [name for name in record_batch.column_names if name not in exclude_columns]
 
     def compress(content: bytes):
         match compression:
@@ -321,16 +373,24 @@ def dump_record_batch(
 
     if compression:
         return [
-            compress(dump_dict(record_dict))
+            compress(dump_dict(record_dict, on_recursion_limit))
             for record_dict in record_batch.select(column_names).to_pylist()
             if record_dict
         ]
     else:
-        return [dump_dict(record_dict) for record_dict in record_batch.select(column_names).to_pylist() if record_dict]
+        return [
+            dump_dict(record_dict, on_recursion_limit)
+            for record_dict in record_batch.select(column_names).to_pylist()
+            if record_dict
+        ]
 
 
-def dump_dict(d: dict[str, typing.Any]) -> bytes:
-    """Dump a dictionary to a line of JSON."""
+def dump_dict(d: dict[str, typing.Any], on_recursion_limit: RecursionLimitHandler | None = None) -> bytes:
+    """Dump a dictionary to a line of JSON.
+
+    When orjson reaches its recursion limit, `on_recursion_limit` can change `d` so that orjson
+    can dump it. See `RecursionLimitHandler`.
+    """
     try:
         dumped = orjson.dumps(d, default=str) + b"\n"
     except orjson.JSONEncodeError as err:
@@ -340,20 +400,8 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
         if str(err) == "Recursion limit reached":
             # Orjson enforces an unmodifiable recursion limit (256), so we can't
             # dump very nested dicts.
-            if d.get("event", None) == "$web_vitals":
-                # These are PostHog events that for a while included a bunch of
-                # nested DOM structures. Eventually, this was removed, but these
-                # events could still be present in database.
-                # Let's try to clear the key with nested elements first.
-                try:
-                    del d["properties"]["$web_vitals_INP_event"]["attribution"]["interactionTargetElement"]
-                except KeyError:
-                    # We tried, fallback to the slower but more permissive stdlib
-                    # json.
-                    logger.exception("PostHog $web_vitals event didn't match expected structure")
-                    dumped = json.dumps(d, default=str).encode("utf-8") + b"\n"
-                else:
-                    dumped = dump_dict(d)
+            if on_recursion_limit is not None and on_recursion_limit(d):
+                dumped = dump_dict(d, on_recursion_limit)
 
             else:
                 # In this case, we fallback to the slower but more permissive stdlib
@@ -371,7 +419,7 @@ def dump_dict(d: dict[str, typing.Any]) -> bytes:
             # "\ud83d"
             logger.exception("Failed to encode with orjson: %s", d)
             cleaned_content = replace_broken_unicode(d)
-            dumped = dump_dict(cleaned_content)
+            dumped = dump_dict(cleaned_content, on_recursion_limit)
 
     return dumped
 
@@ -404,27 +452,31 @@ class ParquetStreamTransformer:
 
     Record batches are held until `max_buffered_arrow_bytes` of them are pending, then written as one
     row group. The limit counts Arrow bytes, so the row group in the file is usually smaller.
+
+    Columns in `exclude_columns` are not written. Columns in `json_columns` hold JSON documents, so
+    they get no dictionary encoding and no statistics.
     """
 
     # Close a file when less than this fraction of its max size is left. Otherwise, the last row
     # group ends up being very small and we're also more likely to go over the max file size.
     MIN_REMAINING_FILE_SIZE_FRACTION = 0.05
-    JSON_COLUMNS = frozenset({"properties", "person_properties", "set", "set_once"})
 
     def __init__(
         self,
         compression: str | None = None,
         compression_level: int | None = None,
-        include_inserted_at: bool = False,
+        exclude_columns: collections.abc.Iterable[str] = (),
         max_file_size_bytes: int = 0,
         max_buffered_arrow_bytes: int | None = None,
-        record_metrics: bool = True,
+        json_columns: collections.abc.Iterable[str] = (),
+        transform_timer: TransformTimer | None = None,
     ):
-        self.include_inserted_at = include_inserted_at
+        self.exclude_columns = frozenset(exclude_columns)
+        self.json_columns = frozenset(json_columns)
         self.compression = compression
         self.compression_level = compression_level
         self.max_file_size_bytes = max_file_size_bytes
-        self.record_metrics = record_metrics
+        self.transform_timer = transform_timer
 
         if max_buffered_arrow_bytes is None:
             max_buffered_arrow_bytes = settings.BATCH_EXPORT_PARQUET_MAX_BUFFERED_ARROW_BYTES
@@ -457,21 +509,19 @@ class ParquetStreamTransformer:
             if not self._is_row_group_ready():
                 continue
 
-            if self.record_metrics:
-                with ExecutionTimeRecorder(
-                    "parquet_stream_transformer_record_batch_transform_duration",
-                    description="Duration to write pending record batches as a Parquet row group.",
-                    log_message=(
-                        "Wrote row group with %(num_records)d records to parquet."
-                        " Record batches size: %(mb_processed).2f MB, process time:"
-                        " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
-                    ),
-                    log_attributes={"num_records": self._pending_record_batches_rows},
-                ) as recorder:
-                    recorder.add_bytes_processed(self._pending_record_batches_bytes)
-                    # Running write in a thread to yield control back to event loop.
-                    chunk = await asyncio.to_thread(self._flush_row_group)
-            else:
+            with _time_transform(
+                self.transform_timer,
+                "parquet_stream_transformer_record_batch_transform_duration",
+                description="Duration to write pending record batches as a Parquet row group.",
+                log_message=(
+                    "Wrote row group with %(num_records)d records to parquet."
+                    " Record batches size: %(mb_processed).2f MB, process time:"
+                    " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
+                ),
+                num_records=self._pending_record_batches_rows,
+                num_bytes=self._pending_record_batches_bytes,
+            ):
+                # Running write in a thread to yield control back to event loop.
                 chunk = await asyncio.to_thread(self._flush_row_group)
 
             yield Chunk(chunk, False)
@@ -515,13 +565,11 @@ class ParquetStreamTransformer:
         if self._schema is not None:
             return
 
-        if not self.include_inserted_at:
-            if (index := schema.get_field_index("_inserted_at")) >= 0:
-                schema = schema.remove(index)
+        schema = _remove_fields(schema, self.exclude_columns)
 
         self._schema = schema
         self._non_json_column_paths = get_parquet_column_paths(
-            schema, [name for name in schema.names if name not in self.JSON_COLUMNS]
+            schema, [name for name in schema.names if name not in self.json_columns]
         )
 
     def _finish_parquet_file(self) -> bytes:
@@ -590,129 +638,6 @@ class ParquetStreamTransformer:
         self._pending_record_batches_rows = 0
 
 
-class RedshiftQueryStreamTransformer:
-    """A transformer to convert record batches into a Redshift INSERT INTO query."""
-
-    def __init__(
-        self,
-        schema: pa.Schema,
-        redshift_table: str,
-        redshift_schema: str | None,
-        table_columns: collections.abc.Sequence[str],
-        known_json_columns: collections.abc.Iterable[str],
-        redshift_client,
-        max_query_size_bytes: int = 8 * 1024 * 1024,
-    ):
-        self.schema = schema
-        self.redshift_table = redshift_table
-        self.redshift_schema = redshift_schema
-        self.table_columns = list(table_columns)
-        self.known_json_columns = known_json_columns
-        self.redshift_client = redshift_client
-        self.max_query_size_bytes = max_query_size_bytes
-
-        placeholders: list[sql.Composable] = []
-        for column in table_columns:
-            placeholders.append(sql.Placeholder(column))
-
-        self.template = sql.SQL("({})").format(sql.SQL(", ").join(placeholders))
-
-    async def iter(
-        self,
-        record_batches: collections.abc.AsyncIterable[pa.RecordBatch],
-    ) -> collections.abc.AsyncIterator[Chunk]:
-        """Iterate over record batches transforming them into chunks."""
-        current_file_size = 0
-
-        query_start = await self.get_encoded_query_start()
-        is_query_start = True
-
-        async for record_batch in record_batches:
-            for record in record_batch.select(self.table_columns).to_pylist():
-                for json_column in self.known_json_columns:
-                    if record.get(json_column, None) is None:
-                        continue
-
-                    record[json_column] = json.dumps(
-                        remove_escaped_whitespace_recursive(record[json_column]), ensure_ascii=False
-                    )
-
-                chunk = await self.mogrify_record(record)
-
-                if is_query_start:
-                    yield Chunk(query_start, False)
-                    is_query_start = False
-
-                else:
-                    yield Chunk(b",", False)
-
-                yield Chunk(chunk, False)
-
-                if current_file_size + len(chunk) > self.max_query_size_bytes:
-                    yield Chunk(b"", True)
-                    current_file_size = 0
-                    is_query_start = True
-
-                else:
-                    current_file_size += len(chunk)
-
-        yield Chunk(b"", True)
-
-    async def mogrify_record(self, record: dict[str, typing.Any]) -> bytes:
-        """Produce encoded bytes from a record."""
-        async with self.redshift_client.async_client_cursor() as cursor:
-            return cursor.mogrify(self.template, record).encode("utf-8").replace(b" E'", b" '")
-
-    async def get_encoded_query_start(self) -> bytes:
-        """Encode and format the start of an INSERT INTO query."""
-        if self.redshift_schema:
-            table_identifier = sql.Identifier(self.redshift_schema, self.redshift_table)
-        else:
-            table_identifier = sql.Identifier(self.redshift_table)
-
-        pre_query = sql.SQL("INSERT INTO {table} ({fields}) VALUES").format(
-            table=table_identifier,
-            fields=sql.SQL(", ").join(map(sql.Identifier, self.table_columns)),
-        )
-
-        async with self.redshift_client.async_client_cursor() as cursor:
-            return pre_query.as_string(cursor).encode("utf-8")
-
-
-def remove_escaped_whitespace_recursive(value):
-    """Remove all escaped whitespace characters from given value.
-
-    PostgreSQL supports constant escaped strings by appending an E' to each string that
-    contains whitespace in them (amongst other characters). See:
-    https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-ESCAPE
-
-    However, Redshift does not support this syntax. So, to avoid any escaping by
-    underlying PostgreSQL library, we remove the whitespace ourselves as defined in the
-    translation table WHITESPACE_TRANSLATE.
-
-    This function is recursive just to be extremely careful and catch any whitespace that
-    may be sneaked in a dictionary key or sequence.
-    """
-    match value:
-        case str(s):
-            return " ".join(s.replace("\b", " ").split())
-
-        case bytes(b):
-            return remove_escaped_whitespace_recursive(b.decode("utf-8"))
-
-        case [*sequence]:
-            return type(value)(remove_escaped_whitespace_recursive(sequence_value) for sequence_value in sequence)
-
-        case set(elements):
-            return {remove_escaped_whitespace_recursive(element) for element in elements}
-
-        case {**mapping}:
-            return {k: remove_escaped_whitespace_recursive(v) for k, v in mapping.items()}
-
-        case value:
-            return value
-
-
 def _ensure_curly_brackets_array(v: list[typing.Any]) -> str:
     """Convert list to PostgreSQL array literal format with proper escaping.
 
@@ -744,7 +669,7 @@ class CSVStreamTransformer:
         escape_char: str | None = "\\",
         line_terminator: str = "\n",
         quoting: typing.Literal[0, 1, 2, 3, 4, 5] = csv.QUOTE_NONE,
-        include_inserted_at: bool = False,
+        exclude_columns: collections.abc.Iterable[str] = (),
         max_file_size_bytes: int = 0,
     ):
         self.field_names = field_names
@@ -753,7 +678,7 @@ class CSVStreamTransformer:
         self.escape_char = escape_char
         self.line_terminator = line_terminator
         self.quoting = quoting
-        self.include_inserted_at = include_inserted_at
+        self.exclude_columns = frozenset(exclude_columns)
         self.max_file_size_bytes = max_file_size_bytes
 
     async def iter(
@@ -780,9 +705,7 @@ class CSVStreamTransformer:
     def write_record_batch(self, record_batch: pa.RecordBatch) -> bytes:
         """Write record batch to CSV bytes."""
 
-        column_names = list(self.field_names)
-        if not self.include_inserted_at and "_inserted_at" in column_names:
-            column_names.pop(column_names.index("_inserted_at"))
+        column_names = [name for name in self.field_names if name not in self.exclude_columns]
 
         buffer = io.BytesIO()
         text_wrapper = io.TextIOWrapper(buffer, encoding="utf-8", newline="")
@@ -818,12 +741,14 @@ class SerializedStreamTransformer:
     def __init__(
         self,
         pool: concurrent.futures.ProcessPoolExecutor,
-        include_inserted_at: bool = False,
+        exclude_columns: collections.abc.Iterable[str] = (),
         max_file_size_bytes: int = 0,
+        transform_timer: TransformTimer | None = None,
     ):
         self.pool = pool
-        self.include_inserted_at = include_inserted_at
+        self.exclude_columns = frozenset(exclude_columns)
         self.max_file_size_bytes = max_file_size_bytes
+        self.transform_timer = transform_timer
 
         self._schema: pa.Schema | None = None
 
@@ -837,7 +762,8 @@ class SerializedStreamTransformer:
         async for record_batch in record_batches:
             self.schema = record_batch.schema
 
-            with ExecutionTimeRecorder(
+            with _time_transform(
+                self.transform_timer,
                 "serialized_transformer_record_batch_transform_duration",
                 description="Duration to serialize a record batch.",
                 log_message=(
@@ -845,10 +771,9 @@ class SerializedStreamTransformer:
                     " Record batch size: %(mb_processed).2f MB, process time:"
                     " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
                 ),
-                log_attributes={"num_records": record_batch.num_rows},
-            ) as recorder:
-                recorder.add_bytes_processed(record_batch.nbytes)
-
+                num_records=record_batch.num_rows,
+                num_bytes=record_batch.nbytes,
+            ):
                 chunk = await loop.run_in_executor(self.pool, serialize, record_batch, self.schema.names)
                 yield Chunk(chunk, False)
 
@@ -872,11 +797,7 @@ class SerializedStreamTransformer:
         if self._schema is not None:
             return
 
-        if not self.include_inserted_at:
-            if (index := schema.get_field_index("_inserted_at")) >= 0:
-                schema = schema.remove(index)
-
-        self._schema = schema
+        self._schema = _remove_fields(schema, self.exclude_columns)
 
 
 class IncompatibleTypesError(TypeError):

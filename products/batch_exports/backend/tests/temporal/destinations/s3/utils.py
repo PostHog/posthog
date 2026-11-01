@@ -18,6 +18,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.hogql import ast
 
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.hogql_source import parse_hogql_select_for_batch_export
@@ -50,7 +51,6 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
 )
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import (
     HogQLQueryRecordBatchModel,
     SessionsRecordBatchModel,

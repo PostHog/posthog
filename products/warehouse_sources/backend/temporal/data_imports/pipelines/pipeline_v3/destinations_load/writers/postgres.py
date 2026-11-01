@@ -43,6 +43,7 @@ from psycopg import sql
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import PostgreSQLIntegration
 from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
+from posthog.temporal.common.arrow_pipeline.transformer import CSVStreamTransformer
 
 from products.batch_exports.backend.facade.destinations.postgres import (
     Fields,
@@ -51,7 +52,6 @@ from products.batch_exports.backend.facade.destinations.postgres import (
     PostgreSQLIntegrationNotFoundError,
     run_in_retryable_transaction,
 )
-from products.batch_exports.backend.facade.pipeline import CSVStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -485,7 +485,6 @@ class PostgresDestinationWriter:
             escape_char=None,
             line_terminator="\n",
             quoting=csv.QUOTE_STRINGS,
-            include_inserted_at=False,
         )
         return io.BytesIO(transformer.write_record_batch(json_encode_nested_columns(batch)))
 

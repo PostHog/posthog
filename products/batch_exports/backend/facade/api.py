@@ -17,8 +17,8 @@ the HogQL, destination config, export, file download, run and backfill modules l
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
 ``facade/temporal.py``. The destination clients the warehouse writers reuse live in
-``facade/destinations/``, and the stream transformers in ``facade/pipeline.py``. None of
-those may be imported from here.
+``facade/destinations/``. None of those may be imported from here. The stream transformers
+are not part of this product: they live in ``posthog.temporal.common.arrow_pipeline``.
 """
 
 import datetime as dt

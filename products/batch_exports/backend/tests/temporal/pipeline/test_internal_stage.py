@@ -21,6 +21,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue, wait_for_schema_or_producer
 from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
     ClickHouseClientTimeoutError,
@@ -56,7 +57,6 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,

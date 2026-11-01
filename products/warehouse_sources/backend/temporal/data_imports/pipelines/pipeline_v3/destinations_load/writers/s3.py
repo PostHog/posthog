@@ -51,6 +51,7 @@ import botocore.exceptions
 
 from posthog.models.integration import AWSS3RoleBasedIntegration, S3CompatibleIntegration
 from posthog.models.team import Team
+from posthog.temporal.common.arrow_pipeline.transformer import ParquetStreamTransformer
 
 from products.batch_exports.backend.facade.contracts import AWSCredentials
 from products.batch_exports.backend.facade.destinations.s3 import (
@@ -64,7 +65,6 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     get_s3_integration,
     s3_client,
 )
-from products.batch_exports.backend.facade.pipeline import ParquetStreamTransformer
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -157,8 +157,8 @@ async def _parquet_byte_stream(
     of Arrow data is in memory. A batch that later grows a column is projected back onto the
     first schema, because one parquet file has one schema.
     """
-    # Delivery runs outside a Temporal activity, where there is no metric meter to record to.
-    transformer = ParquetStreamTransformer(compression=compression, include_inserted_at=True, record_metrics=False)
+    # Delivery runs outside a Temporal activity, where there is no metric meter, so no transform timer is passed.
+    transformer = ParquetStreamTransformer(compression=compression)
 
     async for chunk in transformer.iter(_count_rows(batches, stats)):
         stats.parquet_bytes += len(chunk.data)

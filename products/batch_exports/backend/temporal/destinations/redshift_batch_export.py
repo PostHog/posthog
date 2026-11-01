@@ -34,6 +34,9 @@ from posthog.models.integration import (
     IntegrationError,
     RedshiftIntegration,
 )
+from posthog.temporal.common.arrow_pipeline.json_type import JsonType, cast_record_batch_schema_json_columns
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue, wait_for_schema_or_producer
+from posthog.temporal.common.arrow_pipeline.transformer import ParquetStreamTransformer
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -71,20 +74,14 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
+from products.batch_exports.backend.temporal.metrics import QueueWaitTimeRecorder, time_transform
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.events import EVENTS_JSON_COLUMNS, INSERTED_AT_COLUMN
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.transformer import (
-    ParquetStreamTransformer,
-    RedshiftQueryStreamTransformer,
-)
+from products.batch_exports.backend.temporal.pipeline.redshift_transformer import RedshiftQueryStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import (
-    JsonType,
-    cast_record_batch_schema_json_columns,
-    handle_non_retryable_errors,
-)
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
@@ -1267,7 +1264,10 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
     async with Heartbeater():
         model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
 
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        queue = RecordBatchQueue(
+            max_size_bytes=settings.BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES,
+            on_wait_time=QueueWaitTimeRecorder(),
+        )
         producer = Producer()
         assert inputs.batch_export.batch_export_id is not None
         producer_task = await producer.start(
@@ -1783,7 +1783,10 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
     async with Heartbeater():
         model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
 
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        queue = RecordBatchQueue(
+            max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES,
+            on_wait_time=QueueWaitTimeRecorder(),
+        )
         producer = Producer()
         assert inputs.batch_export.batch_export_id is not None
         producer_task = await producer.start(
@@ -1824,8 +1827,10 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
 
         transformer = ParquetStreamTransformer(
             compression="zstd",
-            include_inserted_at=False,
+            exclude_columns=(INSERTED_AT_COLUMN,),
             max_file_size_bytes=max_file_size_mb * 1024**2,
+            json_columns=EVENTS_JSON_COLUMNS,
+            transform_timer=time_transform,
         )
 
         merge_settings = _get_merge_settings(model=model, use_super=table_schemas.use_super)

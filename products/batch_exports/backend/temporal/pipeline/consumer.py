@@ -9,6 +9,9 @@ import pyarrow as pa
 import temporalio.common
 from opentelemetry import trace
 
+from posthog.temporal.common.arrow_pipeline.json_type import cast_record_batch_json_columns
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue, raise_on_task_failure
+from posthog.temporal.common.arrow_pipeline.transformer import ChunkTransformerProtocol
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import (
@@ -17,10 +20,8 @@ from products.batch_exports.backend.temporal.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
-from products.batch_exports.backend.temporal.pipeline.transformer import ChunkTransformerProtocol
+from products.batch_exports.backend.temporal.pipeline.events import EVENTS_JSON_COLUMNS
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue, raise_on_task_failure
-from products.batch_exports.backend.temporal.utils import cast_record_batch_json_columns
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -96,7 +97,7 @@ class Consumer:
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
         transformer: ChunkTransformerProtocol,
-        json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
+        json_columns: collections.abc.Iterable[str] = EVENTS_JSON_COLUMNS,
     ) -> BatchExportResult:
         """Start consuming record batches from queue.
 
@@ -207,7 +208,7 @@ class Consumer:
         self,
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
-        json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
+        json_columns: collections.abc.Iterable[str] = EVENTS_JSON_COLUMNS,
     ):
         """Yield record batches from provided `queue` until `producer_task` is done.
 
@@ -330,7 +331,7 @@ async def run_consumer_from_stage(
     consumer: Consumer,
     producer_task: asyncio.Task[None],
     transformer: ChunkTransformerProtocol,
-    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Iterable[str] = EVENTS_JSON_COLUMNS,
     records_total: int | None = None,
 ) -> BatchExportResult:
     """Run a record batch consumer to batch export to a destination.

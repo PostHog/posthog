@@ -5,14 +5,8 @@ import pytest
 
 import pyarrow as pa
 
-from products.batch_exports.backend.temporal.pipeline.table import (
-    Field,
-    Table,
-    TableBase,
-    TableReference,
-    are_types_compatible,
-)
-from products.batch_exports.backend.temporal.utils import JsonType
+from posthog.temporal.common.arrow_pipeline.json_type import JsonType
+from posthog.temporal.common.arrow_pipeline.table import Field, Table, TableBase, TableReference, are_types_compatible
 
 
 @pytest.mark.parametrize(

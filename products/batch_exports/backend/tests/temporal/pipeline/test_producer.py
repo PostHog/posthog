@@ -18,6 +18,7 @@ from django.test.utils import override_settings
 import pyarrow as pa
 
 from posthog.temporal.common import asyncpa
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue, wait_for_schema_or_producer
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BatchExportEventsModel
@@ -27,7 +28,6 @@ from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer, S3FileResumeState, slice_record_batch
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_files_in_s3
 

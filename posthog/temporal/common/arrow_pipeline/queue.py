@@ -1,9 +1,8 @@
 """The bounded queue that carries record batches from a producer to a consumer.
 
-Batch exports move data by having a producer read record batches and a consumer write them to
-the destination. This is the handoff between them: a queue bounded by bytes rather than item
-count, since record batch sizes vary enormously, plus the helpers for waiting on the producer
-and surfacing its failures.
+A producer reads record batches and a consumer writes them to the destination. This is the
+handoff between them: a queue bounded by bytes rather than item count, since record batch sizes
+vary enormously, plus the helpers for waiting on the producer and surfacing its failures.
 """
 
 import time
@@ -12,11 +11,8 @@ import asyncio
 import collections.abc
 
 import pyarrow as pa
-from temporalio.common import MetricHistogram
 
 from posthog.temporal.common.logger import get_write_only_logger
-
-from products.batch_exports.backend.temporal.metrics import get_metric_meter
 
 LOGGER = get_write_only_logger(__name__)
 
@@ -29,33 +25,34 @@ class QueuedRecordBatch(typing.NamedTuple):
 
 
 class RecordBatchQueue(asyncio.Queue):
-    """A queue of pyarrow RecordBatch instances limited by bytes."""
+    """A queue of pyarrow RecordBatch instances limited by bytes.
 
-    def __init__(self, max_size_bytes: int = 0) -> None:
+    Arguments:
+        max_size_bytes: Bytes the queue may hold before `put` blocks. Zero means no limit.
+        on_wait_time: Called with the nanoseconds each record batch spent in the queue, for
+            example to record a metric. Nothing is recorded when this is `None`.
+    """
+
+    def __init__(
+        self,
+        max_size_bytes: int = 0,
+        on_wait_time: collections.abc.Callable[[int], None] | None = None,
+    ) -> None:
         super().__init__(maxsize=max_size_bytes)
         self._bytes_size = 0
         self._schema_set = asyncio.Event()
         self.record_batch_schema: pa.Schema | None = None
-        self._histogram: MetricHistogram | None = None
+        self._on_wait_time = on_wait_time
         # This is set by `asyncio.Queue.__init__` calling `_init`
         self._queue: collections.deque[QueuedRecordBatch]
-
-    @property
-    def histogram(self) -> MetricHistogram:
-        if self._histogram is None:
-            meter = get_metric_meter()
-            self._histogram = meter.create_histogram(
-                "batch_exports_queue_wait_time", description="Time spent by record batches waiting in queue"
-            )
-        return self._histogram
 
     def _get(self) -> pa.RecordBatch:
         """Override parent `_get` to keep track of bytes."""
         record_batch, enqueued_at = self._queue.popleft()
         self._bytes_size -= record_batch.get_total_buffer_size()
 
-        queued_time = time.perf_counter_ns() - enqueued_at
-        self.histogram.record(queued_time)
+        if self._on_wait_time is not None:
+            self._on_wait_time(time.perf_counter_ns() - enqueued_at)
 
         return record_batch
 
@@ -159,13 +156,13 @@ async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: as
 
     if get_schema_task.done():
         # The schema is available, and the queue is not empty, so we can continue
-        # with the rest of the the batch export.
+        # with the rest of the export.
         record_batch_schema = get_schema_task.result()
     else:
         # We finished producing without putting anything in the queue and there is
-        # nothing to batch export. We could have also failed, so we need to re-raise
+        # nothing to export. We could have also failed, so we need to re-raise
         # that exception to allow a retry if that's the case. If we don't fail, it
-        # is safe to finish the batch export early.
+        # is safe to finish the export early.
         await raise_on_task_failure(producer_task)
 
     return record_batch_schema

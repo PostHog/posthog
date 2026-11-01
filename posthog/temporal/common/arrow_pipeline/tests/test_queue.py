@@ -6,25 +6,29 @@ import pytest
 
 import pyarrow as pa
 
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+pytestmark = [pytest.mark.asyncio]
 
 
 async def test_record_batch_queue_tracks_bytes():
-    """Test `RecordBatchQueue` tracks bytes from `RecordBatch`."""
+    """Test `RecordBatchQueue` tracks bytes from `RecordBatch`, and reports the wait time of each."""
     records = [{"test": 1}, {"test": 2}, {"test": 3}]
     record_batch = pa.RecordBatch.from_pylist(records)
+    wait_times: list[int] = []
 
-    queue = RecordBatchQueue()
+    queue = RecordBatchQueue(on_wait_time=wait_times.append)
 
     await queue.put(record_batch)
     assert record_batch.get_total_buffer_size() == queue.qsize()
+    assert wait_times == []
 
     item = await queue.get()
 
     assert item == record_batch
     assert queue.qsize() == 0
+    assert len(wait_times) == 1
+    assert wait_times[0] >= 0
 
 
 async def test_record_batch_queue_raises_queue_full():

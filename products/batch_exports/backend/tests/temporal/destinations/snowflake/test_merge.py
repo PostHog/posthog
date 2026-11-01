@@ -3,13 +3,14 @@ from unittest.mock import AsyncMock, patch
 
 import pyarrow as pa
 
+from posthog.temporal.common.arrow_pipeline.json_type import JsonType
+
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeClient,
     SnowflakeField,
     SnowflakeTable,
     SnowflakeType,
 )
-from products.batch_exports.backend.temporal.utils import JsonType
 
 
 @pytest.mark.asyncio
