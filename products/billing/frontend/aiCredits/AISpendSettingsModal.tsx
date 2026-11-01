@@ -7,7 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { aiCreditsLogic, automaticReloadConsent, cardShortLabel, settingAmount } from './aiCreditsLogic'
+import { aiCreditsLogic, automaticReloadConsent, cardShortLabel } from './aiCreditsLogic'
 import { ReloadAmountFields } from './ReloadAmountFields'
 
 export function AISpendSettingsModal(): JSX.Element {
@@ -18,14 +18,13 @@ export function AISpendSettingsModal(): JSX.Element {
         settings,
         card,
         spendSummary,
-        reloadedThisPeriodUsd,
+        reloadedThisPeriodText,
     } = useValues(aiCreditsLogic)
     const { closeSettingsModal, submitSpendSettingsForm } = useActions(aiCreditsLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     const cardOnFile = card?.card ?? null
     const turningReloadOn = spendSettingsForm.reloadEnabled && !settings?.automatic_reload.enabled
-    const savedReloadLimit = settings?.automatic_reload.monthly_reload_limit_usd
 
     return (
         <LemonModal
@@ -91,12 +90,8 @@ export function AISpendSettingsModal(): JSX.Element {
                                     {automaticReloadConsent(cardOnFile, spendSettingsForm)}
                                 </p>
                             ) : (
-                                reloadedThisPeriodUsd !== null && (
-                                    <span className="text-xs text-tertiary">
-                                        {savedReloadLimit
-                                            ? `${settingAmount(reloadedThisPeriodUsd)} of ${settingAmount(savedReloadLimit)} reloaded this period`
-                                            : `${settingAmount(reloadedThisPeriodUsd)} reloaded this period`}
-                                    </span>
+                                reloadedThisPeriodText && (
+                                    <span className="text-xs text-tertiary">{reloadedThisPeriodText}</span>
                                 )
                             )}
                         </>

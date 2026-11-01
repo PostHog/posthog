@@ -12,7 +12,8 @@ export function DailyAverageTile(): JSX.Element {
     return (
         <AICreditsTile
             label="Average per day"
-            value={spendUnavailable ? '–' : spendSummary ? humanFriendlyCurrency(spendSummary.dailyAverageUsd) : null}
+            amountUsd={spendSummary?.dailyAverageUsd ?? null}
+            unavailable={spendUnavailable}
             footer={
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="text-sm font-semibold">Busiest day</span>
