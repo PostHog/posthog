@@ -23,7 +23,11 @@ from posthog.schema import (
 )
 
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
-from posthog.hogql.flag_called_warnings import FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, FLAG_CALLED_ON_EVENTS_WARNING
+from posthog.hogql.flag_called_warnings import (
+    FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
+    FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
+    FLAG_CALLED_ON_EVENTS_WARNING,
+)
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
@@ -450,6 +454,24 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
             param("refused_by_the_swap", _FLAG_CALLED_QUERY, True, 1, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
             param(
+                "mixed_scan_read_from_both_tables",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                0,
+                _move_notices("https://example.com/announcement"),
+                "https://example.com/announcement",
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                union_enabled=True,
+                expected_union_notices=1,
+            ),
+            param(
+                "mixed_scan_with_the_union_off",
+                "SELECT count() FROM events WHERE event IN ('$pageview', '$feature_flag_called')",
+                True,
+                1,
+                mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+            ),
+            param(
                 "read_from_flag_evaluations_without_coverage_once_events_gets_no_flag_calls",
                 _FLAG_CALLED_QUERY,
                 True,
@@ -487,6 +509,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         expected_url: str | None = None,
         expected_notices: int = 0,
         mode: FlagEvaluationsMode = FlagEvaluationsMode.EVENTS,
+        union_enabled: bool = False,
+        expected_union_notices: int = 0,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
@@ -512,12 +536,17 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 return_value=flag_evaluations_enabled,
             ),
             patch("posthoganalytics.get_feature_flag_result", return_value=move_notices),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: union_enabled and key == "hogql-flag-calls-union",
+            ),
         ):
             metadata = self._select(query)
 
         self.assertTrue(metadata.isValid, metadata.errors)
         warnings = [w for w in metadata.warnings if w.message == FLAG_CALLED_ON_EVENTS_WARNING]
         notices = [n for n in metadata.notices if n.message == FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE]
+        union_notices = [n for n in metadata.notices if n.message == FLAG_CALLED_FROM_BOTH_TABLES_NOTICE]
         literal_start = query.rindex("'$feature_flag_called'")
         literal_end = literal_start + len("'$feature_flag_called'")
         self.assertEqual(
@@ -526,6 +555,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             [(n.start, n.end, n.url) for n in notices], [(literal_start, literal_end, expected_url)] * expected_notices
+        )
+        self.assertEqual(
+            [(n.start, n.end, n.url) for n in union_notices],
+            [(literal_start, literal_end, expected_url)] * expected_union_notices,
         )
 
     def test_metadata_does_not_log_invalid_announcement_url_without_a_flag_called_literal(self) -> None:

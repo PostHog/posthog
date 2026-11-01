@@ -172,7 +172,10 @@ class MultipleInCohortResolver(TraversingVisitor):
             inlineable_dynamic: list[tuple[int, ast.SelectQuery | ast.SelectSetQuery]] = []
             non_inlineable_dynamic: list[tuple[int, StaticOrDynamic, int]] = []
             for cohort_id, cohort_type, version in dynamic_cohorts:
-                inline_ast = inline_cohort_query(cohort_id, False, version, self.context)
+                # This runs before the flag-call swap, which then sees the cohort's scans.
+                inline_ast = inline_cohort_query(
+                    cohort_id, False, version, self.context, read_flag_calls_from_union=False
+                )
                 if inline_ast is not None:
                     inlineable_dynamic.append((cohort_id, inline_ast))
                 else:

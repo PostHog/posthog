@@ -36,10 +36,12 @@ from posthog.hogql.errors import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.flag_called_warnings import (
+    FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
     FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
     LiteralSpan,
     flag_called_on_events_warnings,
     flag_called_spans_read_from_flag_evaluations,
+    flag_called_spans_read_from_union,
 )
 from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
@@ -226,6 +228,7 @@ def get_hogql_metadata(
                 flag_called_notices = _flag_called_notices(hogql_ast, prepared_ast, context, team)
                 heuristic_warnings.extend(flag_called_notices.move_warnings)
                 context.notices.extend(flag_called_notices.flag_evaluations_notices)
+                context.notices.extend(flag_called_notices.both_tables_notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
@@ -337,6 +340,7 @@ def _flag_called_announcement_url(payload: object) -> str | None:
 class _FlagCalledNotices:
     move_warnings: tuple[HogQLNotice, ...] = ()
     flag_evaluations_notices: tuple[HogQLNotice, ...] = ()
+    both_tables_notices: tuple[HogQLNotice, ...] = ()
 
 
 def _flag_called_notices(
@@ -359,15 +363,24 @@ def _flag_called_notices(
         swapped = flag_called_spans_read_from_flag_evaluations(prepared_ast) if prepared_ast is not None else set()
         move_warnings: list[HogQLNotice] = []
         flag_evaluations_notices: list[HogQLNotice] = []
+        both_tables_notices: list[HogQLNotice] = []
+        read_from_both_tables = flag_called_spans_read_from_union(context)
         for warning in warnings:
-            if LiteralSpan(start=warning.start, end=warning.end) in swapped:
+            span = LiteralSpan(start=warning.start, end=warning.end)
+            if span in swapped:
                 flag_evaluations_notices.append(
                     warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
+                )
+            elif span in read_from_both_tables:
+                both_tables_notices.append(
+                    warning.model_copy(update={"message": FLAG_CALLED_FROM_BOTH_TABLES_NOTICE, "url": url})
                 )
             else:
                 move_warnings.append(warning.model_copy(update={"url": url}))
         return _FlagCalledNotices(
-            move_warnings=tuple(move_warnings), flag_evaluations_notices=tuple(flag_evaluations_notices)
+            move_warnings=tuple(move_warnings),
+            flag_evaluations_notices=tuple(flag_evaluations_notices),
+            both_tables_notices=tuple(both_tables_notices),
         )
     except Exception:
         # The warning is advisory. A query that compiles must not be reported as invalid because this
