@@ -123,17 +123,46 @@ class TestRequestParams:
         assert result.raised is None
         assert result.requests[0].param("created_at_gte") is None
 
-    def test_catalog_endpoint_never_gets_a_date_filter(self) -> None:
-        # `/products` exposes no date filter; sending one would be rejected.
+    @pytest.mark.parametrize(
+        "endpoint, body, expected_query, expected_rows",
+        [
+            # `/products` exposes no date filter; sending one would be rejected.
+            (
+                "products",
+                {"items": [{"product_id": "prod_1"}]},
+                {"page_size", "page_number"},
+                [{"product_id": "prod_1"}],
+            ),
+            # Moderation usage is one unpaginated object whose rows sit in `daily`, beside the totals.
+            (
+                "moderation_usage",
+                {
+                    "daily": [{"date": "2026-10-06", "screens": 12}, {"date": "2026-10-07", "screens": 3}],
+                    "unbilled_screens": 15,
+                    "screens_to_next_block": 985,
+                },
+                set(),
+                [{"date": "2026-10-06", "screens": 12}, {"date": "2026-10-07", "screens": 3}],
+            ),
+        ],
+    )
+    def test_endpoint_without_a_filter_never_gets_a_date_filter(
+        self,
+        endpoint: str,
+        body: dict[str, Any],
+        expected_query: set[str],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
         result = _driver().run(
-            "products",
-            [_response([{"product_id": "prod_1"}])],
+            endpoint,
+            [ScriptedResponse(json=body)],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 5, 1, tzinfo=UTC),
         )
 
         assert result.raised is None
-        assert set(result.requests[0].query) == {"page_size", "page_number"}
+        assert set(result.requests[0].query) == expected_query
+        assert result.rows == expected_rows
 
 
 class TestSourceResponseMetadata:
@@ -243,6 +272,14 @@ class TestFanout:
                 "/customers/cus_1/wallets/ledger-entries",
                 {"id": "cwt_1", "customer_id": "cus_1", "currency": "USD", "amount": 250, "is_credit": True},
                 {"id": "cwt_1", "customer_id": "cus_1", "currency": "USD", "amount": 250, "is_credit": True},
+            ),
+            # Allow-list rows carry only the customer, so the discount id must come from the parent.
+            (
+                "discount_customers",
+                {"discount_id": "dsc_1", "code": "SPRING", "created_at": "2024-05-01T00:00:00Z"},
+                "/discounts/dsc_1/customers",
+                {"customer_id": "cus_1"},
+                {"customer_id": "cus_1", "discount_id": "dsc_1"},
             ),
             # The parent field is the entitlement's own `id`, bound into a path placeholder also named `id`.
             (
