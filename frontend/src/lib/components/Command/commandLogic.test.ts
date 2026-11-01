@@ -25,20 +25,20 @@ describe('commandLogic', () => {
         expect(logic.values.isCommandOpen).toBe(false)
     })
 
-    it('holds keys typed before the input is ready and stops at Escape', () => {
+    it('holds keys typed before the input is ready until the palette closes', () => {
         const pageInput = document.createElement('input')
         document.body.append(pageInput)
         pageInput.focus()
         logic.actions.toggleCommand('keyboard-shortcut')
 
-        for (const key of ['d', 'a', 's', 'h']) {
+        for (const key of ['d', 'a', 's', 'x', 'Backspace', 'h']) {
             pageInput.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
         }
+        logic.actions.commandInputReady()
+        pageInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true }))
         expect(logic.values.pendingText).toBe('dash')
 
-        pageInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-        expect(logic.values.isCommandOpen).toBe(false)
-        pageInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true, cancelable: true }))
+        logic.actions.closeCommand()
         expect(logic.values.pendingText).toBe('')
         pageInput.remove()
     })

@@ -73,8 +73,7 @@ export const commandLogic = kea<commandLogicType>([
         pendingText: [
             '',
             {
-                bufferKey: (state, { key }) => state + key,
-                commandInputReady: () => '',
+                bufferKey: (state, { key }) => (key === 'Backspace' ? state.slice(0, -1) : state + key),
                 closeCommand: () => '',
             },
         ],
@@ -107,7 +106,7 @@ export const commandLogic = kea<commandLogicType>([
                     cache.bufferKeys = (event: KeyboardEvent): void => {
                         if (event.key === 'Escape') {
                             actions.closeCommand()
-                        } else if (isTypedCharacter(event)) {
+                        } else if (event.key === 'Backspace' || isTypedCharacter(event)) {
                             event.preventDefault()
                             event.stopPropagation()
                             actions.bufferKey(event.key)
