@@ -1,4 +1,5 @@
-"""Fetchers for HubSpot's lookup tables: pipelines, pipeline stages, property definitions and owners.
+"""Fetchers for HubSpot's tables that are not CRM objects: pipelines, pipeline stages, property
+definitions, owners and conversation threads.
 
 These are not CRM objects — they have no `properties` envelope, no `/search` endpoint and no
 server-side timestamp filter — so they are always a full refresh and reuse `helpers.fetch_data`
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     HUBSPOT_METADATA_ENDPOINTS,
     PIPELINE_OBJECT_TYPES,
     apply_crm_api_version,
+    conversation_threads_path,
 )
 
 # A portal that hasn't enabled an object answers 404 for that object type only. An object the
@@ -46,9 +48,18 @@ def _iter_pages(
     logger: FilteringBoundLogger,
     *,
     skip_forbidden: bool = False,
+    params: dict[str, Any] | None = None,
+    follow_after_cursor: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     try:
-        yield from fetch_data(path, api_key, refresh_token, source_id=source_id)
+        yield from fetch_data(
+            path,
+            api_key,
+            refresh_token,
+            params=params,
+            source_id=source_id,
+            follow_after_cursor=follow_after_cursor,
+        )
     except HubspotForbiddenError:
         # A fan-out reads one path per object type, so an object the portal cannot read must not
         # fail the whole table. A single-endpoint table keeps the 403: nothing is left to sync,
@@ -129,9 +140,30 @@ def get_owners_rows(
         yield [_normalize_row(owner, columns) for owner in page]
 
 
+def get_conversation_threads_rows(
+    api_key: str,
+    refresh_token: str,
+    logger: FilteringBoundLogger,
+    source_id: str | None,
+    api_version: str,
+) -> Iterator[list[dict[str, Any]]]:
+    columns = HUBSPOT_METADATA_ENDPOINTS["conversation_threads"].columns
+    for page in _iter_pages(
+        conversation_threads_path(api_version),
+        api_key,
+        refresh_token,
+        source_id,
+        logger,
+        params={"limit": 100},
+        follow_after_cursor=True,
+    ):
+        yield [_normalize_row(thread, columns) for thread in page]
+
+
 METADATA_FETCHERS = {
     "pipelines": get_pipelines_rows,
     "pipeline_stages": get_pipeline_stages_rows,
     "properties": get_properties_rows,
     "owners": get_owners_rows,
+    "conversation_threads": get_conversation_threads_rows,
 }

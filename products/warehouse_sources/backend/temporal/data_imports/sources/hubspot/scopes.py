@@ -15,11 +15,16 @@ from urllib.parse import urlsplit
 from posthog.dataclasses import frozen
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import HUBSPOT_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
+    HUBSPOT_ENDPOINTS,
+    HUBSPOT_METADATA_ENDPOINTS,
+)
 
 # Objects whose read scope is optional, mapped to the scope they need.
 SCOPE_GATED_OBJECTS: dict[str, str] = {
-    name: endpoint.required_scope for name, endpoint in HUBSPOT_ENDPOINTS.items() if endpoint.required_scope
+    name: endpoint.required_scope
+    for name, endpoint in [*HUBSPOT_ENDPOINTS.items(), *HUBSPOT_METADATA_ENDPOINTS.items()]
+    if endpoint.required_scope
 }
 
 

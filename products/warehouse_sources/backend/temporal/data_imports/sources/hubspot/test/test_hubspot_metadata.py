@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.metadata import (
+    get_conversation_threads_rows,
     get_owners_rows,
     get_pipeline_stages_rows,
     get_pipelines_rows,
@@ -16,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.me
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.scopes import HubspotForbiddenError
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     HUBSPOT_API_VERSION_2026_03,
+    HUBSPOT_API_VERSION_2026_09,
     HUBSPOT_METADATA_ENDPOINTS,
 )
 
@@ -67,14 +69,14 @@ def _patch_session(forbidden: set[str], rows_by_path: dict[str, list[dict[str, A
     return patch(_SESSION, new=lambda *_a, **_k: session)
 
 
-def _call(fetcher: Any) -> list[dict[str, Any]]:
+def _call(fetcher: Any, api_version: str = HUBSPOT_API_VERSION_2026_03) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for page in fetcher(
         api_key="key",
         refresh_token="refresh",
         logger=MagicMock(),
         source_id="source-1",
-        api_version=HUBSPOT_API_VERSION_2026_03,
+        api_version=api_version,
     ):
         rows.extend(page)
     return rows
@@ -120,6 +122,38 @@ class TestMetadataFetchers:
             rows = _call(fetcher)
 
         assert {r["object_type"] for r in rows} == {readable_type}
+
+    @pytest.mark.parametrize(
+        "api_version,path",
+        [
+            (HUBSPOT_API_VERSION_2026_09, "/conversations/conversations/2026-09/threads"),
+            # The Conversations API has no 2026-03 release, so that pin reads the v3 path.
+            (HUBSPOT_API_VERSION_2026_03, "/conversations/v3/conversations/threads"),
+        ],
+    )
+    def test_conversation_threads_pages_by_after_cursor(self, api_version: str, path: str) -> None:
+        # The threads API documents `paging.next.link` as optional, so paging must not depend on it.
+        pages = {
+            None: {"results": [{"id": "1", "status": "OPEN"}], "paging": {"next": {"after": "c1"}}},
+            "c1": {"results": [{"id": "2", "status": "CLOSED", "threadAssociations": {"associatedTicketId": "9"}}]},
+        }
+        requests: list[tuple[str, dict[str, Any] | None]] = []
+
+        def _get(url: str, headers: Any = None, params: Any = None, timeout: Any = None) -> MagicMock:  # noqa: ARG001
+            requests.append((urlsplit(url).path, params))
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = pages[(params or {}).get("after")]
+            return response
+
+        session = type("_S", (), {"get": staticmethod(_get)})()
+        with patch(_SESSION, new=lambda *_a, **_k: session):
+            rows = _call(get_conversation_threads_rows, api_version)
+
+        assert requests == [(path, {"limit": 100}), (path, {"limit": 100, "after": "c1"})]
+        assert [r["id"] for r in rows] == ["1", "2"]
+        assert rows[1]["threadAssociations"] == '{"associatedTicketId": "9"}'
+        assert set(rows[0]) >= set(HUBSPOT_METADATA_ENDPOINTS["conversation_threads"].columns)
 
     def test_owners_fails_the_table_when_the_grant_cannot_read_it(self) -> None:
         with _patch_session({"/crm/owners/2026-03"}, {}), pytest.raises(HubspotForbiddenError):

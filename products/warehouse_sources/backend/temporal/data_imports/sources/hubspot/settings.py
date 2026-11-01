@@ -40,6 +40,10 @@ def apply_crm_api_version(path: str, api_version: str) -> str:
 # Reading leads requires Sales Hub Professional or above, so `OauthIntegration.oauth_config_for_kind`
 # asks HubSpot for this scope as an optional one and a connection can be authorized without it.
 LEADS_SCOPE = "crm.objects.leads.read"
+# Forecasts are Sales Hub / Service Hub Professional+ only, and conversation threads need a scope
+# existing connections were never granted, so both are optional scopes too.
+FORECASTS_SCOPE = "crm.objects.forecasts.read"
+CONVERSATIONS_SCOPE = "conversations.read"
 
 CONTACT = "contact"
 COMPANY = "company"
@@ -105,11 +109,13 @@ ENDPOINTS = (
     "orders",
     "subscriptions",
     "commerce_payments",
-    # Lookup tables (see HUBSPOT_METADATA_ENDPOINTS) — not CRM objects.
+    "forecasts",
+    # Tables that are not CRM objects (see HUBSPOT_METADATA_ENDPOINTS).
     "pipelines",
     "pipeline_stages",
     "properties",
     "owners",
+    "conversation_threads",
 )
 
 # CRM search API constants — shared between windowing and pagination logic
@@ -243,6 +249,7 @@ DEFAULT_PROPS = {
     "orders": BASE_OBJECT_PROPS,
     "subscriptions": BASE_OBJECT_PROPS,
     "commerce_payments": BASE_OBJECT_PROPS,
+    "forecasts": BASE_OBJECT_PROPS,
 }
 
 
@@ -455,13 +462,24 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         should_sync_default=False,
         discover_all_properties=True,
     ),
+    # Forecast submissions. Unpartitioned for the same reason as the commerce objects above.
+    "forecasts": HubspotEndpointConfig(
+        name="forecasts",
+        path="/crm/v3/objects/forecasts",
+        associations=[],
+        cursor_filter_property_field="hs_lastmodifieddate",
+        incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+        should_sync_default=False,
+        required_scope=FORECASTS_SCOPE,
+        discover_all_properties=True,
+    ),
 }
 
 
 @dataclass
 class HubspotMetadataEndpointConfig:
-    """A HubSpot lookup table that is not a CRM object: no properties, no search endpoint, and no
-    server-side timestamp filter, so it is always a full refresh."""
+    """A HubSpot table that is not a CRM object: no properties, no search endpoint, and no
+    server-side timestamp filter on the last change, so it is always a full refresh."""
 
     name: str
     primary_keys: list[str]
@@ -469,6 +487,8 @@ class HubspotMetadataEndpointConfig:
     # this set so a portal that omits an optional field doesn't shift the table's schema.
     columns: list[str]
     should_sync_default: bool = True
+    # Optional OAuth scope the table needs, as on HubspotEndpointConfig.
+    required_scope: Optional[str] = None
 
 
 # Object types whose pipelines HubSpot documents. Both read with scopes existing connections hold
@@ -558,4 +578,37 @@ HUBSPOT_METADATA_ENDPOINTS: dict[str, HubspotMetadataEndpointConfig] = {
         ],
         should_sync_default=False,
     ),
+    # The list endpoint can only filter on the latest message time, so a thread that is closed or
+    # reassigned without a new message would be missed by an incremental sync.
+    "conversation_threads": HubspotMetadataEndpointConfig(
+        name="conversation_threads",
+        primary_keys=["id"],
+        columns=[
+            "id",
+            "inboxId",
+            "status",
+            "archived",
+            "spam",
+            "assignedTo",
+            "associatedContactId",
+            "originalChannelId",
+            "originalChannelAccountId",
+            "threadAssociations",
+            "createdAt",
+            "closedAt",
+            "latestMessageTimestamp",
+            "latestMessageReceivedTimestamp",
+            "latestMessageSentTimestamp",
+        ],
+        should_sync_default=False,
+        required_scope=CONVERSATIONS_SCOPE,
+    ),
 }
+
+
+def conversation_threads_path(api_version: str) -> str:
+    """HubSpot publishes the Conversations API only as v3 and 2026-09, so an older date pin stays
+    on v3."""
+    if api_version == HUBSPOT_API_VERSION_2026_09:
+        return f"/conversations/conversations/{api_version}/threads"
+    return "/conversations/v3/conversations/threads"
