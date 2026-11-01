@@ -10,7 +10,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.permissions import posthog_feature_flag_enabled
@@ -64,6 +64,7 @@ def name_fingerprints(now: dt.datetime) -> dict[int, int]:
                 "limit": MAX_FINGERPRINT_TEAMS,
             },
             workload=Workload.LOGS,
+            ch_user=ClickHouseUser.METRICS,
         )
     return {int(team_id): _signed(int(fingerprint)) for team_id, fingerprint in rows}
 

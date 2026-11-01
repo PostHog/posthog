@@ -11,7 +11,7 @@ from posthog.hogql.database.models import (
     Table,
 )
 
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import LogsClusterSignal, Workload
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -36,6 +36,7 @@ def get_hogql_max_bytes_to_read_for_logs_user_queries(organization: "Organizatio
 class LogsTable(Table):
     description: str = "OpenTelemetry-style log records ingested into the logs product, one row per log line."
     workload: Workload | None = Workload.LOGS
+    logs_cluster_signal: LogsClusterSignal | None = LogsClusterSignal.LOGS
 
     fields: dict[str, FieldOrTable] = {
         "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this log record."),
@@ -132,6 +133,7 @@ class LogsVolumeBucketsTable(Table):
         "series per bucket. Holds partial counts: always GROUP BY the key columns and sum(log_count)."
     )
     workload: Workload | None = Workload.LOGS
+    logs_cluster_signal: LogsClusterSignal | None = LogsClusterSignal.LOGS
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "time_bucket": DateTimeDatabaseField(
@@ -176,6 +178,7 @@ class LogsPatternBucketsTable(Table):
         "GROUP BY the key columns and sum(log_count)."
     )
     workload: Workload | None = Workload.LOGS
+    logs_cluster_signal: LogsClusterSignal | None = LogsClusterSignal.LOGS
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "time_bucket": DateTimeDatabaseField(
@@ -226,6 +229,7 @@ class LogsPatternBucketsTable(Table):
 class LogAttributesTable(Table):
     description: str = "Distinct log attribute key/value pairs with occurrence counts, used to power log attribute autocomplete and faceting."
     workload: Workload | None = Workload.LOGS
+    logs_cluster_signal: LogsClusterSignal | None = LogsClusterSignal.LOGS
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "time_bucket": DateTimeDatabaseField(
@@ -276,6 +280,7 @@ class LogsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
 
     description: str = "Per-partition Kafka consumption metadata for the logs ingestion topic; not scoped to teams, used to track ingestion lag."
     workload: Workload | None = Workload.LOGS
+    logs_cluster_signal: LogsClusterSignal | None = LogsClusterSignal.LOGS
     fields: dict[str, FieldOrTable] = {
         "_partition": IntegerDatabaseField(name="_partition", nullable=False),
         "_topic": StringDatabaseField(name="_topic", nullable=False),
