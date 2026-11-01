@@ -458,8 +458,20 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
-    labeled: zod
+    group: zod
         .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
+    labeled: zod
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -496,6 +508,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
@@ -1550,6 +1568,18 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
+    group: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
     labeled: zod
         .boolean()
         .optional()
@@ -1590,6 +1620,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
@@ -1648,8 +1684,20 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
-    labeled: zod
+    group: zod
         .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
+    labeled: zod
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -1686,6 +1734,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
@@ -1743,8 +1797,20 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
-    labeled: zod
+    group: zod
         .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
+    labeled: zod
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -1781,6 +1847,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
