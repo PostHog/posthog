@@ -117,7 +117,7 @@ To sync your own fills, orders, positions, settlements, and credit history, add 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only the trade, fill, settlement, credit, candlestick, and weather index endpoints carry incremental fields, so build_endpoint_schemas
+        # Only the trade, fill, settlement, candlestick, and weather index endpoints carry incremental fields, so build_endpoint_schemas
         # marks them incremental and leaves the rest full-refresh.
         # Append would duplicate the hour each weather index run re-reads; merge dedupes it.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("weather_index",))

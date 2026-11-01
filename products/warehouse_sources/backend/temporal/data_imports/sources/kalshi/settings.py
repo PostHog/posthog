@@ -14,7 +14,7 @@ class KalshiEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["ticker"])
     partition_key: Optional[str] = None  # stable creation-time field for datetime partitioning
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Only the trade, fill, settlement, and credit endpoints expose a server-side time filter (`min_ts`), and
+    # Only the trade, fill, and settlement endpoints expose a server-side time filter (`min_ts`), and
     # candlesticks take an explicit time window. Everything else accepts the param and silently ignores it, so those
     # endpoints are full-refresh only.
     supports_incremental: bool = False
@@ -285,15 +285,15 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         subaccount_fan_out=True,
         page_size=1000,
     ),
-    # Credits to the account, newest-first. `min_ts` filters on the creation time.
+    # Credits to the account, newest-first. A credit's status moves from pending to applied or
+    # failed, but `min_ts` filters on creation time, so an incremental run would never see that
+    # change on an older credit. This is a full refresh.
     "credit_history": KalshiEndpointConfig(
         name="credit_history",
         path="/portfolio/credit_history",
         data_key="credits",
         primary_keys=["credit_id"],
         partition_key="created_time",
-        incremental_fields=_created_time_field(),
-        supports_incremental=True,
         newest_first=True,
         requires_auth=True,
         page_size=1000,

@@ -116,7 +116,6 @@ class TestKalshiTransport:
             ("historical_trades", "/trade-api/v2/historical/trades", "created_time"),
             ("fills", "/trade-api/v2/portfolio/fills", "created_time"),
             ("historical_fills", "/trade-api/v2/historical/fills", "created_time"),
-            ("credit_history", "/trade-api/v2/portfolio/credit_history", "created_time"),
         ]
     )
     def test_trades_incremental_sends_min_ts(self, endpoint: str, path: str, incremental_field: str) -> None:
@@ -132,7 +131,9 @@ class TestKalshiTransport:
         assert result.requests[0].param("min_ts") == "1609459200"
         assert result.requests[0].param("limit") == str(KALSHI_ENDPOINTS[endpoint].page_size)
 
-    @parameterized.expand(["markets", "events", "milestones", "historical_markets", "orders", "historical_orders"])
+    @parameterized.expand(
+        ["markets", "events", "milestones", "historical_markets", "orders", "historical_orders", "credit_history"]
+    )
     def test_non_incremental_endpoints_never_send_min_ts(self, endpoint: str) -> None:
         # Kalshi answers 200 and ignores params it doesn't recognise, so a filter wired onto an
         # endpoint that has none would look like it worked while syncing everything every run.
