@@ -148,8 +148,6 @@ export const BillingUsageTypesSchema = z
     .nullish()
     .describe(BillingUsageRetrieveQueryParams().shape.usage_types.description!.replace('JSON-encoded array', 'Array'))
 
-// The create endpoint takes an untyped config for every integration kind, so the email
-// sender tools share the typed config of the email update endpoint.
 export const EmailSenderConfigSchema = IntegrationsEmailPartialUpdateBody()
     .shape.config.unwrap()
     .extend({

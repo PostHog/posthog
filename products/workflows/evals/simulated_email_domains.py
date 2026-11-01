@@ -348,11 +348,7 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
         stack.enter_context(
             patch.object(domain_connect, "get_signing_key", lambda: original_signing_key() or eval_signing_key)
         )
-        # Discovery caches each domain for an hour, and LocMemCache instances with the same
-        # name share one store, so each simulation gets a store no earlier lookup has filled.
-        stack.enter_context(
-            patch.object(domain_connect, "cache", LocMemCache(f"email-domain-evals-{uuid.uuid4()}", {}))
-        )
+        stack.enter_context(patch.object(domain_connect, "cache", _discovery_cache_no_earlier_lookup_filled()))
         yield
 
 
@@ -364,3 +360,7 @@ def publish_domain_connect_support(domains: SimulatedEmailDomains = SIMULATED_EM
             )
         ]
     )
+
+
+def _discovery_cache_no_earlier_lookup_filled() -> LocMemCache:
+    return LocMemCache(f"email-domain-evals-{uuid.uuid4()}", {})

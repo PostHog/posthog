@@ -332,8 +332,7 @@ def start_mcp_server(
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
         # skill delivery mode. dashboard-widgets gates the widget batch tools that
-        # the dashboard widget evals exercise. workflows-email-from-code gates the
-        # email sender and Domain Connect tools.
+        # the dashboard widget evals exercise.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "revamped-py-notebooks": True,
