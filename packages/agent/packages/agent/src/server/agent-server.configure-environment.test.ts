@@ -637,13 +637,13 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
   // run that loses it silently runs on the standard queue and a flex trial
   // measures nothing. Codex-only: the Claude header lines never carry it.
   it.each([
-    { serviceTier: "flex", fallback: "standard" },
-    { serviceTier: "default", fallback: undefined },
-    { serviceTier: "priority", fallback: undefined },
-    { serviceTier: undefined, fallback: undefined },
+    { serviceTier: "flex", fallback: "standard", budget: "60" },
+    { serviceTier: "default", fallback: undefined, budget: undefined },
+    { serviceTier: "priority", fallback: undefined, budget: undefined },
+    { serviceTier: undefined, fallback: undefined, budget: undefined },
   ] as const)(
     "sends service tier $serviceTier with fallback $fallback on the OpenAI record",
-    ({ serviceTier, fallback }) => {
+    ({ serviceTier, fallback, budget }) => {
       const env = buildServer({ serviceTier }).configureEnvironment({
         originProduct: "signal_report",
         aiStage: "scout",
@@ -654,6 +654,9 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
       );
       expect(env.openaiCustomHeaders?.["X-PostHog-Flex-Fallback"]).toBe(
         fallback,
+      );
+      expect(env.openaiCustomHeaders?.["X-PostHog-Flex-Fallback-Budget"]).toBe(
+        budget,
       );
       expect(env.anthropicCustomHeaders).not.toContain(
         "X-PostHog-Service-Tier",
