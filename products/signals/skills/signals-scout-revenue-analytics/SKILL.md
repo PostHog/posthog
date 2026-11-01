@@ -16,6 +16,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: revenue_analytics
+scout-status: deprecated
+scout-deprecation:
+  reason: >
+    PostHog is retiring this scout. Reports it already
+    filed stay in your inbox.
+  sunset_at: 2026-10-22
 scout-precheck-query: |
   SELECT * FROM (
     SELECT 'source' AS kind, source_type AS detail
