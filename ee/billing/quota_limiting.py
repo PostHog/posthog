@@ -1,6 +1,6 @@
 import copy
 import json
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from functools import lru_cache, partial
@@ -36,10 +36,13 @@ from posthog.tasks.usage_report import (
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
     get_teams_with_apm_tracing_usage_in_period,
+    get_teams_with_mcp_event_count_in_period,
     iter_billable_teams,
 )
-from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
+from posthog.usage_counters import UsageCounter, UsageCounterMode, UsageCounterPlan, UsageCounterService
 from posthog.utils import get_current_day
+
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
 from ee.billing.quota_usage import QuotaUsageBatch, retry_quota_database_operation
 
@@ -81,6 +84,7 @@ class QuotaResource(Enum):
     API_QUERIES = "api_queries_read_bytes"
     SURVEY_RESPONSES = "survey_responses"
     LLM_EVENTS = "llm_events"
+    MCP_EVENTS = "mcp_events"
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
     AI_CREDITS = "ai_credits"
@@ -108,6 +112,7 @@ OVERAGE_BUFFER = {
     QuotaResource.API_QUERIES: 0,
     QuotaResource.SURVEY_RESPONSES: 0,
     QuotaResource.LLM_EVENTS: 0,
+    QuotaResource.MCP_EVENTS: 0,
     QuotaResource.CDP_TRIGGER_EVENTS: 0,
     QuotaResource.ROWS_EXPORTED: 0,
     QuotaResource.AI_CREDITS: 0,
@@ -139,6 +144,7 @@ class UsageCounters(TypedDict):
     api_queries_read_bytes: int
     survey_responses: int
     llm_events: int
+    mcp_events: int
     cdp_trigger_events: int
     rows_exported: int
     ai_credits: int
@@ -1245,7 +1251,13 @@ class _QuotaUsageReports:
     team_tokens: dict[str, list[str]]
 
 
-def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, int]]) -> _QuotaUsageReports:
+def _aggregate_quota_usage(
+    teams: Sequence[Team],
+    all_data: dict[str, dict[int, int]],
+    *,
+    offline_usage: dict[str, dict[int, int]] | None = None,
+    organizations: Sequence[Organization] = (),
+) -> _QuotaUsageReports:
     todays_usage_report: dict[str, UsageCounters] = {}
     orgs_by_id: dict[str, Organization] = {}
     teams_by_org: dict[str, list[str]] = {}
@@ -1265,6 +1277,7 @@ def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, 
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+            mcp_events=all_data["teams_with_mcp_event_count_in_period"].get(team.id, 0),
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
             posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
@@ -1298,7 +1311,36 @@ def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, 
         if team.api_token:
             teams_by_org.setdefault(org_id, []).append(team.api_token)
 
+    for organization in organizations:
+        org_id = str(organization.id)
+        orgs_by_id.setdefault(org_id, organization)
+        todays_usage_report.setdefault(org_id, cast(UsageCounters, dict.fromkeys(UsageCounters.__annotations__, 0)))
+    for org_id, report in todays_usage_report.items():
+        report["llm_events"] += sum((offline_usage or {}).get(org_id, {}).values())
     return _QuotaUsageReports(usage=todays_usage_report, organizations=orgs_by_id, team_tokens=teams_by_org)
+
+
+def _iter_quota_organizations(
+    teams: Iterable[Team], offline_usage: dict[str, dict[int, int]]
+) -> Iterator[tuple[Organization, list[Team]]]:
+    seen: set[str] = set()
+    for organization_id, group in groupby(teams, key=lambda team: team.organization_id):
+        org_teams = list(group)
+        seen.add(str(organization_id))
+        yield org_teams[0].organization, org_teams
+    organizations = (
+        Organization.objects.filter(id__in=offline_usage.keys() - seen)
+        .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
+        .order_by("id")
+    )
+    # Buffer each page because quota updates close database connections between batches.
+    page = organizations
+    while batch := list(page[:QUOTA_ORGANIZATION_BATCH_SIZE]):
+        for organization in batch:
+            yield organization, []
+        if len(batch) < QUOTA_ORGANIZATION_BATCH_SIZE:
+            return
+        page = organizations.filter(id__gt=batch[-1].id)
 
 
 def update_all_orgs_billing_quotas(
@@ -1315,38 +1357,42 @@ def update_all_orgs_billing_quotas(
     total_start = time()
     period = get_current_day()
     service = UsageCounterService()
-    plan = service.resolve_plan(
-        period,
+    plan = UsageCounterPlan(
+        period=period,
         caller="quota_limiting",
-        complete=False,
-        counters=(
-            UsageCounter.EVENTS,
-            UsageCounter.EXCEPTIONS,
-            UsageCounter.RECORDINGS,
-            UsageCounter.FEATURE_FLAG_REQUESTS,
-            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
-            UsageCounter.CDP_INVOCATIONS,
-            UsageCounter.SURVEY_RESPONSES,
-            UsageCounter.AI_EVENTS,
-            UsageCounter.WORKFLOW_EMAILS,
-            UsageCounter.WORKFLOW_PUSH,
-            UsageCounter.WORKFLOW_INVOCATIONS,
-            UsageCounter.ROWS_SYNCED,
-            UsageCounter.ROWS_EXPORTED,
-            UsageCounter.LOGS_BYTES,
-            UsageCounter.AI_CREDITS,
-            UsageCounter.SIGNALS_CREDITS,
-            UsageCounter.POSTHOG_CODE_CREDITS,
-            UsageCounter.SANDBOX_COMPUTE_CREDITS,
-            UsageCounter.REPLAY_VISION_CREDITS,
+        modes=dict.fromkeys(
+            (
+                UsageCounter.EVENTS,
+                UsageCounter.EXCEPTIONS,
+                UsageCounter.RECORDINGS,
+                UsageCounter.FEATURE_FLAG_REQUESTS,
+                UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+                UsageCounter.CDP_INVOCATIONS,
+                UsageCounter.SURVEY_RESPONSES,
+                UsageCounter.AI_EVENTS,
+                UsageCounter.WORKFLOW_EMAILS,
+                UsageCounter.WORKFLOW_PUSH,
+                UsageCounter.WORKFLOW_INVOCATIONS,
+                UsageCounter.ROWS_SYNCED,
+                UsageCounter.ROWS_EXPORTED,
+                UsageCounter.LOGS_BYTES,
+                UsageCounter.AI_CREDITS,
+                UsageCounter.SIGNALS_CREDITS,
+                UsageCounter.POSTHOG_CODE_CREDITS,
+                UsageCounter.SANDBOX_COMPUTE_CREDITS,
+                UsageCounter.REPLAY_VISION_CREDITS,
+            ),
+            UsageCounterMode.LEGACY,
         ),
     )
 
     tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
     logger.info("quota_limiting_run", phase="queries", status="start")
     queries_start = time()
+    offline_usage = _timed_query(
+        "offline_evaluation_usage", get_offline_evaluation_usage, period.start, period.start + timedelta(days=1)
+    )
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
-    log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
@@ -1354,6 +1400,9 @@ def update_all_orgs_billing_quotas(
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
     logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
+    mcp_event_counts = _timed_query(
+        "mcp_event_count", get_teams_with_mcp_event_count_in_period, period.start, period.end
+    )
     apm_tracing_bytes = convert_team_usage_rows_to_dict(
         _timed_query("apm_tracing_usage", get_teams_with_apm_tracing_usage_in_period, period.start, period.end)["bytes"]
     )
@@ -1373,6 +1422,7 @@ def update_all_orgs_billing_quotas(
         "teams_with_rows_exported_in_period": dict(counter_report.counts[UsageCounter.ROWS_EXPORTED]),
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
+        "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
         "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
         "teams_with_posthog_code_credits_used_in_period": {
@@ -1467,12 +1517,14 @@ def update_all_orgs_billing_quotas(
             quota_limiting_suspended_orgs[resource.value].pop(org_id, None)
 
     # The shared iterator keeps an organization's teams contiguous, including across read pages.
-    organization_teams = (list(group) for _, group in groupby(teams_iterator, key=lambda team: team.organization_id))
+    organization_teams = _iter_quota_organizations(teams_iterator, offline_usage)
     for team_groups in batched(organization_teams, QUOTA_ORGANIZATION_BATCH_SIZE, strict=False):
         if not settings.TEST:
             close_old_connections()
-        teams = [team for group in team_groups for team in group]
-        reports = _aggregate_quota_usage(teams, all_data)
+        teams = [team for _, group in team_groups for team in group]
+        reports = _aggregate_quota_usage(
+            teams, all_data, offline_usage=offline_usage, organizations=[org for org, _ in team_groups]
+        )
         orgs_by_id = reports.organizations
         teams_by_org = reports.team_tokens
         candidates_start = time()
@@ -1622,6 +1674,7 @@ def update_all_orgs_billing_quotas(
                 "quota_limited_api_queries": quota_limited_orgs["api_queries_read_bytes"].get(org_id, None),
                 "quota_limited_survey_responses": quota_limited_orgs["survey_responses"].get(org_id, None),
                 "quota_limited_llm_events": quota_limited_orgs["llm_events"].get(org_id, None),
+                "quota_limited_mcp_events": quota_limited_orgs["mcp_events"].get(org_id, None),
                 "quota_limited_cdp_trigger_events": quota_limited_orgs["cdp_trigger_events"].get(org_id, None),
                 "quota_limited_rows_exported": quota_limited_orgs["rows_exported"].get(org_id, None),
             }

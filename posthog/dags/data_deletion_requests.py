@@ -77,6 +77,7 @@ from posthog.models.deletion_targets import (
 )
 from posthog.models.event.sql import json_property_presence_expr
 from posthog.models.person.bulk_delete import (
+    DeletionRun,
     PersonDeletionStep,
     delete_persons_profile,
     queue_person_recording_deletion,
@@ -2152,7 +2153,7 @@ def delete_person_profiles_op(
         context.log.info("No persons resolved; nothing to delete")
         return person_removal
 
-    result = delete_persons_profile(person_removal.team_id, persons, actor=None)
+    result = delete_persons_profile(person_removal.team_id, persons, actor=None, run=DeletionRun(run_id=context.run_id))
     metadata: dict[str, dagster.MetadataValue] = {
         "deleted_count": dagster.MetadataValue.int(result.deleted_count),
         "errors": dagster.MetadataValue.int(len(result.errors)),

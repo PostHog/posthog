@@ -21,10 +21,11 @@ import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { chunk } from 'lib/utils/arrays'
 import { reconcileById } from 'lib/utils/objects'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import {
     signalsScoutChatTasksCreate,

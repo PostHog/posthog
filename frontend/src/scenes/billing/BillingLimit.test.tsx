@@ -6,13 +6,14 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BillingProductV2Type, BillingType } from '~/types'
 
 import { BillingLimit } from './BillingLimit'
-import { billingLogic } from './billingLogic'
 
 // Zero out current/projected usage so submitting never triggers the below-usage warning
 // dialog — this test is about the Save/Remove button wiring, not that branch.

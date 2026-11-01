@@ -8,6 +8,7 @@ import asyncio
 import datetime
 import dataclasses
 from collections import Counter
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -62,6 +63,8 @@ logger = structlog.get_logger(__name__)
 TICK_WORKFLOW_NAME = "activity-summary-tick"
 EMBEDDING_DOCUMENT_TYPE = "activity_summary"
 EMBEDDING_RENDERING = "summary_text"
+# Where a summary came from: the tick, or a build as of a past date.
+SOURCE_LIVE = "live"
 
 # Stop reasons of a tick. Null when the tick updated every due pair.
 STOP_MAX_PAIRS_PER_TICK = "max_pairs_per_tick"
@@ -121,6 +124,8 @@ class ActivitySummaryTickPlan:
     enrollment: EnrollmentCounts = dataclasses.field(default_factory=EnrollmentCounts)
     view_update_interval_hours: float = VIEW_UPDATE_INTERVAL.total_seconds() / 3600
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
+    # The days of the MCP intent buffer each update reads. None when `mcp_render_enabled` is off.
+    mcp_buffer_days: int | None = None
 
 
 @frozen
@@ -140,6 +145,7 @@ class ActivitySummaryPairInput:
     # Why the queue picked the pair. A view trigger waits `view_update_interval_hours` after a good update.
     trigger: str | None = None
     view_update_interval_hours: float | None = None
+    mcp_buffer_days: int | None = None
 
 
 @frozen
@@ -226,26 +232,46 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         stop_reason=stop_reason,
         rebuild_before=config.rebuild_before,
         max_versions=config.max_versions,
+        mcp_buffer_days=config.mcp_buffer_days if config.mcp_render_enabled else None,
+    )
+
+
+def emit_summary_embedding(
+    team_id: int,
+    *,
+    content: str,
+    document_type: str,
+    document_id: str,
+    timestamp: datetime.datetime,
+    metadata: dict[str, Any],
+) -> None:
+    # Deferred so importing the tick does not load the Kafka and ClickHouse chain behind the producer.
+    from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
+
+    emit_embedding_request(
+        content=content,
+        team_id=team_id,
+        product=EMBEDDING_PRODUCT,
+        document_type=document_type,
+        rendering=EMBEDDING_RENDERING,
+        document_id=document_id,
+        # The models of the report embeddings, so both share one vector space.
+        models=[model.value for model in EmbeddingModelName],
+        timestamp=timestamp,
+        metadata=metadata,
     )
 
 
 def _emit_embedding(team_id: int, user_id: int) -> None:
-    # Deferred so importing the tick does not load the Kafka and ClickHouse chain behind the producer.
-    from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
-
     stored = UserActivitySummary.objects.for_team(team_id).filter(user_id=user_id).first()
     if stored is None or not stored.summary_text or stored.generated_at is None:
         return
-    emit_embedding_request(
+    emit_summary_embedding(
+        team_id,
         content=stored.summary_text,
-        team_id=team_id,
-        product=EMBEDDING_PRODUCT,
         document_type=EMBEDDING_DOCUMENT_TYPE,
-        rendering=EMBEDDING_RENDERING,
         # One vector per user per day, so an analysis can read the vector a user had on a given day.
         document_id=f"{user_id}:{stored.generated_at.date().isoformat()}",
-        # The models of the report embeddings, so both share one vector space.
-        models=[model.value for model in EmbeddingModelName],
         timestamp=stored.generated_at,
         metadata={
             "prompt_version": stored.prompt_version,
@@ -255,8 +281,11 @@ def _emit_embedding(team_id: int, user_id: int) -> None:
     )
 
 
-def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate, trigger: str | None) -> None:
+def capture_generated(
+    team_id: int, user_id: int, update: ActivitySummaryUpdate, trigger: str | None, *, source: str = SOURCE_LIVE
+) -> None:
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    inputs_used = update.inputs_used or {}
     # Counts and accounting only. The summary and the rendered input are user content.
     ph_background_capture()(
         distinct_id=PIPELINE_DISTINCT_ID,
@@ -275,8 +304,13 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
             "cost_usd": update.cost_usd,
             "latency_ms": update.latency_ms,
             "inputs_used": update.inputs_used,
+            # Top level, so the MCP rollout can be measured without reading Redis. None while the section is off.
+            "mcp_sessions": inputs_used.get("mcp_sessions"),
+            "mcp_lines": inputs_used.get("mcp_lines"),
+            "mcp_read_error": inputs_used.get("mcp_read_error"),
             "rebuilt": update.rebuilt,
             "trigger": trigger,
+            "source": source,
         },
         groups={"organization": str(team.organization_id), "project": str(team.uuid)},
     )
@@ -306,6 +340,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             rebuild_before=input.rebuild_before,
             max_versions=input.max_versions,
             max_skip_backoff=datetime.timedelta(hours=input.max_skip_backoff_hours),
+            mcp_buffer_days=input.mcp_buffer_days,
         )
         called_model = update.status in CALLED_MODEL_STATUSES
     except Exception as error:
@@ -327,7 +362,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status in CALLED_MODEL_STATUSES and input.capture_events:
         try:
-            _capture_generated(input.team_id, input.user_id, update, input.trigger)
+            capture_generated(input.team_id, input.user_id, update, input.trigger)
         except Exception:
             logger.exception("activity_summary_capture_failed", team_id=input.team_id, user_id=input.user_id)
     return ActivitySummaryPairResult(
@@ -457,6 +492,7 @@ class ActivitySummaryTickWorkflow:
                             max_skip_backoff_hours=plan.max_skip_backoff_hours,
                             trigger=pair.trigger,
                             view_update_interval_hours=plan.view_update_interval_hours,
+                            mcp_buffer_days=plan.mcp_buffer_days,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,

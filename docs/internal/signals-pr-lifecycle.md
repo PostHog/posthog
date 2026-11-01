@@ -1,5 +1,7 @@
 # Report completion and late PR attachments
 
+The inbox includes Closed reports in All statuses. The Closed filter appears when the project has closed reports, or when it is selected.
+
 A report completes after all linked implementation PRs are closed or merged.
 At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
 
@@ -60,6 +62,8 @@ Archive and restore preserve the attempt and original start, including expiry re
 
 ## Follow-up checks
 
+With `signals-report-monitoring` enabled, pending check activity says the check runs during monitoring and describes the wait before final evaluation from the start of monitoring. Interim metric measurements may run during that wait. With the flag disabled, the activity retains the Resolved trigger wording.
+
 Scout and research guidance asks for a verified live observation metric when a central quantitative claim comes from events.
 A count can justify a metric without a chart or a change over time.
 The metric must match the finding's filters, population, exclusions, window, and aggregation.
@@ -119,7 +123,8 @@ Disabling Monitoring stops execution without starting a post-resolution schedule
 After each metric check's soak ends, the coordinator evaluates its original Monitoring-start-to-deadline window, even if execution runs late.
 Final work uses the current attempt's check membership and definition versions, independently of interim observations and recurring run budgets.
 Candidate collection scans past stale definitions until it fills the eligible batch or reaches the tick deadline.
-Single-source raw event/action counts and event-property sums have supported evidence adapters; sampled values, formulas, distinct counts, and session/property aggregates without an adapter produce explicit unsupported results.
+Single-source raw event/action counts and event-property sums have supported evidence adapters; sampled values, arbitrary formulas, distinct counts, and session/property aggregates without an adapter produce explicit unsupported results.
+Ratios of two raw event/action counts support `A / B` and `B / A`, optionally multiplied by 100, with fixed targets. The evaluator fetches both raw counts in one Trends response and calculates the formula from those exact values. Qualification uses the denominator from that same response, preserving series filters, shared population filters, team, and fixed window. The response must be fresh through the window's end. Cached formula results cannot be combined with independently refreshed denominators, including after budget deferrals. Any positive denominator qualifies, including when the numerator is zero; a zero denominator remains insufficient even if Trends returns zero for division by zero. This policy evaluates the authored target without claiming statistical confidence. Formula encodings (`formula`, `formulas`, and `formulaNodes`) follow Trends precedence. Other arithmetic and aggregates remain unsupported.
 Session aggregation remains unsupported when a count series carries `$session_duration` or a `session_properties` property type.
 An average without a source-specific minimum denominator produces insufficient evidence.
 Positive counts and supported sums qualify as sufficient evidence; zero totals remain insufficient when no relevant activity source is defined, even if they meet the numeric target.
@@ -131,11 +136,29 @@ Each retry uses the original window; competing ticks use the same submission ID 
 Insufficient and unsupported results settle this evaluator's work. Final queries defer until the tick can grant their full 20-second timeout; budget deferrals do not consume a retry.
 Interim query exhaustion and schedule expiry do not consume the final budget: frozen members remain eligible for final verification without changing their check status, window, or error history.
 State, flag, definition, and attempt guards apply before querying and again when saving.
-Final results leave reports in Monitoring; authored-agent checks, report outcome aggregation, assessment, and follow-up research have separate execution paths.
+Final results feed report-level aggregation for the current frozen attempt. A sufficiently evidenced failed check closes the attempt immediately, even when other checks are still waiting. All frozen members passing resolves the report. Historical checks and checks added after the snapshot cannot supply or block an all-pass verdict. Missing members, canceled checks, edited definitions, missing soaks, and stale evidence never count as passes.
+
+Each sufficient final verdict updates its check row and publishes its explanation immediately, even while other members are waiting or the report needs assessment. Repeated aggregation does not duplicate these entries.
 
 The **Closed** report state (`closed`) means an implementation attempt ended without proving resolution. It is distinct from processing failure and from Resolved. It preserves the original Monitoring timestamp and attempt evidence. Closed reports remain readable, manually resolvable, reopenable, and archivable, but have no dedicated section in the inbox UI. Restoring an archived Closed report returns it to Closed. A Closed child does not count as successful completion of its parent plan, and child updates do not overwrite a parent's Closed outcome.
 
 Closed reports still count as acted-on work for scout engagement and organization adoption. A new matching signal follows the existing recurrence path into a fresh linked report; the Closed attempt stays unchanged and supplies context for that report's research. That context preserves the unproven Closed outcome rather than describing the attempt as fixed. Closed reports are excluded from unclaimed-work selection, and child rollup preserves an archived parent's saved Closed outcome.
+
+When no sufficient failure exists, aggregation waits until every frozen member has a final result or exhausts its technical evaluations. Insufficient or unsupported evidence and exhausted technical errors record one durable assessment request while the report remains Monitoring. Three errored evaluation submissions exhaust the existing metric retry budget; errors are never treated as evidence of implementation failure. A later accepted sufficient failure takes priority over a pending assessment request. Final windows are never extended.
+
+Each attempt stores its aggregation state, explanation, considered result IDs, and assessment/research request timestamps. Closing and recording research intent commit in the same transaction. Result acceptance schedules aggregation after commit; the coordinator recovers missed callbacks by comparing persisted result counts rather than timestamps. Duplicate deliveries do not duplicate requests or activity. Every aggregation rechecks tenant, current attempt, enabled Monitoring, check definitions, and fixed windows before changing report state. Finished attempts stop their remaining open checks.
+
+The Monitoring schema includes both outcome and tracker-delivery metadata. Nullable field additions apply atomically before the pending-completion index is created concurrently. Deploy the completion consumer only after both migrations finish.
+
+This aggregation path persists requests only. The report-level assessment worker and dispatch/execution of follow-up research remain separate work; a research request does not claim that a follow-up report has been created.
+
+All-pass resolution also records a durable tracker-completion request. A separate one-minute sweep consumes pending requests directly, outside the check coordinator and its time budget. It has a 45-second soft limit and 60-second hard limit. Tracker closure serializes deliveries and verifies the same attempt is still effectively resolved before contacting the provider; archiving preserves that verified outcome, while reopening or replacing the attempt makes its request obsolete. Each claimed request reserves its next attempt five minutes ahead, so failures and interrupted workers cannot monopolize every sweep. Successful tracker closing comments are recorded independently of the provider close, and Redis lock failures use the normal retry path. Completed or obsolete requests are marked processed, and a partial index orders outstanding work by its next retry.
+
+Manual completion preserves its open-PR closure intent on the frozen attempt. After verification passes, the sweep uses the existing best-effort PR closure path with a stable comment marker, then completes the tracker issue. Open Monitoring detail panes refresh their status and explanations. Settled task snapshots are reused for up to one minute, with immediate refresh when a new linked run appears in the artefacts. Periodic refresh also discovers new runs that reuse a task without adding an artefact.
+
+The request stays pending until every requested PR close and tracker close succeeds or is no longer needed, including reports without a tracker issue. Scheduled GitHub delivery uses the batch lane. Budget denial stops the sweep, and provider rate limits delay the request until at least the indicated retry time.
+
+Single and bulk report-state requests share the delivery lock through their transaction commit. A request that overlaps completion is refused with a retry message. Delivery revalidates the frozen attempt before closing each PR and again after any intervening provider call. A tracker comment is recorded as delivered only when its provider reports success.
 
 With `signals-report-metrics` enabled, research gathers short-window baselines before verification and prefers metric-based follow-up checks. It aims for practical 70-80% confidence in improvement, without claiming a calculated confidence score. Observed volume, recurrence, ingestion delay, and deployment timing justify the shortest useful query and wait. Frequent or high-volume checks can use 4-8 hours, allowing for several hours of deployment delay before the fix reaches users. Around 24 hours or several days require the corresponding activity or rollout evidence. Agent checks remain available when interpretation or unsupported measurements prevent a useful metric check. Missing activity is not success. These prompt preferences do not change execution, schema defaults, or final outcomes.
 
@@ -145,7 +168,7 @@ Enabled research can author `run_interval_minutes` for a metric check with a Mon
 
 ### Evidence qualification contract
 
-`report_check_evidence.qualify_metric_evidence` is a pure contract for future final Monitoring evaluators. It has no production callers and changes neither scheduling nor interim observations. Qualification is independent of the target comparison: sufficient evidence can demonstrate a failed expectation, while a matching value with insufficient evidence cannot establish success.
+`report_check_evidence.qualify_metric_evidence` is the pure qualification contract used by final Monitoring metric evaluation. It changes neither scheduling nor interim observations. Qualification is independent of the target comparison: sufficient evidence can demonstrate a failed expectation, while a matching value with insufficient evidence cannot establish success.
 
 The input `MetricEvidence` carries explicit aggregation semantics, a measured value, and optional activity or denominator counts. Every measurement has an `EvidenceScope` naming the team, relevant population, and the check's existing fixed window. Supporting counts used for qualification must match all three. For property sums, relevant activity counts valid property contributions. A trusted source adapter establishes the population key and relevance; an arbitrary metric label does not. This module neither derives relevance from query text nor executes queries.
 
@@ -158,7 +181,7 @@ The input `MetricEvidence` carries explicit aggregation semantics, a measured va
 
 `EvidenceQualification` returns `status` (`sufficient`, `insufficient`, `unsupported`, or `errored`) and a machine-readable `reason`. Missing measurements, supporting-count scope mismatches, and empty windows remain insufficient. Query errors return `errored/query_error`; malformed numeric inputs raise `ValueError` rather than becoming evidence. No qualification result is a passed or failed check verdict.
 
-No interim samples are required. A short, nonempty window can qualify from its final measurement. Historical baselines and interim observations are not inputs. There is no universal denominator minimum, confidence claim, ingestion-lag allowance, or deployment-readiness rule.
+No interim samples are required. A short, nonempty window can qualify from its final measurement. Historical baselines and interim observations are not inputs. The count-ratio adapter explicitly supplies a minimum denominator of one; this does not establish a minimum for averages or other adapters. There is no confidence claim, ingestion-lag allowance, or deployment-readiness rule.
 
 Final evaluator integration must enforce the organization-level `signals-report-monitoring` gate and its fail-closed Resolved fallback. Source adapters must validate aggregation semantics, preserve the population and fixed window, collect required supporting counts, and establish data readiness. Supported property sums exclude formulas and session-level aggregations. Arbitrary formulas, distinct counts, and quantiles need their own adapter/policy. `MetricMeasurement` supplies neither activity counts nor denominators, and report-metric `minimum_data_points`/`eligibility_query` fields are not inferred as check policy. Final evaluators must bind evidence to the current attempt/check version, compare only sufficient measurements, and separately handle insufficient evidence, unsupported measurements, and query errors. Scheduling, retries, persistence, and report transitions remain outside this contract.
 
@@ -194,6 +217,8 @@ New metric checks validate numeric goals and baselines against their metric kind
 Research without a repository retains the writing rules, attached-image inspection, remediation guidance, report history, intent checks, work-in-flight checks, and per-signal tool budget. The opening prompt states once that no repository is checked out. It uses project data and connected sources to find a concrete engineering starting point. Code-specific instructions are omitted, findings allow empty code and commit evidence, and the output omits pull request planning. Later turns use the same evidence-based verification guidance without repeating access warnings.
 
 With `signals-research-reviewer-selection` enabled, project context, report evidence, and scoped human corrections can identify reviewers without GitHub. Research verifies their project membership with `scout-members-list` and suggests nobody when evidence is insufficient. A GitHub identity is not required to receive a report.
+
+With `signals-default-owner-fallback` enabled, a report that still has no reviewers when its inbox notification settles goes to a default owner. It runs only where Self-driving cannot read the team's code, meaning no GitHub installation, none that still reaches a repository, or none healthy enough to use. Where a repository is in reach, commit history names a relevant reviewer often enough that a report with no reviewers is left unassigned instead. The candidates are, in order: the configured owners of the scout that authored the report, then whoever enabled or created that scout, the person who activated Self-Driving, the people who enabled a signal source, and finally the organization's owner and admins. Each candidate must be an active member with project access when the fallback runs. The entry carries `is_default_owner` and shows as "Default owner". It never selects the autostart task identity. The fallback does not run on a report whose reviewers a person already edited, on a report that already had a default owner, or on a report that its scout keeps out of the inbox. When a person removes a default owner, no scout correction note is sent and the reviewer-corrections profile does not show the removal.
 
 ## Repository selection
 
@@ -586,7 +611,7 @@ Research traces that contain existing metric-check context require the same anal
 
 Metric suggestions are available only when `signals-report-checks-replace` enables the replacement tool.
 
-The note names proposed follow-up checks without claiming they were scheduled. The Follow-up checks sidebar shows the stored checks. If any optional check spec is malformed, research keeps valid verification prose and skips check reconciliation, preserving existing checks. An explicitly empty, valid check list still retires omitted checks. Legacy activity payloads preserve approved, person-authored, and nonpending checks. Referenced checks inherit their existing wait when the proposal omits it. Verification’s revised summary is saved only after its check reconciliation succeeds, so a skipped or invalid proposal cannot change Expected impact prose independently of the stored checks.
+The note names proposed follow-up checks without claiming they were scheduled. The Follow-up checks sidebar shows the stored checks. Verification permits five submissions: the initial proposal and up to four correction turns on the same research session. Each correction receives the latest failing fields and validation rules. Only verification output is retried; completed research is retained, and existing execution deadlines still apply. Exhausted correction or failed check persistence preserves existing checks and the presentation summary, records a server-owned `check_authoring` failure, and adds a visible work-log note. With Monitoring enabled, implementation completion and plan roll-up read the authoring outcome from the locked report’s writer connection and cannot automatically resolve without checks while that failure is current. Existing applicable checks can still enter Monitoring. A later successfully saved plan clears the blocker, including an explicitly empty plan; manual resolution remains available. An explicitly empty, valid check list still retires omitted checks. Legacy activity payloads preserve approved, person-authored, and nonpending checks. Referenced checks inherit their existing wait when the proposal omits it. Verification’s revised summary is saved only after its check reconciliation succeeds.
 
 The plan separates `Confirm the current state` guidance from `Confirm the outcome` guidance.
 Each section says what evidence to collect, which result supports a conclusion, and which result is inconclusive.

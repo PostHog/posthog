@@ -12,9 +12,14 @@ import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLog
 import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { attachedContextItemKey } from '~/layout/ai/attachedContext'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
 import { codeInvitesCheckAccessRetrieve, tasksCreate, tasksRunCreate } from 'products/tasks/frontend/generated/api'
@@ -37,7 +42,7 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { IntegrationType } from '../../../../../frontend/src/types'
-import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import {
@@ -54,8 +59,6 @@ import type { ComposerSeed } from '../../logics/composerSeedLogic'
 import { modelCatalogueLogic } from '../../logics/modelCatalogueLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
-import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
-import type { ActiveCreation } from '../../logics/runnerPanelLogic'
 import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
@@ -63,7 +66,6 @@ import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
-import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
@@ -81,7 +83,7 @@ import { DEFAULT_COMPOSER_MODE, getModesForRuntimeAdapter, type PermissionMode }
 import { wrapWithPosthogContext } from '../../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../../utils/warmRunSubmission'
 
-export type { ActiveCreation } from '../../logics/runnerPanelLogic'
+export type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 
 class CloudTargetUnresolvedError extends Error {}
 

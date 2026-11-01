@@ -1,5 +1,6 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { ApiError, NetworkError } from 'lib/api-error'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
@@ -108,6 +109,7 @@ const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavail
 const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
 const TRANSIENT_SUBMIT_RETRY_BUDGET_MS = 20_000
+const MAX_RECORDED_SUBMIT_TIMINGS = 6
 
 type QuerySubmitTelemetry = {
     client_query_id?: string
@@ -115,6 +117,15 @@ type QuerySubmitTelemetry = {
     retry_wait_ms: number
     retry_status: number | null
     retry_recovered: boolean
+    submit_request_timings: ApiRequestTiming[]
+    result_poll_timing?: ApiRequestTiming
+}
+
+function requestTimingProperties(telemetry: QuerySubmitTelemetry): Record<string, string | number | undefined> {
+    return {
+        ...flattenRequestTiming(telemetry.submit_request_timings.at(-1), ''),
+        ...flattenRequestTiming(telemetry.result_poll_timing, 'result_poll_'),
+    }
 }
 
 function capacityWaitMs(error: unknown): number | undefined {
@@ -199,10 +210,23 @@ export function queryExportContext<N extends DataNode>(
     return { source: query }
 }
 
+function annotatePollError(e: any, queryId: string): void {
+    // Parse error message to extract clean message and code if present
+    const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
+    e.detail = parsed.message
+
+    // Prefer the structured code from QueryStatus over one parsed out of the message
+    e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
+
+    // Attach queryId to error for downstream error handling
+    e.queryId = queryId
+}
+
 export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
-    onPoll?: (response: QueryStatus) => void
+    onPoll?: (response: QueryStatus) => void,
+    onResultPollTiming?: (timing: ApiRequestTiming) => void
 ): Promise<QueryStatus> {
     // A hidden or offline tab must not consume the polling deadline while it cannot poll.
     let activeElapsedMs = 0
@@ -217,8 +241,22 @@ export async function pollForResults(
         await waitForPollingReady(methodOptions?.signal)
 
         try {
-            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
+            let pollTiming: ApiRequestTiming | undefined
+            const statusResponse = (
+                await api.queryStatus.get(
+                    queryId,
+                    true,
+                    onResultPollTiming && {
+                        onRequestTiming: (timing) => {
+                            pollTiming = timing
+                        },
+                    }
+                )
+            ).query_status
             if (statusResponse.complete) {
+                if (pollTiming) {
+                    onResultPollTiming?.(pollTiming)
+                }
                 return statusResponse
             }
             if (onPoll) {
@@ -228,16 +266,7 @@ export async function pollForResults(
             if (e instanceof NetworkError && e.reason === 'offline') {
                 continue
             }
-            // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
-            e.detail = parsed.message
-
-            // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
-
-            // Attach queryId to error for downstream error handling
-            e.queryId = queryId
-
+            annotatePollError(e, queryId)
             throw e
         }
     }
@@ -293,7 +322,15 @@ async function executeQuery<N extends DataNode>(
                 const requestStartedAt = performance.now()
                 try {
                     return await api.query(queryNode, {
-                        requestOptions: methodOptions,
+                        requestOptions: {
+                            ...methodOptions,
+                            onRequestTiming: (timing) => {
+                                if (submitTelemetry.submit_request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
+                                    submitTelemetry.submit_request_timings.push(timing)
+                                }
+                                methodOptions?.onRequestTiming?.(timing)
+                            },
+                        },
                         clientQueryId,
                         refresh: refreshParam,
                         filtersOverride,
@@ -364,7 +401,9 @@ async function executeQuery<N extends DataNode>(
 
     let statusResponse: QueryStatus
     try {
-        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse, (timing) => {
+            submitTelemetry.result_poll_timing = timing
+        })
     } catch (e: any) {
         // A backgrounded tab can outlive the query's status. Submit once more to recover its result.
         //
@@ -419,6 +458,7 @@ export async function performQuery<N extends DataNode>(
         retry_wait_ms: 0,
         retry_status: null,
         retry_recovered: false,
+        submit_request_timings: [],
     }
     const startTime = performance.now()
 
@@ -471,6 +511,7 @@ export async function performQuery<N extends DataNode>(
             data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
             ...submitTelemetry,
+            ...requestTimingProperties(submitTelemetry),
         })
         const historySources = warehouseSources.filter((s) => s.uses_history_table)
         if (historySources.length > 0) {
@@ -498,6 +539,7 @@ export async function performQuery<N extends DataNode>(
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
                 ...logParams,
                 ...submitTelemetry,
+                ...requestTimingProperties(submitTelemetry),
                 retry_recovered: false,
             })
         }

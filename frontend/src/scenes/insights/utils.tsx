@@ -12,6 +12,7 @@ import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
+import { retryImport } from 'lib/utils/retryImport'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
 import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
@@ -76,8 +77,6 @@ import {
 } from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
-
-import { insightLogic } from './insightLogic'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null | undefined): boolean => {
     return (
@@ -202,6 +201,8 @@ export function extractObjectDiffKeys(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
+    // A static import would put insightLogic and everything it imports on the eager path of every page.
+    const { insightLogic } = await retryImport(() => import('./insightLogic'))
     const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
 
     return insightId

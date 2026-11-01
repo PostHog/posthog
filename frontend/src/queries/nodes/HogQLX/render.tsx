@@ -16,7 +16,7 @@ import { imageDimension, imageSource } from './image'
 
 // NB!!! Sync this list with posthog/hogql/hogqlx.py
 // These tags only get the `key` and `children` attributes.
-const HOGQLX_TAGS_NO_ATTRIBUTES = [
+export const HOGQLX_TAGS_NO_ATTRIBUTES = [
     'em',
     'strong',
     'span',

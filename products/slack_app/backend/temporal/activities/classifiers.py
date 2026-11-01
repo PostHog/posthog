@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 import structlog
@@ -8,7 +9,7 @@ from temporalio import activity
 
 from posthog.llm.gateway_client import Product, build_anthropic_client, build_openai_client, trace_id_from_seed
 from posthog.llm.semantic_enrichment import extract_json_object
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
@@ -26,6 +27,11 @@ from products.slack_app.backend.prompt_templates import PromptTemplates
 from products.slack_app.backend.services.integration_resolver import format_project_candidate_list, routable_projects
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
 from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    require_workspace_integration,
+    workspace_integrations,
+)
 from products.slack_app.backend.temporal.types import (
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppModelOverride,
@@ -280,11 +286,7 @@ def classify_posthog_code_task_needs_repo_activity(
     if inputs is None:
         return classify_task_needs_repo(event_text, thread_messages)
 
-    integration = Integration.objects.get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     # Filter rules to repos the mentioner can reach, matching what selection accepts for
     # this mention. An empty list means the lookup resolved nothing (the cascade would
     # have stopped such a mention already), so treat it as unknown rather than dropping
@@ -601,11 +603,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     if not input.event_text.strip():
         return None
 
-    integration = Integration.objects.select_related("team").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
-    )
+    integration = require_workspace_integration(input.integration_id, input.slack_team_id)
     choices = available_model_choices()
     if not choices:
         # The gateway is the source of truth for what can run; with no catalogue we
@@ -632,7 +630,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     return override
 
 
-def _project_route_response_format(projects: list[Integration]) -> ResponseFormatJSONSchema:
+def _project_route_response_format(projects: Sequence[WorkspaceIntegration]) -> ResponseFormatJSONSchema:
     """A strict JSON schema pinning the reply to one id from ``projects``.
 
     The enum is what stops the classifier naming a project this mentioner cannot reach.
@@ -662,11 +660,11 @@ class _ProjectRouteReply(BaseModel):
 
 def classify_slack_app_project_route(
     event_text: str,
-    projects: list[Integration],
-    default: Integration | None = None,
+    projects: Sequence[WorkspaceIntegration],
+    default: WorkspaceIntegration | None = None,
     trace_id: str | None = None,
     team_id: int | None = None,
-) -> Integration | None:
+) -> WorkspaceIntegration | None:
     """Read the project a mention asked to be answered from, out of its text.
 
     ``default`` is the project the run is already on. It heads the list the model is
@@ -742,14 +740,10 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     # Cheapest gate first, and the one that answers most workspaces. Everything below is
     # two queries and an access scan, and a workspace connected to one project has
     # nothing to route between however they come out.
-    if Integration.objects.filter(kind="slack", integration_id=input.slack_team_id).count() < 2:
+    if len(workspace_integrations(input.slack_team_id)) < 2:
         return None
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
-    )
+    integration = require_workspace_integration(input.integration_id, input.slack_team_id)
     user = User.objects.filter(id=input.user_id).first()
     if user is None:
         return None

@@ -3,7 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { applyMarginOverride } from '../../core/hooks/useChartMargins'
+import { applyMarginOverride, useStableMargins } from '../../core/hooks/useChartMargins'
 import { useResolvedChartTheme } from '../../core/theme'
 import type {
     ChartConfig,
@@ -113,6 +113,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         pointRadius = DEFAULT_POINT_RADIUS,
         valueDomain,
     } = config ?? {}
+    const marginsOverride = useStableMargins(config?.margins)
 
     const showsStart = useCallback(
         (s: Series<Meta>): boolean => slopeLabelVisible(s, 'start', showStartLabels),
@@ -164,10 +165,10 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
 
         const base: Partial<ChartMargins> = { left, right }
         return {
-            margins: applyMarginOverride(base, config?.margins ?? {}),
+            margins: applyMarginOverride(base, marginsOverride),
             nameOffsetX: offset,
         }
-    }, [visibleSeries, slopeLabels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
+    }, [visibleSeries, slopeLabels, showsStart, showsEnd, showSeriesLabels, valueFormatter, marginsOverride])
 
     // When the last point is the current incomplete period, dash only the *second half* of the
     // connector so it reads as "the end is provisional", not the whole comparison.
