@@ -51,6 +51,8 @@ Insights can be saved or updated before running the SQL. Updating a view still r
 
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
+Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.
+
 Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
 
 ## Choosing data in Business intelligence

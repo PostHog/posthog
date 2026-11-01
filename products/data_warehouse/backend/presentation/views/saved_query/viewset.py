@@ -581,7 +581,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         to walk, so 1 gives the immediate parents.
         """
         saved_query = self.get_object()
-        ancestors = lineage._related_saved_queries(saved_query, upstream=True, max_depth=lineage._parse_level(request))
+        ancestors = lineage._related_saved_queries(
+            saved_query,
+            self.user_access_control,
+            upstream=True,
+            max_depth=lineage._parse_level(request),
+        )
         return response.Response({"ancestors": ancestors})
 
     @extend_schema(
@@ -596,7 +601,10 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query = self.get_object()
         descendants = lineage._related_saved_queries(
-            saved_query, upstream=False, max_depth=lineage._parse_level(request)
+            saved_query,
+            self.user_access_control,
+            upstream=False,
+            max_depth=lineage._parse_level(request),
         )
         return response.Response({"descendants": descendants})
 
@@ -681,8 +689,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         saved_query = self.get_object()
         return response.Response(
             {
-                "upstream_count": len(lineage._related_saved_queries(saved_query, upstream=True, max_depth=1)),
-                "downstream_count": len(lineage._related_saved_queries(saved_query, upstream=False, max_depth=1)),
+                "upstream_count": len(
+                    lineage._related_saved_queries(saved_query, self.user_access_control, upstream=True, max_depth=1)
+                ),
+                "downstream_count": len(
+                    lineage._related_saved_queries(saved_query, self.user_access_control, upstream=False, max_depth=1)
+                ),
             }
         )
 
