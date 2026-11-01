@@ -420,6 +420,7 @@ export interface scoutFleetLogicValues {
     rollups: Map<string, ScoutRollup>
     rosterEvaluatedAt: number
     rosterGroupCounts: Record<ScoutGroupKey, number>
+    rosterKeptScoutIds: string[]
     rosterScouts: ScoutRosterRow[]
     rosterScoutsBeforeSearch: ScoutRosterRow[]
     runNoteDrafts: Record<string, string>
@@ -669,6 +670,13 @@ export interface scoutFleetLogicActions {
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
     }
+    setScoutEnabledFromRoster: (
+        configId: string,
+        enabled: boolean
+    ) => {
+        configId: string
+        enabled: boolean
+    }
     setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => {
         outcome: ScoutFleetSyncOutcome
     }
@@ -782,6 +790,7 @@ export interface scoutFleetLogicMeta {
             activeScoutTags: string[],
             activeScoutOwner: string | null,
             scoutEnabledFilter: ScoutEnabledFilter,
+            rosterKeptScoutIds: string[],
             scoutRosterSort: ScoutRosterSort
         ) => ScoutRosterRow[]
         rosterScouts: (rosterScoutsBeforeSearch: ScoutRosterRow[], scoutSearch: string) => ScoutRosterRow[]
@@ -837,6 +846,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         materializeScoutFleet: (surface: SignalsScoutConfigSyncSurface = 'roster') => ({ surface }),
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         updateScoutConfigFinished: (configId: string) => ({ configId }),
+        setScoutEnabledFromRoster: (configId: string, enabled: boolean) => ({ configId, enabled }),
         // A full server config doubles as a local patch when reconciling optimistic edits.
         patchScoutConfigLocally: (configId: string, updates: SignalScoutConfigUpdate | Partial<SignalScoutConfig>) => ({
             configId,
@@ -1333,6 +1343,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 hydrateRosterFilters: (_, { filter }) => filter,
             },
         ],
+        // Scouts switched on or off from the roster stay listed under the on/off filter until the
+        // filter changes. Otherwise the row leaves on the click and the next scout moves under the cursor.
+        rosterKeptScoutIds: [
+            [] as string[],
+            {
+                setScoutEnabledFromRoster: (state, { configId }) =>
+                    state.includes(configId) ? state : [...state, configId],
+                setScoutEnabledFilter: () => [],
+                hydrateRosterFilters: () => [],
+            },
+        ],
         selectedScoutOwner: [
             null as string | null,
             { persist: true },
@@ -1595,6 +1616,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 s.activeScoutTags,
                 s.activeScoutOwner,
                 s.scoutEnabledFilter,
+                s.rosterKeptScoutIds,
                 s.scoutRosterSort,
             ],
             (
@@ -1604,6 +1626,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 activeScoutTags: string[],
                 activeScoutOwner: string | null,
                 scoutEnabledFilter: ScoutEnabledFilter,
+                rosterKeptScoutIds: string[],
                 scoutRosterSort: ScoutRosterSort
             ): ScoutRosterRow[] => {
                 const now = new Date(rosterEvaluatedAt)
@@ -1612,7 +1635,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     .filter((config) => configMatchesScoutOwner(config, activeScoutOwner))
                     .filter(
                         (config) =>
-                            scoutEnabledFilter === 'all' || config.enabled === (scoutEnabledFilter === 'enabled')
+                            scoutEnabledFilter === 'all' ||
+                            config.enabled === (scoutEnabledFilter === 'enabled') ||
+                            rosterKeptScoutIds.includes(config.id)
                     )
                     .sort(compareScoutsByName)
                     .map((config) => ({ config, group: scoutGroup(config, rollups.get(config.skill_name), now) }))
@@ -1954,6 +1979,15 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 if (queuedUpdatesAfterFailure) {
                     actions.updateScoutConfig(configId, queuedUpdatesAfterFailure)
                 }
+            }
+        },
+        setScoutEnabledFromRoster: ({ configId, enabled }) => {
+            const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
+            actions.updateScoutConfig(configId, { enabled })
+            if (!enabled && config) {
+                lemonToast.info(`Turned off ${scoutDisplayName(config)}`, {
+                    button: { label: 'Undo', action: () => actions.updateScoutConfig(configId, { enabled: true }) },
+                })
             }
         },
         deleteScout: async ({ configId, surface }) => {
