@@ -1,6 +1,8 @@
 import json
 import uuid
+import asyncio
 import hashlib
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -88,6 +90,7 @@ from products.signals.backend.anomaly_scores.tick import (
     capture_census,
     plan_tick,
     run_insight,
+    shard_picks,
 )
 from products.signals.backend.models import (
     AnomalyScoringDueInsight,
@@ -182,6 +185,8 @@ class TestTickConfig(SimpleTestCase):
         [
             ("max_insights_per_tick", 51, 50),
             ("max_concurrency", 100, 8),
+            ("shards", 100, 8),
+            ("max_total_concurrency", 100, 32),
             ("max_queries_per_hour", 1_000_000, 2000),
             ("max_queries_per_project_per_hour", 501, 500),
             ("max_score_queries_per_hour", 1_000_000, 5000),
@@ -195,6 +200,21 @@ class TestTickConfig(SimpleTestCase):
         config = parse_config({"enabled": True, "organization_ids": [ORGANIZATION_ID], field: value})
 
         assert getattr(config, field) == expected
+
+    @parameterized.expand(
+        [
+            ("defaults", {}, 1, 2),
+            ("shards_within_the_total", {"shards": 4}, 4, 2),
+            ("total_lowers_the_shards", {"shards": 8, "max_concurrency": 4, "max_total_concurrency": 12}, 3, 4),
+            ("total_below_one_shard", {"shards": 4, "max_concurrency": 4, "max_total_concurrency": 2}, 1, 2),
+        ]
+    )
+    def test_the_total_concurrency_bounds_the_shards(
+        self, _name: str, levers: dict[str, int], shards: int, concurrency: int
+    ) -> None:
+        fan_out = parse_config({"enabled": True, "organization_ids": [ORGANIZATION_ID], **levers}).fan_out()
+
+        assert (fan_out.shards, fan_out.concurrency) == (shards, concurrency)
 
     @parameterized.expand(
         [
@@ -215,6 +235,27 @@ class TestTickConfig(SimpleTestCase):
         config = parse_config({**_SPLIT_PAYLOAD, **levers})
 
         assert (config.max_score_insights_per_tick, config.max_train_insights_per_tick) == (score_cap, train_cap)
+
+
+class TestShardPicks(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("one_shard_keeps_the_plan_order", 1, [[(1, 1), (2, 2), (1, 3), (3, 4), (1, 5), (2, 6)]]),
+            ("the_largest_team_goes_alone", 2, [[(1, 1), (1, 3), (1, 5)], [(2, 2), (3, 4), (2, 6)]]),
+            ("no_empty_shard", 5, [[(1, 1), (1, 3), (1, 5)], [(2, 2), (2, 6)], [(3, 4)]]),
+        ]
+    )
+    def test_each_team_goes_to_one_shard_in_plan_order(
+        self, _name: str, shards: int, expected: list[list[tuple[int, int]]]
+    ) -> None:
+        picks = [
+            InsightPick(team_id=team_id, insight_id=insight_id, scored_through={})
+            for team_id, insight_id in [(1, 1), (2, 2), (1, 3), (3, 4), (1, 5), (2, 6)]
+        ]
+
+        lists = shard_picks(picks, shards)
+
+        assert [[(pick.team_id, pick.insight_id) for pick in shard] for shard in lists] == expected
 
 
 class TestQueryBudget(SimpleTestCase):
@@ -963,6 +1004,29 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         assert [(pick.insight_id, pick.scored_through) for pick in selection.picks] == [(due.id, watermarks)]
         assert (selection.active, selection.due_insights, selection.oldest_due_seconds) == (2, 1, 3600)
 
+    @parameterized.expand([("one_shard", 1, 1), ("three_shards", 3, 3)])
+    @time_machine.travel(NOW, tick=False)
+    def test_the_pick_cap_applies_to_each_shard(self, _name: str, shards: int, picked: int) -> None:
+        insights = [
+            Insight.objects.create(team=self.team, name=f"due_{index}", query=_trends(interval="day"))
+            for index in range(4)
+        ]
+        for insight in insights:
+            self._row(insight, NOW - timedelta(hours=1), {})
+        cache.delete_many(
+            [
+                *(_cooldown_key(insight.id) for insight in insights),
+                _fleet_budget_key(NOW),
+                _project_budget_key(self.team.id, NOW),
+            ]
+        )
+        config = dataclasses.replace(self._config(), max_insights_per_tick=1, shards=shards)
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        assert len(selection.picks) == picked
+
     @time_machine.travel(NOW, tick=False)
     def test_a_scored_pick_keeps_the_watermark_of_a_series_that_it_did_not_return(self) -> None:
         today = NOW.replace(hour=0)
@@ -1411,8 +1475,10 @@ async def _run_tick(
     plan: AnomalyScoringTickPlan | Exception,
     statuses: dict[int, str],
     captured: list[AnomalyScoringTickResult] | None = None,
+    waits_for: dict[int, int] | None = None,
 ) -> tuple[AnomalyScoringTickResult, list[int]]:
     started: list[int] = []
+    starts: dict[int, asyncio.Event] = {}
 
     @activity.defn(name="plan_anomaly_scoring_tick_activity")
     async def fake_plan(input: AnomalyScoringTickInput) -> AnomalyScoringTickPlan:
@@ -1423,6 +1489,10 @@ async def _run_tick(
     @activity.defn(name="score_anomaly_insight_activity")
     async def fake_score(input: ScoreInsightInput) -> ScoreInsightResult:
         started.append(input.pick.insight_id)
+        starts.setdefault(input.pick.insight_id, asyncio.Event()).set()
+        if waits_for and input.pick.insight_id in waits_for:
+            # Bounded, so a pick whose other pick never starts fails the test instead of hanging it.
+            await asyncio.wait_for(starts.setdefault(waits_for[input.pick.insight_id], asyncio.Event()).wait(), 10)
         return ScoreInsightResult(status=statuses.get(input.pick.insight_id, "scored"), events=1)
 
     @activity.defn(name="capture_anomaly_scoring_tick_activity")
@@ -1476,6 +1546,26 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         3,
         stopped,
     )
+
+
+@pytest.mark.asyncio
+async def test_shards_run_side_by_side_with_each_team_in_one_shard() -> None:
+    plan = AnomalyScoringTickPlan(
+        enabled=True,
+        picks=[
+            InsightPick(team_id=team_id, insight_id=insight_id, scored_through={})
+            for team_id, insight_id in [(1, 1), (2, 3), (1, 2), (2, 4)]
+        ],
+        candidates=4,
+        max_concurrency=1,
+        shards=2,
+    )
+
+    # Pick 1 finishes only after pick 3 starts, so shards that run one after the other fail pick 1.
+    result, ran = await _run_tick(plan, {}, waits_for={1: 3})
+
+    assert sorted(ran) == [1, 2, 3, 4]
+    assert (result.picked, result.errored, result.shards, result.max_shard_picks) == (4, 0, 2, 2)
 
 
 @pytest.mark.asyncio

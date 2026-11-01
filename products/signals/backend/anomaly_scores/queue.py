@@ -678,6 +678,8 @@ def select_insights(
 ) -> Selection:
     """The picks of the tick. ``limit`` replaces the pick cap of each pass, for a manual run.
 
+    Each pick cap of the config is per shard, so the tick picks up to the cap once for each shard.
+
     ``deadline`` is a ``time.monotonic`` value. After it, no more teams load, and the plan uses the teams it has.
     With the due list on, the plan reads the stored due list instead, and ``deadline`` has no effect.
     """
@@ -700,9 +702,9 @@ def select_insights(
         # Without its scored state, every insight of the team looks never scored, so the team waits for a later tick.
         insights = [insight for insight in insights if insight.team_id in loaded_teams]
 
+    # A due row of a never scored insight has no watermarks, so its newest bucket is None.
     newest_buckets = {
-        insight.insight_id: max(state[insight.insight_id].values()) if insight.insight_id in state else None
-        for insight in insights
+        insight.insight_id: max(state.get(insight.insight_id, {}).values(), default=None) for insight in insights
     }
     cooling = _cooling_down([insight.insight_id for insight in insights])
     active_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
@@ -739,7 +741,8 @@ def select_insights(
     score_ready: set[int] = set()
     score_picked: dict[int, RunPlan] = {}
     score_skipped = 0
-    score_cap = config.max_score_insights_per_tick if limit is None else limit
+    shards = config.fan_out().shards
+    score_cap = config.max_score_insights_per_tick * shards if limit is None else limit
     if config.train_score_split:
         score_pass = _score_order(active_by_id, teams, config, now)
         score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
@@ -797,9 +800,9 @@ def select_insights(
         ]
     )
     if config.train_score_split:
-        train_cap = config.max_train_insights_per_tick
+        train_cap = config.max_train_insights_per_tick * shards
     else:
-        train_cap = config.max_insights_per_tick
+        train_cap = config.max_insights_per_tick * shards
     # A stale model plans as a train step here. With the split off, every pick charges the train budgets.
     train_picked, train_skipped = walk(train_order, ScoringRun.TRAIN, train_cap if limit is None else limit)
 
