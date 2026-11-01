@@ -62,9 +62,9 @@ class KalshiSource(ResumableSource[KalshiSourceConfig, KalshiResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Kalshi's market data endpoints are public, so this source needs no API key for them.
 
-It syncs markets, events, series, trades, milestones, daily market candlesticks, and the per-minute weather index for each city. It also syncs the historical archive of markets and trades.
+It syncs markets, events, series, trades, milestones, daily market candlesticks, and the per-minute weather index and its calibration history for each city. It also syncs the historical archive of markets and trades.
 
-To sync your own fills, orders, positions, and settlements, add an API key. Create one in your [Kalshi account settings](https://kalshi.com/account/profile) and paste the key ID and the private key file contents below. The key only needs read access.""",
+To sync your own fills, orders, positions, settlements, and credit history, add an API key. Create one in your [Kalshi account settings](https://kalshi.com/account/profile) and paste the key ID and the private key file contents below. The key only needs read access.""",
             iconPath="/static/services/kalshi.png",
             docsUrl="https://posthog.com/docs/cdp/sources/kalshi",
             keywords=["prediction market", "event contracts", "trading"],
@@ -117,7 +117,7 @@ To sync your own fills, orders, positions, and settlements, add an API key. Crea
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only the trade, fill, settlement, candlestick, and weather index endpoints carry incremental fields, so build_endpoint_schemas
+        # Only the trade, fill, settlement, credit, candlestick, and weather index endpoints carry incremental fields, so build_endpoint_schemas
         # marks them incremental and leaves the rest full-refresh.
         # Append would duplicate the hour each weather index run re-reads; merge dedupes it.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("weather_index",))

@@ -6771,6 +6771,8 @@ Diffed against: <https://docs.kalshi.com/openapi.yaml>
 - [ ] `Market orderbook (GET /trade-api/v2/markets/{ticker}/orderbook)` — measure market depth and available liquidity at each price level (medium)
 - [ ] `Series fee changes (GET /trade-api/v2/series/fee_changes)` — explain trading cost changes across series and time (medium)
 - [x] `Weather index (GET /trade-api/v2/live_data/weather/{city})` — analyze the minute-resolution city temperature index behind hourly temperature markets (medium)
+- [x] `Weather index calibrations (GET /trade-api/v2/live_data/weather/{city}/calibrations)` — reproduce published weather index values from each city's station weights and offsets over time (medium)
+- [x] `Credit history (GET /trade-api/v2/portfolio/credit_history)` — reconcile credits applied to the account alongside fills and settlements (medium)
 
 Note: Parsed every GET operation in the official Trade API OpenAPI specification. Historical endpoints contain archived records absent from current collections. Portfolio tables require authenticated requests; the current source only reads public market data. Order book history requires periodic snapshots; API keys, exchange status, and trading actions were excluded.
 
