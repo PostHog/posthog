@@ -121,12 +121,32 @@ describe('hog-charts canvas-renderer', () => {
                 expectedMoveTo: 0,
                 expectedLineTo: 0,
             },
-        ])('$name', ({ labels, data, gapValues, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
+            {
+                name: 'bridges the gap when connects allows it',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                gapValues: new Set([50]),
+                connects: () => true,
+                expectedBeginPath: 1,
+                expectedMoveTo: 1,
+                expectedLineTo: 1,
+            },
+            {
+                name: 'breaks between neighbors when connects refuses',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                gapValues: new Set<number>(),
+                connects: (from: number) => from !== 0,
+                expectedBeginPath: 1,
+                expectedMoveTo: 2,
+                expectedLineTo: 1,
+            },
+        ])('$name', ({ labels, data, gapValues, connects, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data })
             const drawCtx =
                 gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
-            drawLine(drawCtx, series)
+            drawLine({ ...drawCtx, connects }, series)
             expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
             expect(ctx.moveTo).toHaveBeenCalledTimes(expectedMoveTo)
             expect(ctx.lineTo).toHaveBeenCalledTimes(expectedLineTo)
@@ -172,6 +192,30 @@ describe('hog-charts canvas-renderer', () => {
             const series = makeSeries({ key: 's1', data, points: radius === undefined ? undefined : { radius } })
             drawPoints(makeDrawContextWithGaps(ctx, labels, new Set([50])), series)
             expect(ctx.arc.mock.calls.map((call) => call[2])).toEqual(arcs)
+        })
+    })
+
+    describe('drawLine — connects with partial strokes', () => {
+        it.each([
+            { smooth: false, segment: 'lineTo' as const },
+            { smooth: true, segment: 'bezierCurveTo' as const },
+        ])('bridges a gap that falls on a partial dash boundary (smooth: $smooth)', ({ smooth, segment }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 50, 30], stroke: { partial: { fromIndex: 2 } } })
+            const drawCtx = makeDrawContextWithGaps(ctx, ['a', 'b', 'c'], new Set([50]))
+            drawLine({ ...drawCtx, smooth, connects: () => true }, series)
+            expect(ctx[segment]).toHaveBeenCalledTimes(1)
+        })
+
+        it('skips the fractional tail when the final segment is not connected', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 20, 30], stroke: { partial: { fromFraction: 0.5 } } })
+            const drawCtx = {
+                ...makeDrawContext(ctx, ['a', 'b', 'c']),
+                smooth: true,
+                connects: (from: number) => from !== 1,
+            }
+            expect(() => drawLine(drawCtx, series)).not.toThrow()
         })
     })
 
@@ -532,6 +576,25 @@ describe('hog-charts canvas-renderer', () => {
             // Last two lineTo calls should be at the baseline
             expect(lineToArgs[lineToArgs.length - 1]).toBe(baseline)
             expect(lineToArgs[lineToArgs.length - 2]).toBe(baseline)
+        })
+    })
+
+    describe('drawArea — connects', () => {
+        it.each([
+            { name: 'breaks the fill at a gap by default', gaps: [50], connects: undefined, fills: 2 },
+            { name: 'bridges a gap that connects allows', gaps: [50], connects: () => true, fills: 1 },
+            {
+                name: 'breaks the fill where connects refuses a pair',
+                gaps: [],
+                connects: (from: number) => from !== 1,
+                fills: 2,
+            },
+        ])('$name', ({ gaps, connects, fills }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 20, 50, 30, 40], fill: {} })
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            drawArea({ ...makeDrawContextWithGaps(ctx, labels, new Set(gaps)), connects }, series)
+            expect(ctx.fill).toHaveBeenCalledTimes(fills)
         })
     })
 

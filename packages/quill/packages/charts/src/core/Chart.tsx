@@ -19,7 +19,14 @@ import {
 } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
-import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
+import {
+    ChartShell,
+    type ChartWrapperElement,
+    countVisibleSeries,
+    useCanvasBounds,
+    useColoredSeries,
+    X_FOR_INDEX,
+} from './chart-shell'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
@@ -169,6 +176,7 @@ export function Chart<Meta = unknown>({
         margins: marginsOverride,
         maxCategoryLabelWidth: baseMaxCategoryLabelWidth,
         yAxes,
+        xTickLabels,
     } = config ?? {}
 
     // Width from the last layout. Margins feed the canvas size, so the cap can only react to it one render later.
@@ -200,7 +208,8 @@ export function Chart<Meta = unknown>({
 
     const margins = useChartMargins({
         series,
-        labels,
+        // The x tick formatter indexes the tick labels, so measure those.
+        labels: xTickLabels ?? labels,
         hideXAxis,
         hideYAxis,
         xAxisLabel,
@@ -281,9 +290,13 @@ export function Chart<Meta = unknown>({
         }
         const xs = hideXAxis
             ? []
-            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation).map(
-                  (l) => l.x
-              )
+            : computeVisibleXLabels(
+                  xTickLabels ?? labels,
+                  scales.x,
+                  xTickFormatter,
+                  maxCategoryLabelWidth,
+                  xTickLabelRotation
+              ).map((l) => l.x)
         const ys = yGutters.flatMap((gutter) =>
             computeVisibleYTicks(gutter.ticks, gutter.scale)
                 .map((tick) => gutter.scale(tick))
@@ -297,6 +310,7 @@ export function Chart<Meta = unknown>({
         dimensions,
         axisOrientation,
         labels,
+        xTickLabels,
         xTickFormatter,
         xTickLabelRotation,
         maxCategoryLabelWidth,
@@ -363,6 +377,17 @@ export function Chart<Meta = unknown>({
         drawHoverRef.current,
     ])
 
+    useLayoutEffect(() => {
+        const wrapper = wrapperRef.current as ChartWrapperElement | null
+        if (wrapper) {
+            // Bar charts keep the even grid, which lands inside a band rather than on its center.
+            wrapper[X_FOR_INDEX] =
+                scales && !scales.extent && axisOrientation === 'vertical'
+                    ? (index) => scales.x(labels[index])
+                    : undefined
+        }
+    }, [wrapperRef, scales, labels, axisOrientation])
+
     useChartDraw({
         ctx,
         overlayCtx,
@@ -399,8 +424,8 @@ export function Chart<Meta = unknown>({
     const stablePositionValue = useStableResolveValue(resolvePositionValue ?? resolveValue)
 
     const axisValue = useMemo(
-        () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
-        [axisOrientation, xTickFormatter, isPercent]
+        () => ({ orientation: axisOrientation, xTickFormatter, xTickLabels: xTickLabels ?? labels, isPercent }),
+        [axisOrientation, xTickFormatter, xTickLabels, labels, isPercent]
     )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
@@ -455,6 +480,7 @@ export function Chart<Meta = unknown>({
                         orientation={axisOrientation}
                         labelToCoord={labelToCoord}
                         maxCategoryLabelWidth={maxCategoryLabelWidth}
+                        xTickLabels={xTickLabels}
                     />
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
