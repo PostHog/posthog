@@ -58,7 +58,7 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
         # The URL picks the account and bucket the stored key is sent to, so changing it must re-require the key.
         return ["url_pattern"]
 
-    def object_store_config(self, config: CloudflareR2SourceConfig) -> ObjectStoreConfig:
+    def object_store_config(self, config: CloudflareR2SourceConfig, team_id: int) -> ObjectStoreConfig:
         return ObjectStoreConfig.from_url(
             ObjectStoreProvider.R2,
             parse_r2_url(config.url_pattern),

@@ -42,7 +42,7 @@ AmazonAds,region client_id client_secret refresh_token,,,,,amazon-ads
 AmazonCloudWatch,aws_auth aws_region,aws_auth=role,,log_group_names metric_queries start_date,,amazon-cloud-watch
 AmazonEventBridge,,,,,,amazon-event-bridge
 AmazonKinesis,,,,,,amazon-kinesis
-AmazonS3,url_pattern access_key_id secret_access_key,,,file_format combine_files,,aws-s3
+AmazonS3,url_pattern aws_auth,aws_auth=role,,file_format combine_files,,aws-s3
 AmazonSNS,,,,,,amazon-sns
 AmazonSQS,,,,,,amazon-sqs
 AmazonSellingPartner,region client_id client_secret refresh_token,,,marketplace_ids,,amazon-selling-partner
