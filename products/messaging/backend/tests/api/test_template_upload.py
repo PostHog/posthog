@@ -352,6 +352,7 @@ class TestTemplateUpload(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "transactional_email_paused"
+        assert f"`{key_workflow_id}`" in response.json()["detail"]
         assert not MessageTemplate.objects.exists()
 
     def test_refuses_a_first_upload_under_a_key_whose_workflow_the_member_cannot_edit(

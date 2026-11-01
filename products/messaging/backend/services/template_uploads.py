@@ -106,8 +106,8 @@ def _require_the_key_workflow_can_be_taken_over(
     require_workflow_editor(key_workflow.hog_flow_id)
     if code_sends_paused(team_id, key_workflow.hog_flow_id):
         raise TransactionalEmailPaused(
-            "Code sends under this key are paused, so an upload can't take them over. Resume them in Workflows, "
-            "then upload again."
+            f"Code sends under this key are paused, so an upload can't take them over. Resume their workflow "
+            f"`{key_workflow.hog_flow_id}`, then upload again."
         )
 
 
