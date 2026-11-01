@@ -670,7 +670,7 @@ class TestBuildPersonalRanking(BaseTest):
                 ranking_ids.append(build_personal_ranking(self.team, self.user, config=config).ranking_id)
 
         mine = PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id)
-        assert sorted(str(row_id) for row_id in mine.values_list("id", flat=True)) == sorted(ranking_ids[-2:])
+        assert {str(row_id) for row_id in mine.values_list("id", flat=True)} == set(ranking_ids[-2:])
         assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other_user.id).count() == 1
         assert PersonalInboxRanking.objects.for_team(other_team.id).filter(user_id=self.user.id).count() == 1
 
