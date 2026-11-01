@@ -310,6 +310,15 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     // Headless Browsers
     {
+        pattern: 'Lightpanda',
+        definition: {
+            name: 'Lightpanda',
+            category: 'headless_browser',
+            trafficType: 'Automation',
+            operator: 'Lightpanda',
+        },
+    },
+    {
         pattern: 'HeadlessChrome',
         definition: {
             name: 'Headless Chrome',

@@ -7,10 +7,10 @@ from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEF
 
 @pytest.mark.parametrize(
     "user_agent",
-    ["Lightpanda/1.0", "lightpanda/2.3.4", "LIGHTPANDA/10.0", "Mozilla/5.0 (compatible; Lightpanda/1.0)"],
+    ["Lightpanda/1.0", "Lightpanda/2.3.4", "Lightpanda/10.0", "Mozilla/5.0 (compatible; Lightpanda/1.0)"],
 )
 def test_lightpanda_is_headless_browser_automation(user_agent):
-    pattern = "(?i)Lightpanda"
+    pattern = "Lightpanda"
     assert re.search(pattern, user_agent)
     bot = BOT_DEFINITIONS[pattern]
     assert (bot.name, bot.category, bot.traffic_type, bot.operator) == (
@@ -30,4 +30,9 @@ def test_lightpanda_is_headless_browser_automation(user_agent):
     ],
 )
 def test_regular_browsers_do_not_match_lightpanda(user_agent):
-    assert not re.search("(?i)Lightpanda", user_agent)
+    assert not re.search("Lightpanda", user_agent)
+
+
+@pytest.mark.parametrize("user_agent", ["lightpanda/1.0", "LIGHTPANDA/1.0"])
+def test_lightpanda_follows_existing_case_sensitive_backend_matching(user_agent):
+    assert not re.search("Lightpanda", user_agent)

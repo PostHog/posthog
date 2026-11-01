@@ -99,6 +99,24 @@ func TestClassifyBots(t *testing.T) {
 	}
 }
 
+func TestClassifyLightpanda(t *testing.T) {
+	c := NewClassifier()
+	for _, ua := range []string{"Lightpanda/1.0", "Lightpanda/2.3.4", "Mozilla/5.0 (compatible; Lightpanda/1.0)"} {
+		t.Run(ua, func(t *testing.T) {
+			want := Result{IsBot: true, TrafficType: "Automation", TrafficCategory: "headless_browser", BotName: "Lightpanda"}
+			if got := c.Classify(ua); got != want {
+				t.Errorf("Classify(%q) = %+v, want %+v", ua, got, want)
+			}
+		})
+	}
+	// Match the existing case-sensitive backend and live-stream convention.
+	for _, ua := range []string{"lightpanda/1.0", "LIGHTPANDA/1.0"} {
+		if got := c.Classify(ua); got != RegularResult {
+			t.Errorf("Classify(%q) = %+v, want %+v", ua, got, RegularResult)
+		}
+	}
+}
+
 func BenchmarkClassify(b *testing.B) {
 	c := NewClassifier()
 	uas := []string{

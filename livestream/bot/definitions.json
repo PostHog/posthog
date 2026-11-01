@@ -1158,6 +1158,12 @@
     "traffic_type": "Automation"
   },
   {
+    "pattern": "Lightpanda",
+    "name": "Lightpanda",
+    "category": "headless_browser",
+    "traffic_type": "Automation"
+  },
+  {
     "pattern": "Mozlila/",
     "name": "Mozlila Typo Bot",
     "category": "headless_browser",

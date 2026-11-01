@@ -565,7 +565,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://bots.fyi/d/chrome-privacy-preserving-prefetch-proxy",
     ),
     # Headless Browsers
-    "(?i)Lightpanda": BotDefinition(
+    "Lightpanda": BotDefinition(
         "Lightpanda",
         "headless_browser",
         "Automation",
