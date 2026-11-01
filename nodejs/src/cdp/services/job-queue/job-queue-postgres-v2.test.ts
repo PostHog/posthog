@@ -1,9 +1,11 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 import { v4 as uuidv4 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
+import { CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
     extractActionId,
@@ -393,6 +395,48 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect((queue as any).pendingJobs.size).toBe(3)
 
             warnSpy.mockRestore()
+        })
+    })
+    describe('oldest pending job age', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        async function readAgeSeconds(): Promise<number | undefined> {
+            const metric = await register.getSingleMetric('cdp_cyclotron_v2_oldest_pending_job_age_seconds')!.get()
+            return metric.values.find((v) => v.labels.queue === 'hog')?.value
+        }
+
+        it('reports the oldest held job until it is released, and stops reporting after the consumer stops', async () => {
+            jest.useFakeTimers({ now: new Date('2026-01-01T00:00:00Z') })
+            ;(CyclotronV2Manager as unknown as jest.Mock).mockImplementation(() => ({ connect: jest.fn() }))
+            ;(CyclotronV2Worker as unknown as jest.Mock).mockImplementation(() => ({
+                connect: jest.fn(),
+                disconnect: jest.fn(),
+            }))
+            const { queue } = createQueue()
+            ;(queue as any).manager = undefined
+            await queue.startAsConsumer('hog', jest.fn())
+
+            expect(await readAgeSeconds()).toBe(0)
+
+            const leaked = createDequeuedJob()
+            ;(queue as any).pendingJobs.set(leaked.id, leaked)
+            jest.advanceTimersByTime(600_000)
+            const fresh = createDequeuedJob()
+            ;(queue as any).pendingJobs.set(fresh.id, fresh)
+            jest.advanceTimersByTime(5_000)
+
+            expect(await readAgeSeconds()).toBe(605)
+
+            await queue.releaseInvocations([{ ...baseInvocation, id: fresh.id } as CyclotronJobInvocation])
+            expect(await readAgeSeconds()).toBe(605)
+
+            await queue.releaseInvocations([{ ...baseInvocation, id: leaked.id } as CyclotronJobInvocation])
+            expect(await readAgeSeconds()).toBe(0)
+
+            await queue.stopConsumer()
+            expect(await readAgeSeconds()).toBeUndefined()
         })
     })
 })
