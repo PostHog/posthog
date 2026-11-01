@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Literal
 
+from django.db import models
 from django.db.models import Q
 
 from rest_framework.exceptions import NotFound, PermissionDenied
@@ -57,12 +58,17 @@ def creator_can_scan(scanner: ReplayScanner) -> bool:
     return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
 
 
-def unrunnable_reason(scanner: ReplayScanner) -> Literal["no_ai_consent", "creator_lost_access"] | None:
+class UnrunnableReason(models.TextChoices):
+    NO_AI_CONSENT = "no_ai_consent", "No AI consent"
+    CREATOR_LOST_ACCESS = "creator_lost_access", "Creator lost access"
+
+
+def unrunnable_reason(scanner: ReplayScanner) -> UnrunnableReason | None:
     """Why the sweep can never spend for this scanner, or None when it can."""
     if not scanner.team.organization.is_ai_data_processing_approved:
-        return "no_ai_consent"
+        return UnrunnableReason.NO_AI_CONSENT
     if not creator_can_scan(scanner):
-        return "creator_lost_access"
+        return UnrunnableReason.CREATOR_LOST_ACCESS
     return None
 
 

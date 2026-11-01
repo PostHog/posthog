@@ -1,3 +1,5 @@
+import type { UnrunnableReasonEnumApi } from '../generated/api.schemas'
+
 /** Shared by every "Limit reached" badge so the surfaces tell one story. */
 const LIMIT_REACHED_TOOLTIP =
     'This scanner stopped scanning until its credit limit resets at the start of the next billing period. ' +
@@ -19,4 +21,9 @@ export function stoppedByFreeCredits(scanner: LimitFields): boolean {
 
 export function limitReachedTooltip(scanner: LimitFields): string {
     return stoppedByFreeCredits(scanner) ? FREE_CREDITS_USED_TOOLTIP : LIMIT_REACHED_TOOLTIP
+}
+
+export const UNRUNNABLE_DETAIL: Record<UnrunnableReasonEnumApi, string> = {
+    no_ai_consent: "Your organization hasn't allowed AI analysis of recordings, so this scanner can't run.",
+    creator_lost_access: "The person who created this scanner can no longer view recordings, so it can't run.",
 }

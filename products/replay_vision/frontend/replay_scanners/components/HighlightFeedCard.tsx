@@ -4,8 +4,8 @@ import { combineUrl } from 'kea-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
-import { IconChevronLeft, IconChevronRight, IconFlag, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronLeft, IconChevronRight, IconPlayFilled } from '@posthog/icons'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -22,7 +22,6 @@ import {
     observationThumbnailSrc,
     preloadObservationThumbnail,
 } from '../../components/ObservationThumbnail'
-import { scannerTypeIcon } from '../../components/ScannerTypeBadge'
 import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type {
     ReplayObservationApi,
@@ -36,9 +35,11 @@ import { hasScannerPage, scannerLabel } from '../../utils/observation'
 import { TimelineChapter, readChapters } from '../../utils/recordingTimeline'
 import { feedCategoriesParam, highlightFeedLogic } from '../highlightFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../highlightFeedTelemetry'
-import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
+import { ScannerType } from '../types'
+import { HighlightFeedCardLayout } from './HighlightFeedCardLayout'
 import { HighlightFeedDismissButton } from './HighlightFeedDismissButton'
 import { HighlightFeedGroupToggle, similarSessionsLabel } from './HighlightFeedGroup'
+import { HighlightFeedScannerChip } from './HighlightFeedScannerChip'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
@@ -331,19 +332,7 @@ function HighlightFeedScannerLink({
 }): JSX.Element {
     const verdict = readResult(observation)?.verdict
     const linked = hasScannerPage(observation)
-    const chip = (
-        <>
-            {scannerType && (
-                <LemonTag
-                    type={SCANNER_TYPE_TAG_TYPE[scannerType]}
-                    className="size-6 shrink-0 justify-center !rounded-full !p-0"
-                >
-                    {scannerTypeIcon(scannerType)}
-                </LemonTag>
-            )}
-            <span className="truncate font-medium">{scannerName}</span>
-        </>
-    )
+    const chip = <HighlightFeedScannerChip scannerName={scannerName} scannerType={scannerType} />
     return (
         <Tooltip
             title={
@@ -466,111 +455,81 @@ export function HighlightFeedRow({
         })
     }
     return (
-        <article
+        <HighlightFeedCardLayout
             ref={setRowRef}
             className={clsx(
-                'group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4 hover:border-accent focus-within:border-accent',
                 'ease-out motion-safe:transition-[opacity,translate] motion-safe:duration-500',
                 ROW_STAGGER[Math.min(columnIndex, ROW_STAGGER.length - 1)],
                 !inView && 'motion-safe:translate-y-4 motion-safe:opacity-0'
             )}
             data-attr="vision-highlight-feed-row"
-        >
-            <header className="flex min-w-0 items-center gap-2">
-                <div className="flex min-w-0">
-                    <HighlightFeedScannerLink
-                        observation={observation}
-                        scannerName={scannerName}
-                        scannerType={scannerType}
-                    />
-                </div>
-                <span className="text-xs text-muted" aria-hidden>
-                    ·
-                </span>
-                {/* The person and age keep up to 45% of the line, so a long email is cut before the scanner name. */}
-                <div className="min-w-0 max-w-[45%] shrink-0">
-                    <HighlightCardPerson observation={observation} person={person} />
-                </div>
+            scanner={
+                <HighlightFeedScannerLink
+                    observation={observation}
+                    scannerName={scannerName}
+                    scannerType={scannerType}
+                />
+            }
+            meta={<HighlightCardPerson observation={observation} person={person} />}
+            action={
                 <HighlightFeedDismissButton
-                    className="relative z-10 ml-auto shrink-0"
                     onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)}
                 />
-            </header>
-            <div className="flex min-w-0 flex-col gap-1">
-                <Link
-                    to={openUrl}
-                    onClick={captureOpened}
-                    className="text-default after:absolute after:inset-0 after:content-['']"
-                    data-attr="vision-highlight-feed-row-open"
-                >
-                    <h3
-                        // Two lines are always reserved, so cards in one grid row keep their posters level.
-                        className={`m-0 min-h-[2lh] text-base line-clamp-2 wrap-anywhere group-hover:text-accent ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}
-                        title={title}
+            }
+            title={title}
+            titlePrefix={!observation.viewed && <span className="sr-only">New: </span>}
+            titleMuted={filler}
+            titleLink={{ to: openUrl, onClick: captureOpened }}
+            why={why}
+            poster={
+                <>
+                    {!observation.viewed && (
+                        <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />
+                    )}
+                    {chapters.length > 0 ? (
+                        <ChapterCarousel
+                            observation={observation}
+                            chapters={chapters}
+                            slide={slide}
+                            onSlide={(next) => {
+                                posthog.capture('replay_vision_highlight_chapter_slid', {
+                                    ...cardProperties(feedLoad, item, position, 'feed_tab'),
+                                    chapter_count: chapters.length,
+                                    from_slide: slide,
+                                    to_slide: next,
+                                })
+                                setSlide(next)
+                            }}
+                            retryKey={feedLoad?.feedLoadId}
+                        />
+                    ) : (
+                        <ObservationThumbnail
+                            observation={observation}
+                            className="rounded-none border-0"
+                            retryKey={feedLoad?.feedLoadId}
+                        />
+                    )}
+                    {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
+                </>
+            }
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlayFilled />}
+                        to={openUrl}
+                        onClick={captureOpened}
+                        className="relative z-10"
+                        data-attr="vision-highlight-feed-row-watch"
                     >
-                        {!observation.viewed && <span className="sr-only">New: </span>}
-                        {title}
-                    </h3>
-                </Link>
-                <p
-                    className="m-0 flex items-start gap-1.5 text-sm text-secondary"
-                    data-attr="vision-highlight-feed-why"
-                >
-                    <Tooltip title="Why this recording">
-                        <span className="mt-0.5 flex shrink-0">
-                            <IconFlag className="text-accent" aria-hidden />
-                        </span>
-                    </Tooltip>
-                    <span className="min-w-0 truncate" title={why}>
-                        <span className="sr-only">Why this recording: </span>
-                        {why}
-                    </span>
-                </p>
-            </div>
-            {/* Clicks pass through the poster to the card's link, which sits beneath it. */}
-            <div className="pointer-events-none relative overflow-hidden rounded-md border bg-surface-primary">
-                {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
-                {chapters.length > 0 ? (
-                    <ChapterCarousel
-                        observation={observation}
-                        chapters={chapters}
-                        slide={slide}
-                        onSlide={(next) => {
-                            posthog.capture('replay_vision_highlight_chapter_slid', {
-                                ...cardProperties(feedLoad, item, position, 'feed_tab'),
-                                chapter_count: chapters.length,
-                                from_slide: slide,
-                                to_slide: next,
-                            })
-                            setSlide(next)
-                        }}
-                        retryKey={feedLoad?.feedLoadId}
-                    />
-                ) : (
-                    <ObservationThumbnail
-                        observation={observation}
-                        className="rounded-none border-0"
-                        retryKey={feedLoad?.feedLoadId}
-                    />
-                )}
-                {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
-            </div>
-            <footer className="flex items-center gap-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlayFilled />}
-                    to={openUrl}
-                    onClick={captureOpened}
-                    className="relative z-10"
-                    data-attr="vision-highlight-feed-row-watch"
-                >
-                    {watchFromMs !== null
-                        ? `Watch from ${colonDelimitedDuration(Math.floor(watchFromMs / 1000), null)}`
-                        : 'Watch session'}
-                </LemonButton>
-                {similarCount > 0 && <HighlightFeedGroupToggle {...groupProps} />}
-            </footer>
-        </article>
+                        {watchFromMs !== null
+                            ? `Watch from ${colonDelimitedDuration(Math.floor(watchFromMs / 1000), null)}`
+                            : 'Watch session'}
+                    </LemonButton>
+                    {similarCount > 0 && <HighlightFeedGroupToggle {...groupProps} />}
+                </>
+            }
+        />
     )
 }

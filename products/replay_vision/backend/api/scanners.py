@@ -137,6 +137,7 @@ from products.replay_vision.backend.quota import (
 )
 from products.replay_vision.backend.scanner_access import (
     SCANNER_CREATOR_LOST_ACCESS_CODE,
+    UnrunnableReason,
     accessible_experiment_ids,
     accessible_observations,
     can_read_targeted_experiment,
@@ -146,6 +147,7 @@ from products.replay_vision.backend.scanner_access import (
     recording_viewer_access,
     scanner_experiment_scope_q,
     scanners_for_reading_observations,
+    unrunnable_reason,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -672,6 +674,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "repeat the offer if the user declines."
         ),
     )
+    unrunnable_reason = serializers.SerializerMethodField(
+        help_text=(
+            "Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not "
+            "approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, "
+            "which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. "
+            "The sweep turns an enabled scanner off when either applies."
+        ),
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -720,6 +730,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "dashboard_suggested",
             "last_swept_at",
             "filter_error",
+            "unrunnable_reason",
             "created_at",
             "created_by",
             "updated_at",
@@ -847,6 +858,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     def get_dashboard_suggested(self, scanner: ReplayScanner) -> bool:
         # Readiness is only computed for scanners without a live dashboard.
         return scanner.id in self._page_dashboard_state(scanner)[1]
+
+    @extend_schema_field(serializers.ChoiceField(choices=UnrunnableReason.choices, allow_null=True))
+    def get_unrunnable_reason(self, scanner: ReplayScanner) -> UnrunnableReason | None:
+        # Consent is per organization and access per creator, so each creator is checked once per response.
+        by_creator: dict[int | None, UnrunnableReason | None] = self.context.setdefault(
+            "_scanner_unrunnable_reason", {}
+        )
+        if scanner.created_by_id not in by_creator:
+            by_creator[scanner.created_by_id] = unrunnable_reason(scanner)
+        return by_creator[scanner.created_by_id]
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
@@ -2395,7 +2416,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # viewset is concerned; its results are read through the observations endpoint instead.
         return (
             queryset.filter(team_id=self.team_id)
-            .select_related("created_by", "team")
+            .select_related("created_by", "team__organization")
             # prefetched_tags feeds the tags in to_representation; without it list serialization is N+1.
             .prefetch_related(
                 Prefetch(
