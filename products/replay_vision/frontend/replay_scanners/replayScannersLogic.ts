@@ -28,14 +28,13 @@ import {
     visionScannersDestroy,
     visionScannersDuplicateCreate,
     visionScannersList,
-    visionScannersPartialUpdate,
     visionScannersStatsRetrieve,
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
-import { turnOnScanner } from './turnOnScanner'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
@@ -612,9 +611,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             const delta = enabled ? estimate : -estimate
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
-                const saved = enabled
-                    ? await turnOnScanner(String(teamId), id)
-                    : await visionScannersPartialUpdate(String(teamId), id, { enabled: false })
+                const saved = await saveScannerEnabled(String(teamId), id, enabled)
                 if (!saved) {
                     visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                     actions.revertScannerEnabled(id)

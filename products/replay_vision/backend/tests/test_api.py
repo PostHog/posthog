@@ -462,6 +462,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(waiting.status_code, 201, waiting.json())
         other = post("waiting-on-other-draft", other_draft.id, enabled=False)
         self.assertEqual(other.status_code, 201, other.json())
+        departed_creator = post("waiting-without-a-creator", draft.id, enabled=False)
+        ReplayScanner.objects.filter(id=departed_creator.json()["id"]).update(
+            created_by=User.objects.create_user(email="departed@example.com", password="x", first_name="d")
+        )
 
         early_enable = self.client.patch(
             f"{self.scanners_url}{waiting.json()['id']}/", data={"enabled": True}, format="json"
@@ -476,6 +480,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertTrue(started.enabled)
         self.assertNotIn("start_on_launch", started.scanner_config)
         self.assertFalse(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+        never_started = ReplayScanner.objects.get(id=departed_creator.json()["id"])
+        self.assertFalse(never_started.enabled)
+        self.assertNotIn("start_on_launch", never_started.scanner_config)
 
         # Setting a start date on a draft also launches it, through the experiment update path.
         patch_launch = self.client.patch(

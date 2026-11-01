@@ -882,8 +882,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     def _check_turning_on(self, attrs: dict[str, Any]) -> None:
         # The sweep turns a scanner without consent or a creator with recording access straight back off.
+        # Kept in attrs only when this save hands the scanner over, so `update` can act on it.
         take_over = attrs.pop("take_over_as_creator", False)
-        self._takes_over_creator = False
         if self.instance is None or self.instance.enabled or not attrs.get("enabled"):
             return
         if not self.context["get_team"]().organization.is_ai_data_processing_approved:
@@ -898,7 +898,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                     "Turn it on with `take_over_as_creator` to become its creator.",
                     code=SCANNER_CREATOR_LOST_ACCESS_CODE,
                 )
-            self._takes_over_creator = True
+            attrs["take_over_as_creator"] = True
 
     def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
         # to_representation redacts experiment_targeting to null for callers denied the experiment,
@@ -1184,6 +1184,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # Tags are not a scanner column: keep them out of the before/after getattr diff below.
         # The mixin's update (reached via super()) persists them as TaggedItem rows.
         tags = validated_data.pop("tags", None)
+        takes_over = validated_data.pop("take_over_as_creator", False)
         # A scanner is built once, so this says nothing about an edit. Dropped here because the UI
         # PATCHes the whole form back and would otherwise send it into the getattr diff below.
         validated_data.pop("creation_method", None)
@@ -1196,7 +1197,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
-        if getattr(self, "_takes_over_creator", False):
+        if takes_over:
             # Set after `before`, so the handover is not reported as an edit.
             validated_data["created_by"] = acting_user(self.context)
         limit_changed = any(

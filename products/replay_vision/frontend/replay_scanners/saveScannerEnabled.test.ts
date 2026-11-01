@@ -6,12 +6,12 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { turnOnScanner } from './turnOnScanner'
+import { saveScannerEnabled } from './saveScannerEnabled'
 
 const LOST_ACCESS = [400, { type: 'validation_error', code: 'scanner_creator_lost_access', detail: 'x' }]
 const SAVED = [200, { id: 's1', enabled: true }]
 
-describe('turnOnScanner', () => {
+describe('saveScannerEnabled', () => {
     let patches: Record<string, unknown>[]
     let dialogTitles: string[]
 
@@ -64,7 +64,7 @@ describe('turnOnScanner', () => {
     it('turns on without asking when nothing is in the way', async () => {
         useScenario({ consented: true, responses: [SAVED], answers: [] })
 
-        expect(await turnOnScanner('1', 's1')).toMatchObject({ enabled: true })
+        expect(await saveScannerEnabled('1', 's1', true)).toMatchObject({ enabled: true })
         expect(patches).toEqual([{ enabled: true }])
         expect(dialogTitles).toEqual([])
     })
@@ -75,7 +75,7 @@ describe('turnOnScanner', () => {
     ])('takes the scanner over only once the take-over is %s', async (_name, confirm, expectedPatches, turnedOn) => {
         useScenario({ consented: true, responses: [LOST_ACCESS, SAVED], answers: [confirm] })
 
-        const saved = await turnOnScanner('1', 's1')
+        const saved = await saveScannerEnabled('1', 's1', true)
 
         expect(saved !== null).toBe(turnedOn)
         expect(patches).toEqual(expectedPatches)
@@ -89,7 +89,7 @@ describe('turnOnScanner', () => {
     ])('without consent, a person who %s', async (_name, answers, scannerPatches, turnedOn) => {
         useScenario({ consented: false, responses: [SAVED], answers: [...answers] })
 
-        const saved = await turnOnScanner('1', 's1')
+        const saved = await saveScannerEnabled('1', 's1', true)
 
         expect(saved !== null).toBe(turnedOn)
         expect(patches).toHaveLength(scannerPatches)

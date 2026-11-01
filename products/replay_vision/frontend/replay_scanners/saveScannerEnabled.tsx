@@ -35,11 +35,11 @@ export const TAKE_OVER_DIALOG: ConfirmDialog = {
     confirmDataAttr: 'vision-scanner-turn-on-take-over',
 }
 
-export function confirmDialogProps(dialog: ConfirmDialog, onConfirm: () => void): LemonDialogProps {
+export function confirmDialogProps(dialog: ConfirmDialog): LemonDialogProps {
     return {
         title: dialog.title,
         description: dialog.description,
-        primaryButton: { children: dialog.confirmLabel, 'data-attr': dialog.confirmDataAttr, onClick: onConfirm },
+        primaryButton: { children: dialog.confirmLabel, 'data-attr': dialog.confirmDataAttr },
         secondaryButton: { children: 'Keep it off' },
     }
 }
@@ -55,72 +55,86 @@ export function aiAnalysisOffDialogProps(): LemonDialogProps {
     }
 }
 
-/** Opens a dialog and resolves whether the person confirmed it. */
-function confirmInDialog(dialog: ConfirmDialog): Promise<boolean> {
+/** Opens a dialog and resolves whether its primary action completed before it closed. */
+function openForDecision(props: LemonDialogProps): Promise<boolean> {
     return new Promise((resolve) => {
         let confirmed = false
+        const primary = props.primaryButton
         LemonDialog.open({
-            ...confirmDialogProps(dialog, () => {
-                confirmed = true
-            }),
+            ...props,
+            primaryButton: primary && {
+                ...primary,
+                onClick: (event) => {
+                    const result: unknown = primary.onClick?.(event)
+                    if (!(result instanceof Promise)) {
+                        confirmed = true
+                        return
+                    }
+                    // An awaited submit that throws keeps the dialog open, so only success counts.
+                    return result.then(() => {
+                        confirmed = true
+                    })
+                },
+            },
             onAfterClose: () => resolve(confirmed),
         })
     })
 }
 
-function approveAIConsent(): Promise<boolean> {
-    return new Promise((resolve) => {
-        let approved = false
-        LemonDialog.open({
-            ...aiConsentLegalDialogProps({
-                onConfirm: async () => {
-                    const unmount = aiConsentLogic.mount()
-                    try {
-                        await aiConsentLogic.asyncActions.acceptDataProcessing()
-                        approved = true
-                    } finally {
-                        unmount()
-                    }
-                },
-            }),
-            onAfterClose: () => resolve(approved),
-        })
-    })
-}
-
 async function allowAIAnalysis(): Promise<boolean> {
-    if (!organizationLogic.values.isAdminOrOwner) {
-        LemonDialog.open(aiAnalysisOffDialogProps())
-        return false
+    const unmount = aiConsentLogic.mount()
+    try {
+        if (aiConsentLogic.values.dataProcessingApprovalDisabledReason) {
+            LemonDialog.open(aiAnalysisOffDialogProps())
+            return false
+        }
+        return (
+            (await openForDecision(confirmDialogProps(ALLOW_AI_ANALYSIS_DIALOG))) &&
+            (await openForDecision(
+                aiConsentLegalDialogProps({ onConfirm: () => aiConsentLogic.asyncActions.acceptDataProcessing() })
+            ))
+        )
+    } finally {
+        unmount()
     }
-    return (await confirmInDialog(ALLOW_AI_ANALYSIS_DIALOG)) && (await approveAIConsent())
 }
 
 async function enable(teamId: string, scannerId: string, takeOver: boolean): Promise<ReplayScannerApi | null> {
     try {
-        return await visionScannersPartialUpdate(
-            teamId,
-            scannerId,
-            takeOver ? { enabled: true, take_over_as_creator: true } : { enabled: true }
-        )
+        return await visionScannersPartialUpdate(teamId, scannerId, {
+            enabled: true,
+            ...(takeOver && { take_over_as_creator: true }),
+        })
     } catch (error: any) {
         if (error?.code === AI_CONSENT_REQUIRED_CODE) {
             return (await allowAIAnalysis()) ? enable(teamId, scannerId, takeOver) : null
         }
         if (error?.code === CREATOR_LOST_ACCESS_CODE && !takeOver) {
-            return (await confirmInDialog(TAKE_OVER_DIALOG)) ? enable(teamId, scannerId, true) : null
+            return (await openForDecision(confirmDialogProps(TAKE_OVER_DIALOG)))
+                ? enable(teamId, scannerId, true)
+                : null
         }
         throw error
     }
 }
 
-/**
- * Turns a scanner on, first asking the person to allow AI analysis or take the scanner over when
- * it can't run otherwise. Resolves null when they decline, and the scanner stays off.
- */
-export async function turnOnScanner(teamId: string, scannerId: string): Promise<ReplayScannerApi | null> {
+async function turnOnScanner(teamId: string, scannerId: string): Promise<ReplayScannerApi | null> {
     if (!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved && !(await allowAIAnalysis())) {
         return null
     }
     return enable(teamId, scannerId, false)
+}
+
+/**
+ * Turns a scanner on or off. Turning on first asks the person to allow AI analysis or take the
+ * scanner over when it can't run otherwise, and resolves null when they decline.
+ */
+export function saveScannerEnabled(
+    teamId: string,
+    scannerId: string,
+    enabled: boolean
+): Promise<ReplayScannerApi | null> {
+    return enabled
+        ? turnOnScanner(teamId, scannerId)
+        : visionScannersPartialUpdate(teamId, scannerId, { enabled: false })
 }

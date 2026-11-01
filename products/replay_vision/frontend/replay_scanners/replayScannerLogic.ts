@@ -85,6 +85,7 @@ import {
 } from './experimentTargeting'
 import { newScanner } from './newScanner'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
     ScannerEditorStep,
@@ -100,7 +101,6 @@ import {
 import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
-import { turnOnScanner } from './turnOnScanner'
 import {
     ExperimentScannerConfig,
     MAX_CREDIT_LIMIT,
@@ -2609,9 +2609,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const next = !scanner.enabled
                 actions.setScannerValue('enabled', next)
                 try {
-                    const saved = next
-                        ? await turnOnScanner(String(teamId), props.id)
-                        : await visionScannersPartialUpdate(String(teamId), props.id, { enabled: false })
+                    const saved = await saveScannerEnabled(String(teamId), props.id, next)
                     if (!saved) {
                         actions.setScannerValue('enabled', false)
                         actions.toggleEnabledFailure()

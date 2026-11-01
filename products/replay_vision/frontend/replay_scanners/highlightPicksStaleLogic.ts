@@ -39,8 +39,8 @@ import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { HighlightFeedEmptyReason, resolveHighlightFeedEmptyReason } from './highlightFeedEmptyState'
 import { highlightPicksLogic } from './highlightPicksLogic'
 import { HighlightPicksStaleReason, resolveHighlightPicksStaleReason } from './highlightPicksStaleState'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import { scanDrought } from './scanDrought'
-import { turnOnScanner } from './turnOnScanner'
 
 const DROUGHT_SCANNER_CAP = 10
 const BACKFILL_DAYS = 7
@@ -563,9 +563,7 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
                 }
                 act(enabled ? 'enable' : 'disable', scannerId)
                 try {
-                    const saved = enabled
-                        ? await turnOnScanner(String(teamId), scannerId)
-                        : await visionScannersPartialUpdate(String(teamId), scannerId, { enabled: false })
+                    const saved = await saveScannerEnabled(String(teamId), scannerId, enabled)
                     if (saved) {
                         refresh()
                     }

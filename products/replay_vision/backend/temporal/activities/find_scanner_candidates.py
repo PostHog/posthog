@@ -160,12 +160,12 @@ def _fail_on_filter_error(scanner: ReplayScanner, error: Exception) -> None:
 
 
 def _disable_unrunnable_scanner(
-    scanner: ReplayScanner, reason: Literal["no_ai_consent", "creator_lost_access"]
+    scanner: ReplayScanner, reason: Literal["no_ai_consent", "creator_lost_access", "experiment_deleted"]
 ) -> FindScannerCandidatesOutput:
     # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
     scanner.enabled = False
     scanner.save(update_fields=["enabled"])
-    record_sweep_outcome(f"disabled_{reason}")
+    record_sweep_outcome(reason)
     activity.logger.info("replay_vision.sweep.disabled_unrunnable_scanner scanner_id=%s reason=%s", scanner.id, reason)
     return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
@@ -198,12 +198,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         if not _stop_variant_analysis(scanner):
             record_sweep_outcome("experiment_deleted_pause_failed")
             return FindScannerCandidatesOutput(candidates=[], saturated=False)
-        # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
-        scanner.enabled = False
-        scanner.save(update_fields=["enabled"])
-        record_sweep_outcome("experiment_deleted")
-        activity.logger.info("replay_vision.sweep.disabled_experiment_scanner scanner_id=%s", inputs.scanner_id)
-        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+        return _disable_unrunnable_scanner(scanner, "experiment_deleted")
     if lifecycle_block is not None:
         end = lifecycle_block.end_date
         if end is None or _swept_past(scanner, end):

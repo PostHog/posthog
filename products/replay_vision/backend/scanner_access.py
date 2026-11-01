@@ -13,15 +13,15 @@ from django.db.models import Q
 
 from rest_framework.exceptions import NotFound, PermissionDenied
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
-
-    from posthog.models.user import User
 
     from products.replay_vision.backend.models.replay_observation import ReplayObservation
 
@@ -38,13 +38,23 @@ def is_uuid(value: str) -> bool:
 SCANNER_CREATOR_LOST_ACCESS_CODE = "scanner_creator_lost_access"
 
 
+def recording_viewer_access(user: User | None, team: Team) -> UserAccessControl | None:
+    """The user's access in the project, when they are active, a member and can view its recordings."""
+    if user is None or not user.is_active:
+        return None
+    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
+        return None
+    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access.has_project_access:
+        return None
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        return None
+    return access
+
+
 def creator_can_scan(scanner: ReplayScanner) -> bool:
     """Whether the sweep, which reads recordings as the scanner's creator, can still read them."""
-    if scanner.created_by is None:
-        return True
-    return UserAccessControl(user=scanner.created_by, team=scanner.team).check_access_level_for_resource(
-        "session_recording", required_level="viewer"
-    )
+    return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
 
 
 def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]":
