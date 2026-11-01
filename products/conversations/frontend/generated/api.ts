@@ -13,6 +13,8 @@ import type {
     AIReplyPlaybookApi,
     AiFeedbackRequestApi,
     AiHumanOutcomeRequestApi,
+    BulkDeleteTicketsRequestApi,
+    BulkDeleteTicketsResponseApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsUUIDRequestApi,
@@ -448,6 +450,30 @@ export const conversationsTicketsReplyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(ticketReplyRequestApi),
+    })
+}
+
+export const getConversationsTicketsBulkDeleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/bulk_delete/`
+}
+
+/**
+ * Soft-delete multiple tickets in a single request. A daily sweeper hard-deletes them after the grace window.
+ *
+ * Other-team UUIDs and already-deleted tickets are silently ignored. With access control
+ * enabled, tickets the caller lacks manager access to are silently skipped, unless the
+ * caller is an organization admin.
+ */
+export const conversationsTicketsBulkDeleteCreate = async (
+    projectId: string,
+    bulkDeleteTicketsRequestApi: BulkDeleteTicketsRequestApi,
+    options?: RequestInit
+): Promise<BulkDeleteTicketsResponseApi> => {
+    return apiMutator<BulkDeleteTicketsResponseApi>(getConversationsTicketsBulkDeleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkDeleteTicketsRequestApi),
     })
 }
 

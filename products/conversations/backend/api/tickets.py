@@ -5,6 +5,7 @@ import time
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from django.db import transaction
@@ -49,7 +50,14 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    LogActivityEntry,
+    Trigger,
+    bulk_log_activity,
+    log_activity,
+)
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
@@ -80,8 +88,8 @@ from products.conversations.backend.api.ticket_filters import (
 from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_identity_tickets_cache,
-    invalidate_messages_cache,
-    invalidate_tickets_cache,
+    invalidate_messages_caches,
+    invalidate_tickets_caches,
     invalidate_unread_count_cache,
     set_cached_unread_count,
 )
@@ -101,9 +109,9 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
-from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
+from products.conversations.backend.services.delivery import cancel_open_deliveries_for_tickets
 from products.conversations.backend.services.messages import ticket_message_type
-from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
+from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_tickets
 
 from .. import reply_dedupe
 
@@ -356,6 +364,23 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
         help_text="UUIDs of the tickets whose status changed.",
+    )
+
+
+class BulkDeleteTicketsRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_STATUS_MAX_IDS,
+        help_text="List of ticket UUIDs to delete.",
+    )
+
+
+class BulkDeleteTicketsResponseSerializer(serializers.Serializer):
+    deleted = serializers.IntegerField(help_text="Number of tickets deleted.")
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="UUIDs of the tickets deleted.",
     )
 
 
@@ -774,6 +799,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "delete_note",
         "create_note",
         "destroy",
+        "bulk_delete",
     ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -930,36 +956,101 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
             )
 
-        ticket_id = ticket.id
-        team_id = self.team_id
-        widget_session_id = ticket.widget_session_id
-
-        def _after_delete() -> None:
-            # The delete has committed. One failed step must not skip the others or fail the response.
-            steps: list[Callable[[], object]] = [
-                lambda: cancel_open_deliveries_for_ticket(team_id=team_id, ticket_id=ticket_id),
-                lambda: cancel_pending_email_replies_for_ticket(team_id=team_id, ticket_id=ticket_id),
-                lambda: invalidate_unread_count_cache(team_id),
-                lambda: invalidate_messages_cache(team_id, str(ticket_id)),
-                lambda: invalidate_identity_tickets_cache(team_id),
-                lambda: report_user_action(
+        transaction.on_commit(
+            lambda: self._after_tickets_deleted(
+                [ticket],
+                partial(
+                    report_user_action,
                     request.user,
                     "support ticket deleted",
                     _ticket_action_properties(ticket),
                     team=self.team,
                     request=request,
                 ),
-            ]
-            if widget_session_id:
-                steps.append(lambda: invalidate_tickets_cache(team_id, widget_session_id))
-            for step in steps:
-                try:
-                    step()
-                except Exception as e:
-                    capture_exception(e, {"ticket_id": str(ticket_id)})
-
-        transaction.on_commit(_after_delete)
+            )
+        )
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+    def _after_tickets_deleted(self, tickets: list[Ticket], report: Callable[[], object]) -> None:
+        # The delete has committed. One failed step must not skip the others or fail the response.
+        team_id = self.team_id
+        ticket_ids = [ticket.id for ticket in tickets]
+        steps: list[Callable[[], object]] = [
+            partial(cancel_open_deliveries_for_tickets, team_id=team_id, ticket_ids=ticket_ids),
+            partial(cancel_pending_email_replies_for_tickets, team_id=team_id, ticket_ids=ticket_ids),
+            partial(invalidate_messages_caches, team_id, [str(ticket_id) for ticket_id in ticket_ids]),
+            partial(invalidate_tickets_caches, team_id, [t.widget_session_id for t in tickets if t.widget_session_id]),
+            partial(invalidate_unread_count_cache, team_id),
+            partial(invalidate_identity_tickets_cache, team_id),
+            report,
+        ]
+        for step in steps:
+            try:
+                step()
+            except Exception as e:
+                capture_exception(e, {"ticket_ids": [str(ticket_id) for ticket_id in ticket_ids]})
+
+    @extend_schema(
+        request=BulkDeleteTicketsRequestSerializer,
+        responses={200: OpenApiResponse(response=BulkDeleteTicketsResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"])
+    def bulk_delete(self, request, *args, **kwargs):
+        """Soft-delete multiple tickets in a single request. A daily sweeper hard-deletes them after the grace window.
+
+        Other-team UUIDs and already-deleted tickets are silently ignored. With access control
+        enabled, tickets the caller lacks manager access to are silently skipped, unless the
+        caller is an organization admin.
+        """
+        serializer = BulkDeleteTicketsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ticket_ids: list[uuid.UUID] = serializer.validated_data["ids"]
+
+        with transaction.atomic():
+            tickets = list(self.get_queryset().filter(id__in=ticket_ids).select_for_update(of=("self",)))
+            access = self.user_access_control
+            if access.access_controls_supported and not access.is_organization_admin:
+                access.preload_object_access_controls(tickets)
+                tickets = [t for t in tickets if access.check_access_level_for_object(t, required_level="manager")]
+
+            now = timezone.now()
+            Ticket.objects.filter(team_id=self.team_id, id__in=[t.id for t in tickets]).update(
+                deleted_at=now, deleted_by=request.user, updated_at=now
+            )
+            bulk_log_activity(
+                [
+                    LogActivityEntry(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        was_impersonated=is_impersonated(request),
+                        item_id=str(ticket.id),
+                        scope="Ticket",
+                        activity="deleted",
+                        detail=Detail(name=f"Ticket #{ticket.ticket_number}"),
+                    )
+                    for ticket in tickets
+                ]
+            )
+
+        if tickets:
+            transaction.on_commit(
+                lambda: self._after_tickets_deleted(
+                    tickets,
+                    partial(
+                        report_user_action,
+                        request.user,
+                        "support tickets bulk deleted",
+                        {"count": len(tickets)},
+                        team=self.team,
+                        request=request,
+                    ),
+                )
+            )
+
+        return Response(
+            BulkDeleteTicketsResponseSerializer({"deleted": len(tickets), "ids": [t.id for t in tickets]}).data
+        )
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
