@@ -89,6 +89,7 @@ function resolveDetailApp(
         data_type: raw.data_type ?? `${pascal}Data`,
         view_component: raw.view_component ?? `${pascal}View`,
         ...(raw.link_prop ? { link_prop: raw.link_prop } : {}),
+        ...(raw.resource_domains ? { resource_domains: raw.resource_domains } : {}),
     }
 }
 
@@ -347,6 +348,23 @@ interface RegistryEntry {
     resourceDomains?: string[]
 }
 
+const RENDER_UI_APP_KEY = 'render-ui'
+
+/**
+ * The render-ui umbrella app mounts every dispatchable view inside its own iframe, so the host
+ * applies the umbrella's CSP to them. It must allow every source those views declare.
+ */
+function withRenderUiResourceDomains(entries: RegistryEntry[], dispatchApps: DispatchApp[]): RegistryEntry[] {
+    const viewDomains = dispatchApps.flatMap((app) => (app.type === 'list' ? [] : (app.config.resource_domains ?? [])))
+    return entries.map((entry) => {
+        if (entry.appKey !== RENDER_UI_APP_KEY) {
+            return entry
+        }
+        const resourceDomains = [...new Set([...(entry.resourceDomains ?? []), ...viewDomains])]
+        return resourceDomains.length > 0 ? { ...entry, resourceDomains } : entry
+    })
+}
+
 function toConstName(appKey: string): string {
     return appKey.toUpperCase().replace(/-/g, '_') + '_RESOURCE_URI'
 }
@@ -482,6 +500,7 @@ function main(): void {
                     uri,
                     name: resolved.app_name,
                     description: resolved.description,
+                    resourceDomains: resolved.resource_domains,
                 })
             } else if (appConfig.type === 'list') {
                 if (!componentImport && !appConfig.component_import) {
@@ -557,7 +576,7 @@ function main(): void {
 
     // Write registry (with the render-ui dispatchable key list)
     const registryCode = generateRegistry(
-        registryEntries,
+        withRenderUiResourceDomains(registryEntries, dispatchApps),
         dispatchApps.map((a) => a.appKey)
     )
     fs.writeFileSync(GENERATED_REGISTRY_PATH, registryCode)
