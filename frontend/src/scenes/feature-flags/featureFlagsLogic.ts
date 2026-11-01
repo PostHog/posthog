@@ -185,6 +185,23 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
 
 const FILTER_PARAM_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof FeatureFlagsFilters)[]
 
+function filtersFromSearchParams(searchParams: Record<string, any>): FeatureFlagsFilters {
+    const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } = searchParams
+    return {
+        ...DEFAULT_FILTERS,
+        created_by_id: parseNumericArrayFilter(created_by_id),
+        type,
+        order,
+        evaluation_runtime,
+        tags: parseTagsFilter(tags),
+        excluded_tags: parseTagsFilter(searchParams['excluded_tags']),
+        active: active !== undefined ? String(active) : undefined,
+        archived: archived !== undefined ? String(archived) : undefined,
+        page: page !== undefined ? parseInt(page) : undefined,
+        search: search !== undefined ? String(search) : undefined,
+    }
+}
+
 /**
  * Prefix for the list's filter params while they ride on a flag detail URL. The prefix keeps them
  * out of the way of the detail page's own params — most importantly `page`, which the History tab's
@@ -905,8 +922,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     !values.enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
                         ? FeatureFlagsTab.OVERVIEW
                         : tabInURL
-                // setActiveTab resets the filters, and actionToUrl sends that reset back here at once. Ignore it,
-                // or it loads the list without the filters below, and the list then loads a second time.
+                // Ignore actionToUrl's echo of the filter reset in setActiveTab, so the list loads once, with the URL's filters
                 cache.settingTabFromUrl = true
                 try {
                     actions.setActiveTab(tab)
@@ -915,23 +931,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 }
             }
 
-            const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
-                searchParams
-            const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
-                created_by_id: parseNumericArrayFilter(created_by_id),
-                type,
-                order,
-                evaluation_runtime,
-                tags: parseTagsFilter(tags),
-                excluded_tags: parseTagsFilter(searchParams['excluded_tags']),
-            }
-
-            pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
-            pageFiltersFromUrl.archived = archived !== undefined ? String(archived) : undefined
-            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
-            pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
-
-            const filtersFromUrl = { ...DEFAULT_FILTERS, ...pageFiltersFromUrl }
+            const filtersFromUrl = filtersFromSearchParams(searchParams)
             // actionToUrl sends every filter change back here. Skip that echo: it would send the same request
             // twice, or cut short the debounce of a search the user is still typing.
             const arrived = initial || previousLocation?.pathname !== router.values.location.pathname
