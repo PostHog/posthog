@@ -1001,9 +1001,8 @@ tools:
             schedule, and the full `body` rendered for this scanner. Create one with `vision-scanners-scouts-create`,
             passing the `body` unchanged. The `scratch` template is a skeleton: replace every `<ALL CAPS>` placeholder
             in its body with what the person wants before creating it; the create call rejects a body that still has
-            one.
-            For `variant-analysis`, also pass `variant_analysis: true`, which attaches the record schema the variants
-            view reads.
+            one. For `variant-analysis`, also pass `variant_analysis: true`, which attaches the record schema the
+            variants view reads.
     vision-scanners-self-driving-stats:
         operation: vision_scanners_self_driving_stats_retrieve
         enabled: true
