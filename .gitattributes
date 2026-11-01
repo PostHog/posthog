@@ -15,6 +15,7 @@ frontend/src/queries/validators.js linguist-generated
 frontend/src/taxonomy/core-filter-definitions-by-group.json linguist-generated
 
 products/*/frontend/generated/** linguist-generated
+products/canvas/skills/building-react-quill-canvases/references/quill-charts/** linguist-generated
 
 services/mcp/schema/generated-tool-definitions.json linguist-generated
 services/mcp/src/api/generated.ts linguist-generated
