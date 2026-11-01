@@ -156,6 +156,17 @@ class TestGoogleAdsIntegrationModel(BaseTest):
         assert mock_request.call_count == 3
 
     @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.google_ads.requests.request")
+    def test_list_conversion_actions_queries_stream(self, mock_request):
+        stream_response = MagicMock(status_code=200)
+        stream_response.json.return_value = [{"results": [{"conversionAction": {"id": "12345", "name": "Purchase"}}]}]
+        mock_request.return_value = stream_response
+
+        actions = GoogleAdsIntegration(self._integration()).list_google_ads_conversion_actions("6501924158")
+        assert len(actions) == 1
+        assert actions[0]["id"] == "12345"
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
     @patch("posthog.models.integration.google_ads.capture_exception")
     @patch("posthog.models.integration.google_ads.requests.request")
     def test_accessible_accounts_raises_quota_exhausted_on_429(self, mock_request, mock_capture_exception):

@@ -226,11 +226,64 @@ describe('google template', () => {
             })
         )
 
-        expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toMatchInlineSnapshot(`
-            [
-              "No \`gclid\` or user identifiers. Skipping...",
-            ]
-        `)
+        expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toEqual([
+            'No `gclid`, `gbraid`, `wbraid`, or user identifiers. Skipping...',
+        ])
         expect(response.finished).toEqual(true)
+    })
+
+    it('works with gbraid when gclid is absent', async () => {
+        const response = await tester.invokeMapping(
+            'Conversion',
+            {
+                oauth: {
+                    access_token: 'access-token',
+                },
+                customerId: '1231231234/5675675678',
+                conversionActionId: '123456789',
+            },
+            createAdDestinationPayload({
+                person: {
+                    properties: {
+                        gclid: null,
+                        gbraid: 'app-click-gbraid-123',
+                    },
+                },
+            })
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(JSON.parse(response.invocation.queueParameters.body).conversions[0].gbraid).toEqual(
+            'app-click-gbraid-123'
+        )
+    })
+
+    it('works with wbraid when gclid and gbraid are absent', async () => {
+        const response = await tester.invokeMapping(
+            'Conversion',
+            {
+                oauth: {
+                    access_token: 'access-token',
+                },
+                customerId: '1231231234/5675675678',
+                conversionActionId: '123456789',
+            },
+            createAdDestinationPayload({
+                person: {
+                    properties: {
+                        gclid: null,
+                        gbraid: null,
+                        wbraid: 'web-click-wbraid-456',
+                    },
+                },
+            })
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(JSON.parse(response.invocation.queueParameters.body).conversions[0].wbraid).toEqual(
+            'web-click-wbraid-456'
+        )
     })
 })
