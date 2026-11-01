@@ -5,12 +5,12 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { setPromQLCompletionProvider } from 'lib/monaco/languages/promqlCompletionRegistry'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
