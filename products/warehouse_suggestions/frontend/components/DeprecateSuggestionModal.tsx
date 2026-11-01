@@ -8,6 +8,22 @@ import { isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestio
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
 type RefreshChoice = 'stop' | 'keep'
+type ActionChoice = 'deprecate' | 'delete'
+
+const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
+    {
+        value: 'deprecate',
+        label: 'Mark it deprecated',
+        description: 'It stays in the data catalog with a deprecated label, so people know not to use it.',
+        'data-attr': 'warehouse-suggestions-deprecate-mark',
+    },
+    {
+        value: 'delete',
+        label: 'Delete it',
+        description: "Deletes the view and its stored table. You can't undo this.",
+        'data-attr': 'warehouse-suggestions-deprecate-delete',
+    },
+]
 
 const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
     {
@@ -26,21 +42,25 @@ const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
 ]
 
 export function DeprecateSuggestionModal(): JSX.Element | null {
-    const { acceptConfirmSuggestion, actionsInFlight, keepMaterialized, status } = useValues(warehouseSuggestionsLogic)
-    const { confirmAccept, closeAcceptConfirm, setKeepMaterialized } = useActions(warehouseSuggestionsLogic)
+    const { acceptConfirmSuggestion, actionsInFlight, deleteView, keepMaterialized, status } =
+        useValues(warehouseSuggestionsLogic)
+    const { confirmAccept, closeAcceptConfirm, setDeleteView, setKeepMaterialized } =
+        useActions(warehouseSuggestionsLogic)
     const payload = acceptConfirmSuggestion?.payload
 
     if (!acceptConfirmSuggestion || !payload || !isDeprecatePayload(payload)) {
         return null
     }
     const inFlight = !!actionsInFlight[acceptConfirmSuggestion.id]
+    const materialized = payload.materialized !== false
+    const noReads = noReadsLabel(status?.window_days ?? 0)
 
     return (
         <LemonModal
             isOpen
             closable={!inFlight}
             onClose={closeAcceptConfirm}
-            title={`Mark ${payload.subject_name} as deprecated?`}
+            title={deleteView ? `Delete ${payload.subject_name}?` : `Mark ${payload.subject_name} as deprecated?`}
             footer={
                 <>
                     <LemonButton
@@ -52,29 +72,46 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                     </LemonButton>
                     <LemonButton
                         type="primary"
+                        status={deleteView ? 'danger' : undefined}
                         loading={inFlight}
                         onClick={() => confirmAccept()}
-                        data-attr="warehouse-suggestions-deprecate-confirm"
+                        data-attr={
+                            deleteView
+                                ? 'warehouse-suggestions-delete-confirm'
+                                : 'warehouse-suggestions-deprecate-confirm'
+                        }
                     >
-                        Mark deprecated
+                        {deleteView ? 'Delete view' : 'Mark deprecated'}
                     </LemonButton>
                 </>
             }
         >
             <div className="flex max-w-xl flex-col gap-4">
                 <p className="m-0 text-sm text-secondary">
-                    {`${noReadsLabel(status?.window_days ?? 0)}. ${refreshCostLabel(payload)}.`}
+                    {materialized ? `${noReads}. ${refreshCostLabel(payload)}.` : `${noReads}.`}
                 </p>
                 <fieldset disabled={inFlight} className="flex flex-col gap-2">
-                    <h4 className="m-0 text-sm font-semibold">Its materialization</h4>
+                    <h4 className="m-0 text-sm font-semibold">What to do</h4>
                     <LemonRadio
-                        aria-label="Its materialization"
-                        value={keepMaterialized ? 'keep' : 'stop'}
-                        onChange={(choice) => setKeepMaterialized(choice === 'keep')}
-                        options={REFRESH_CHOICES}
+                        aria-label="What to do"
+                        value={deleteView ? 'delete' : 'deprecate'}
+                        onChange={(choice) => setDeleteView(choice === 'delete')}
+                        options={ACTION_CHOICES}
                         radioPosition="top"
                     />
                 </fieldset>
+                {materialized && !deleteView && (
+                    <fieldset disabled={inFlight} className="flex flex-col gap-2">
+                        <h4 className="m-0 text-sm font-semibold">Its materialization</h4>
+                        <LemonRadio
+                            aria-label="Its materialization"
+                            value={keepMaterialized ? 'keep' : 'stop'}
+                            onChange={(choice) => setKeepMaterialized(choice === 'keep')}
+                            options={REFRESH_CHOICES}
+                            radioPosition="top"
+                        />
+                    </fieldset>
+                )}
             </div>
         </LemonModal>
     )

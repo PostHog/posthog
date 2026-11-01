@@ -86,10 +86,14 @@ const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => 
     unmaterialize: ({ payload }) =>
         `Stopped materializing ${payload.subject_name}. Each read now computes it from its query.`,
     certify: ({ payload }) => `Certified ${payload.subject_name}.`,
-    deprecate: ({ payload, created_asset }) =>
-        created_asset?.stopped_materialization === true
+    deprecate: ({ payload, created_asset }) => {
+        if (created_asset?.saved_query_id) {
+            return `Deleted ${payload.subject_name}.`
+        }
+        return created_asset?.stopped_materialization === true
             ? `Marked ${payload.subject_name} as deprecated and stopped its refreshes.`
-            : `Marked ${payload.subject_name} as deprecated.`,
+            : `Marked ${payload.subject_name} as deprecated.`
+    },
 }
 const ACCEPT_OPTION_FIELDS = new Set([
     'refresh_interval_seconds',
@@ -168,6 +172,19 @@ function changedRefreshOptions(
     return options
 }
 
+function deprecateOptions(
+    suggestion: WarehouseSuggestionApi,
+    { deleteView, keepMaterialized }: { deleteView: boolean; keepMaterialized: boolean }
+): AcceptWarehouseSuggestionApi | undefined {
+    if (suggestion.kind !== 'deprecate') {
+        return undefined
+    }
+    if (deleteView) {
+        return { delete_view: true }
+    }
+    return keepMaterialized ? { keep_materialized: true } : undefined
+}
+
 async function fetchIncrementalCheck(viewId: string): Promise<IncrementalEligibilityApi | null> {
     try {
         const view = await warehouseSavedQueriesRetrieve(projectId(), viewId)
@@ -194,6 +211,7 @@ export interface warehouseSuggestionsLogicValues {
     acceptConfirmSuggestion: WarehouseSuggestionApi | null
     acceptConfirmSuggestionId: string | null
     actionsInFlight: Record<string, boolean>
+    deleteView: boolean
     featureForbidden: boolean
     hiddenSuggestionIds: string[]
     incrementalCheck: IncrementalEligibilityApi | null
@@ -354,6 +372,9 @@ export interface warehouseSuggestionsLogicActions {
         id: string
         inFlight: boolean
     }
+    setDeleteView: (deleteView: boolean) => {
+        deleteView: boolean
+    }
     setKeepMaterialized: (keepMaterialized: boolean) => {
         keepMaterialized: boolean
     }
@@ -461,6 +482,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             closeAcceptConfirm: true,
             confirmAccept: true,
             acceptSuggestionFailed: (id: string) => ({ id }),
+            setDeleteView: (deleteView: boolean) => ({ deleteView }),
             setKeepMaterialized: (keepMaterialized: boolean) => ({ keepMaterialized }),
             setMaterializeError: (error: string | null) => ({ error }),
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
@@ -551,6 +573,14 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 false,
                 {
                     setKeepMaterialized: (_, { keepMaterialized }) => keepMaterialized,
+                    openAcceptConfirm: () => false,
+                    closeAcceptConfirm: () => false,
+                },
+            ],
+            deleteView: [
+                false,
+                {
+                    setDeleteView: (_, { deleteView }) => deleteView,
                     openAcceptConfirm: () => false,
                     closeAcceptConfirm: () => false,
                 },
@@ -774,8 +804,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     if (!suggestion) {
                         return
                     }
-                    const keepMaterialized = suggestion.kind === 'deprecate' && values.keepMaterialized
-                    actions.acceptSuggestion(suggestion.id, keepMaterialized ? { keep_materialized: true } : undefined)
+                    actions.acceptSuggestion(suggestion.id, deprecateOptions(suggestion, values))
                 },
                 openReview: () => {
                     posthog.capture('warehouse suggestion review opened', {
