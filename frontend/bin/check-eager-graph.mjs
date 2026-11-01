@@ -104,8 +104,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-11-01: 5.27 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_550_000,
+        // 2026-11-01: 5.21 MiB eager output, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_480_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -123,6 +123,8 @@ const ROOTS = [
             'src/layout/panel-layout/ProjectTree/menus/SessionReplayMenuItems.tsx',
             // A hit means a module on the shell path imports taxonomy/registerCoreFilterDefinitions.
             'src/taxonomy/core-filter-definitions-by-group.json',
+            // The project notice logic pulls in dompurify and the sample data logic.
+            'src/layout/navigation/projectNoticeLogic.tsx',
             // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
             'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The Today layout renders only behind the today-rail-nav flag, and it pulls in quill primitives.
@@ -183,8 +185,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-11-01: 5.71 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 6_010_000,
+        // 2026-11-01: 5.65 MiB, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_945_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
