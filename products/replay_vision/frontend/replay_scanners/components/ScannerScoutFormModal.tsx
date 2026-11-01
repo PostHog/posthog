@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
@@ -12,7 +12,7 @@ import { scoutDisplayName } from 'products/signals/frontend/inbox/utils/scoutRun
 
 import { getReplayVisionEditDisabledReason, getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SCOUT_DISPLAY_NAME_MAX_LENGTH, scannerScoutTemplate, scoutBodyPlaceholders } from '../scannerScout'
+import { SCOUT_DISPLAY_NAME_MAX_LENGTH, scoutBodyPlaceholders } from '../scannerScout'
 import { SCOUT_REPORT_EMITTED_EVENT, webhookUrlError } from '../scannerScoutDelivery'
 import type { ScannerScoutForm } from '../scannerScoutLogic'
 import { scannerScoutLogic } from '../scannerScoutLogic'
@@ -105,23 +105,16 @@ export function ScannerScoutFormModal({
         scoutDeliveryLoading,
         creating,
         settingsSaving,
+        scoutTemplates,
     } = useValues(logic)
     const { closeCreateModal, closeScoutSettings, createScout, saveScoutSettings } = useActions(logic)
 
-    // The trend template is written for the one output this scanner emits, so it needs the type.
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    // Rebuilding the templates on every keystroke would regenerate three multi-KB prompts.
-    const template = useMemo(
-        () =>
-            createTemplateKey
-                ? scannerScoutTemplate(createTemplateKey, scannerId, scanner?.scanner_type, scannerName)
-                : null,
-        [createTemplateKey, scannerId, scanner?.scanner_type, scannerName]
-    )
+    const template = scoutTemplates.find((candidate) => candidate.key === createTemplateKey) ?? null
     const config = scoutConfigsForScanner.find((candidate) => candidate.skill_name === settingsSkillName)
     const [activeTab, setActiveTab] = useState<ScoutFormTab>('instructions')
     const [form, setForm] = useState<ScannerScoutForm>(() => ({
-        name: template ? template.defaultName : config ? scoutDisplayName(config) : '',
+        name: template ? template.default_name : config ? scoutDisplayName(config) : '',
         body: template ? template.body : '',
         cron: template ? template.cron : (config?.run_cron_schedule ?? ''),
         outputDestinations: (config?.output_destinations ?? {}) as SignalScoutOutputDestinationsApi,
@@ -147,10 +140,8 @@ export function ScannerScoutFormModal({
         }
     }, [template, seeded, loadedForThisScout, skillPrompt, scoutDelivery])
 
-    // The scanner can arrive after the modal opens (the scanner and the scouts list load in
-    // parallel). Until it answers, the scanner logic holds a team-named placeholder with no type, so
-    // the default name reads wrong and the template falls back to another type's set. Follow a changed
-    // template for each field until the person edits it.
+    // The root cause prompt can open the form before the templates have loaded, so seed each field
+    // from the template when it arrives, unless the person has already edited it.
     const touchedRef = useRef({ name: false, body: false, cron: false })
     useEffect(() => {
         if (!template) {
@@ -158,7 +149,7 @@ export function ScannerScoutFormModal({
         }
         setForm((current) => ({
             ...current,
-            name: touchedRef.current.name ? current.name : template.defaultName,
+            name: touchedRef.current.name ? current.name : template.default_name,
             body: touchedRef.current.body ? current.body : template.body,
             cron: touchedRef.current.cron ? current.cron : template.cron,
         }))
@@ -259,7 +250,7 @@ export function ScannerScoutFormModal({
                             touchedRef.current.name = true
                             patch({ name })
                         }}
-                        placeholder={template?.defaultName}
+                        placeholder={template?.default_name}
                         maxLength={SCOUT_DISPLAY_NAME_MAX_LENGTH}
                         data-attr="vision-scout-form-name"
                     />
