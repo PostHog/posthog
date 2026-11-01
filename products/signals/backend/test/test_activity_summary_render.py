@@ -610,17 +610,41 @@ def test_mcp_units_assemble_each_session_in_order_and_cap_a_long_chain() -> None
         _mcp("s2", "check error rates", days_ago=0, minutes=-8),
         _mcp("s1", "Why signups dropped", days_ago=0, minutes=-5),
         *(_mcp("s3", f"step {n}", days_ago=2, minutes=n) for n in range(1, 9)),
+        _mcp("s4", "list the export failures", days_ago=3),
+        _mcp("s4", "query the export rows", days_ago=3, minutes=1),
+        _mcp("s4", "draft the weekly report", days_ago=3, minutes=120),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; read the logs", days_ago=5),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; query the table", days_ago=5, minutes=1),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; read the logs", days_ago=5, minutes=2),
+    ]
+    long_records = [
+        _mcp("s6", f"{'long ' if n in (3, 5) else ''}intent {n} " + "word " * 30, days_ago=6, minutes=n)
+        for n in range(1, 8)
     ]
     drops: Counter[str] = Counter()
 
     units = mcp_units(records, [], drops, RenderLimits(mcp_chain_max_intents=3))
+    long_chain = mcp_units(long_records, [], Counter())[0].text
 
     assert [unit.text for unit in units] == [
+        "- 2026-10-14, 3 calls: investigate a failed export for the billing team; read the logs --> query the table",
+        "- 2026-10-16, 2 calls: list the export failures --> query the export rows",
+        "- 2026-10-16, 1 call: draft the weekly report",
         "- 2026-10-17, 8 calls: step 1 --> step 2 --> … --> step 8",
         "- 2026-10-18, 1 call: check error rates",
         "- 2026-10-19, 3 calls: why signups dropped --> signups by country",
     ]
     assert drops == Counter()
+    assert long_chain.startswith("- 2026-10-13, 7 calls: intent 1 word")
+    assert [part.split(" word")[0] for part in long_chain.split(" --> ")[1:]] == [
+        "…",
+        "long intent 3",
+        "…",
+        "long intent 5",
+        "…",
+        "intent 7",
+    ]
+    assert len(long_chain) <= DEFAULT_LIMITS.mcp_line_chars
 
 
 KEEPER = _mcp("k", "why signups dropped", days_ago=3)
@@ -655,6 +679,13 @@ KEEPER = _mcp("k", "why signups dropped", days_ago=3)
         (
             "a chain repeated in many sessions is a scheduled job",
             [_mcp(f"s{n}", f"refresh digest {n}", days_ago=n) for n in range(1, 5)],
+            [],
+            [],
+            {Drop.MCP_REPEATED_CHAIN: 4},
+        ),
+        (
+            "a scheduled job in one long session is still a scheduled job",
+            [_mcp("job", f"refresh digest {n}", days_ago=1, minutes=60 * n) for n in range(1, 5)],
             [],
             [],
             {Drop.MCP_REPEATED_CHAIN: 4},
