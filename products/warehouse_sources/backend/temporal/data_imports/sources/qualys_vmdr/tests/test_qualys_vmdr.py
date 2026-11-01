@@ -347,6 +347,26 @@ class TestQualysVmdr:
         assert result.rows == expected_rows
         assert result.requests[0].headers["authorization"].startswith("Basic ")
 
+    @pytest.mark.parametrize(
+        "endpoint,api_version,expected_path",
+        [
+            ("hosts", "4.0", "/api/2.0/fo/asset/host/"),
+            ("hosts", "6.0", "/api/6.0/fo/asset/host/"),
+            ("host_list_detection", "4.0", "/api/2.0/fo/asset/host/vm/detection/"),
+            ("host_list_detection", "6.0", "/api/6.0/fo/asset/host/vm/detection/"),
+            ("scans", "4.0", "/api/2.0/fo/scan/"),
+            ("scans", "6.0", "/api/3.0/fo/scan/"),
+            ("appliances", "4.0", "/api/2.0/fo/appliance/"),
+            ("appliances", "6.0", "/api/3.0/fo/appliance/"),
+        ],
+    )
+    def test_get_rows_routes_each_pin_to_its_fo_api_version_with_basic_auth(self, endpoint, api_version, expected_path):
+        result = _drive(endpoint, [_xml("<RESPONSE/>")], api_version=api_version)
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
+        assert result.requests[0].headers["authorization"].startswith("Basic ")
+
     def test_get_rows_resumes_from_saved_state(self):
         resume_url = "https://qualysapi.qualys.com/api/2.0/fo/asset/host/?action=list&id_min=1002"
 
@@ -402,29 +422,33 @@ class TestQualysVmdr:
             (409, True),  # rate limited — the credential authenticated
         ],
     )
-    def test_validate_credentials_status_mapping(self, status_code, expected):
+    @pytest.mark.parametrize(
+        "api_version,expected_path", [("4.0", "/api/2.0/fo/asset/host/"), ("6.0", "/api/6.0/fo/asset/host/")]
+    )
+    def test_validate_credentials_status_mapping(self, status_code, expected, api_version, expected_path):
         with scripted_network(always(_xml("<x/>", status=status_code))) as network:
-            ok, error = validate_credentials("qualysapi.qualys.com", "user", "pass")
+            ok, error = validate_credentials("qualysapi.qualys.com", "user", "pass", api_version)
 
         assert ok is expected
         assert (error is None) is expected
-        assert network.requests_log[0].path == "/api/2.0/fo/asset/host/"
+        assert network.requests_log[0].path == expected_path
         assert network.requests_log[0].param("truncation_limit") == "1"
 
     def test_validate_credentials_rejects_disallowed_api_server_before_any_request(self):
         with scripted_network([]) as network:
-            ok, error = validate_credentials("localhost", "user", "pass")
+            ok, error = validate_credentials("localhost", "user", "pass", "6.0")
 
         assert ok is False
         assert error is not None and "not allowed" in error
         assert network.requests_log == []
 
-    def test_get_rows_knowledge_base_4_0_mints_jwt_and_uses_bearer(self):
+    @pytest.mark.parametrize("api_version", ["4.0", "6.0"])
+    def test_get_rows_knowledge_base_mints_jwt_and_uses_bearer(self, api_version):
         result = _drive(
             "knowledge_base",
             route({"/auth": [_xml("jwt-token")], "/api/4.0/fo/knowledge_base/vuln/": [_xml(KNOWLEDGE_BASE_PAGE)]}),
             config=_config(gateway_server="gateway.qg2.apps.qualys.com"),
-            api_version="4.0",
+            api_version=api_version,
         )
 
         # The JWT is minted at the gateway host, then threaded into the request session as a Bearer token

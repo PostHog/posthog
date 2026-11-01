@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmd
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     QUALYS_VMDR_API_VERSION_2_0,
+    QUALYS_VMDR_API_VERSION_4_0,
     QUALYS_VMDR_DEFAULT_VERSION,
     QUALYS_VMDR_ENDPOINTS,
     QUALYS_VMDR_SUPPORTED_VERSIONS,
@@ -52,6 +53,9 @@ class QualysVmdrSource(ResumableSource[QualysVmdrSourceConfig, QualysVmdrResumeC
     # sunset date is the End of Life, when Qualys stops serving the version.
     deprecated_versions = (
         VersionDeprecation(version=QUALYS_VMDR_API_VERSION_2_0, sunset_at=datetime.date(2026, 6, 30)),
+        # Host List and VM Scan 2.0, which 4.0 still calls, reach End of Life in December 2026 with no
+        # day given, so the sunset is the first day of that month.
+        VersionDeprecation(version=QUALYS_VMDR_API_VERSION_4_0, sunset_at=datetime.date(2026, 12, 1)),
     )
     api_docs_url = "https://docs.qualys.com/en/vm/api/index.htm"
 
@@ -77,7 +81,7 @@ class QualysVmdrSource(ResumableSource[QualysVmdrSourceConfig, QualysVmdrResumeC
 
 Use your account's regional API server URL (for example `qualysapi.qualys.com`, `qualysapi.qg2.apps.qualys.com`, or `qualysapi.qualys.eu`) — you can find it under **Help > About** in the Qualys UI. The user needs API access enabled (a Manager role, or a role granted API access).
 
-The `knowledge_base` table additionally requires the KnowledgeBase download option to be enabled on your Qualys subscription. On API version 4.0 it also needs your account's gateway URL (for example `gateway.qg2.apps.qualys.com`), which you can find under **Help > About** in the Qualys UI. Leave the gateway URL blank if you do not sync the `knowledge_base` table.""",
+The `knowledge_base` table additionally requires the KnowledgeBase download option to be enabled on your Qualys subscription. On API version 4.0 and later it also needs your account's gateway URL (for example `gateway.qg2.apps.qualys.com`), which you can find under **Help > About** in the Qualys UI. Leave the gateway URL blank if you do not sync the `knowledge_base` table.""",
             iconPath="/static/services/qualys_vmdr.png",
             docsUrl="https://posthog.com/docs/cdp/sources/qualys-vmdr",
             fields=cast(
@@ -107,7 +111,7 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
                         placeholder="",
                         secret=True,
                     ),
-                    # Optional: only the KnowledgeBase table on API version 4.0 needs it, so form-level
+                    # Optional: only the KnowledgeBase table on API version 4.0 and later needs it, so form-level
                     # `required` can't express the dependency — it's enforced at sync time instead.
                     SourceFieldInputConfig(
                         name="gateway_server",
@@ -137,7 +141,7 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
             "Qualys API server URL is not allowed": "The configured API server URL points at a blocked or internal address. Set it to your Qualys account's regional API server and reconnect.",
             "Qualys API response body was too large": "The Qualys API server returned an unexpectedly large response. Confirm the configured API server URL points at your Qualys account's regional API server and reconnect.",
             "Qualys API response download was too slow": "The Qualys API server was too slow to return a response. Confirm the configured API server URL points at your Qualys account's regional API server and reconnect.",
-            MISSING_GATEWAY_ERROR: "Syncing the knowledge_base table on API version 4.0 needs your Qualys gateway URL. Add it to the source configuration and reconnect.",
+            MISSING_GATEWAY_ERROR: "Syncing the knowledge_base table on API version 4.0 and later needs your Qualys gateway URL. Add it to the source configuration and reconnect.",
         }
 
     def get_schemas(
@@ -181,7 +185,9 @@ The `knowledge_base` table additionally requires the KnowledgeBase download opti
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_qualys_vmdr_credentials(config.api_server, config.username, config.password)
+        return validate_qualys_vmdr_credentials(
+            config.api_server, config.username, config.password, self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[QualysVmdrResumeConfig]:
         return ResumableSourceManager[QualysVmdrResumeConfig](inputs, QualysVmdrResumeConfig)

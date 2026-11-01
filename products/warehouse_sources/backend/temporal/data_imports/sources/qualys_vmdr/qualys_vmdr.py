@@ -52,9 +52,9 @@ MAX_JWT_DOWNLOAD_SECONDS = 30
 
 RESPONSE_TOO_LARGE_ERROR = "Qualys API response body was too large"
 RESPONSE_TOO_SLOW_ERROR = "Qualys API response download was too slow"
-# Raised when a JWT-authenticated endpoint (KnowledgeBase on 4.0) is synced but no gateway URL is
-# configured — the token can't be minted without it. Non-retryable: retrying can't create the field.
-MISSING_GATEWAY_ERROR = "Qualys API gateway URL is required for API version 4.0"
+# Raised when a JWT-authenticated endpoint (KnowledgeBase on 4.0 and later) is synced but no gateway URL
+# is configured — the token can't be minted without it. Non-retryable: retrying can't create the field.
+MISSING_GATEWAY_ERROR = "Qualys API gateway URL is required to sync the KnowledgeBase API"
 
 # Qualys rejects any request without an X-Requested-With header.
 _BASE_HEADERS = {"X-Requested-With": "PostHog Data Warehouse"}
@@ -406,8 +406,8 @@ def get_rows(
         url = next_url
 
 
-def validate_credentials(api_server: str, username: str, password: str) -> tuple[bool, str | None]:
-    """Cheap create-time probe: one host-list request capped at a single record.
+def validate_credentials(api_server: str, username: str, password: str, api_version: str) -> tuple[bool, str | None]:
+    """Cheap create-time probe: one host-list request capped at a single record, on the pin's route.
 
     403 is accepted — the credential authenticated but lacks the asset-listing scope; per-table
     scope problems surface at sync time. 409 (rate/concurrency limited) also proves the
@@ -418,7 +418,8 @@ def validate_credentials(api_server: str, username: str, password: str) -> tuple
     if not allowed:
         return False, f"Qualys API server URL is not allowed: {reason}"
 
-    url = f"{base_url}/api/2.0/fo/asset/host/?{urlencode({'action': 'list', 'truncation_limit': 1})}"
+    path = QUALYS_VMDR_ENDPOINTS["hosts"].resolve_path(api_version)
+    url = f"{base_url}{path}?{urlencode({'action': 'list', 'truncation_limit': 1})}"
     try:
         # stream=True so a user-controlled host can't force us to buffer an unbounded probe body:
         # we only ever inspect the status line here, never the body.
