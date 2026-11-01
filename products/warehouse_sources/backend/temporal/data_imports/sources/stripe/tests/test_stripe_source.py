@@ -2829,6 +2829,7 @@ class _PipelineAroundTheSweep:
         )
         webhooks = MagicMock(spec=WebhookSourceManager)
         webhooks.webhook_enabled = mock.AsyncMock(return_value=False)
+        webhooks.webhook_unregistered = mock.AsyncMock(return_value=False)
         with (
             patch.object(stripe_module, "StripeClient"),
             patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 1),
