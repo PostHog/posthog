@@ -30,23 +30,31 @@ pub struct AdHocEmbeddingResponse {
 /// Callers retry 5xx and give up on 4xx, so the status code has to separate the two:
 /// an opted-out organization and over-long content are permanent and never succeed on
 /// retry, while anything else here is transient enough to be worth retrying.
+/// Each failure has its own status and a short body, so a caller's exception names the
+/// cause without access to this service's logs.
 pub async fn handle_ad_hoc_request(
     context: Arc<AppContext>,
     request: AdHocEmbeddingRequest,
-) -> Result<Json<AdHocEmbeddingResponse>, StatusCode> {
+) -> Result<Json<AdHocEmbeddingResponse>, (StatusCode, String)> {
     let team_id = request.team_id;
     let request = match apply_ai_opt_in(&context, request, team_id).await {
         Ok(Some(request)) => request,
         Ok(None) => {
             warn!("Ad hoc embedding request for team {team_id} rejected: organization not opted in to ai features");
-            return Err(StatusCode::FORBIDDEN);
+            return Err((
+                StatusCode::FORBIDDEN,
+                "organization not opted in to ai features".to_string(),
+            ));
         }
         Err(e) => {
             error!(
                 "Ad hoc embedding request for team {team_id} failed to resolve organization: {:?}",
                 e
             );
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "failed to resolve organization".to_string(),
+            ));
         }
     };
 
@@ -54,7 +62,7 @@ pub async fn handle_ad_hoc_request(
 
     if would_truncate && !request.no_truncate {
         warn!("Ad hoc embedding request for team {team_id} rejected: content too long");
-        return Err(StatusCode::BAD_REQUEST);
+        return Err((StatusCode::BAD_REQUEST, "content too long".to_string()));
     }
 
     let (embedding, token_count) = match generate_embedding(
@@ -71,7 +79,7 @@ pub async fn handle_ad_hoc_request(
                 "Ad hoc embedding request for team {team_id} failed: {:?}",
                 e
             );
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            return Err((StatusCode::BAD_GATEWAY, e.to_string()));
         }
     };
 

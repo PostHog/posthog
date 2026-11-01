@@ -49,7 +49,7 @@ pub async fn index() -> &'static str {
 async fn ad_hoc_handler(
     State(context): State<Arc<AppContext>>,
     Json(request): Json<AdHocEmbeddingRequest>,
-) -> Result<Json<AdHocEmbeddingResponse>, StatusCode> {
+) -> Result<Json<AdHocEmbeddingResponse>, (StatusCode, String)> {
     handle_ad_hoc_request(context, request).await
 }
 
