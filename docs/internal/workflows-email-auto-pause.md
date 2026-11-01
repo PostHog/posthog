@@ -38,9 +38,10 @@ Batch job metrics count toward their parent workflow, and discovery gates sum at
 
 ## Read-only inspection through MCP
 
-The readiness tools are behind the default-off `workflows-email-from-code` flag.
+`workflows-email-sending-suspension` is behind the default-off `workflows-email-from-code` flag.
+`workflows-reputation-get` is behind `workflows-sending-tier-requests`.
 
-`workflows-email-sending-suspension` reads the project's suspension flag, time, and reason. `workflows-email-reputation` reads sending health, visible workflows' pause state, and the [sending allowance](workflows-email-sending-tiers.md) when permitted. Both require `hog_flow:read` and preserve the API's project and object permissions. Project-wide reputation and allowance may be null for callers with only object-level access. Null, missing, denied, or unavailable data means unknown, not healthy, zero, or unlimited. Reported limits and usage do not guarantee available quota.
+`workflows-email-sending-suspension` reads the project's suspension flag, time, and reason. `workflows-reputation-get` reads sending health, visible workflows' pause state, and the [sending allowance](workflows-email-sending-tiers.md) when permitted. Both require `hog_flow:read` and preserve the API's project and object permissions. Project-wide reputation and allowance may be null for callers with only object-level access. Null, missing, denied, or unavailable data means unknown, not healthy, zero, or unlimited. Reported limits and usage do not guarantee available quota.
 
 Use `workflows-get` to inspect `email_sending_paused_at` and `email_sending_paused_reason` for a particular workflow, including one absent from reputation rows. Use `integrations-list` with `kind=email` to inspect native senders' `config.verified`: true means verified, false means unverified, and a missing flag means unknown. An empty list means no visible sender after checking all pages. Other raw integration configuration remains excluded. These reads do not resume sending or verify a domain.
 

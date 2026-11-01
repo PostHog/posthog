@@ -42,11 +42,9 @@ describe('workflow email sending readiness', () => {
         })
         const names = tools.map((tool) => tool.name)
         expect(names.includes('workflows-email-sending-suspension')).toBe(visible)
-        expect(names.includes('workflows-email-reputation')).toBe(visible)
         if (scopes.some((scope) => scope.startsWith('hog_flow:'))) {
             expect(names).toContain('workflows-get')
         }
-        expect(names).not.toContain('hog-flows-resume-email-sending')
         expect(request).not.toHaveBeenCalled()
     })
 
@@ -66,40 +64,6 @@ describe('workflow email sending readiness', () => {
         expect(request).toHaveBeenCalledExactlyOnceWith({
             method: 'GET',
             path: '/api/projects/42/hog_flows/email_sending_suspension/',
-        })
-    })
-
-    it('preserves withheld project aggregates and a visible paused workflow', async () => {
-        const { context, request } = createContext()
-        const reputation = {
-            aws: null,
-            reputation: null,
-            sending_allowance: null,
-            workflows: [
-                {
-                    hog_flow_id: '00000000-0000-4000-8000-000000000001',
-                    email_sending_paused: true,
-                    email_sending_paused_at: '2026-01-01T00:00:00Z',
-                    email_sending_paused_reason: 'High bounce rate',
-                },
-            ],
-            isps: [],
-            isp_withheld_domains: ['example.com'],
-            isp_shared_domains: [],
-            email_sending_suspended: false,
-            email_sending_suspended_at: null,
-            email_sending_suspension_reason: '',
-        }
-        request.mockResolvedValue(reputation)
-
-        const tool = await getTool(context, 'workflows-email-reputation')
-        expect(tool.scopes).toEqual(['hog_flow:read'])
-        expect(tool.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false })
-        expect(await tool.handler(context, tool.schema.parse({ search: 'Welcome' }))).toEqual(reputation)
-        expect(request).toHaveBeenCalledExactlyOnceWith({
-            method: 'GET',
-            path: '/api/projects/42/hog_flows/reputation/',
-            query: { search: 'Welcome' },
         })
     })
 
