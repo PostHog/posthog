@@ -136,6 +136,7 @@ from products.replay_vision.backend.quota import (
     spend_projection,
 )
 from products.replay_vision.backend.scanner_access import (
+    SCANNER_CREATOR_LOST_ACCESS_CODE,
     accessible_experiment_ids,
     accessible_observations,
     creator_can_scan,
@@ -576,6 +577,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         help_text="When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
     )
+    take_over_as_creator = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text=(
+            "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. "
+            "The caller becomes the scanner's creator, and scheduled scans then run as the caller. "
+            f"Without it, that request fails with code `{SCANNER_CREATOR_LOST_ACCESS_CODE}`."
+        ),
+    )
     emits_signals = serializers.BooleanField(
         required=False,
         help_text="When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
@@ -680,6 +690,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "scanner_type",
             "goal",
             "creation_method",
+            "take_over_as_creator",
             "scanner_config",
             "prompt_question",
             "query",
@@ -853,7 +864,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         self._reject_scanner_type_change(attrs)
-        self._reject_turning_on_without_consent(attrs)
+        self._check_turning_on(attrs)
         self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
@@ -869,7 +880,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         )
         return attrs
 
-    def _reject_turning_on_without_consent(self, attrs: dict[str, Any]) -> None:
+    def _check_turning_on(self, attrs: dict[str, Any]) -> None:
+        # The sweep turns a scanner without consent or a creator with recording access straight back off.
+        take_over = attrs.pop("take_over_as_creator", False)
+        self._takes_over_creator = False
         if self.instance is None or self.instance.enabled or not attrs.get("enabled"):
             return
         if not self.context["get_team"]().organization.is_ai_data_processing_approved:
@@ -877,6 +891,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 "Your organization needs to allow AI analysis before you can turn on a Replay Vision scanner.",
                 code=AI_CONSENT_REQUIRED_CODE,
             )
+        if not creator_can_scan(self.instance):
+            if not take_over:
+                raise serializers.ValidationError(
+                    "This scanner's creator can no longer view recordings. "
+                    "Turn it on with `take_over_as_creator` to become its creator.",
+                    code=SCANNER_CREATOR_LOST_ACCESS_CODE,
+                )
+            self._takes_over_creator = True
 
     def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
         # to_representation redacts experiment_targeting to null for callers denied the experiment,
@@ -1174,8 +1196,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # The UI PATCHes the whole form on save, so edits are detected by comparing values, not keys.
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
-        if validated_data.get("enabled") and not was_enabled and not creator_can_scan(instance):
-            # The sweep scans as the creator and would turn it straight back off; set after `before` so it is not an edit.
+        if getattr(self, "_takes_over_creator", False):
+            # Set after `before`, so the handover is not reported as an edit.
             validated_data["created_by"] = acting_user(self.context)
         limit_changed = any(
             field in validated_data and validated_data[field] != getattr(instance, field)

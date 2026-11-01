@@ -15,6 +15,7 @@ import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic
 import { fleetContributions } from '../utils/quotaContributions'
 import { hasCreditLimit } from '../utils/quotaProjection'
 import { type SpendVerdict, spendVerdict } from '../utils/spendVerdict'
+import { turnOnScanner } from './turnOnScanner'
 import type { ReplayScanner } from './types'
 
 /** Settled credit spend per UTC day of the current billing period, oldest first, zero-filled through today. */
@@ -206,7 +207,13 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
             }
             actions.setScannerEnabled(scanner.id, next)
             try {
-                await visionScannersPartialUpdate(String(teamId), scanner.id, { enabled: next })
+                const saved = next
+                    ? await turnOnScanner(String(teamId), scanner.id)
+                    : await visionScannersPartialUpdate(String(teamId), scanner.id, { enabled: false })
+                if (!saved) {
+                    actions.setScannerEnabled(scanner.id, scanner.enabled)
+                    return
+                }
                 refreshVisionQuota()
                 lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)
             } catch (error: any) {

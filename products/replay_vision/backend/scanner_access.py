@@ -34,6 +34,10 @@ def is_uuid(value: str) -> bool:
     return True
 
 
+# Error code clients key on to offer taking over a scanner whose creator lost recording access.
+SCANNER_CREATOR_LOST_ACCESS_CODE = "scanner_creator_lost_access"
+
+
 def creator_can_scan(scanner: ReplayScanner) -> bool:
     """Whether the sweep, which reads recordings as the scanner's creator, can still read them."""
     if scanner.created_by is None:

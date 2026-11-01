@@ -40,6 +40,7 @@ import { HighlightFeedEmptyReason, resolveHighlightFeedEmptyReason } from './hig
 import { highlightPicksLogic } from './highlightPicksLogic'
 import { HighlightPicksStaleReason, resolveHighlightPicksStaleReason } from './highlightPicksStaleState'
 import { scanDrought } from './scanDrought'
+import { turnOnScanner } from './turnOnScanner'
 
 const DROUGHT_SCANNER_CAP = 10
 const BACKFILL_DAYS = 7
@@ -562,8 +563,12 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
                 }
                 act(enabled ? 'enable' : 'disable', scannerId)
                 try {
-                    await visionScannersPartialUpdate(String(teamId), scannerId, { enabled })
-                    refresh()
+                    const saved = enabled
+                        ? await turnOnScanner(String(teamId), scannerId)
+                        : await visionScannersPartialUpdate(String(teamId), scannerId, { enabled: false })
+                    if (saved) {
+                        refresh()
+                    }
                 } finally {
                     actions.scannerActionDone(scannerId)
                 }

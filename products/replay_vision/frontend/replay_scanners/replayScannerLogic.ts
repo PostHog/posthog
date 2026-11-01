@@ -100,6 +100,7 @@ import {
 import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
+import { turnOnScanner } from './turnOnScanner'
 import {
     ExperimentScannerConfig,
     MAX_CREDIT_LIMIT,
@@ -2608,7 +2609,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const next = !scanner.enabled
                 actions.setScannerValue('enabled', next)
                 try {
-                    await visionScannersPartialUpdate(String(teamId), props.id, { enabled: next })
+                    const saved = next
+                        ? await turnOnScanner(String(teamId), props.id)
+                        : await visionScannersPartialUpdate(String(teamId), props.id, { enabled: false })
+                    if (!saved) {
+                        actions.setScannerValue('enabled', false)
+                        actions.toggleEnabledFailure()
+                        return
+                    }
                     actions.toggleEnabledSuccess(next)
                     refreshVisionQuota()
                     lemonToast.success(`Scanner ${next ? 'enabled' : 'disabled'}`)

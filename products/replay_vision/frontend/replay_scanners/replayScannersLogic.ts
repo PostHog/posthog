@@ -35,6 +35,7 @@ import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } 
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
+import { turnOnScanner } from './turnOnScanner'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
@@ -611,8 +612,19 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             const delta = enabled ? estimate : -estimate
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
-                await visionScannersPartialUpdate(String(teamId), id, { enabled })
+                const saved = enabled
+                    ? await turnOnScanner(String(teamId), id)
+                    : await visionScannersPartialUpdate(String(teamId), id, { enabled: false })
+                if (!saved) {
+                    visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
+                    actions.revertScannerEnabled(id)
+                    return
+                }
                 actions.toggleScannerEnabledDone(id)
+                if (enabled && (saved.created_by?.id ?? null) !== (scanner.created_by?.id ?? null)) {
+                    // A take-over moved the scanner to the current user, which the creator column shows.
+                    actions.loadScanners()
+                }
             } catch (error: any) {
                 const verb = enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)

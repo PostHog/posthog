@@ -243,20 +243,31 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
 
-    @parameterized.expand([("creator_left_org", True), ("creator_still_member", False)])
-    def test_turning_on_hands_a_scanner_over_only_when_its_creator_lost_access(
-        self, _name: str, creator_left: bool
+    @parameterized.expand(
+        [
+            ("creator_left_without_take_over", True, False, 400, False, False),
+            ("creator_left_with_take_over", True, True, 200, True, True),
+            ("creator_still_member_ignores_take_over", False, True, 200, True, False),
+        ]
+    )
+    def test_turning_on_a_scanner_whose_creator_lost_access_needs_an_explicit_take_over(
+        self, _name: str, creator_left: bool, take_over: bool, status: int, enabled: bool, taken_over: bool
     ) -> None:
         creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
         if not creator_left:
             self.organization.members.add(creator)
         scanner = self._create_scanner(enabled=False, created_by=creator)
 
-        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/", {"enabled": True, "take_over_as_creator": take_over}, format="json"
+        )
 
-        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.status_code, status, resp.json())
+        if status == 400:
+            self.assertEqual(resp.json()["code"], "scanner_creator_lost_access")
         scanner.refresh_from_db()
-        self.assertEqual(scanner.created_by, self.user if creator_left else creator)
+        self.assertEqual(scanner.enabled, enabled)
+        self.assertEqual(scanner.created_by, self.user if taken_over else creator)
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")
