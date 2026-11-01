@@ -62,7 +62,8 @@ class PersonalApiKeyAuthenticator(Authenticator):
         async with acquire_connection(pool) as conn:
             row = await conn.fetchrow(
                 """
-                SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id, u.distinct_id, u.is_staff
+                SELECT pak.id, pak.user_id, pak.scopes, pak.expires_at,
+                       u.current_team_id, u.distinct_id, u.is_staff
                 FROM posthog_personalapikey pak
                 JOIN posthog_user u ON pak.user_id = u.id
                 WHERE pak.secure_value = $1 AND u.is_active = true
@@ -75,6 +76,11 @@ class PersonalApiKeyAuthenticator(Authenticator):
             if not row:
                 return None
 
+            # Same boundary as Django's PersonalAPIKey.is_expired: the expiry instant itself is expired.
+            expires_at: datetime | None = row.get("expires_at")
+            if expires_at and expires_at <= datetime.now(UTC):
+                return None
+
             scopes = row["scopes"] or []
             if not has_required_scope(scopes):
                 return None
@@ -85,6 +91,8 @@ class PersonalApiKeyAuthenticator(Authenticator):
                 auth_method=self.auth_type,
                 distinct_id=row["distinct_id"],
                 scopes=scopes,
+                # AuthCache caps the entry's TTL at token_expires_at, so a cached hit cannot outlive the key.
+                token_expires_at=expires_at,
                 is_staff=row["is_staff"],
             )
 
