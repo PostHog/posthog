@@ -92,6 +92,7 @@ products/isolation_baseline.txt @PostHog/team-devex
 /CLAUDE.md @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
 .agents/skills/writing-pr-descriptions/ @PostHog/team-devex
+docs/internal/ci-things-already-tried.md @PostHog/team-devex
 
 # A changed commit in the lockfile means a workflow now runs different third-party code.
 .github/workflows/actions.lock @PostHog/team-devex
