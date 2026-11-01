@@ -94,7 +94,6 @@ frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/ta
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
-frontend/src/lib/api.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
 frontend/src/lib/components/Account/ProjectFreshnessIndicator.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/ActivityLog/ActivityLogSubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
@@ -301,7 +300,6 @@ frontend/src/lib/components/heatmaps/heatmapDataLogic.ts -> frontend/src/toolbar
 frontend/src/lib/components/heatmaps/useScrollSync.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
 frontend/src/lib/components/openPublishToCommunityDialog.tsx -> products/skills/frontend/PublishToCommunityContents.tsx
 frontend/src/lib/hog.ts -> frontend/src/queries/query.ts
-frontend/src/lib/hog.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/hooks/useFeatureFlag.ts -> frontend/src/lib/logic/featureFlagLogic.ts
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/hooks/useFileSystemLogView.ts -> frontend/src/models/recentItemsModel.ts
@@ -322,9 +320,7 @@ frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.tsx -> frontend/src/lib/
 frontend/src/lib/lemon-ui/ProfilePicture/ProfilePicture.tsx -> frontend/src/scenes/userLogic.ts
 frontend/src/lib/logic/apiStatusLogic.ts -> frontend/src/scenes/authentication/two-factor-setup/twoFactorLogic.ts
 frontend/src/lib/monaco/codeEditorLogic.tsx -> frontend/src/queries/query.ts
-frontend/src/lib/monaco/codeEditorLogic.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/monaco/hogQLAutocompleteProvider.ts -> frontend/src/queries/query.ts
-frontend/src/lib/monaco/hogQLAutocompleteProvider.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/oauth/oauthLogic.ts -> products/data_warehouse/frontend/sqlEditorDraftCleanup.ts
 frontend/src/lib/signals/SignalReportFixOrStatus.tsx -> products/signals/frontend/inbox/components/badges/SignalReportStatusBadge.tsx
 frontend/src/lib/signals/SignalReportFixOrStatus.tsx -> products/signals/frontend/inbox/utils/reportPresentation.ts
