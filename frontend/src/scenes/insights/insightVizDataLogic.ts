@@ -2898,6 +2898,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
+            const kindAtDispatch = values.localQuerySource?.kind
+
             // When an external save handler is wired (dashboard card), skip the debounce so
             // rapid successive toggle clicks don't cancel each other and lose earlier changes.
             if (!props.setQuery) {
@@ -2905,6 +2907,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
+                return
+            }
+
+            // The update targets the old insight type's filter. Applying it to a new type's filter
+            // can add keys the backend rejects, e.g. trends formulas in funnelsFilter.
+            if (values.localQuerySource?.kind !== kindAtDispatch) {
                 return
             }
 
