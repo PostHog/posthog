@@ -13,7 +13,8 @@ For people working on the library itself — adding a chart type, adjusting the 
 
 Where new code goes:
 
-- Pure geometry (scales, layouts) → `core/scales.ts`, `core/bar-layout.ts`, or a sibling. Test these directly under `core/`.
+- Pure geometry (scales, layouts) that several chart types share → `core/scales.ts`, `core/bar-layout.ts`, or a sibling. Test these directly under `core/`.
+- Pure geometry that only one chart type uses → `charts/<name>/`, next to the chart, with its test beside it.
 - Drawing primitives → `core/canvas-renderer.ts`. Stateless, no React.
 - Chart-type React → `charts/<name>/<Name>.tsx`.
 - DOM overlays → `overlays/<Name>.tsx`. Read context via `useChartLayout()` / `useChartHover()`.
