@@ -29,8 +29,10 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
@@ -164,12 +166,17 @@ export function CyclotronJobInputs({
     sampleGlobalsWithInputs,
     className,
 }: CyclotronJobInputsProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
     }
 
     const inputSchemas = configuration.inputs_schema
     const inputSchemaIds = inputSchemas.map((schema: CyclotronJobInputSchemaType) => schema.key)
+    // IAM role auth for Kinesis needs worker configuration in every region, so its connection input stays behind a flag.
+    const isFlaggedOff = (schema: CyclotronJobInputSchemaType): boolean =>
+        schema.integration === 'aws-kinesis' && !featureFlags[FEATURE_FLAGS.CDP_AWS_KINESIS_IAM_ROLE]
 
     return (
         <>
@@ -187,7 +194,7 @@ export function CyclotronJobInputs({
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
                     <div className={clsx('flex flex-col gap-3', className)}>
                         {configuration.inputs_schema
-                            ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden)
+                            ?.filter((i: CyclotronJobInputSchemaType) => !i.hidden && !isFlaggedOff(i))
                             .map((schema: CyclotronJobInputSchemaType) => {
                                 return (
                                     <CyclotronJobInputWithSchema
