@@ -7930,40 +7930,35 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("scoped_by_owner", True, False, status.HTTP_201_CREATED),
-            ("flag_policies_cover_every_flag", False, False, status.HTTP_400_BAD_REQUEST),
-            ("flag_policies_cover_every_flag_but_the_user_bypasses", False, True, status.HTTP_201_CREATED),
+            ("scoped_by_owner", True, False, True, status.HTTP_201_CREATED),
+            ("flag_policies_cover_every_flag", False, False, True, status.HTTP_400_BAD_REQUEST),
+            ("flag_policies_cover_every_flag_but_the_user_bypasses", False, True, True, status.HTTP_201_CREATED),
+            ("internal_flag_refused_after_the_row_is_saved", False, False, False, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_create_mints_its_flags_without_a_change_request(
-        self, _name: str, scoped_by_owner: bool, user_bypasses: bool, expected_status: int
+        self, _name: str, scoped_by_owner: bool, user_bypasses: bool, with_targeting: bool, expected_status: int
     ) -> None:
         self._create_policy(
             "feature_flag.update",
             bypass_org_membership_levels=[self.organization_membership.level] if user_bypasses else None,
         )
         surveys_before = Survey.objects.filter(team=self.team).count()
+        data: dict = {"name": "Gated survey", "type": "popover", "questions": [{"type": "open", "question": "Q?"}]}
+        if with_targeting:
+            data["targeting_flag_filters"] = {
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            }
 
         with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=scoped_by_owner):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/surveys/",
-                data={
-                    "name": "Gated survey",
-                    "type": "popover",
-                    "questions": [{"type": "open", "question": "Q?"}],
-                    "targeting_flag_filters": {
-                        "groups": [
-                            {
-                                "properties": [
-                                    {"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}
-                                ],
-                                "rollout_percentage": 100,
-                            }
-                        ]
-                    },
-                },
-                format="json",
-            )
+            response = self.client.post(f"/api/projects/{self.team.id}/surveys/", data=data, format="json")
 
         assert response.status_code == expected_status, response.json()
         created = expected_status == status.HTTP_201_CREATED
@@ -7973,8 +7968,51 @@ class TestSurveyFlagWritesUnderApprovalPolicies(APIBaseTest):
         assert not ChangeRequest.objects.filter(team=self.team).exists()
         if created:
             survey = Survey.objects.get(id=response.json()["id"])
-            assert survey.targeting_flag is not None
             assert survey.internal_targeting_flag is not None
+            assert (survey.targeting_flag is not None) == with_targeting
+
+    def test_create_with_a_past_start_date_mints_active_flags_under_an_enable_policy(self) -> None:
+        self._create_policy("feature_flag.enable")
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys/",
+                data={
+                    "name": "Started survey",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "Q?"}],
+                    "start_date": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        survey = Survey.objects.get(id=response.json()["id"])
+        assert survey.internal_targeting_flag is not None
+        assert survey.internal_targeting_flag.active
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def test_update_rolls_back_every_edit_when_the_gate_refuses_an_internal_flag(self) -> None:
+        self._create_policy("feature_flag.update")
+
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/surveys/{self.survey.id}/",
+                data={
+                    "name": "Renamed survey",
+                    "response_sampling_interval_type": "day",
+                    "response_sampling_interval": 10,
+                    "response_sampling_limit": 500,
+                    "response_sampling_start_date": datetime(2024, 12, 12).isoformat(),
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        self.survey.refresh_from_db()
+        assert self.survey.name == "Survey under approval policies"
+        assert self.survey.internal_response_sampling_flag is None
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
 
     def test_targeting_filter_change_goes_through_the_rollout_gate(self) -> None:
         self._create_policy("feature_flag.update")

@@ -2523,8 +2523,8 @@ describe('surveyLogic update that needs approval', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
-    it('tells the user the change waits for approval', async () => {
-        const warning = jest.spyOn(lemonToast, 'warning')
+    it('tells the user the change waits for approval and reloads the saved survey', async () => {
+        const info = jest.spyOn(lemonToast, 'info')
         jest.spyOn(api.surveys, 'update').mockRejectedValue({
             status: 409,
             detail: 'This change needs approval.',
@@ -2533,9 +2533,9 @@ describe('surveyLogic update that needs approval', () => {
 
         await expectLogic(logic, () => {
             logic.actions.updateSurvey({ name: 'Renamed' })
-        }).toDispatchActions(['updateSurveyFailure'])
+        }).toDispatchActions(['updateSurveyFailure', 'loadSurvey'])
 
-        expect(warning).toHaveBeenCalledWith('This change needs approval.')
+        expect(info).toHaveBeenCalled()
     })
 })
 

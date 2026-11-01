@@ -22,7 +22,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { isApprovalRequiredError } from 'lib/api-error'
-import { handleApprovalRequired } from 'lib/approvals/utils'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -32,6 +31,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isObject } from 'lib/utils/guards'
 import { hasFormErrors, objectClean } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -2017,10 +2017,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
             },
             updateSurveyFailure: ({ errorObject }) => {
-                // The global error handler skips 409s, so without this a targeting change that waits
-                // for approval looks like a save that did nothing.
+                // The global error handler skips approval 409s, so without this a targeting change that
+                // waits for approval looks like a save that did nothing.
                 if (isApprovalRequiredError(errorObject)) {
-                    handleApprovalRequired(errorObject, errorObject.data.resource_type, errorObject.data.resource_id)
+                    showApprovalRequiredToast(errorObject.data.change_request_id, undefined, errorObject.data.code)
+                    // The backend saved none of the edits, so drop the form state that shows them as saved.
+                    actions.loadSurvey()
                 }
             },
             updateSurveySuccess: ({ survey }) => {
