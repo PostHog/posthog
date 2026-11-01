@@ -196,6 +196,7 @@ def summarize_clusters(
     )
     window_members = members.filter(created_at__gte=window.date_from, created_at__lt=window.date_to)
     examples = _examples(team_id, window_members, column)
+    unnameable = _themes_with_unreadable_members(team_id, cluster_ids, access) if kind == ClusterKind.THEME else set()
     variants = _variant_counts(window_members, column) if by_variant else {}
 
     results = []
@@ -210,7 +211,7 @@ def summarize_clusters(
                 id=row["cluster"],
                 scanner_id=cluster["scanner_id"],
                 scanner_name=cluster["scanner_name"] or "",
-                name=cluster.get("name") or None,
+                name=None if row["cluster"] in unnameable else cluster.get("name") or None,
                 status=cluster_status(**cluster_activity),
                 observation_count=row["window_count"],
                 people_count=row["people"],
@@ -270,6 +271,20 @@ def _readable_ranks(
             rows.alias(variant=_variant_key("observation__scanner_result")).filter(variant__in=scope.variants),
         )
     return rows
+
+
+def _themes_with_unreadable_members(
+    team_id: int, theme_ids: list[uuid.UUID], access: UserAccessControl
+) -> set[uuid.UUID]:
+    """Themes whose name may come from members the caller can't read, since naming samples every member."""
+    rows = (
+        ReplayObservationRank.objects.for_team(team_id)
+        .filter(search_theme_id__in=theme_ids)
+        .exclude(experiment_id__in={0, *readable_experiment_ids(access, team_id)})
+        .values_list("search_theme_id", flat=True)
+        .distinct()
+    )
+    return {theme_id for theme_id in rows if theme_id is not None}
 
 
 def _variant_key(result_field: str) -> Coalesce:

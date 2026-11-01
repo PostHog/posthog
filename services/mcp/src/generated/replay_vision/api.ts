@@ -465,13 +465,13 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
             'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
         ),
     include_routine: zod
-        .string()
+        .boolean()
         .optional()
         .describe(
             "With `group`, also list the group's routine observations, as the groups list does with the same flag."
         ),
     labeled: zod
-        .string()
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -1679,13 +1679,13 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
             'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
         ),
     include_routine: zod
-        .string()
+        .boolean()
         .optional()
         .describe(
             "With `group`, also list the group's routine observations, as the groups list does with the same flag."
         ),
     labeled: zod
-        .string()
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
@@ -1792,13 +1792,13 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
             'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
         ),
     include_routine: zod
-        .string()
+        .boolean()
         .optional()
         .describe(
             "With `group`, also list the group's routine observations, as the groups list does with the same flag."
         ),
     labeled: zod
-        .string()
+        .boolean()
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'

@@ -3153,11 +3153,11 @@ export type VisionObservationsRetrieveParams = {
     /**
      * With `group`, also list the group's routine observations, as the groups list does with the same flag.
      */
-    include_routine?: string
+    include_routine?: boolean
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string
+    labeled?: boolean
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -3495,11 +3495,11 @@ export type VisionScannersObservationsRetrieveParams = {
     /**
      * With `group`, also list the group's routine observations, as the groups list does with the same flag.
      */
-    include_routine?: string
+    include_routine?: boolean
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string
+    labeled?: boolean
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */
@@ -3677,11 +3677,11 @@ export type VisionScannersObservationsStatsRetrieveParams = {
     /**
      * With `group`, also list the group's routine observations, as the groups list does with the same flag.
      */
-    include_routine?: string
+    include_routine?: boolean
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
-    labeled?: string
+    labeled?: boolean
     /**
      * Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.
      */

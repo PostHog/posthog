@@ -865,9 +865,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
         return [
             OpenApiParameter(
                 name,
-                # Numeric filters must not surface as strings, or the generated clients type them
+                # Numeric and boolean filters must not surface as strings, or the generated clients type them
                 # differently here than on the list endpoint drf-spectacular discovers on its own.
-                float if isinstance(field, django_filters.NumberFilter) else str,
+                float
+                if isinstance(field, django_filters.NumberFilter)
+                else bool
+                if isinstance(field, django_filters.BooleanFilter)
+                else str,
                 OpenApiParameter.QUERY,
                 required=False,
                 description=str(field.extra.get("help_text", "")),

@@ -19,11 +19,11 @@
         },
         "include_routine": {
             "description": "With `group`, also list the group's routine observations, as the groups list does with the same flag.",
-            "type": "string"
+            "type": "boolean"
         },
         "labeled": {
             "description": "When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.",
-            "type": "string"
+            "type": "boolean"
         },
         "max_score": {
             "description": "Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
