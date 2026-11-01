@@ -38,6 +38,10 @@ export const PROPERTY_KEYS: string[] = []
 
 let definitionsLoaded = false
 
+export function areCoreFilterDefinitionsLoaded(): boolean {
+    return definitionsLoaded
+}
+
 export function setCoreFilterDefinitions(definitionsByGroup: CoreFilterDefinitionsJson): void {
     if (definitionsLoaded) {
         return

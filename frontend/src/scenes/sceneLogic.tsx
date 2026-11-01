@@ -76,8 +76,7 @@ interface MountedSceneLogic {
     unmount: () => void
 }
 
-// A logged-out page shows no filters, so it does not wait for the taxonomy. A failed load fails the scene like a
-// failed scene chunk does, because code that builds queries from an empty taxonomy returns wrong results.
+// A failed load must fail the scene, because code that builds queries from an empty taxonomy returns wrong results.
 function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
     const sceneConfig = sceneConfigurations[sceneId]
     if (sceneConfig?.onlyUnauthenticated || (sceneConfig?.allowUnauthenticated && !loggedIn)) {

@@ -1,17 +1,21 @@
 import type { ReactNode } from 'react'
 
-import { lazyWithRetry } from 'lib/utils/retryImport'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { loadCoreFilterDefinitions } from './loadCoreFilterDefinitions'
+import { areCoreFilterDefinitionsLoaded } from './taxonomy'
 
-function Loaded({ children }: { children: ReactNode }): JSX.Element {
+let loadFailure: { error: unknown } | null = null
+
+// Label helpers never re-render when the taxonomy arrives, so content that reads labels must wait for it.
+export function CoreFilterDefinitionsGate({ children }: { children: ReactNode }): JSX.Element {
+    if (loadFailure) {
+        throw loadFailure.error
+    }
+    if (!areCoreFilterDefinitionsLoaded()) {
+        throw retryImport(loadCoreFilterDefinitions).catch((error) => {
+            loadFailure = { error }
+        })
+    }
     return <>{children}</>
 }
-
-/**
- * Suspends its children until the taxonomy loads. Label helpers read the taxonomy without subscribing to it,
- * so a panel that renders before the first scene does would otherwise keep its raw keys.
- */
-export const CoreFilterDefinitionsGate = lazyWithRetry(() =>
-    loadCoreFilterDefinitions().then(() => ({ default: Loaded }))
-)
