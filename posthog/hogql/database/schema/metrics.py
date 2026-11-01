@@ -55,11 +55,6 @@ class MetricsTable(Table):
         "timestamp": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="When the metric data point was recorded."
         ),
-        "observed_timestamp": DateTimeDatabaseField(
-            name="observed_timestamp",
-            nullable=False,
-            description="When the collector observed/ingested the data point.",
-        ),
         "original_expiry_timestamp": DateTimeDatabaseField(
             name="original_expiry_timestamp", nullable=False, description="When the data point leaves retention."
         ),
@@ -190,11 +185,6 @@ class MetricSamplesTable(Table):
         ),
         "timestamp_arr": DateTimeArrayDatabaseField(
             name="timestamp_arr", nullable=False, description="When each data point was recorded."
-        ),
-        "observed_timestamp_arr": DateTimeArrayDatabaseField(
-            name="observed_timestamp_arr",
-            nullable=False,
-            description="When the collector observed each data point.",
         ),
         "value_arr": FloatArrayDatabaseField(
             name="value_arr", nullable=False, description="Numeric value of each data point (for gauge/sum metrics)."
