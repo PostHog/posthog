@@ -18,10 +18,10 @@ import { actionToUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { objectsEqual } from 'lib/utils/objects'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -41,6 +41,7 @@ import {
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { compareQuery, isDraftQueryWorthSaving } from '~/queries/nodes/InsightViz/queryUtils'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
@@ -98,7 +99,6 @@ import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
-import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
 // insightId/dashboardId are reducers set synchronously by the same action that matches the URL.
 // insightLogicRef is set by a separate listener that rebuilds and mounts a new logic instance, a

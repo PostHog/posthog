@@ -89,6 +89,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { filterVariablesReferencedInQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -159,7 +160,6 @@ import { exceedsRetention } from 'products/product_analytics/frontend/insights/d
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
-import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
 import {
     BreakdownColorConfig,

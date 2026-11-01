@@ -2,12 +2,10 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'lib/logic/preflightLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -54,7 +52,7 @@ describe('maxGlobalLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // GlobalModals mounts this logic on every page. Mounting it alone must not mount the task list,
+    // Every PostHog AI surface mounts this logic. Mounting it alone must not mount the task list,
     // or every boot fetches tasks, and a boot where the task list cannot build crashes the app.
     it('mounts without mounting the task list', () => {
         expect(logic.isMounted()).toBe(true)
@@ -105,27 +103,6 @@ describe('maxGlobalLogic', () => {
         })
     })
 
-    describe('isMaxAvailable selector', () => {
-        it.each([
-            { realm: 'a not-yet-loaded preflight', preflight: null, expected: true },
-            { realm: 'PostHog Cloud', preflight: { cloud: true }, expected: true },
-            {
-                realm: 'self-hosted with an Anthropic key',
-                preflight: { cloud: false, is_debug: false, anthropic_available: true },
-                expected: true,
-            },
-            {
-                realm: 'self-hosted without a key',
-                preflight: { cloud: false, is_debug: false, anthropic_available: false },
-                expected: false,
-            },
-        ])('is $expected on $realm', async ({ preflight, expected }) => {
-            preflightLogic.actions.loadPreflightSuccess(preflight as any)
-
-            await expectLogic(logic).toMatchValues({ isMaxAvailable: expected })
-        })
-    })
-
     // Consent state (accept/dismiss/request-access) now lives in aiConsentLogic (see aiConsentLogic.test.ts)
     // and is only forwarded here via `connect` so the ~15 existing consumers keep reading it off
     // maxGlobalLogic unchanged. This guards the forwarding wiring itself — a mistake here (e.g. connecting
@@ -168,27 +145,19 @@ describe('maxGlobalLogic', () => {
         })
     })
 
-    // The flag is the only thing that may expose the new posthog_ai surface — without the gate a stored
-    // preference (or a missing default) would leak it to every user. Lock in: flag off collapses to legacy
-    // regardless of the stored mode; flag on passes the stored mode through.
-    describe('effectivePhaiView selector', () => {
-        it.each([
-            { flagOn: false, mode: 'new', expected: 'legacy' },
-            { flagOn: false, mode: 'legacy', expected: 'legacy' },
-            { flagOn: true, mode: 'new', expected: 'new' },
-            { flagOn: true, mode: 'legacy', expected: 'legacy' },
-        ] as const)(
-            'is $expected when sandbox flag is $flagOn and stored mode is $mode',
-            async ({ flagOn, mode, expected }) => {
-                featureFlagLogic.actions.setFeatureFlags(
-                    flagOn ? [FEATURE_FLAGS.PHAI_SANDBOX_MODE] : [],
-                    flagOn ? { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true } : {}
-                )
-                logic.actions.setPhaiViewMode(mode)
+    // The view mode has one owner, aiShellLogic. A second copy here would let the shell and the Max scene
+    // disagree about which surface to show.
+    it('shares the view mode with aiShellLogic', () => {
+        const shell = aiShellLogic()
+        shell.mount()
 
-                await expectLogic(logic).toMatchValues({ effectivePhaiView: expected })
-            }
-        )
+        logic.actions.setPhaiViewMode('legacy')
+        expect(shell.values.phaiViewMode).toBe('legacy')
+
+        shell.actions.setPhaiViewMode('new')
+        expect(logic.values.phaiViewMode).toBe('new')
+
+        shell.unmount()
     })
 
     // A chat and its task are deleted together on the server. Each list only knows about its own

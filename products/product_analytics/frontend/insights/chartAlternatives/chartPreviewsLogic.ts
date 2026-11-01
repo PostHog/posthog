@@ -1,8 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { applyChartDisplay } from 'lib/components/ChartFilter/chartDisplayOptions'
+import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import type { AnyResponseType, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -10,8 +12,6 @@ import { ChartDisplayType } from '~/types'
 
 import type { ChartAlternativesLogicProps } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
-import { applyChartDisplay } from './chartDisplayOptions'
-import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview, hasPreviewData } from './chartPreviewData'
 
 export interface ChartPreview {

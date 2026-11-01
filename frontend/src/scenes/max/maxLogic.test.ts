@@ -8,13 +8,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { REPORT_AI_PANEL, SCOUT_AI_PANEL, SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, SidePanelTab } from '~/types'
 
-import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -128,7 +129,11 @@ describe('maxLogic', () => {
         })
     })
 
-    it('shares the initial history request and does not load actions when Max mounts', async () => {
+    it.each([
+        { age: 0, expectedRequests: 1 },
+        { age: 29_999, expectedRequests: 1 },
+        { age: 30_000, expectedRequests: 2 },
+    ])('shares history requests until the result is stale ($age ms)', async ({ age, expectedRequests }) => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
@@ -137,18 +142,16 @@ describe('maxLogic', () => {
         expect(actionsRequestCount).toBe(0)
         expect(conversationRequestCount).toBe(1)
 
-        const unmountFreshPanel = maxLogic({ panelId: 'mounted-soon-after' }).mount()
-        expect(conversationRequestCount).toBe(1)
-        unmountFreshPanel()
-
         const loadedAt = maxGlobalLogic.values.conversationHistoryLoadedAt!
-        jest.spyOn(Date, 'now').mockReturnValue(loadedAt + 31 * 1000)
-        const stalePanel = maxLogic({ panelId: 'mounted-later' })
-        const unmountStalePanel = stalePanel.mount()
-        await expectLogic(stalePanel).toDispatchActions(['loadConversationHistorySuccess'])
-        expect(conversationRequestCount).toBe(2)
-        unmountStalePanel()
-        jest.mocked(Date.now).mockRestore()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(loadedAt + age)
+        const unmountPanel = maxLogic({ panelId: 'another-panel' }).mount()
+        try {
+            await expectLogic(maxGlobalLogic).toFinishAllListeners()
+            expect(conversationRequestCount).toBe(expectedRequests)
+        } finally {
+            unmountPanel()
+            clock.mockRestore()
+        }
     })
 
     it.each([

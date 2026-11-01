@@ -15,6 +15,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { REPORT_AI_PANEL, SCOUT_AI_PANEL, SIDE_PANEL_PANEL_ID, type PhaiViewMode } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { productUrls } from '~/products'
@@ -28,12 +29,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import {
-    type ComposerSeed,
-    composerSeedLogic,
-    runnerPanelLogic,
-    taskLogic,
-} from 'products/posthog_ai/frontend/api/logics'
+import { type ComposerSeed, composerSeedLogic, taskLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import type { ToolRegistration } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'

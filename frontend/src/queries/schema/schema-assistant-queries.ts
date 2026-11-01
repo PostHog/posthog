@@ -1,5 +1,5 @@
 import type { FunnelLayout } from 'lib/constants'
-import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import type { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 
 import {
     BehavioralPropertyFilter,

@@ -5464,7 +5464,7 @@ export namespace Schemas {
          * @nullable
          */
       strength: string | null;
-      /** Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, such as `o1` or `p2`, that show this thread. A ref is valid only inside one version. */
+      /** Refs into `computed.owned`, `computed.watched`, `computed.pages`, `computed.tasks` and `computed.mcp_sessions` of the same version, such as `o1`, `p2`, `t3` or `m1`, that show this thread. A ref is valid only inside one version. */
       refs: string[];
       /**
          * The last day of activity on the refs of this thread, as YYYY-MM-DD.
@@ -5618,6 +5618,13 @@ export namespace Schemas {
       visits: ActivitySummaryProductEnum[];
     }
 
+    export interface ActivitySummaryLineRef {
+      /** The ref that themes cite, such as `t1` for a task or `m1` for an MCP session. */
+      ref: string;
+      /** The day of the task or MCP session, as YYYY-MM-DD. */
+      last_at: string;
+    }
+
     export interface ActivitySummaryComputed {
       /** The version of the shape of these fields. */
       schema_version: number;
@@ -5631,6 +5638,10 @@ export namespace Schemas {
       products: ActivitySummaryProductSplit;
       /** The number of tasks the user gave to PostHog AI or the Slack agent. */
       task_count: number;
+      /** Tasks the user gave to PostHog AI or the Slack agent that the summary input showed, oldest first. Empty on summaries from before task refs existed. */
+      tasks: ActivitySummaryLineRef[];
+      /** Sessions of the user's AI agent over MCP that the summary input showed, oldest first. Empty on summaries from before MCP refs existed. */
+      mcp_sessions: ActivitySummaryLineRef[];
     }
 
     export interface ActivitySummary {
@@ -34325,6 +34336,7 @@ export namespace Schemas {
      * * `Soniox` - Soniox
      * * `Nango` - Nango
      * * `Fathom` - Fathom
+     * * `Stamped` - Stamped
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -35744,6 +35756,7 @@ export namespace Schemas {
       Soniox: 'Soniox',
       Nango: 'Nango',
       Fathom: 'Fathom',
+      Stamped: 'Stamped',
     } as const;
 
     /**
@@ -37176,7 +37189,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -40168,7 +40182,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -51696,6 +51711,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -51791,6 +51808,11 @@ export namespace Schemas {
       readonly label: string | null;
       /** @nullable */
       readonly table: ExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at: string | null;
@@ -53454,7 +53476,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -54907,7 +54930,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -55070,6 +55094,11 @@ export namespace Schemas {
       readonly supports_webhooks: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name: string | null;
       /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
@@ -88508,6 +88537,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -88520,6 +88551,11 @@ export namespace Schemas {
       readonly label?: string | null;
       /** @nullable */
       readonly table?: PatchedExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id?: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at?: string | null;
@@ -88731,6 +88767,11 @@ export namespace Schemas {
       readonly supports_webhooks?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name?: string | null;
       /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
@@ -114823,7 +114864,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -116307,7 +116349,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -117758,7 +117801,8 @@ export namespace Schemas {
        * * `WooPayments` - WooPayments
        * * `Soniox` - Soniox
        * * `Nango` - Nango
-       * * `Fathom` - Fathom */
+       * * `Fathom` - Fathom
+       * * `Stamped` - Stamped */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;

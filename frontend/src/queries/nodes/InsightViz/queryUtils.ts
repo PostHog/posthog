@@ -1,0 +1,403 @@
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
+
+import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import {
+    DataNode,
+    FunnelsQuery,
+    HogQLVariable,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    ProductAnalyticsInsightQueryNode,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
+import {
+    filterForQuery,
+    filterKeyForQuery,
+    getMathTypeWarning,
+    isEventsNode,
+    isFunnelsDataWarehouseNode,
+    isFunnelsQuery,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightQueryWithDisplay,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+    isWebAnalyticsInsightQuery,
+} from '~/queries/utils'
+import { BaseMathType, ChartDisplayType } from '~/types'
+
+type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
+
+export const getVariablesFromQuery = (query: string): string[] => {
+    const re = /\{variables\.([a-z0-9_]+)\}/gm
+    const results: string[] = []
+
+    for (;;) {
+        const reResult = re.exec(query)
+        if (!reResult) {
+            break
+        }
+
+        if (reResult[1]) {
+            results.push(reResult[1])
+        }
+    }
+
+    return results
+}
+
+export const filterVariablesReferencedInQuery = <T extends { code_name: string }>(
+    query: string | null | undefined,
+    variables: T[]
+): T[] => {
+    const queryCodeNames = new Set(getVariablesFromQuery(query ?? ''))
+
+    return variables.filter((variable) => queryCodeNames.has(variable.code_name))
+}
+
+export const syncSelectedVariablesToQuery = (
+    query: string | null | undefined,
+    variables: Pick<Variable, 'id' | 'code_name'>[],
+    selectedVariables: HogQLVariable[]
+): HogQLVariable[] => {
+    const queryCodeNames = Array.from(new Set(getVariablesFromQuery(query ?? '')))
+    const queryCodeNamesSet = new Set(queryCodeNames)
+    const variablesByCodeName = new Map(variables.map((variable) => [variable.code_name, variable]))
+
+    const syncedVariables = selectedVariables.filter((variable) => queryCodeNamesSet.has(variable.code_name))
+    const selectedVariableIds = new Set(syncedVariables.map((variable) => variable.variableId))
+
+    queryCodeNames.forEach((codeName) => {
+        const variable = variablesByCodeName.get(codeName)
+
+        if (!variable || selectedVariableIds.has(variable.id)) {
+            return
+        }
+
+        syncedVariables.push({
+            variableId: variable.id,
+            code_name: variable.code_name,
+        })
+    })
+
+    return syncedVariables
+}
+
+export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
+    if (isInsightVizNode(a) && isInsightVizNode(b)) {
+        const { source: sourceA, ...restA } = a
+        const { source: sourceB, ...restB } = b
+        return (
+            objectsEqual(
+                objectCleanWithEmpty(removeUndefinedAndNull(restA)),
+                objectCleanWithEmpty(removeUndefinedAndNull(restB))
+            ) && compareDataNodeQuery(sourceA, sourceB, opts)
+        )
+    } else if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return compareDataNodeQuery(removeUndefinedAndNull(a), removeUndefinedAndNull(b), opts)
+    }
+
+    return objectsEqual(
+        objectCleanWithEmpty(removeUndefinedAndNull(a as any)),
+        objectCleanWithEmpty(removeUndefinedAndNull(b as any))
+    )
+}
+
+export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
+    if (!isHogQLQuery(a) || !isHogQLQuery(b)) {
+        return false
+    }
+
+    if ((a.variables && !b.variables) || (!a.variables && b.variables)) {
+        return true
+    }
+
+    if (a.variables && b.variables) {
+        if (!objectsEqual(a.variables, b.variables)) {
+            return true
+        }
+    }
+
+    if (a.filters && b.filters) {
+        if (!objectsEqual(a.filters, b.filters)) {
+            return true
+        }
+    }
+
+    return false
+}
+
+/** Query log metadata, stripped from result caching on the backend too, so it can never change what
+ * comes back. Comparing it would refetch every tile whenever a tag alone changes. */
+const withoutQueryLogTags = <T extends Node>(node: T): T => {
+    // dataNodeLogic compares against oldProps.query, which is undefined on the first props change.
+    if (!node || typeof node !== 'object' || !('tags' in node)) {
+        return node
+    }
+    const { tags: _tags, ...rest } = node as T & { tags?: unknown }
+    return rest as T
+}
+
+/** Compares two queries for semantic equality to prevent double-fetching of data. */
+export const compareDataNodeQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
+    if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
+        return objectsEqual(
+            cleanInsightQuery(withoutQueryLogTags(a), opts),
+            cleanInsightQuery(withoutQueryLogTags(b), opts)
+        )
+    }
+
+    return objectsEqual(
+        objectCleanWithEmpty(withoutQueryLogTags(a) as any),
+        objectCleanWithEmpty(withoutQueryLogTags(b) as any)
+    )
+}
+
+/**
+ * Whether an unsaved query is worth persisting as a browser draft (and later resurfacing as an
+ * "unsaved insight" on the saved insights page).
+ *
+ * Skips queries that only differ from their type's default in cosmetic ways (date range, interval,
+ * test account toggle, display options), and query kinds that `queryChanged` treats as changed by
+ * construction (web analytics tiles, kinds without a product analytics default) — for those,
+ * merely opening the editor would persist a draft the user never edited.
+ */
+export const isDraftQueryWorthSaving = (query: Node, filterTestAccountsDefault: boolean): boolean => {
+    if (!isInsightVizNode(query)) {
+        // Tables and SQL drafts have no cheap default to compare against
+        return true
+    }
+    if (isWebAnalyticsInsightQuery(query.source) || !(query.source.kind in nodeKindToInsightType)) {
+        return false
+    }
+    const source = query.source as ProductAnalyticsInsightQueryNode
+    let defaultQuery: Node
+    try {
+        defaultQuery = getDefaultQuery(nodeKindToInsightType[source.kind], filterTestAccountsDefault)
+    } catch {
+        return true
+    }
+    if (!isInsightVizNode(defaultQuery)) {
+        return true
+    }
+    // Overlay the draft's cosmetic fields onto the default: if that alone makes the two equal,
+    // nothing worth resurfacing was edited. `tags` is query log metadata the editor attaches on
+    // scene init (see `withDefaultProductAnalyticsTags`), never a user edit, so it's overlaid too.
+    const draftSource = source as Record<string, any>
+    const overlaidSource: Record<string, any> = { ...defaultQuery.source }
+    for (const key of ['dateRange', 'interval', 'filterTestAccounts', 'tags']) {
+        if (key in draftSource) {
+            overlaidSource[key] = draftSource[key]
+        } else {
+            delete overlaidSource[key]
+        }
+    }
+    const filterKey = filterKeyForQuery(source)
+    if (draftSource[filterKey]?.display) {
+        overlaidSource[filterKey] = { ...overlaidSource[filterKey], display: draftSource[filterKey].display }
+    }
+    const overlaidDefault: InsightVizNode = { ...defaultQuery, source: overlaidSource as InsightQueryNode }
+    return !compareQuery(overlaidDefault, query, { ignoreVisualizationOnlyChanges: true })
+}
+
+export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series?.length || 0) > 1
+}
+
+export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {
+    return (series || []).some(
+        (step) =>
+            isFunnelsDataWarehouseNode(step) &&
+            (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
+    )
+}
+
+// The caller passes the regex check so that the RE2 engine stays out of every bundle that imports this module.
+export const validateQuery = (q: DataNode, hasInvalidRegexFilter: (q: DataNode) => boolean): boolean => {
+    if (isFunnelsQuery(q)) {
+        return isFunnelWithEnoughSteps(q.series) && !isFunnelWithIncompleteDataWarehouseStep(q.series)
+    }
+
+    if (isTrendsQuery(q) && q.trendsFilter?.display === ChartDisplayType.BoxPlot) {
+        return !isBoxPlotMissingProperty(q.series)
+    }
+    if (hasInvalidRegexFilter(q)) {
+        return false
+    }
+    return true
+}
+
+// keep in sync with posthog/schema_helpers.py `grouped_chart_display_types` method
+const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
+    [ChartDisplayType.Auto]: ChartDisplayType.Auto,
+
+    // time series
+    [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.TwoDimensionalHeatmap]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ScatterPlot]: ChartDisplayType.ActionsLineGraph,
+    // The backend adds a previous-period series for the Metric change pill, so its result does not fit the other displays.
+    [ChartDisplayType.Metric]: ChartDisplayType.Metric,
+
+    // cumulative time series
+    [ChartDisplayType.ActionsLineGraphCumulative]: ChartDisplayType.ActionsLineGraphCumulative,
+
+    // total value
+    [ChartDisplayType.BoldNumber]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsBarValue]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsDonut]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsProportionBar]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
+
+    // separate: different breakdown limit (250)
+    [ChartDisplayType.WorldMap]: ChartDisplayType.WorldMap,
+
+    // separate runner
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.CalendarHeatmap,
+
+    // separate runner
+    [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
+
+    // separate runner — only the two range endpoints, cached on its own key
+    [ChartDisplayType.SlopeGraph]: ChartDisplayType.SlopeGraph,
+}
+
+/** clean insight queries so that we can check for semantic equality with a deep equality check */
+export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
+    const dupQuery = JSON.parse(JSON.stringify(query))
+
+    // remove undefined values, empty arrays and empty objects
+    const cleanedQuery = objectCleanWithEmpty(dupQuery) as InsightQueryNode
+
+    if (isInsightQueryWithSeries(cleanedQuery)) {
+        cleanedQuery.series?.forEach((series) => {
+            // event math `total` is the default
+            if (isEventsNode(series) && series.math === 'total') {
+                delete series.math
+            } else if (isTrendsQuery(cleanedQuery) && series.math && getMathTypeWarning(series.math, query, false)) {
+                series.math = BaseMathType.UniqueUsers
+            }
+        })
+    }
+
+    if (opts?.ignoreVisualizationOnlyChanges && !isWebAnalyticsInsightQuery(cleanedQuery)) {
+        // Keep this in sync with posthog/schema_helpers.py `serialize_query` method
+        const insightFilter = filterForQuery(cleanedQuery)
+        const sanitizedInsightFilter = {
+            ...insightFilter,
+            showLegend: undefined,
+            showPercentStackView: undefined,
+            stackBreakdownValues: undefined,
+            showValuesOnSeries: undefined,
+            aggregationAxisFormat: undefined,
+            aggregationAxisPrefix: undefined,
+            aggregationAxisPostfix: undefined,
+            decimalPlaces: undefined,
+            xAxisLabel: undefined,
+            yAxisLabel: undefined,
+            layout: undefined,
+            toggledLifecycles: undefined,
+            showLabelsOnSeries: undefined,
+            showMean: undefined,
+            meanRetentionCalculation: undefined,
+            yAxisScaleType: undefined,
+            yAxisStartAtZero: undefined,
+            yAxisMin: undefined,
+            yAxisMax: undefined,
+            hiddenLegendIndexes: undefined,
+            hiddenLegendBreakdowns: undefined,
+            resultCustomizations: undefined,
+            resultCustomizationBy: undefined,
+            goalLines: undefined,
+            dashboardDisplay: undefined,
+            showConfidenceIntervals: undefined,
+            confidenceLevel: undefined,
+            showTrendLines: undefined,
+            showMeanLine: undefined,
+            showMovingAverage: undefined,
+            movingAverageIntervals: undefined,
+            stacked: undefined,
+            detailedResultsAggregationType: undefined,
+            excludeBoxPlotOutliers: undefined,
+            showAnnotations: undefined,
+            annotationsScope: undefined,
+            showFullUrls: undefined,
+            selectedInterval: undefined,
+            funnelStepReference: undefined,
+            breakdownSorting: undefined,
+            dataColorTheme: undefined,
+            legendPosition: undefined,
+            chartStyle: undefined,
+        }
+
+        if (isTrendsQuery(cleanedQuery)) {
+            cleanedQuery.trendsFilter = sanitizedInsightFilter
+            if (isInsightQueryWithDisplay(cleanedQuery)) {
+                cleanedQuery.trendsFilter.display =
+                    groupedChartDisplayTypes[cleanedQuery.trendsFilter?.display || ChartDisplayType.ActionsLineGraph]
+            }
+        } else if (isFunnelsQuery(cleanedQuery)) {
+            cleanedQuery.funnelsFilter = sanitizedInsightFilter
+        } else if (isRetentionQuery(cleanedQuery)) {
+            cleanedQuery.retentionFilter = sanitizedInsightFilter
+            if (isInsightQueryWithDisplay(cleanedQuery)) {
+                cleanedQuery.retentionFilter.display =
+                    groupedChartDisplayTypes[cleanedQuery.retentionFilter?.display || ChartDisplayType.ActionsLineGraph]
+            }
+        } else if (isPathsQuery(cleanedQuery)) {
+            cleanedQuery.pathsFilter = sanitizedInsightFilter
+        } else if (isStickinessQuery(cleanedQuery)) {
+            cleanedQuery.stickinessFilter = sanitizedInsightFilter
+            if (isInsightQueryWithDisplay(cleanedQuery)) {
+                cleanedQuery.stickinessFilter.display =
+                    groupedChartDisplayTypes[
+                        cleanedQuery.stickinessFilter?.display || ChartDisplayType.ActionsLineGraph
+                    ]
+            }
+        } else if (isLifecycleQuery(cleanedQuery)) {
+            cleanedQuery.lifecycleFilter = sanitizedInsightFilter
+        }
+    }
+
+    return cleanedQuery
+}
+
+// Sync with backend TrendsDisplay.is_total_value: only these displays return one aggregated value per row.
+const AGGREGATED_RESULT_DISPLAYS = new Set<ChartDisplayType>([
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.ActionsPie,
+    ChartDisplayType.ActionsDonut,
+    ChartDisplayType.ActionsProportionBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.CalendarHeatmap,
+])
+
+// A result computed for the other row shape renders as a blank or zeroed chart.
+export const trendsResultsMatchQuery = (results: unknown[], query: TrendsQuery): boolean => {
+    const first = results[0] as { data?: unknown[]; aggregated_value?: unknown } | undefined
+    const isAggregated = AGGREGATED_RESULT_DISPLAYS.has(
+        query.trendsFilter?.display ?? ChartDisplayType.ActionsLineGraph
+    )
+    if (first?.data?.length) {
+        return !isAggregated
+    }
+    if (first?.aggregated_value != null) {
+        return isAggregated
+    }
+    return true
+}

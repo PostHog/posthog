@@ -2,12 +2,9 @@ import { useValues } from 'kea'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils/strings'
-import {
-    getDisplayNameFromEntityFilter,
-    getDisplayNameFromEntityNode,
-    humanizePathsEventTypes,
-} from 'scenes/insights/utils'
+import { getDisplayNameFromEntityNode, humanizePathsEventTypes } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import type { cohortsModelType } from '~/models/cohortsModel'

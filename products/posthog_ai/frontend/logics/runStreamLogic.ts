@@ -25,6 +25,8 @@ import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+
 import {
     tasksRunsCommandCreate,
     tasksRunsRetrieve,
@@ -96,7 +98,6 @@ import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconci
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { parseTurnSuggestionParams } from '../utils/turnSuggestions'
 import { computeTurnTrailers } from '../utils/turnTrailers'
-import { attachedContextLogic } from './attachedContextLogic'
 import { debugLogsLogic } from './debugLogsLogic'
 import { registerHmrStreamAbort } from './devHmrStreamAbort'
 import { foregroundStreamLogic } from './foregroundStreamLogic'

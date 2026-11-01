@@ -27,8 +27,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.railway.ra
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    RAILWAY_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+_SCHEMA_DESCRIPTIONS: dict[str, str] = {
+    "deployments": (
+        "Incremental syncs page newest-first and stop at the last-seen createdAt. A 24h "
+        "lookback re-pulls recent deployments so late status changes are picked up; older "
+        "status changes only refresh on a full refresh."
+    ),
+    "deployment_events": (
+        "Incremental syncs read events only for deployments created since the last-seen createdAt, "
+        "with a 24h lookback for deployments that were still in progress."
+    ),
+    "usage": "Daily resource usage per project and service, over the last 90 days on the first sync.",
+    "metrics": "Hourly resource metrics per service and environment. Railway keeps about 30 days of metrics.",
+    "estimated_usage": "Estimated usage per project at the end of the current billing period.",
+}
 
 
 @SourceRegistry.register
@@ -48,7 +64,7 @@ class RailwaySource(ResumableSource[RailwaySourceConfig, RailwayResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Railway",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Enter your Railway API token to pull your Railway projects, services, environments, deployments, members, and volumes into the PostHog Data warehouse.
+            caption="""Enter your Railway API token to pull your Railway projects, services, environments, deployments, deployment events, project events, members, volumes, usage, and metrics into the PostHog Data warehouse.
 
 Create an account or workspace token in your [Railway account settings](https://railway.com/account/tokens). Project tokens are not supported — they are scoped to a single environment and cannot list your projects.
 
@@ -113,16 +129,10 @@ Note that Railway rate limits API requests per plan (as low as 100 requests/hour
                 # safe write mode — append would materialize stale duplicates.
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description=(
-                    "Incremental syncs page newest-first and stop at the last-seen createdAt. A 24h "
-                    "lookback re-pulls recent deployments so late status changes are picked up; older "
-                    "status changes only refresh on a full refresh."
-                    if endpoint == "deployments"
-                    else None
-                ),
-                # Deployments still building/deploying keep changing status after creation; re-read a
-                # trailing day each incremental run so those rows settle without a full refresh.
-                default_incremental_lookback_seconds=86400 if endpoint == "deployments" else None,
+                description=_SCHEMA_DESCRIPTIONS.get(endpoint),
+                # Deployments still building/deploying keep changing after creation; re-read a trailing
+                # window each incremental run so those rows settle without a full refresh.
+                default_incremental_lookback_seconds=RAILWAY_ENDPOINTS[endpoint].default_incremental_lookback_seconds,
             )
 
         schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]

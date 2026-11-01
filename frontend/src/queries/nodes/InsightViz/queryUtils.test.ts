@@ -1,0 +1,314 @@
+import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
+import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { FunnelsQuery, Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
+import { ChartDisplayType, InsightType } from '~/types'
+
+import {
+    compareDataNodeQuery,
+    compareQuery,
+    filterVariablesReferencedInQuery,
+    isDraftQueryWorthSaving,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
+    syncSelectedVariablesToQuery,
+    validateQuery,
+} from './queryUtils'
+
+const AVAILABLE_VARIABLES = [
+    { id: 'date-id', code_name: 'date' },
+    { id: 'product-id', code_name: 'product' },
+    { id: 'region-id', code_name: 'region' },
+]
+
+describe('filterVariablesReferencedInQuery', () => {
+    it('keeps only variables referenced in the current query', () => {
+        expect(
+            filterVariablesReferencedInQuery(
+                'SELECT {variables.date}, {variables.date} FROM events WHERE product = {variables.product}',
+                AVAILABLE_VARIABLES
+            )
+        ).toEqual([
+            { id: 'date-id', code_name: 'date' },
+            { id: 'product-id', code_name: 'product' },
+        ])
+    })
+})
+
+describe('syncSelectedVariablesToQuery', () => {
+    it('removes stale selected variables while preserving values for ones still in use', () => {
+        expect(
+            syncSelectedVariablesToQuery(
+                'SELECT * FROM events WHERE timestamp >= {variables.date}',
+                AVAILABLE_VARIABLES,
+                [
+                    { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
+                    { variableId: 'product-id', code_name: 'product', value: 'mobile' },
+                ]
+            )
+        ).toEqual([{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }])
+    })
+
+    it('adds newly referenced variables once, in query order', () => {
+        expect(
+            syncSelectedVariablesToQuery(
+                'SELECT * FROM events WHERE product = {variables.product} AND region = {variables.region} AND product = {variables.product}',
+                AVAILABLE_VARIABLES,
+                [{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }]
+            )
+        ).toEqual([
+            { variableId: 'product-id', code_name: 'product' },
+            { variableId: 'region-id', code_name: 'region' },
+        ])
+    })
+})
+
+describe('validateQuery', () => {
+    it('returns false for funnels with less than 2 steps', () => {
+        const funnelQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        }
+        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
+    })
+
+    it('returns true for funnels with 2+ steps', () => {
+        const funnelQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.EventsNode, event: '$signup' },
+            ],
+        }
+        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(true)
+    })
+
+    it('returns false for funnels with incomplete data warehouse step', () => {
+        const funnelQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    table_name: 'events_table',
+                    id_field: 'person_id',
+                    timestamp_field: 'timestamp',
+                },
+                { kind: NodeKind.EventsNode, event: '$signup' },
+            ],
+        }
+        expect(validateQuery(funnelQuery, hasInvalidRegexFilter)).toBe(false)
+    })
+
+    it('returns false for query with invalid regex property filter', () => {
+        const trendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            properties: [{ type: 'event', key: 'url', operator: 'regex', value: '(?=lookahead)' }],
+        }
+        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(false)
+    })
+
+    it('returns true for query with valid regex property filter', () => {
+        const trendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            properties: [{ type: 'event', key: 'url', operator: 'regex', value: '^/api/.*' }],
+        }
+        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
+    })
+
+    it('returns true for query without regex filters', () => {
+        const trendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            properties: [{ type: 'event', key: 'url', operator: 'exact', value: '/home' }],
+        }
+        expect(validateQuery(trendsQuery, hasInvalidRegexFilter)).toBe(true)
+    })
+})
+
+describe('compareQuery', () => {
+    const makeTrendsQuery = (trendsFilter: TrendsFilter = {}): TrendsQuery => ({
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        trendsFilter,
+    })
+
+    it('treats chartStyle changes as visualization-only', () => {
+        const plain = makeTrendsQuery()
+        const styled = makeTrendsQuery({ chartStyle: { curve: 'linear' } })
+
+        // Style changes must not count as a query change — otherwise every style tweak refetches
+        expect(compareQuery(plain, styled, { ignoreVisualizationOnlyChanges: true })).toBe(true)
+        expect(compareQuery(plain, styled)).toBe(false)
+    })
+
+    it.each([
+        ['reuses the result between a line chart and a bar chart', ChartDisplayType.ActionsBar, true],
+        ['reloads between a line chart and a metric', ChartDisplayType.Metric, false],
+    ])('%s', (_, display, expected) => {
+        const line = makeTrendsQuery({ display: ChartDisplayType.ActionsLineGraph })
+
+        expect(compareQuery(line, makeTrendsQuery({ display }), { ignoreVisualizationOnlyChanges: true })).toBe(
+            expected
+        )
+    })
+})
+
+describe('isDraftQueryWorthSaving', () => {
+    const trends = (mutate?: (query: any) => void): Node => {
+        const query = JSON.parse(JSON.stringify(getDefaultQuery(InsightType.TRENDS, false)))
+        mutate?.(query)
+        return query
+    }
+
+    it.each<[string, Node, boolean]>([
+        ['an untouched default', trends(), false],
+        ['only a changed date range', trends((q) => (q.source.dateRange = { date_from: '-90d' })), false],
+        ['only a changed interval', trends((q) => (q.source.interval = 'week')), false],
+        ['only the test account toggle', trends((q) => (q.source.filterTestAccounts = true)), false],
+        ['only a changed display option', trends((q) => (q.source.trendsFilter = { display: 'ActionsPie' })), false],
+        [
+            'an untouched default with editor-attached query log tags',
+            trends((q) => (q.source.tags = { productKey: 'product_analytics' })),
+            false,
+        ],
+        ['a changed series event', trends((q) => (q.source.series[0].event = 'purchase')), true],
+        [
+            'an added series',
+            trends((q) => q.source.series.push({ kind: NodeKind.EventsNode, event: '$pageview', math: 'dau' })),
+            true,
+        ],
+        [
+            'an added breakdown',
+            trends((q) => (q.source.breakdownFilter = { breakdown: '$browser', breakdown_type: 'event' })),
+            true,
+        ],
+        [
+            'an added property filter',
+            trends(
+                (q) =>
+                    (q.source.properties = [{ type: 'event', key: '$browser', operator: 'exact', value: ['Chrome'] }])
+            ),
+            true,
+        ],
+        [
+            'a web analytics tile query',
+            {
+                kind: NodeKind.InsightVizNode,
+                source: { kind: NodeKind.WebOverviewQuery, properties: [] },
+            } as unknown as Node,
+            false,
+        ],
+        ['an events table query', getDefaultQuery(InsightType.JSON, false), true],
+    ])('treats %s correctly', (_name, query, expected) => {
+        expect(isDraftQueryWorthSaving(query, false)).toBe(expected)
+    })
+})
+
+describe('compareDataNodeQuery', () => {
+    // Query log tags never change what the backend returns (it strips them from the cache
+    // payload), so a tag-only difference must not count as a changed query. Web analytics
+    // stamps the applied filter preset's id into tags, and treating that as a change would
+    // refetch every tile the moment someone saves a preset.
+    it.each([
+        [
+            'an insight query node',
+            { kind: NodeKind.TrendsQuery, series: [] } as Node,
+            { kind: NodeKind.TrendsQuery, series: [], tags: { presetId: 'abc123' } } as Node,
+        ],
+        [
+            'a non-insight node',
+            { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node,
+            { kind: NodeKind.HogQLQuery, query: 'select 1', tags: { presetId: 'abc123' } } as Node,
+        ],
+    ])('ignores tags on %s', (_name, untagged, tagged) => {
+        expect(compareDataNodeQuery(untagged, tagged)).toBe(true)
+    })
+
+    it('reports a change against an undefined previous query instead of throwing', () => {
+        // dataNodeLogic passes oldProps.query, which is undefined on the first props change; a
+        // throw here crashed propsChanged before loadData and left tables permanently empty.
+        const query = { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node
+        expect(compareDataNodeQuery(query, undefined as unknown as Node)).toBe(false)
+    })
+})
+
+describe('isFunnelWithEnoughSteps', () => {
+    it.each([
+        { scenario: 'no steps', series: [], expected: false },
+        { scenario: 'one step', series: [{ kind: NodeKind.EventsNode }], expected: false },
+        {
+            scenario: 'two steps',
+            series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithEnoughSteps(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('isFunnelWithIncompleteDataWarehouseStep', () => {
+    it.each([
+        {
+            scenario: 'no steps',
+            series: [],
+            expected: false,
+        },
+        {
+            scenario: 'non-funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    distinct_id_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'complete funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    aggregation_target_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'missing aggregation target field',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                },
+            ],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})

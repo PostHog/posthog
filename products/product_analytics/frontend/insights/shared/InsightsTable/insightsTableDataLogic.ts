@@ -1,16 +1,16 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { uuid } from 'lib/utils/dom'
 import { average, median } from 'lib/utils/numbers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isOtherBreakdown } from 'scenes/insights/utils'
-import { compareDataNodeQuery } from 'scenes/insights/utils/queryUtils'
 import { ResultSeriesRow, getResultOrder, hasFormulaResults } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { compareDataNodeQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
 import type {
     AnyDataWarehouseNode,

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 
 import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
@@ -32,7 +32,7 @@ export function WizardHandoffDialog(): JSX.Element {
                 names, framework detail) and must not reach autocapture. disableImages: the text is
                 agent output, so an inline image would fire a request to an arbitrary URL. */}
             <div className="ph-no-capture" data-attr="wizard-handoff-doc">
-                <LemonMarkdown disableImages>{handoffDoc?.text ?? ''}</LemonMarkdown>
+                <LazyLemonMarkdown disableImages>{handoffDoc?.text ?? ''}</LazyLemonMarkdown>
             </div>
         </LemonModal>
     )

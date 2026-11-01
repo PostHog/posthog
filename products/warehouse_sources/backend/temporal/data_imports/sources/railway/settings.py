@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Literal
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -7,6 +8,9 @@ RAILWAY_API_URL = "https://backboard.railway.com/graphql/v2"
 RAILWAY_PAGE_SIZE = 100
 
 CREATED_AT = "createdAt"
+# Synthesized on rows of the windowed `usage` and `metrics` tables, which carry no timestamp of their own.
+DATE = "date"
+TIMESTAMP = "timestamp"
 
 INCREMENTAL_CREATED_AT: list[IncrementalField] = [
     {
@@ -15,6 +19,45 @@ INCREMENTAL_CREATED_AT: list[IncrementalField] = [
         "field": CREATED_AT,
         "field_type": IncrementalFieldType.DateTime,
     },
+]
+
+INCREMENTAL_DATE: list[IncrementalField] = [
+    {
+        "label": DATE,
+        "type": IncrementalFieldType.DateTime,
+        "field": DATE,
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+INCREMENTAL_TIMESTAMP: list[IncrementalField] = [
+    {
+        "label": TIMESTAMP,
+        "type": IncrementalFieldType.DateTime,
+        "field": TIMESTAMP,
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+# `projectServiceUsage` caps `first` at 50 projects per page.
+USAGE_PAGE_SIZE = 50
+USAGE_INITIAL_LOOKBACK_DAYS = 90
+# Railway keeps about 30 days of metrics, so an older start date returns nothing.
+METRICS_INITIAL_LOOKBACK_DAYS = 30
+METRICS_SAMPLE_RATE_SECONDS = 3600
+METRICS_WINDOW_DAYS = 7
+
+# The measurements Railway bills for: vCPU, memory, egress, volume storage and backups.
+USAGE_MEASUREMENTS = ["CPU_USAGE", "MEMORY_USAGE_GB", "NETWORK_TX_GB", "DISK_USAGE_GB", "BACKUP_USAGE_GB"]
+METRICS_MEASUREMENTS = [
+    "CPU_USAGE",
+    "CPU_LIMIT",
+    "MEMORY_USAGE_GB",
+    "MEMORY_LIMIT_GB",
+    "NETWORK_RX_GB",
+    "NETWORK_TX_GB",
+    "DISK_USAGE_GB",
+    "EPHEMERAL_DISK_USAGE_GB",
 ]
 
 _PAGE_INFO = "pageInfo { hasNextPage endCursor }"
@@ -147,6 +190,122 @@ query ProjectVolumes($projectId: String!, $first: Int!, $after: String) {{
 }}
 """
 
+EVENTS_QUERY = f"""
+query ProjectEvents($projectId: String!, $first: Int!, $after: String) {{
+  events(projectId: $projectId, first: $first, after: $after) {{
+    edges {{
+      node {{
+        id
+        action
+        object
+        severity
+        projectId
+        environmentId
+        payload
+        createdAt
+      }}
+    }}
+    {_PAGE_INFO}
+  }}
+}}
+"""
+
+DEPLOYMENT_EVENTS_QUERY = f"""
+query DeploymentEvents($deploymentId: String!, $first: Int!, $after: String) {{
+  deploymentEvents(id: $deploymentId, first: $first, after: $after) {{
+    edges {{
+      node {{
+        id
+        step
+        payload {{
+          attempt
+          maxAttempts
+          durationMs
+          skipped
+          reason
+          detail
+          error
+        }}
+        createdAt
+        completedAt
+      }}
+    }}
+    {_PAGE_INFO}
+  }}
+}}
+"""
+
+USAGE_QUERY = """
+query ProjectServiceUsage(
+  $workspaceId: String!
+  $startDate: DateTime!
+  $endDate: DateTime!
+  $measurements: [MetricMeasurement!]!
+  $first: Int!
+  $after: String
+) {
+  projectServiceUsage(
+    workspaceId: $workspaceId
+    startDate: $startDate
+    endDate: $endDate
+    measurements: $measurements
+    includeDeleted: true
+    first: $first
+    after: $after
+  ) {
+    usage {
+      measurement
+      value
+      tags {
+        projectId
+        serviceId
+        environmentId
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}
+"""
+
+ESTIMATED_USAGE_QUERY = """
+query EstimatedUsage($workspaceId: String!, $measurements: [MetricMeasurement!]!) {
+  estimatedUsage(workspaceId: $workspaceId, measurements: $measurements, includeDeleted: true) {
+    projectId
+    measurement
+    estimatedValue
+  }
+}
+"""
+
+METRICS_QUERY = """
+query ProjectMetrics(
+  $projectId: String!
+  $startDate: DateTime!
+  $endDate: DateTime!
+  $measurements: [MetricMeasurement!]!
+  $sampleRateSeconds: Int!
+) {
+  metrics(
+    projectId: $projectId
+    startDate: $startDate
+    endDate: $endDate
+    measurements: $measurements
+    groupBy: [SERVICE_ID, ENVIRONMENT_ID]
+    sampleRateSeconds: $sampleRateSeconds
+  ) {
+    measurement
+    tags {
+      serviceId
+      environmentId
+    }
+    values {
+      ts
+      value
+    }
+  }
+}
+"""
+
 # Cheapest authenticated probe that works for both account and workspace tokens
 # (workspace/team tokens cannot call `me`, so probe `projects` instead).
 VALIDATION_QUERY = """
@@ -162,7 +321,7 @@ query ValidateToken {
 """
 
 
-@dataclass
+@dataclass(frozen=True)
 class RailwayEndpointConfig:
     name: str
     query: str
@@ -175,6 +334,9 @@ class RailwayEndpointConfig:
     paginated: bool = True
     # Whether the endpoint runs once per project (projects are enumerated first).
     fan_out_over_projects: bool = True
+    sort_mode: Literal["asc", "desc"] | None = "desc"
+    # Overlap re-read on incremental syncs, for rows that keep changing after they are created.
+    default_incremental_lookback_seconds: int | None = None
 
 
 RAILWAY_ENDPOINTS: dict[str, RailwayEndpointConfig] = {
@@ -200,6 +362,7 @@ RAILWAY_ENDPOINTS: dict[str, RailwayEndpointConfig] = {
         data_path=("deployments",),
         incremental_fields=INCREMENTAL_CREATED_AT,
         partition_keys=[CREATED_AT],
+        default_incremental_lookback_seconds=86400,
     ),
     "project_members": RailwayEndpointConfig(
         name="project_members",
@@ -213,6 +376,49 @@ RAILWAY_ENDPOINTS: dict[str, RailwayEndpointConfig] = {
         name="volumes",
         query=VOLUMES_QUERY,
         data_path=("project", "volumes"),
+    ),
+    "events": RailwayEndpointConfig(
+        name="events",
+        query=EVENTS_QUERY,
+        data_path=("events",),
+        partition_keys=[CREATED_AT],
+    ),
+    "deployment_events": RailwayEndpointConfig(
+        name="deployment_events",
+        query=DEPLOYMENT_EVENTS_QUERY,
+        data_path=("deploymentEvents",),
+        incremental_fields=INCREMENTAL_CREATED_AT,
+        # Deployment events carry no deployment id, so the transport adds one. Event ids are not
+        # documented as globally unique, so the deployment id is part of the key.
+        primary_keys=["deployment_id", "id"],
+        partition_keys=[CREATED_AT],
+        sort_mode=None,
+        default_incremental_lookback_seconds=86400,
+    ),
+    "usage": RailwayEndpointConfig(
+        name="usage",
+        query=USAGE_QUERY,
+        data_path=("projectServiceUsage",),
+        incremental_fields=INCREMENTAL_DATE,
+        partition_keys=[DATE],
+        sort_mode=None,
+    ),
+    "estimated_usage": RailwayEndpointConfig(
+        name="estimated_usage",
+        query=ESTIMATED_USAGE_QUERY,
+        data_path=("estimatedUsage",),
+        paginated=False,
+        primary_keys=["projectId", "measurement"],
+        sort_mode=None,
+    ),
+    "metrics": RailwayEndpointConfig(
+        name="metrics",
+        query=METRICS_QUERY,
+        data_path=("metrics",),
+        paginated=False,
+        incremental_fields=INCREMENTAL_TIMESTAMP,
+        partition_keys=[TIMESTAMP],
+        sort_mode=None,
     ),
 }
 

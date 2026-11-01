@@ -2,7 +2,7 @@ import { DataColorToken } from 'lib/colors'
 // eslint-disable-next-line import/no-cycle
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { FunnelLayout } from 'lib/constants'
-import type { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import type { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 
 import { ConversionGoalSchema } from '~/taxonomy/marketingAnalytics'
 import {

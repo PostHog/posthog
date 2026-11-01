@@ -3,10 +3,10 @@ import './FunnelsQuerySteps.scss'
 import { useActions, useValues } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
