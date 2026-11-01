@@ -5,16 +5,20 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-# Opaque vendor version labels — never parsed or ordered. Only the KnowledgeBase Vulnerability API
-# is versioned past 2.0: Qualys is retiring its 2.0 (EOS Dec 2025) in favor of 4.0, which serves the
-# same feed at `/api/4.0/fo/knowledge_base/vuln/` but requires JWT Bearer auth instead of basic auth.
-# The FO Host List / Host List Detection / VM Scan APIs are a separate versioning track and stay on
-# `/api/2.0/` with basic auth under both source-level pins.
+# Opaque vendor version labels — never parsed or ordered. Qualys versions each FO API family on its
+# own track, so a source-level label names a set of per-endpoint routes rather than one URL segment:
+# - "4.0" moves the KnowledgeBase Vulnerability API off 2.0 (EOS Dec 2025) to
+#   `/api/4.0/fo/knowledge_base/vuln/`, which requires JWT Bearer auth instead of basic auth. The
+#   other FO APIs stay on `/api/2.0/` with basic auth.
+# - "6.0" also moves Host List and Host List Detection to `/api/6.0/`, and the VM Scan and Scanner
+#   Appliance lists to `/api/3.0/`, because Qualys retires their 2.0 routes. Those routes keep basic
+#   auth and only add optional elements to the same XML output.
 QUALYS_VMDR_API_VERSION_2_0 = "2.0"
 QUALYS_VMDR_API_VERSION_4_0 = "4.0"
+QUALYS_VMDR_API_VERSION_6_0 = "6.0"
 # Declared oldest -> newest; the default is always the last entry.
-QUALYS_VMDR_SUPPORTED_VERSIONS = (QUALYS_VMDR_API_VERSION_2_0, QUALYS_VMDR_API_VERSION_4_0)
-QUALYS_VMDR_DEFAULT_VERSION = QUALYS_VMDR_API_VERSION_4_0
+QUALYS_VMDR_SUPPORTED_VERSIONS = (QUALYS_VMDR_API_VERSION_2_0, QUALYS_VMDR_API_VERSION_4_0, QUALYS_VMDR_API_VERSION_6_0)
+QUALYS_VMDR_DEFAULT_VERSION = QUALYS_VMDR_API_VERSION_6_0
 
 
 @frozen
@@ -41,8 +45,7 @@ class QualysVmdrEndpointConfig:
     drop_tags: frozenset[str] = frozenset()
     should_sync_default: bool = True
     # Per-version path overrides for endpoints whose route moved between vendor versions. Absent
-    # keys fall through to `path` — that is the correct version-independent route, not silent drift,
-    # since only the KnowledgeBase endpoint diverges.
+    # keys fall through to `path`, the route every other version still serves.
     path_overrides: dict[str, str] = field(default_factory=dict)
     # Source-level versions on which this endpoint authenticates with a JWT Bearer token minted at
     # the Qualys gateway, rather than HTTP basic auth. Empty = basic auth on every version.
@@ -75,6 +78,7 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         ],
         primary_keys=["id"],
         truncation_limit=1000,
+        path_overrides={QUALYS_VMDR_API_VERSION_6_0: "/api/6.0/fo/asset/host/"},
     ),
     # The core VMDR feed: one row per (host, detection). `detection_updated_since` is a
     # server-side filter on the detection's last update, so incremental syncs re-pull rows whose
@@ -98,6 +102,7 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         partition_key="first_found_datetime",
         truncation_limit=500,
         flatten_host_detections=True,
+        path_overrides={QUALYS_VMDR_API_VERSION_6_0: "/api/6.0/fo/asset/host/vm/detection/"},
     ),
     # VM scan history. The scan list endpoint has no truncation pagination — it returns every
     # scan matching the filters in one response — so incremental filtering on launch datetime
@@ -119,6 +124,7 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         primary_keys=["ref"],
         partition_key="launch_datetime",
         truncation_limit=None,
+        path_overrides={QUALYS_VMDR_API_VERSION_6_0: "/api/3.0/fo/scan/"},
     ),
     # Vulnerability definitions (QIDs). Requires the "KnowledgeBase download" option enabled on
     # the Qualys subscription, so it's off by default. `details=Basic` keeps rows compact
@@ -141,8 +147,11 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         truncation_limit=None,
         should_sync_default=False,
         # Qualys is sunsetting KnowledgeBase 2.0; 4.0 serves the same feed but only over JWT Bearer.
-        path_overrides={QUALYS_VMDR_API_VERSION_4_0: "/api/4.0/fo/knowledge_base/vuln/"},
-        jwt_versions=frozenset({QUALYS_VMDR_API_VERSION_4_0}),
+        path_overrides={
+            QUALYS_VMDR_API_VERSION_4_0: "/api/4.0/fo/knowledge_base/vuln/",
+            QUALYS_VMDR_API_VERSION_6_0: "/api/4.0/fo/knowledge_base/vuln/",
+        },
+        jwt_versions=frozenset({QUALYS_VMDR_API_VERSION_4_0, QUALYS_VMDR_API_VERSION_6_0}),
     ),
     # Asset groups: the grouping dimension for hosts and reports. No server-side "modified since"
     # filter exists, so this is full refresh. `show_attributes=ALL` adds the owner, last update,
@@ -178,6 +187,7 @@ QUALYS_VMDR_ENDPOINTS: dict[str, QualysVmdrEndpointConfig] = {
         truncation_limit=None,
         # The activation code registers a scanner to the subscription, so it stays out of the warehouse.
         drop_tags=frozenset({"ACTIVATION_CODE"}),
+        path_overrides={QUALYS_VMDR_API_VERSION_6_0: "/api/3.0/fo/appliance/"},
     ),
     # The subscription's tracked IP inventory, as the single IPs and ranges Qualys returns. The
     # entries carry no ID, so the entry text is the key. The list is not paginated.
