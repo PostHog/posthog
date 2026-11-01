@@ -508,7 +508,12 @@ class _V2ListPage:
     def auto_paging_iter(self) -> Iterator[dict[str, Any]]:
         page = self._page
         while True:
-            yield from page.get("data") or []
+            data = page.get("data")
+            # A page without `data` is a corrupt response, not the end of the list. Raise so the sync
+            # retries rather than finishing with a truncated table.
+            if not isinstance(data, list):
+                raise stripe_lib.APIError("Stripe returned an API v2 list page without a data array")
+            yield from data
             next_page_url = page.get("next_page_url")
             if not next_page_url:
                 return
@@ -517,10 +522,7 @@ class _V2ListPage:
 
 def _v2_lister(client: StripeClient, path: str) -> Callable[..., _V2ListPage]:
     def _list(params: dict[str, Any]) -> _V2ListPage:
-        # Only `limit` carries over: v2 cannot seek to a v1 `starting_after` cursor, so a resumed
-        # sweep reads the list again from the start.
-        query = {"limit": params["limit"]} if "limit" in params else {}
-        return _V2ListPage(client, client.raw_request("get", path, **query).data)
+        return _V2ListPage(client, client.raw_request("get", path, limit=params["limit"]).data)
 
     return _list
 
@@ -1065,6 +1067,14 @@ def get_rows(
     resource = resources.get(endpoint, None)
     if not resource:
         raise Exception(f"Stripe endpoint does not exist: {endpoint}")
+
+    if endpoint in V2_LIST_PATHS:
+        # A v2 page token cannot be saved as a v1 `starting_after` cursor, so these full-refresh tables
+        # save no resume state. An interrupted sync reads the list again and overwrites the table.
+        yield from _batch_and_yield(
+            _iter_cleaning_errors(_call_stripe(resource.method, params=default_params).auto_paging_iter()), batcher
+        )
+        return
 
     logger.debug(f"Stripe: reading from resource {resource}")
 

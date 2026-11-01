@@ -313,14 +313,29 @@ class TestStripeApiVersionDispatch:
             },
         }
 
-        result = self._driver().run(
-            OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api(pages), api_version=STRIPE_API_VERSION_ENDIVE
-        )
+        with mock.patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 1):
+            result = self._driver().run(
+                OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api(pages), api_version=STRIPE_API_VERSION_ENDIVE
+            )
 
         assert result.raised is None
         assert [row["id"] for table in result.rows for row in table.to_pylist()] == ["obp_2", "obp_1"]
         assert result.paths == [path, path]
         assert {request.headers["stripe-version"] for request in result.requests} == {STRIPE_API_VERSION_ENDIVE}
+        # A saved cursor would mark the next attempt as resumed, and a resumed full refresh appends.
+        assert result.saved_states == []
+
+    def test_v2_page_without_data_fails_instead_of_ending_the_list(self):
+        pages: dict[str | None, dict[str, Any]] = {
+            None: {"data": [{"id": "obp_2"}], "next_page_url": "/v2/money_management/outbound_payments?page=tok_2"},
+            "tok_2": {},
+        }
+
+        result = self._driver().run(
+            OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api(pages), api_version=STRIPE_API_VERSION_ENDIVE
+        )
+
+        assert isinstance(result.raised, stripe_lib.APIError)
 
     def test_v2_table_under_acacia_pin_fails_without_a_request(self):
         result = self._driver().run(
