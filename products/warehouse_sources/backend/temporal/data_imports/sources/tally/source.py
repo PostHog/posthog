@@ -27,7 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally.sett
     INCREMENTAL_FIELDS,
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
-    TALLY_API_VERSION,
+    TALLY_API_VERSION_2025_02_01,
+    TALLY_API_VERSION_2026_10_27,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import (
     TallyResumeConfig,
@@ -42,10 +43,10 @@ class TallySource(ResumableSource[TallySourceConfig, TallyResumeConfig]):
     # Tally is also an accounting product, so we match the exact key.
     codebase_detection = detect(env=("^TALLY_API_KEY$",), script_hosts=("tally.so",))
 
-    # Tally versions its API by date. 2025-02-01 is the newest version the docs describe, and it is
-    # the shape this source is written against (paginated envelopes on the list endpoints).
-    supported_versions = (TALLY_API_VERSION,)
-    default_version = TALLY_API_VERSION
+    # Tally versions its API by date, and every request sends the pinned date as the `tally-version`
+    # header. Both versions serve the same paginated envelopes on the list endpoints.
+    supported_versions = (TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2026_10_27)
+    default_version = TALLY_API_VERSION_2026_10_27
     api_docs_url = "https://developers.tally.so/api-reference/versioning"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
