@@ -1,5 +1,6 @@
 import { IconPlayFilled } from '@posthog/icons'
 
+import { scannerTypeLabel } from '../types'
 import { EXAMPLE_CLIPS } from './ExampleObservations'
 import { HighlightPickRankBadge } from './HighlightPickRankBadge'
 
@@ -16,7 +17,7 @@ export function HighlightPicksShadowPreview(): JSX.Element {
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <span className="truncate text-sm font-semibold">{clip.headline}</span>
                         <span className="truncate text-xs text-secondary">
-                            {clip.scannerName} · {clip.scannerType}
+                            {clip.scannerName} · {scannerTypeLabel(clip.scannerType)}
                         </span>
                         <span className="truncate text-xs text-secondary">{clip.reason}</span>
                     </span>

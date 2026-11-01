@@ -42,7 +42,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     build_candidate_batch,
 )
 from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
-from products.replay_vision.backend.scanner_access import unrunnable_reason
+from products.replay_vision.backend.scanner_access import UnrunnableReason, unrunnable_reason
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
     DEEP_SWEEP_MAX_EXECUTION_SECONDS,
@@ -160,7 +160,7 @@ def _fail_on_filter_error(scanner: ReplayScanner, error: Exception) -> None:
 
 
 def _disable_unrunnable_scanner(
-    scanner: ReplayScanner, reason: Literal["no_ai_consent", "creator_lost_access", "experiment_deleted"]
+    scanner: ReplayScanner, reason: UnrunnableReason | Literal["experiment_deleted"]
 ) -> FindScannerCandidatesOutput:
     """Turn the scanner off so the reconciler drops its schedule and the owner sees it off, not silently idle.
 

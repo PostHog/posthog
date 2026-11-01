@@ -1312,6 +1312,13 @@ export interface ScannerExperimentTargetingApi {
     variant?: string | null
 }
 
+export type UnrunnableReasonEnumApi = (typeof UnrunnableReasonEnumApi)[keyof typeof UnrunnableReasonEnumApi]
+
+export const UnrunnableReasonEnumApi = {
+    NoAiConsent: 'no_ai_consent',
+    CreatorLostAccess: 'creator_lost_access',
+} as const
+
 /**
  * A Replay Vision scanner: its type, targeting query, and AI configuration.
  */
@@ -1443,6 +1450,8 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly filter_error: string | null
+    /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+    readonly unrunnable_reason: UnrunnableReasonEnumApi | null
     readonly created_at: string
     /** User who created the scanner. */
     readonly created_by: UserBasicApi | null
@@ -1594,6 +1603,8 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly filter_error?: string | null
+    /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+    readonly unrunnable_reason?: UnrunnableReasonEnumApi | null
     readonly created_at?: string
     /** User who created the scanner. */
     readonly created_by?: UserBasicApi | null

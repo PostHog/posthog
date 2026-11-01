@@ -1434,6 +1434,32 @@ describe('replayScannerLogic', () => {
             expect(editLogic.values.originalScanner).toMatchObject(running)
             expect(editLogic.values.turningOffFreeOnly).toBe(false)
         })
+
+        it('turning a blocked scanner on takes the saved blocker and creator, not just the flag', async () => {
+            const newCreator = {
+                id: 99,
+                uuid: 'taker',
+                distinct_id: 'taker',
+                first_name: 'Taker',
+                email: 'taker@example.com',
+            }
+            useMocks({
+                patch: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [
+                        200,
+                        { ...loadedScanner, enabled: true, unrunnable_reason: null, created_by: newCreator },
+                    ],
+                },
+            })
+            await expectLogic(editLogic, () => editLogic.actions.loadScanner()).toFinishAllListeners()
+            editLogic.actions.setScannerValues({ enabled: false, unrunnable_reason: 'creator_lost_access' })
+            await expectLogic(editLogic, () => editLogic.actions.toggleEnabled()).toDispatchActions([
+                'toggleEnabledSuccess',
+            ])
+            const runnable = { enabled: true, unrunnable_reason: null, created_by: newCreator }
+            expect(editLogic.values.scanner).toMatchObject(runnable)
+            expect(editLogic.values.originalScanner).toMatchObject(runnable)
+        })
     })
 
     describe('buildObservationListParams', () => {

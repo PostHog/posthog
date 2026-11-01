@@ -79605,6 +79605,14 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
+    export type UnrunnableReasonEnum = typeof UnrunnableReasonEnum[keyof typeof UnrunnableReasonEnum];
+
+
+    export const UnrunnableReasonEnum = {
+      NoAiConsent: 'no_ai_consent',
+      CreatorLostAccess: 'creator_lost_access',
+    } as const;
+
     /**
      * A Replay Vision scanner: its type, targeting query, and AI configuration.
      */
@@ -79736,6 +79744,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error: string | null;
+      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+      readonly unrunnable_reason: UnrunnableReasonEnum | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -92647,6 +92657,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly filter_error?: string | null;
+      /** Why the scanner can never run, or null when it can. `no_ai_consent`: the organization has not approved AI data processing. `creator_lost_access`: the creator can no longer view recordings, which the sweep reads as them, so turning the scanner on requires `take_over_as_creator`. The sweep turns an enabled scanner off when either applies. */
+      readonly unrunnable_reason?: UnrunnableReasonEnum | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;

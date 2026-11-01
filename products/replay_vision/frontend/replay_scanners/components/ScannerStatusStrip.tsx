@@ -6,10 +6,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { cn } from 'lib/utils/css-classes'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { RECORDINGS_BLOCK_CAUSE, replayRecordingsLogic } from '../../logics/replayRecordingsLogic'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditsRange } from '../../utils/credits'
@@ -17,7 +19,7 @@ import { quotaBannerState } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scanDrought } from '../scanDrought'
-import { limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
+import { UNRUNNABLE_DETAIL, limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
 import { ScannerStatusLabel } from './ScannerStatusLabel'
@@ -32,10 +34,18 @@ function formatInterval(minutes: number): string {
 
 function statusDetail(status: ScannerStatus, resetsOn: string | null, periodEndsOn: string | null): React.ReactNode {
     switch (status.kind) {
+        case 'no_ai_consent':
+            return UNRUNNABLE_DETAIL.no_ai_consent
+        case 'creator_lost_access':
+            return `${UNRUNNABLE_DETAIL.creator_lost_access} Turn it on to take it over.`
         case 'off':
             return status.reason === 'no_sampling'
                 ? 'Sampling is set to 0%, so no recordings are scanned.'
                 : "This scanner doesn't scan new recordings."
+        case 'replay_off':
+            return `${RECORDINGS_BLOCK_CAUSE['replay-off']}, so there are no recordings to scan.`
+        case 'no_recordings':
+            return `${RECORDINGS_BLOCK_CAUSE['no-recordings']}, so there is nothing to scan.`
         case 'limit_reached':
             return stoppedByFreeCredits(status)
                 ? `Paused until your free credits reset${periodEndsOn ? ` on ${periodEndsOn}` : ''}. Recordings until then are skipped.`
@@ -87,6 +97,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
     )
     const { toggleEnabled, turnOffFreeOnly } = useActions(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
+    const { recordingsBlock } = useValues(replayRecordingsLogic)
     if (!scanner) {
         return null
     }
@@ -94,6 +105,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
     const status = scannerStatus(scanner, {
         quotaExhausted: quotaState.kind === 'exhausted',
         drought: scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date()),
+        recordingsBlock,
     })
     const periodEndsOn = quota ? dayjs.utc(quota.period_end).format('MMMM D') : null
     const detail = statusDetail(status, quotaState.kind ? quotaState.resetsOn : null, periodEndsOn)
@@ -116,7 +128,9 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                     loading={togglingEnabled}
                     disabledReason={editDisabledReason}
                     label="Enabled"
-                    size="small"
+                    bordered
+                    // An off scanner is the state people miss, so the toggle picks up the accent color then.
+                    className={cn(!scanner.enabled && '!border-accent !bg-accent-highlight')}
                     data-attr="vision-scanner-toggle-enabled"
                     data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                     data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
