@@ -539,13 +539,14 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     private discardCapturesOfFailedRequest(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
     ): void {
-        if (!result.error || result.capturedPostHogEvents.length === 0) {
+        const failed = !!result.error || (getCustomHttpResponse(result)?.status ?? 200) >= 500
+        if (!failed || result.capturedPostHogEvents.length === 0) {
             return
         }
         result.logs.push(
             logEntry(
                 'warn',
-                `Discarded ${result.capturedPostHogEvents.length} captured events because the function failed. A retry of the request captures them again.`
+                `Discarded ${result.capturedPostHogEvents.length} captured events because the request failed.`
             )
         )
         result.capturedPostHogEvents = []

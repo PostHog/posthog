@@ -282,14 +282,18 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it.each([
-                [false, 200, [['first', 'second']]],
-                [true, 500, []],
-            ])('with fail=%s, answers %s and captures %j', async (fail, expectedStatus, expectedBatches) => {
+                ['ok', 200, ['first', 'second']],
+                ['throw', 500, []],
+                ['answer500', 500, []],
+            ])('with outcome %s, answers %s and captures %j', async (outcome, expectedStatus, expectedEvents) => {
                 const code = `
                         postHogCapture({'event': 'first', 'distinct_id': 'd', 'properties': {}})
                         postHogCapture({'event': 'second', 'distinct_id': 'd', 'properties': {}})
-                        if (request.body.fail) {
+                        if (request.body.outcome == 'throw') {
                             throw Error('boom')
+                        }
+                        if (request.body.outcome == 'answer500') {
+                            return {'httpResponse': {'status': 500, 'body': 'retry'}}
                         }
                     `
                 const capturingFunction = await insertHogFunction(hub.postgres, team.id, {
@@ -298,15 +302,13 @@ describe('SourceWebhooksConsumer', () => {
                     bytecode: await compileHog(code),
                 })
 
-                const res = await doPostRequest({ webhookId: capturingFunction.id, body: { fail } })
+                const res = await doPostRequest({ webhookId: capturingFunction.id, body: { outcome } })
                 await waitForBackgroundTasks()
 
                 expect(res.status).toEqual(expectedStatus)
-                expect(
-                    mockInternalFetch.mock.calls.map(([, options]) =>
-                        parseJSON(options.body).batch.map((event: { event: string }) => event.event)
-                    )
-                ).toEqual(expectedBatches)
+                expect(mockInternalFetch.mock.calls.map(([, options]) => parseJSON(options.body).event)).toEqual(
+                    expectedEvents
+                )
             })
 
             it('should log custom errors', async () => {
