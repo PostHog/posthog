@@ -181,6 +181,29 @@ class TestCloudinaryUsage:
             CloudinaryResumeConfig(cursor="2026-10-19"),
         ]
 
+    @pytest.mark.parametrize(
+        "statuses,expected_days",
+        [
+            ([200, 400], ["2026-10-17"]),
+            ([400, 200], None),
+        ],
+    )
+    @time_machine.travel("2026-10-18T02:00:00Z", tick=False)
+    def test_only_a_refused_current_day_ends_the_sync_cleanly(
+        self, statuses: list[int], expected_days: list[str] | None
+    ) -> None:
+        result = _driver().run(
+            "usage",
+            [ScriptedResponse(status=status, json={"plan": "Plus"}) for status in statuses],
+            resume_state=CloudinaryResumeConfig(cursor="2026-10-17"),
+        )
+
+        if expected_days is None:
+            assert result.raised is not None
+        else:
+            assert result.raised is None
+            assert [row["date"] for row in result.rows] == expected_days
+
 
 class TestCloudinaryCredentials:
     @pytest.mark.parametrize(

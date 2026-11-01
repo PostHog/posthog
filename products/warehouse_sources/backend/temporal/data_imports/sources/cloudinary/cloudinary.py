@@ -5,6 +5,8 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote
 
+from requests.exceptions import HTTPError
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary.settings import (
     CLOUDINARY_ENDPOINTS,
     LAST_ACCESS_REPORTS_PATH,
@@ -100,14 +102,21 @@ def iter_usage(
     resumed_day = _as_date(resume.cursor) if resume else None
     day = max(resumed_day, start) if resumed_day else start
     while day <= end:
-        for page in client.paginate(
-            path=CLOUDINARY_ENDPOINTS["usage"].path.format(date=day.isoformat()),
-            paginator=SinglePagePaginator(),
-            data_selector="$",
-        ):
-            rows = [{**row, "date": day.isoformat()} for row in page]
-            manager.save_state(CloudinaryResumeConfig(cursor=(day + timedelta(days=1)).isoformat()))
-            yield rows
+        try:
+            for page in client.paginate(
+                path=CLOUDINARY_ENDPOINTS["usage"].path.format(date=day.isoformat()),
+                paginator=SinglePagePaginator(),
+                data_selector="$",
+            ):
+                rows = [{**row, "date": day.isoformat()} for row in page]
+                manager.save_state(CloudinaryResumeConfig(cursor=(day + timedelta(days=1)).isoformat()))
+                yield rows
+        except HTTPError as e:
+            # Cloudinary can refuse the current UTC date with a 400 before its own usage day has
+            # started. The day is not lost, because the next run re-reads the restatement window.
+            if day == end and e.response is not None and e.response.status_code == 400:
+                return
+            raise
         day += timedelta(days=1)
 
 
