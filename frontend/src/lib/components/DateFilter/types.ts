@@ -28,7 +28,6 @@ export type DateFilterLogicProps = {
     allowSingleAndRange?: boolean
 }
 
-export const CUSTOM_OPTION_KEY = 'Custom'
 export const SELECT_FIXED_VALUE_PLACEHOLDER = 'Select a value'
 export const NO_OVERRIDE_RANGE_PLACEHOLDER = 'No date range override'
 export const CUSTOM_OPTION_DESCRIPTION = 'Use the original date ranges of insights'

@@ -20,9 +20,9 @@ import {
 
 import { DataColorToken, getSeriesColor, getSeriesColorPalette } from 'lib/colors'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
+import { INSIGHT_UNIT_OPTIONS_SHORT } from 'lib/insights/aggregationAxisFormat'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
-import { INSIGHT_UNIT_OPTIONS_SHORT } from 'scenes/insights/aggregationAxisFormat'
 
 import { ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'

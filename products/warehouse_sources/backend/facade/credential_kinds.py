@@ -1194,6 +1194,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Squarespace": "squarespace",
     "StackAdapt": "stack-adapt",
     "StackOverflowForTeams": "stack-overflow-for-teams",
+    "Stamped": "stamped",
     "Starburst": "starburst",
     "Statsig": "statsig",
     "Statuscake": "statuscake",

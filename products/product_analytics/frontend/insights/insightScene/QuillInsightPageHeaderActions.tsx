@@ -20,7 +20,7 @@ import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSecondaryActions } from '~/layout/scenes/components/SceneTitleSecondaryActions'
-import { isBIVisualizationNode } from '~/queries/utils'
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'

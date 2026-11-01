@@ -498,6 +498,25 @@ describe('TimeSeriesLineChart', () => {
             )
             expect(chart.valueLabels()).toHaveLength(3)
         })
+
+        it('labels the other series instead of failing when one series has null data', () => {
+            const onError = jest.fn()
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [1, 2, 3] },
+                { key: 'formula', label: 'Formula', data: null as unknown as number[] },
+            ]
+            const { chart } = renderChart(
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ valueLabels: true }}
+                    onError={onError}
+                />
+            )
+            expect(onError).not.toHaveBeenCalled()
+            expect(chart.valueLabels().map((l) => l.text)).toEqual(['1', '2', '3'])
+        })
     })
 
     describe('config.goalLines', () => {

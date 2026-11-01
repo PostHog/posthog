@@ -13,47 +13,42 @@ import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUni
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
+import { inviteLogic } from 'lib/logic/inviteLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+// Static on purpose: apiStatusLogic opens this modal through twoFactorLogic, which must be mounted before any API call.
 import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
-import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
-import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { InviteModal } from 'scenes/settings/organization/InviteModal'
-import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
-import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
-import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
-import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { productGlobalModals } from '~/productGlobalModals'
 
 import { globalModalsLogic } from './globalModalsLogic'
 
-// The session player modal anchors the entire replay player graph; loading it only when a
-// recording is opened keeps that graph out of the chunk every logged-in page downloads.
-const SessionPlayerModal = lazyWithRetry(() =>
-    import('scenes/session-recordings/player/modal/SessionPlayerModal').then((m) => ({
-        default: m.SessionPlayerModal,
-    }))
+// Modals that no product owns. A product adds its modal through `globalModals` in its manifest.
+const InviteModal = lazyWithRetry(() =>
+    import('scenes/settings/organization/InviteModal').then((m) => ({ default: m.InviteModal }))
+)
+const CreateOrganizationModal = lazyWithRetry(() =>
+    import('scenes/organization/CreateOrganizationModal').then((m) => ({ default: m.CreateOrganizationModal }))
+)
+const CreateProjectModal = lazyWithRetry(() =>
+    import('scenes/project/CreateProjectModal').then((m) => ({ default: m.CreateProjectModal }))
+)
+const PreviewingCustomCssModal = lazyWithRetry(() =>
+    import('scenes/themes/PreviewingCustomCssModal').then((m) => ({ default: m.PreviewingCustomCssModal }))
+)
+const PaymentEntryModal = lazyWithRetry(() =>
+    import('scenes/billing/PaymentEntryModal').then((m) => ({ default: m.PaymentEntryModal }))
+)
+const MaybeWelcomeDialog = lazyWithRetry(() =>
+    import('scenes/welcome/WelcomeDialog').then((m) => ({ default: m.MaybeWelcomeDialog }))
 )
 
-// Same trick for the logs viewer, whose sparkline anchors chart.js.
-const LogsViewerModal = lazyWithRetry(() =>
-    import('products/logs/frontend/components/LogsViewer/LogsViewerModal').then((m) => ({
-        default: m.LogsViewerModal,
-    }))
+const productModals = Object.entries(productGlobalModals).map(
+    ([key, load]) => [key, lazyWithRetry(() => load().then((component) => ({ default: component })))] as const
 )
 
 const TraceDialog = lazyWithRetry(() =>
     import('products/tracing/frontend/components/TraceDialog/TraceDialog').then((m) => ({
         default: m.TraceDialog,
-    }))
-)
-
-// The compose ticket modal anchors the support rich text editor (tiptap and prosemirror).
-const ComposeTicketModal = lazyWithRetry(() =>
-    import('products/conversations/frontend/components/ComposeTicket/ComposeTicketModal').then((m) => ({
-        default: m.ComposeTicketModal,
     }))
 )
 
@@ -66,60 +61,59 @@ const MaybePhaiOnboarding = lazyWithRetry(() =>
 export function GlobalModals(): JSX.Element {
     const { isCreateOrganizationModalShown, isCreateProjectModalShown } = useValues(globalModalsLogic)
     const { hideCreateOrganizationModal, hideCreateProjectModal } = useActions(globalModalsLogic)
-    const { activeSessionRecording } = useValues(sessionPlayerModalLogic)
-    const { isOpen: isLogsViewerModalOpen } = useValues(logsViewerModalLogic)
-    // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
-    const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
-    const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
     const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
+    // Grace-extended so the dialog's exit animation finishes before the lazy subtree unmounts.
     const shouldRenderTraceDialog = useKeepMountedWhileOpen(isTraceDialogOpen)
-    const { isOpen: isComposeTicketModalOpen } = useValues(composeTicketLogic)
-    const shouldRenderComposeTicketModal = useKeepMountedWhileOpen(isComposeTicketModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
 
     return (
         <>
-            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
-            <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
-            <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
+            <Suspense fallback={null}>
+                <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
+            </Suspense>
+            <Suspense fallback={null}>
+                <CreateOrganizationModal
+                    isVisible={isCreateOrganizationModalShown}
+                    onClose={hideCreateOrganizationModal}
+                />
+            </Suspense>
+            <Suspense fallback={null}>
+                <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
+            </Suspense>
+            <Suspense fallback={null}>
+                <PreviewingCustomCssModal />
+            </Suspense>
+            <TwoFactorSetupModal />
+            <Suspense fallback={null}>
+                <PaymentEntryModal />
+            </Suspense>
+            <Suspense fallback={null}>
+                <MaybeWelcomeDialog />
+            </Suspense>
+            {productModals.map(([key, ProductModal]) => (
+                <Suspense key={key} fallback={null}>
+                    <ProductModal />
+                </Suspense>
+            ))}
             <UpgradeModal />
             <TimeSensitiveAuthenticationModal />
-            {shouldRenderSessionPlayerModal ? (
-                <Suspense fallback={null}>
-                    <SessionPlayerModal />
-                </Suspense>
-            ) : null}
-            {shouldRenderLogsViewerModal ? (
-                <Suspense fallback={null}>
-                    <LogsViewerModal />
-                </Suspense>
-            ) : null}
             {shouldRenderTraceDialog ? (
                 <Suspense fallback={null}>
                     <TraceDialog />
                 </Suspense>
             ) : null}
-            <PreviewingCustomCssModal />
-            <TwoFactorSetupModal />
             <HedgehogMode />
-            <PaymentEntryModal />
             <GlobalCustomUnitModal />
             <MoveToModal />
             <LinkToModal />
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
-            <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
             <Suspense fallback={null}>
                 <MaybePhaiOnboarding />
             </Suspense>
-            {shouldRenderComposeTicketModal ? (
-                <Suspense fallback={null}>
-                    <ComposeTicketModal />
-                </Suspense>
-            ) : null}
         </>
     )
 }

@@ -4,6 +4,8 @@ import { ApiError } from 'lib/api'
 import { getEventNamesForAction } from 'lib/utils/events'
 
 import { examples } from '~/queries/examples'
+import { isInsightQueryWithSeries } from '~/queries/schema/node-guards'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DataTableNode,
     DataVisualizationNode,
@@ -14,7 +16,6 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightQueryWithSeries, setLatestVersionsOnQuery } from '~/queries/utils'
 import { ActionType, InsightModel, InsightType } from '~/types'
 
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'

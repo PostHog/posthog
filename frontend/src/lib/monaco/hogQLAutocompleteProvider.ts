@@ -4,13 +4,13 @@ import { languages } from 'monaco-editor'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     AutocompleteCompletionItemKind,
     HogLanguage,
     HogQLAutocomplete,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { findStatementAtOffset, splitQueries } from './multiQueryUtils'
 import { getContextSourceQuery } from './sourceQueryUtils'

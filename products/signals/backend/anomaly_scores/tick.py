@@ -47,6 +47,7 @@ from products.signals.backend.anomaly_scores.config import (
     read_payload,
     resolve_profile,
 )
+from products.signals.backend.anomaly_scores.due_list import record_failed, record_scored
 from products.signals.backend.anomaly_scores.emission import emit, score_events
 from products.signals.backend.anomaly_scores.metrics import record_candidates, record_pick
 from products.signals.backend.anomaly_scores.queue import (
@@ -131,6 +132,9 @@ class AnomalyScoringTickPlan:
     teams_planned: int = 0
     teams_skipped: int = 0
     self_driving_organization_percentage: float = 0.0
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
 
 
 @frozen
@@ -191,6 +195,11 @@ class AnomalyScoringTickResult:
     # The plan activity failed, and the tick scored nothing. `plan_error` is the error class.
     plan_failed: bool = False
     plan_error: str | None = None
+    # Due rows that the plan read from the stored due list, the time since the oldest of them became due, and
+    # the time since the oldest row refresh. None when the plan does not read the due list.
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -202,6 +211,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
     deadline = time.monotonic() + _PLAN_LOAD_BUDGET.total_seconds()
     selection = select_insights(config, parse_selection_config(payload), now, limit, deadline=deadline)
     record_candidates(selection.candidates)
+    # With the due list on, the census is empty, and the refresh job sends it.
     capture_census(selection.census, now)
     return AnomalyScoringTickPlan(
         enabled=True,
@@ -222,6 +232,9 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
         self_driving_organization_percentage=config.self_driving_organization_percentage,
+        due_insights=selection.due_insights,
+        oldest_due_seconds=selection.oldest_due_seconds,
+        oldest_refresh_seconds=selection.oldest_refresh_seconds,
     )
 
 
@@ -279,10 +292,12 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         )
         record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0, run=pick.run)
         capture_pick(pick, status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, run=pick.run)
+        # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
+        cooldown = SKIP_COOLDOWN if status not in (None, STATUS_AT_CAPACITY) else ATTEMPT_COOLDOWN
+        record_failed(pick.team_id, pick.insight_id, now, cooldown)
         if status is None:
             raise
-        # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
-        if status != STATUS_AT_CAPACITY:
+        if cooldown == SKIP_COOLDOWN:
             mark_attempted(pick.insight_id, SKIP_COOLDOWN)
         return ScoreInsightResult(status=status, events=0)
     duration_ms = round((time.monotonic() - started) * 1000)
@@ -380,6 +395,8 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         None,
     )
     if insight is None:
+        # The next refresh removes the row of a deleted insight.
+        record_failed(pick.team_id, pick.insight_id, now, SKIP_COOLDOWN)
         return ScoreInsightResult(status=STATUS_MISSING, events=0)
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
@@ -400,6 +417,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
                     error=str(error)[:200],
                 )
                 invalidate_state(team, insight.id, profile)
+                record_failed(team.id, insight.id, now, ATTEMPT_COOLDOWN)
                 return ScoreInsightResult(status=STATUS_ARTIFACT_UNAVAILABLE, events=0, run=ScoringRun.SCORE)
     scores = score_insight(
         insight,
@@ -426,6 +444,17 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     # A state write before a failed emit would skip those buckets for good.
     if scores.state is not None:
         save_state(team, insight.id, profile, scores.state)
+    record_scored(
+        team,
+        insight.id,
+        {
+            series.series_key: max(point.bucket_start for point in series.points)
+            for series in scores.series
+            if series.points
+        },
+        now,
+        input.limits,
+    )
     return ScoreInsightResult(
         status=STATUS_SCORED if events else STATUS_UP_TO_DATE,
         events=len(events),
@@ -466,6 +495,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         self_driving_organization_percentage=result.self_driving_organization_percentage,
         plan_failed=result.plan_failed,
         plan_error=result.plan_error,
+        due_insights=result.due_insights,
+        oldest_due_seconds=result.oldest_due_seconds,
+        oldest_refresh_seconds=result.oldest_refresh_seconds,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -499,6 +531,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "self_driving_organization_percentage": result.self_driving_organization_percentage,
             "plan_failed": result.plan_failed,
             "plan_error": result.plan_error,
+            "due_insights": result.due_insights,
+            "oldest_due_seconds": result.oldest_due_seconds,
+            "oldest_refresh_seconds": result.oldest_refresh_seconds,
         },
     )
 
@@ -617,6 +652,9 @@ class AnomalyScoringTickWorkflow:
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,
             self_driving_organization_percentage=plan.self_driving_organization_percentage,
+            due_insights=plan.due_insights,
+            oldest_due_seconds=plan.oldest_due_seconds,
+            oldest_refresh_seconds=plan.oldest_refresh_seconds,
         )
         await self._capture(result)
         return result

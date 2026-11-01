@@ -1,10 +1,15 @@
 import clsx from 'clsx'
 
+import {
+    formatEventName,
+    getDisplayNameFromEntityFilter,
+    isAllEventsEntityFilter,
+} from 'lib/insights/entityFilterNames'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { FEATURE_FLAG_CALLED_EVENT, FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
-import { FLAG_CALLS_SERIES_NAME } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
+import { flagCallsSeriesName } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import {
     SeriesNode,
     isActionsSeriesNode,
@@ -12,7 +17,6 @@ import {
     isGroupSeriesNode,
     isWarehouseSeriesNode,
 } from 'scenes/insights/filters/ActionFilter/seriesNode'
-import { formatEventName, getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { ActionFilter, EntityFilter, EntityTypes } from '~/types'
@@ -41,7 +45,7 @@ export function toDisplayEntityFilter(filter: DisplayableEntity): DisplayEntityF
             type: EntityTypes.EVENTS,
             id: FEATURE_FLAG_CALLED_EVENT,
             // Any name other than the table's is a rename, for example one set through the API.
-            name: name && name !== FLAG_EVALUATIONS_TABLE ? name : FLAG_CALLS_SERIES_NAME,
+            name: name && name !== FLAG_EVALUATIONS_TABLE ? name : flagCallsSeriesName(),
             table_name: undefined,
         }
     }

@@ -21,6 +21,7 @@ import { StartupProgramLabel } from '~/types'
 import { expect } from 'storybook/test'
 
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
+import scoutTemplates from '../__mocks__/scoutTemplates.json'
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -1021,6 +1022,15 @@ const meta: Meta = {
                         : params.id === monitorOverviewScanner.id
                           ? monitorOverviewScanner
                           : summarizerScanner,
+                // Rendered by the backend's templates; only the root cause body is full, since only its form is shown.
+                '/api/projects/:team_id/vision/scanners/:scannerId/scouts/templates/': ({ params }) =>
+                    (params.scannerId === summarizerScanner.id
+                        ? scoutTemplates.summarizer
+                        : scoutTemplates.monitor
+                    ).map((template) => ({
+                        ...template,
+                        body: template.body.replaceAll('SCANNER_ID', String(params.scannerId)),
+                    })),
                 '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
                 '/api/projects/:team_id/vision/scanners/:id/observations/stats/': ({ params }) =>
@@ -1252,9 +1262,31 @@ export const HomeHighlightFeed: StoryObj = {
                                         confidence: 0.8,
                                         title: 'Plan limit blocked an export',
                                         summary: 'The export stopped at the plan limit and the user opened billing.',
+                                        chapters: [
+                                            { kind: 'activity', start_ms: 0, end_ms: 42000, title: 'Built a report' },
+                                            {
+                                                kind: 'activity',
+                                                start_ms: 42000,
+                                                end_ms: 97000,
+                                                title: 'Hit the plan limit',
+                                            },
+                                            {
+                                                kind: 'activity',
+                                                start_ms: 97000,
+                                                end_ms: 130000,
+                                                title: 'Opened billing',
+                                            },
+                                        ],
                                     },
                                     signals_count: 0,
                                 },
+                                media: [0, 1, 2].map((position) => ({
+                                    id: `00000000-0000-0000-0000-0000000000c${position}`,
+                                    kind: 'chapter',
+                                    position,
+                                    asset_id: 4100 + position,
+                                    video_start_ms: position * 40000,
+                                })),
                                 viewed: true,
                             }),
                             reason: { kind: 'embedding_pick', watch_category: 'revenue', similar_count: 0 },

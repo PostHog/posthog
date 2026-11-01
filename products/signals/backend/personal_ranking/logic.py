@@ -30,6 +30,7 @@ from products.signals.backend.personal_ranking.config import PersonalRankingConf
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
+    TIERS,
     render_person,
     system_prompt,
     user_message,
@@ -54,6 +55,8 @@ AI_PRODUCT = "personal_inbox_ranking"
 PIPELINE_DISTINCT_ID = "signals_personal_inbox_ranking"
 BUILT_EVENT = "personal inbox ranking built"
 TRUNCATED_FINISH_REASON = "length"
+# The most old rows one build deletes. Each build deletes again, so a larger backlog shrinks over later builds.
+PRUNE_BATCH_SIZE = 100
 
 FALLBACK_LLM_ERROR = "llm_error"
 FALLBACK_TIMEOUT = "timeout"
@@ -275,6 +278,7 @@ def _capture(
                     "candidate_count": len(build.candidates),
                     "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                     "folded_count": len(build.folded),
+                    "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
                     "pool_counts": pools,
                     **dataclasses.asdict(build.counts),
                     "tokens_in": build.tokens_in,
@@ -306,6 +310,14 @@ def _store(team: Team, user: User, build: PersonalRankingBuild) -> PersonalRanki
         fallback_reason=build.fallback_reason,
     )
     return dataclasses.replace(build, ranking_id=str(row.id))
+
+
+def _prune(team: Team, user: User, keep: int) -> None:
+    """Delete one batch of the person's rows older than the newest `keep`, so the table stays bounded."""
+    rows = PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id)
+    stale_ids = list(rows.order_by("-created_at", "-id").values_list("id", flat=True)[keep : keep + PRUNE_BATCH_SIZE])
+    if stale_ids:
+        rows.filter(id__in=stale_ids).delete()
 
 
 def build_personal_ranking(
@@ -376,6 +388,8 @@ def build_personal_ranking(
                     model_reasons=model_reasons,
                     limit=limit,
                     rank_top=config.rank_top,
+                    top_max=config.top_max,
+                    worth_a_look_max=config.worth_a_look_max,
                     reason_limits=config.reason_limits,
                     next_step_max_chars=config.next_step_max_chars,
                 )
@@ -390,7 +404,9 @@ def build_personal_ranking(
         status=status,
         personalized=validated is not None and summary_ready,
         fallback_reason=fallback_reason,
-        entries=validated.entries if validated is not None else model_order(refs, model_reasons, limit),
+        entries=validated.entries
+        if validated is not None
+        else model_order(refs, model_reasons, min(limit, config.worth_a_look_max)),
         folded=validated.folded if validated is not None else (),
         candidates=tuple(candidates),
         counts=validated.counts if validated is not None else ValidationCounts(),
@@ -405,5 +421,9 @@ def build_personal_ranking(
     if dry_run:
         return build
     build = _store(team, user, build)
+    try:
+        _prune(team, user, config.max_rows_per_person)
+    except Exception:
+        logger.exception("signals.personal_ranking.prune_failed", team_id=team.id, user_id=user.id)
     _capture(team, user, build, config, has_focus=focus is not None)
     return build

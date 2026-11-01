@@ -13599,31 +13599,45 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         assert len(data["deleted"]) == 150
         assert len(data["errors"]) == 0
 
-    def _bulk_delete_query_count(self, flag_count: int) -> int:
+    def _query_count(self, endpoint: str, flag_count: int) -> int:
+        key_prefix = f"query_count_flag_{flag_count}_"
         flags = [
             FeatureFlag.objects.create(
                 team=self.team,
                 created_by=self.user,
-                key=f"query_count_flag_{flag_count}_{i}",
+                key=f"{key_prefix}{i}",
                 filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
             )
             for i in range(flag_count)
         ]
+        flag_ids = [f.id for f in flags]
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
-                {"ids": [f.id for f in flags]},
-            )
+            if endpoint == "bulk_delete":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                    {"ids": flag_ids},
+                )
+            else:
+                response = self.client.get(
+                    f"/api/projects/{self.team.id}/feature_flags/matching_ids/?search={key_prefix}"
+                )
         assert response.status_code == 200
-        assert len(response.json()["deleted"]) == flag_count
+        if endpoint == "bulk_delete":
+            assert len(response.json()["deleted"]) == flag_count
+        else:
+            assert sorted(response.json()["ids"]) == sorted(flag_ids)
         return len(ctx.captured_queries)
 
-    def test_bulk_delete_query_count_does_not_grow_with_flag_count(self):
-        self._bulk_delete_query_count(1)
-        few = self._bulk_delete_query_count(2)
-        many = self._bulk_delete_query_count(6)
+    def _warm_session_caches(self, endpoint: str) -> None:
+        self._query_count(endpoint, 1)
 
-        assert few == many, f"deleting 6 flags cost {many} queries vs {few} for 2, so something N+1s"
+    @parameterized.expand([("bulk_delete",), ("matching_ids",)])
+    def test_query_count_does_not_grow_with_flag_count(self, endpoint: str) -> None:
+        self._warm_session_caches(endpoint)
+        few = self._query_count(endpoint, 2)
+        many = self._query_count(endpoint, 6)
+
+        assert few == many, f"{endpoint} over 6 flags cost {many} queries vs {few} for 2, so something N+1s"
 
     def test_bulk_delete_validates_running_experiments(self):
         """Test that flags linked to running experiments are rejected."""

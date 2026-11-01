@@ -4,9 +4,10 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'

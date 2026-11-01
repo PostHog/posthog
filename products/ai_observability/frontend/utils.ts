@@ -3,9 +3,9 @@ import * as PartialJSON from 'partial-json'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 
 import { DateRange, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {

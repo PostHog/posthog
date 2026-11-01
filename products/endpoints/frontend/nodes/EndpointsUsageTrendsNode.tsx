@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -16,8 +17,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import {
     type EndpointsUsageMetric,

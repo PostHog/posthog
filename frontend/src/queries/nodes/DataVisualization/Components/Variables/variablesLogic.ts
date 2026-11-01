@@ -14,12 +14,12 @@ import {
 import { subscriptions } from 'kea-subscriptions'
 
 import { objectsEqual } from 'lib/utils/objects'
+
 import {
     getVariablesFromQuery,
     haveVariablesOrFiltersChanged,
     syncSelectedVariablesToQuery,
-} from 'scenes/insights/utils/queryUtils'
-
+} from '~/queries/nodes/InsightViz/queryUtils'
 import { VisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
 import { DashboardType } from '~/types'
 

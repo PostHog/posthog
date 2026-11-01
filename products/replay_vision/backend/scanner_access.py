@@ -13,15 +13,15 @@ from django.db.models import Q
 
 from rest_framework.exceptions import NotFound, PermissionDenied
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
-
-    from posthog.models.user import User
 
     from products.replay_vision.backend.models.replay_observation import ReplayObservation
 
@@ -32,6 +32,38 @@ def is_uuid(value: str) -> bool:
     except (ValueError, TypeError):
         return False
     return True
+
+
+# Error code clients key on to offer taking over a scanner whose creator lost recording access.
+SCANNER_CREATOR_LOST_ACCESS_CODE = "scanner_creator_lost_access"
+
+
+def recording_viewer_access(user: User | None, team: Team) -> UserAccessControl | None:
+    """The user's access in the project, when they are active, a member and can view its recordings."""
+    if user is None or not user.is_active:
+        return None
+    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
+        return None
+    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    if not access.has_project_access:
+        return None
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        return None
+    return access
+
+
+def creator_can_scan(scanner: ReplayScanner) -> bool:
+    """Whether the sweep, which reads recordings as the scanner's creator, can still read them."""
+    return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
+
+
+def unrunnable_reason(scanner: ReplayScanner) -> Literal["no_ai_consent", "creator_lost_access"] | None:
+    """Why the sweep can never spend for this scanner, or None when it can."""
+    if not scanner.team.organization.is_ai_data_processing_approved:
+        return "no_ai_consent"
+    if not creator_can_scan(scanner):
+        return "creator_lost_access"
+    return None
 
 
 def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]":
@@ -243,3 +275,21 @@ def scanner_for_recording_derived_read(
     if not can_read_targeted_experiment(viewset.user_access_control, viewset.team_id, scanner):
         raise NotFound()
     return scanner
+
+
+def readable_scanner_ids_in_scope(access: UserAccessControl, team_id: int, scanner_id: uuid.UUID | None) -> list[str]:
+    """The one scanner asked for, or every scanner the caller may read observations of."""
+    # Observations expose recording-derived output, so reading them across scanners requires session_recording read.
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
+        raise PermissionDenied("Reading replay observations requires session_recording read access.")
+    if scanner_id is not None:
+        scanner = scanner_for_reading_observations(team_id, scanner_id)
+        # Not-found doubles as no-access so the response never leaks the scanner or its experiment.
+        if (
+            scanner is None
+            or not access.check_access_level_for_object(scanner, "viewer")
+            or not can_read_targeted_experiment(access, team_id, scanner)
+        ):
+            raise NotFound("Scanner not found.")
+        return [str(scanner.id)]
+    return [str(sid) for sid in readable_observation_scanner_ids(access, team_id)]
