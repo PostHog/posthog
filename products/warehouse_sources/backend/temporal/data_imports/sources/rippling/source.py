@@ -8,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -44,11 +48,14 @@ class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]
     # header, so every pin issues byte-for-byte identical requests; the pin only records which tier
     # a source targets, and adding a header would override the customer's token version — the silent
     # move this framework prevents. New sources default to v2, Rippling's current REST API tier.
+    # Rippling calls its V1 tier legacy with no published sunset date, so the v1 label is deprecated
+    # and its pins are repinned to v2 by data migration (a pure relabel).
     supported_versions = ("v1", "v2")
     default_version = "v2"
+    deprecated_versions = (VersionDeprecation(version="v1", sunset_at=None),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    api_docs_url = "https://developer.rippling.com/documentation/rest-api/guides/versioning"
+    api_docs_url = "https://developer.rippling.com/documentation/rest-api/essentials/versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
