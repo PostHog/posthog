@@ -122,6 +122,7 @@ def can_read_flag_evaluations(
     *,
     only_in_flag_evaluations: bool = False,
     flag_key_compares_as_string: bool = True,
+    database: "Database | None" = None,
 ) -> bool:
     """Whether this query's `events` scan selects only rows that `flag_evaluations` holds.
 
@@ -153,7 +154,7 @@ def can_read_flag_evaluations(
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
     binds as it did before, and every field that starts with `posthog.events` reads the scan.
     """
-    scan = EventsScan.of(node, lambda: flag_key_compares_as_string, frozenset(node.ctes or ()))
+    scan = EventsScan.of(node, lambda: flag_key_compares_as_string, frozenset(node.ctes or ()), database)
     return scan is not None and _qualifies(
         scan, node, filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
     )
@@ -253,6 +254,7 @@ def _resolve_with_swaps(
             only_in_flag_evaluations=only_in_flag_evaluations,
             # The lookup reads Postgres, so it runs only when a scan pins `$feature_flag`.
             flag_key_compares_as_string=partial(_flag_key_compares_as_string, context),
+            database=database,
         )
         swapper.visit(rewritten)
     if swapper.refusals:
@@ -357,10 +359,12 @@ class EventsScan:
         other_tables: frozenset[str],
         flag_key_compares_as_string: Callable[[], bool],
         qualified_only: bool = False,
+        folded_tables: frozenset[str] = frozenset(),
     ):
         self.join = join
         self.alias = alias
         self.other_tables = other_tables
+        self.folded_tables = folded_tables
         self.qualified_only = qualified_only
         self.flag_key_compares_as_string = flag_key_compares_as_string
         self.shadowed: frozenset[str] = frozenset()
@@ -368,10 +372,15 @@ class EventsScan:
 
     @classmethod
     def of(
-        cls, node: ast.SelectQuery, flag_key_compares_as_string: Callable[[], bool], ctes: frozenset[str]
+        cls,
+        node: ast.SelectQuery,
+        flag_key_compares_as_string: Callable[[], bool],
+        ctes: frozenset[str],
+        database: "Database | None" = None,
     ) -> "EventsScan | None":
         """The scan of `node`, or None when `node` does not read `events`. `ctes` holds the CTE names in scope. The
-        resolver reads a CTE when one has the table's dotted name."""
+        resolver reads a CTE when one has the table's dotted name. Without `database`, no joined table counts as one
+        that folds identifier case."""
         join = node.select_from
         if join is None or not isinstance(join.table, ast.Field):
             return None
@@ -382,9 +391,9 @@ class EventsScan:
         scan = cls(
             join=join,
             alias=join.alias or "__".join(parts),
-            # The resolver reads the head of a chain of two or more parts as one of these tables first. Some warehouse
-            # tables match a name in any case.
-            other_tables=frozenset(name.lower() for name in ctes.union(_join_names(join.next_join))),
+            # The resolver reads the head of a chain of two or more parts as one of these tables first.
+            other_tables=ctes.union(_join_names(join.next_join)),
+            folded_tables=frozenset(_folded_join_names(join.next_join, database)),
             flag_key_compares_as_string=flag_key_compares_as_string,
         )
         collector = _AliasCollector(node)
@@ -413,7 +422,7 @@ class EventsScan:
         if self.qualified_only:
             return None
         head = str(expr.chain[0])
-        if len(expr.chain) > 1 and head.lower() in self.other_tables:
+        if len(expr.chain) > 1 and (head in self.other_tables or head.lower() in self.folded_tables):
             return None
         # The resolver rejects a name that two sources in FROM have as ambiguous. Events has every scan column, so a
         # name that no select alias shadows reads the scan in any query that resolves.
@@ -546,6 +555,26 @@ def _join_names(join: ast.JoinExpr | None) -> Iterator[str]:
             yield join.alias
         elif isinstance(join.table, ast.Field):
             yield "__".join(str(part) for part in join.table.chain)
+        join = join.next_join
+
+
+def _folded_join_names(join: ast.JoinExpr | None, database: "Database | None") -> Iterator[str]:
+    """The lowercased name of each joined table that the resolver matches in any case. Only an external-engine
+    table does, and an explicit alias keeps its exact spelling."""
+    while database is not None and join is not None:
+        if isinstance(join.table, ast.Field):
+            chain = [str(part) for part in join.table.chain]
+            name = "__".join(chain)
+            try:
+                table = database.get_table(chain) if database.has_table(chain) else None
+            except BaseHogQLError:
+                table = None
+            if (
+                getattr(table, "case_insensitive_identifiers", False)
+                and table is not None
+                and (join.alias is None or join.alias.lower() == (table.name or "").lower())
+            ):
+                yield (join.alias or name).lower()
         join = join.next_join
 
 
@@ -912,8 +941,10 @@ class _EventsScanSwapper(ScanVisitor):
         timezone: ZoneInfo,
         only_in_flag_evaluations: bool,
         flag_key_compares_as_string: Callable[[], bool],
+        database: "Database",
     ) -> None:
         super().__init__()
+        self.database = database
         self.now = now
         self.timezone = timezone
         self.only_in_flag_evaluations = only_in_flag_evaluations
@@ -924,7 +955,7 @@ class _EventsScanSwapper(ScanVisitor):
         self.refusals: list[str] = []
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
-        scan = EventsScan.of(node, self.flag_key_compares_as_string, self.ctes)
+        scan = EventsScan.of(node, self.flag_key_compares_as_string, self.ctes, self.database)
         if scan is None:
             return
         conjuncts = filter_conjuncts(node)
