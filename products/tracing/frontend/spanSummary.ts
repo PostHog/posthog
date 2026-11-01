@@ -2,6 +2,7 @@
 // attributes. Every field is optional in the output where the data is — the header renders only
 // what resolves and reflows, so a bare internal span shows little and an HTTP-to-k8s span lights up.
 
+import { parentSpanIdOf } from './spanTree'
 import type { Span } from './types'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 
@@ -111,7 +112,7 @@ export function deriveSpanSummary(span: Span): SpanSummary {
         durationNano: span.duration_nano,
         spanId: span.span_id,
         traceId: span.trace_id,
-        parentSpanId: span.parent_span_id || null,
+        parentSpanId: parentSpanIdOf(span),
         kind: SPAN_KIND_LABELS[span.kind] ?? String(span.kind),
         timestamp: span.timestamp,
         endTimestamp: span.end_time,

@@ -14,6 +14,8 @@ describe('traceUrl', () => {
         ],
         // Null/undefined anchor and hint are simply omitted.
         [{ traceId: 'abc123', spanId: null, ts: null }, '/tracing?trace=ABC123'],
+        // A span-less log carries the all-zero span id, which anchors nothing.
+        [{ traceId: 'abc123', spanId: '0000000000000000' }, '/tracing?trace=ABC123'],
     ])('traceUrl(%j) → %s', (params, expected) => {
         expect(traceUrl(params)).toBe(expected)
     })
