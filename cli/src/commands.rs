@@ -127,6 +127,20 @@ fn api_command_needs_stored_credentials(args: &[String]) -> bool {
     api_command_needs_stored_credentials_with_env(args, |name| std::env::var_os(name).is_some())
 }
 
+fn command_needs_context(command: &Commands) -> bool {
+    match command {
+        // Updating talks to the release bucket, never to PostHog, so it needs no API credentials.
+        Commands::Login | Commands::Update | Commands::Api { .. } => false,
+        Commands::SymbolSets {
+            cmd: SymbolSetsSubcommand::Extract(_),
+        } => false,
+        Commands::SymbolSets {
+            cmd: SymbolSetsSubcommand::Resolve(args),
+        } if args.file.is_some() => false,
+        _ => true,
+    }
+}
+
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
@@ -302,6 +316,7 @@ impl Commands {
                 SymbolSetsSubcommand::Upload(_) => "symbolset_upload",
                 SymbolSetsSubcommand::Download(_) => "symbolset_download",
                 SymbolSetsSubcommand::Extract(_) => "symbolset_extract",
+                SymbolSetsSubcommand::Resolve(_) => "symbolset_resolve",
             },
             Commands::Release { cmd } => match cmd {
                 ReleaseSubcommand::Resolve(_) => "release_resolve",
@@ -398,17 +413,7 @@ impl Cli {
             }
         }
 
-        if !matches!(
-            self.command,
-            Commands::Login
-                // Updating talks to the release bucket, never to PostHog, so
-                // requiring credentials would lock out anyone without a token.
-                | Commands::Update
-                | Commands::Api { .. }
-                | Commands::SymbolSets {
-                    cmd: SymbolSetsSubcommand::Extract(_)
-                }
-        ) {
+        if command_needs_context(&self.command) {
             init_context(
                 self.host.clone(),
                 self.skip_ssl_verification,
@@ -489,6 +494,20 @@ impl Cli {
                 }
                 SymbolSetsSubcommand::Extract(args) => {
                     crate::download::extract(&args)?;
+                }
+                SymbolSetsSubcommand::Resolve(args) => {
+                    let local_capture = if args.file.is_some() {
+                        set_telemetry_env_id_from_environment();
+                        Some(capture_command_run_without_context())
+                    } else {
+                        context().capture_command_invoked("symbolset_resolve");
+                        None
+                    };
+                    let result = crate::resolve::resolve(&args);
+                    if let Some(handle) = local_capture {
+                        let _ = handle.join();
+                    }
+                    result?;
                 }
             },
             Commands::Release { cmd } => match cmd {
@@ -684,6 +703,49 @@ mod tests {
                 "wrong dry-run classification for {argv:?}"
             );
         }
+    }
+
+    #[test]
+    fn resolve_accepts_frame_inputs_with_either_symbol_set_source() {
+        for file in [None, Some("set.bin")] {
+            for explicit_ref in [None, Some("chunk-1")] {
+                for frame_args in [vec!["--frame", "{}"], vec!["--frame-file", "-"]] {
+                    let args = ["posthog-cli", "symbol-sets", "resolve"]
+                        .into_iter()
+                        .chain(file)
+                        .chain(explicit_ref.map(|_| "--ref"))
+                        .chain(explicit_ref)
+                        .chain(frame_args);
+                    let parsed = Cli::try_parse_from(args);
+                    if file.is_none() && explicit_ref.is_none() {
+                        assert!(parsed.is_err(), "remote resolution needs --ref");
+                    } else {
+                        assert_eq!(
+                            command_needs_context(&parsed.unwrap().command),
+                            file.is_none()
+                        );
+                    }
+                }
+            }
+        }
+        for extra in [vec![], vec!["--frame", "{}", "--frame-file", "frame.json"]] {
+            assert!(Cli::try_parse_from(
+                ["posthog-cli", "symbol-sets", "resolve", "--ref", "chunk-1"]
+                    .into_iter()
+                    .chain(extra)
+            )
+            .is_err());
+        }
+        assert!(Cli::try_parse_from([
+            "posthog-cli",
+            "symbol-sets",
+            "verify",
+            "--ref",
+            "chunk-1",
+            "--frame",
+            "{}"
+        ])
+        .is_err());
     }
 
     #[test]

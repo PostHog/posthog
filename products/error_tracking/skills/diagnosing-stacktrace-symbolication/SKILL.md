@@ -82,8 +82,18 @@ Interpret the row:
 - `has_uploaded_file: false` means the upload did not complete.
 - A non-null `failure_reason` means PostHog could not parse or load the uploaded symbol data.
 
-The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload), not plain JSON. Extract
-it with `posthog-cli`:
+To test the captured frame against the uploaded symbol set, save its raw JSON as `frame.json`. Download by ref with CLI credentials, or use the symbol-set binary downloaded through MCP:
+
+```bash
+posthog-cli symbol-sets resolve --ref "$CHUNK_ID" --frame-file frame.json
+posthog-cli symbol-sets resolve symbolset.bin --frame-file frame.json
+```
+
+`symbolset.bin` is the uploaded container, not an extracted `.map` file or directory. Downloading requires `--ref`; with a local file, `--ref` is optional and, if supplied, must match the frame. Use `--frame-file -` for stdin or `--frame '<raw-frame-json>'` for inline JSON. A local file avoids the symbol-set API and credentials but does not disable normal CLI telemetry.
+
+Use the `map_id` for Java, or the debug image's `debug_id` for Apple and native frames (also pass that image as `--debug-image '<json>'`). Success prints `{"frames":[...]}` with the original source, line, column, function, module, and content availability where present; addresses may expand into multiple frames. Errors exit nonzero and identify the lookup, download, decode, or mapping stage. Compare the returned frames with the expected original source. This check resolves one frame against one selected set; it does not reproduce Cymbal's full exception handling or release selection.
+
+The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload), not plain JSON. To inspect its contents, extract it with `posthog-cli`:
 
 ```bash
 posthog-cli symbol-sets extract symbolset.bin -o ./extracted
@@ -92,7 +102,7 @@ posthog-cli symbol-sets extract symbolset.bin -o ./extracted
 #   bunx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
 ```
 
-`posthog-cli symbol-sets extract` handles all four symbol-set types (source-and-map, hermes, proguard, dSYM) and
+`posthog-cli symbol-sets extract` handles source-and-map, Hermes, ProGuard, dSYM, and ELF symbol sets and
 writes the extracted files into the output directory. Once extracted, summarize using the platform reference's
 helper.
 
