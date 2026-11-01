@@ -201,6 +201,26 @@ describe('scannerScout', () => {
         expect(newIssues.body).toContain('scanner_version')
     })
 
+    it('asks the server to keep a template scout in step, and only variant analysis for a record schema', () => {
+        // Without the key the server cannot tell an untouched template body from a hand-written one,
+        // so the scout would never pick up later template edits.
+        const digest = scannerScoutCreatePayload('Checkout test', {
+            name: 'n',
+            body: 'b',
+            cron: '0 9 * * *',
+            templateKey: 'daily-digest',
+        })
+        expect(digest.template_key).toBe('daily-digest')
+        expect(digest).not.toHaveProperty('variant_analysis')
+        const variants = scannerScoutCreatePayload('Checkout test', {
+            name: 'n',
+            body: 'b',
+            cron: '0 9 * * *',
+            templateKey: 'variant-analysis',
+        })
+        expect(variants.variant_analysis).toBe(true)
+    })
+
     it('stamps both tags and the reviewed name, prompt, and cron on the create payload', () => {
         const payload = scannerScoutCreatePayload('Checkout friction', {
             name: 'signals-scout-daily-digest',
@@ -218,6 +238,7 @@ describe('scannerScout', () => {
         expect(payload.config?.run_cron_schedule).toBe('30 7 * * *')
         // Only the variant analysis template asks the server for the record schema the variants view reads.
         expect(payload).not.toHaveProperty('variant_analysis')
+        expect(payload).not.toHaveProperty('template_key')
         expect(payload.config?.enabled).toBe(true)
         expect(payload.config?.emit).toBe(true)
     })

@@ -2094,6 +2094,23 @@ export const VisionScannersScoutsCreateBody = () => zod
             .describe(
                 "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
             ),
+        template_key: zod
+            .enum([
+                'variant-analysis',
+                'daily-digest',
+                'root-cause',
+                'weekly-themes',
+                'trend-watch',
+                'new-issues',
+                'scratch',
+            ])
+            .describe(
+                '\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
+            )
+            .optional()
+            .describe(
+                'The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.\n\n\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
+            ),
     })
     .describe(
         "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."

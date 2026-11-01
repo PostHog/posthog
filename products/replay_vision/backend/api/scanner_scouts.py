@@ -15,6 +15,7 @@ from products.replay_vision.backend.api.scout_permissions import ScoutDataAccess
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
+from products.replay_vision.backend.scout_template_sync import claim_template_scout
 from products.replay_vision.backend.scout_templates import PLACEHOLDER_PATTERN, ScoutTemplateKey, scout_templates_for
 from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG, variant_analysis_config
 from products.signals.backend.facade import api as signals_facade
@@ -35,6 +36,15 @@ class ScannerScoutCreateSerializer(SignalScoutCreateSerializer):
         help_text=(
             "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison "
             "of the variants, which the scanner's variants readout shows. Experiment scanners only."
+        ),
+    )
+
+    template_key = serializers.ChoiceField(
+        choices=ScoutTemplateKey.choices,
+        required=False,
+        help_text=(
+            "The template the body came from. A body left exactly as the template rendered it keeps "
+            "following later edits to that template; an edited body stays as written."
         ),
     )
 
@@ -177,6 +187,14 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             source_product=SCOUT_SOURCE_PRODUCT,
             source_id=str(scanner.id),
         )
+        if result.created:
+            claim_template_scout(
+                team_id=canonical_team.id,
+                skill_name=result.config.skill_name,
+                template_key=validated.get("template_key"),
+                body=validated["body"],
+                scanner=scanner,
+            )
         report_user_action(
             cast(User, request.user),
             "replay_vision_scanner_scout_created",
@@ -184,6 +202,7 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "scanner_id": str(scanner.id),
                 "scanner_type": scanner.scanner_type,
                 "variant_analysis": validated["variant_analysis"],
+                "template_key": validated.get("template_key"),
                 "created": result.created,
             },
             team=self.team,
