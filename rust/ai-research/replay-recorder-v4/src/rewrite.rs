@@ -13,9 +13,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
+use posthog_replay_anonymizer::v4_image_refs::{url_declined_marker, ImageDecline};
 use replay_core_v4::bytescan::{unescape, write_json_string};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
-use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
+use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
@@ -82,11 +83,6 @@ fn is_written_escape(hex: Option<&[u8]>) -> bool {
         && digit(low)
         && high <= b'1'
         && !matches!((high, low), (b'0', b'8' | b'9' | b'a' | b'c' | b'd'))
-}
-
-/// What a declined URL becomes. The reason is the policy's metric label.
-pub fn declined_marker(reason: &str) -> String {
-    format!("imageurl:v4:declined:{reason}")
 }
 
 /// A byte that a URL can go on with. A match next to one is part of a longer URL, so it stays as it is. A comma, a
@@ -223,7 +219,7 @@ impl UrlRewrite {
             patterns.push(escaped[1..escaped.len() - 1].to_vec());
             let (replacement, declined) = match url_reference(url, team_id, key_month, &url_key) {
                 Ok((_, reference)) => (reference, None),
-                Err(decline) => (declined_marker(decline.label()), Some(decline.label())),
+                Err(decline) => (url_declined_marker(decline.into()), Some(decline.label())),
             };
             targets.push(Target {
                 url: url.clone(),
@@ -547,7 +543,7 @@ fn rebuilt_srcset(
         }
     };
     for_each_srcset_candidate(text, |url, descriptors| {
-        if url == AVIF_MARKER {
+        if url == ImageDecline::Avif.marker() {
             removed = true;
         } else if !is_remote(url) {
             keep(url, descriptors);
@@ -620,8 +616,7 @@ mod tests {
         assert_eq!(
             String::from_utf8(rewrite.apply(event.as_bytes(), true).into_owned()).unwrap(),
             format!(
-                r#"{{"srcset":"{ra} 1x,\n{rb} 2x,\t{} 3x"}}"#,
-                declined_marker("non_public_host")
+                r#"{{"srcset":"{ra} 1x,\n{rb} 2x,\timageurl:v4:declined:non_public_host 3x"}}"#
             )
         );
         assert!(rewrite.finish().safe);
@@ -635,10 +630,7 @@ mod tests {
         let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], 7, "2026-10", &TEAM_KEY);
         assert_eq!(
             String::from_utf8(rewrite.apply(&canonical, true).into_owned()).unwrap(),
-            format!(
-                r#"{{"src":"{}","alt":"a\nb"}}"#,
-                declined_marker("credential")
-            )
+            r#"{"src":"imageurl:v4:declined:credential","alt":"a\nb"}"#
         );
         assert!(rewrite.finish().safe);
         // An event capture wrote is left as it is.
@@ -669,7 +661,7 @@ mod tests {
             let out = rewrite(&[url], &format!(r#"{{"src":"{url}"}}"#));
             assert_eq!(
                 out,
-                format!(r#"{{"src":"{}"}}"#, declined_marker(reason)),
+                format!(r#"{{"src":"imageurl:v4:declined:{reason}"}}"#),
                 "{url}"
             );
         }
