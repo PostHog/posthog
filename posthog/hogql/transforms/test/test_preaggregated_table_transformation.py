@@ -808,18 +808,18 @@ GROUP BY date
 
     @parameterized.expand(
         [
-            ("new_york_ambiguous", "America/New_York", datetime(2026, 11, 1, 1, 30, tzinfo=UTC)),
-            ("new_york_nonexistent", "America/New_York", datetime(2026, 3, 8, 2, 30, tzinfo=UTC)),
-            ("london_ambiguous", "Europe/London", datetime(2026, 10, 25, 1, 30, tzinfo=UTC)),
-            ("london_nonexistent", "Europe/London", datetime(2026, 3, 29, 1, 30, tzinfo=UTC)),
-            ("sydney_ambiguous", "Australia/Sydney", datetime(2026, 4, 5, 2, 30, tzinfo=UTC)),
-            ("sydney_nonexistent", "Australia/Sydney", datetime(2026, 10, 4, 2, 30, tzinfo=UTC)),
-            ("adelaide_ambiguous", "Australia/Adelaide", datetime(2026, 4, 5, 2, 30, tzinfo=UTC)),
+            ("new_york_ambiguous", "America/New_York", datetime(2026, 11, 1, 1, 30, tzinfo=UTC), True),
+            ("new_york_nonexistent", "America/New_York", datetime(2026, 3, 8, 2, 30, tzinfo=UTC), True),
+            ("london_ambiguous", "Europe/London", datetime(2026, 10, 25, 1, 30, tzinfo=UTC), True),
+            ("london_nonexistent", "Europe/London", datetime(2026, 3, 29, 1, 30, tzinfo=UTC), True),
+            ("sydney_ambiguous", "Australia/Sydney", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), True),
+            ("sydney_nonexistent", "Australia/Sydney", datetime(2026, 10, 4, 2, 30, tzinfo=UTC), True),
+            ("adelaide_ambiguous", "Australia/Adelaide", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), False),
         ]
     )
-    def test_integer_timezones_in_dst_transition_hour(self, _name, timezone, instant):
+    def test_integer_timezones_in_dst_transition_hour(self, _name, timezone, instant, expected):
         with time_machine.travel(instant, tick=False):
-            assert is_integer_timezone(timezone) == (timezone != "Australia/Adelaide")
+            assert is_integer_timezone(timezone) is expected
 
     def test_enable_for_integer_team_timezones(self):
         self.team.timezone = "Europe/London"
