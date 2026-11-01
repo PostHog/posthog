@@ -798,6 +798,30 @@ GROUP BY date
         assert PREAGGREGATED_TABLE_NAME in query
         self.assertQueryMatchesSnapshot(query)
 
+    def test_enable_for_integer_team_timezones(self):
+        self.team.timezone = "Europe/London"
+        self.team.save()
+        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
+        query = self._parse_and_transform(original_query)
+        assert PREAGGREGATED_TABLE_NAME in query
+        self.assertQueryMatchesSnapshot(query)
+
+    def test_disable_for_non_integer_team_timezones(self):
+        self.team.timezone = "Asia/Kathmandu"
+        self.team.save()
+        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
+        query = self._parse_and_transform(original_query)
+        assert PREAGGREGATED_TABLE_NAME not in query
+
+    def test_disable_for_invalid_team_timezones(self):
+        self.team.timezone = "Not/A Timezone"
+        self.team.save()
+        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
+        query = self._parse_and_transform(original_query)
+        assert PREAGGREGATED_TABLE_NAME not in query
+
+
+class TestIsIntegerTimezone(unittest.TestCase):
     def test_integer_timezones(self):
         assert is_integer_timezone("UTC")
         assert is_integer_timezone("Europe/London")
@@ -820,28 +844,6 @@ GROUP BY date
     def test_integer_timezones_in_dst_transition_hour(self, _name, timezone, instant, expected):
         with time_machine.travel(instant, tick=False):
             assert is_integer_timezone(timezone) is expected
-
-    def test_enable_for_integer_team_timezones(self):
-        self.team.timezone = "Europe/London"
-        self.team.save()
-        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
-        query = self._parse_and_transform(original_query)
-        assert PREAGGREGATED_TABLE_NAME in query
-        self.assertQueryMatchesSnapshot(query)
-
-    def test_disable_for_non_integer_team_timezones(self):
-        self.team.timezone = "Asia/Kathmandu"
-        self.team.save()
-        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
-        query = self._parse_and_transform(original_query)
-        assert PREAGGREGATED_TABLE_NAME not in query
-
-    def test_disable_for_invalid_team_timezones(self):
-        self.team.timezone = "Not/A Timezone"
-        self.team.save()
-        original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
-        query = self._parse_and_transform(original_query)
-        assert PREAGGREGATED_TABLE_NAME not in query
 
 
 @snapshot_clickhouse_queries
