@@ -2,6 +2,7 @@ import dataclasses
 from typing import Any, Optional
 from urllib.parse import urlencode
 
+import structlog
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -22,16 +23,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.rapid7_insightvm.settings import (
     API_BASE_PATH,
-    MAX_PAGE_SIZE,
     PAGE_NUMBER_MAX_PAGE,
-    PAGE_NUMBER_PAGE_SIZE,
     RAPID7_INSIGHTVM_ENDPOINTS,
     REGION_HOSTS,
     Rapid7InsightvmEndpointConfig,
 )
 
+logger = structlog.get_logger(__name__)
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class Rapid7InsightvmResumeConfig:
     # Opaque cursor token returned in the previous page's `metadata.cursor`. `None` starts the
     # endpoint from its first page.
@@ -66,6 +67,25 @@ class Rapid7InsightvmCursorPaginator(JSONResponseCursorPaginator):
             self._has_next_page = True
 
 
+class Rapid7InsightvmPageNumberPaginator(PageNumberPaginator):
+    """Page-number pagination that warns when the collection outgrows the API's 10,000-result window."""
+
+    def __init__(self) -> None:
+        super().__init__(base_page=0, total_path="metadata.totalPages", maximum_page=PAGE_NUMBER_MAX_PAGE)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page or self.page <= PAGE_NUMBER_MAX_PAGE:
+            return
+        total_pages = (response.json().get("metadata") or {}).get("totalPages")
+        if isinstance(total_pages, int) and total_pages > PAGE_NUMBER_MAX_PAGE + 1:
+            logger.warning(
+                "Rapid7 InsightVM collection exceeds the 10,000-result page window, truncating",
+                path=response.request.path_url if response.request else None,
+                total_pages=total_pages,
+            )
+
+
 def _host(region: str) -> str:
     return REGION_HOSTS.get(region, REGION_HOSTS["us"])
 
@@ -84,7 +104,7 @@ def _endpoint_url(region: str, path: str) -> str:
 
 def _paginator(config: Rapid7InsightvmEndpointConfig) -> BasePaginator:
     if config.pagination == "page_number":
-        return PageNumberPaginator(base_page=0, total_path="metadata.totalPages", maximum_page=PAGE_NUMBER_MAX_PAGE)
+        return Rapid7InsightvmPageNumberPaginator()
     return Rapid7InsightvmCursorPaginator()
 
 
@@ -92,10 +112,7 @@ def _endpoint(config: Rapid7InsightvmEndpointConfig) -> Endpoint:
     endpoint: Endpoint = {
         "method": config.method,
         "path": f"{API_BASE_PATH}/{config.path}",
-        "params": {
-            "size": PAGE_NUMBER_PAGE_SIZE if config.pagination == "page_number" else MAX_PAGE_SIZE,
-            **config.params,
-        },
+        "params": {"size": config.page_size, **config.params},
         "data_selector": "data",
     }
     if config.method == "POST":

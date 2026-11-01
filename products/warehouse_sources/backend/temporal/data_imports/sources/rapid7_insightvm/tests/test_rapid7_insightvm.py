@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from requests.exceptions import HTTPError
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -79,19 +80,21 @@ class TestPagination:
 
 class TestPageNumberPagination:
     @pytest.mark.parametrize(
-        "schema, total_pages, expected_requests",
+        "schema, total_pages, expected_requests, truncated",
         [
-            ("scans", 2, 2),
-            ("scan_engines", 2, 2),
+            ("scans", 2, 2, False),
+            ("scan_engines", 2, 2, False),
+            ("scans", 20, 20, False),
             # The API serves at most 10,000 results through page/size, so the walk stops at page 19.
-            ("scans", 25, 20),
+            ("scans", 25, 20, True),
         ],
     )
     def test_walks_pages_with_get_until_the_last_page(
-        self, schema: str, total_pages: int, expected_requests: int
+        self, schema: str, total_pages: int, expected_requests: int, truncated: bool
     ) -> None:
         pages = [_numbered_page([{"id": f"{schema}-{n}"}], n, total_pages) for n in range(expected_requests)]
-        result = _run(pages, schema=schema)
+        with capture_logs() as logs:
+            result = _run(pages, schema=schema)
 
         assert result.raised is None
         assert {request.method for request in result.requests} == {"GET"}
@@ -99,6 +102,7 @@ class TestPageNumberPagination:
         assert set(result.params("size")) == {"500"}
         assert len(result.rows) == expected_requests
         assert [state.page for state in result.saved_states] == list(range(1, expected_requests))
+        assert any("10,000-result page window" in log["event"] for log in logs) is truncated
 
     def test_resumes_from_saved_page(self) -> None:
         result = _run(
