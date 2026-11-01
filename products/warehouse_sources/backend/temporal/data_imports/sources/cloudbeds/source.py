@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.cloudbeds import (
     CLOUDBEDS_API_VERSION_V1_2,
     CLOUDBEDS_API_VERSION_V1_3,
+    PROPERTY_ID_REQUIRED_MESSAGE,
     CloudbedsResumeConfig,
     cloudbeds_source,
     validate_credentials,
@@ -108,6 +109,7 @@ If your account manages multiple properties, enter the ID of the property you wa
         return {
             "401 Client Error: Unauthorized for url: https://api.cloudbeds.com": "Your Cloudbeds API key is invalid or has expired (keys expire after 30 days of inactivity). Generate a new key under Settings → API credentials, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.cloudbeds.com": "Your Cloudbeds credentials do not have access to this data. Check the credential's permission scopes, then reconnect.",
+            PROPERTY_ID_REQUIRED_MESSAGE: None,
         }
 
     def get_schemas(
