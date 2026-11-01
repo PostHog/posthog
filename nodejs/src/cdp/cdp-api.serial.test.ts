@@ -2320,53 +2320,52 @@ describe('CDP API', () => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
-            it.each([
-                ['a template send', 'transactional_email', body],
-                ['a code send', 'transactional_email/send', { ...body, send: codeSend }],
-            ] as const)(
-                'returns the first send for a retry of %s and queues nothing new',
-                async (_desc, route, payload) => {
-                    const first = await sendKeyedOn(route, payload)
-                    const retry = await sendKeyedOn(route, payload)
-
-                    expect(first.status).toEqual(202)
-                    expect(first.body).toMatchObject({ replayed: false })
-                    expect(retry.status).toEqual(202)
-                    expect(retry.body).toEqual({
-                        status: 'queued',
-                        invocation_id: first.body.invocation_id,
-                        replayed: true,
-                    })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                    expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: first.body.invocation_id, status: 'queued' }),
-                    ])
-                }
-            )
+            const integrationOnlySend = (from: Record<string, unknown>) => ({
+                ...codeSend,
+                from: { integrationId: codeSend.from.integrationId, ...from },
+            })
 
             it.each([
+                ['a template send', 'transactional_email', body, body],
+                ['a code send', 'transactional_email/send', { ...body, send: codeSend }, { ...body, send: codeSend }],
                 [
-                    'the default sender changed',
+                    'a code send after the default sender changed',
+                    'transactional_email/send',
                     { ...body, send: defaultSenderSend(codeSend.from.integrationId) },
                     { ...body, send: defaultSenderSend(otherSenderId) },
                 ],
                 [
-                    'its named address resolved to another sender',
+                    'a code send after its named address resolved to another sender',
+                    'transactional_email/send',
                     { ...body, send: codeSend },
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
-            ])('replays a keyed accepted send after %s', async (_desc, first, retry) => {
-                const sent = await sendKeyedOn('transactional_email/send', first)
-                const replayed = await sendKeyedOn('transactional_email/send', retry)
+                [
+                    'a code send whose retry leaves out that its sender is not the default',
+                    'transactional_email/send',
+                    { ...body, send: integrationOnlySend({ isDefault: false }) },
+                    { ...body, send: integrationOnlySend({}) },
+                ],
+            ] as const)(
+                'returns the first send for a retry of %s and queues nothing new',
+                async (_desc, route, first, retry) => {
+                    const sent = await sendKeyedOn(route, first)
+                    const replayed = await sendKeyedOn(route, retry)
 
-                expect(sent.status).toEqual(202)
-                expect(replayed.body).toEqual({
-                    status: 'queued',
-                    invocation_id: sent.body.invocation_id,
-                    replayed: true,
-                })
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-            })
+                    expect(sent.status).toEqual(202)
+                    expect(sent.body).toMatchObject({ replayed: false })
+                    expect(replayed.status).toEqual(202)
+                    expect(replayed.body).toEqual({
+                        status: 'queued',
+                        invocation_id: sent.body.invocation_id,
+                        replayed: true,
+                    })
+                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                    expect(emailStatusRows()).toEqual([
+                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
+                    ])
+                }
+            )
 
             it.each([
                 [
@@ -2689,7 +2688,13 @@ describe('CDP API', () => {
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
                 const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
                 const first = await sendOn(route, hogFlow.id, headers, keyed)
-                jest.spyOn(api['hogFlowManager'], 'getHogFlow').mockResolvedValueOnce({ ...hogFlow, status: 'draft' })
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
+                    [hogFlow.id],
+                    'deactivate-workflow'
+                )
+                api['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
 
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 
