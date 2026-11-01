@@ -74,7 +74,7 @@ class AccountRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=dict,
-        help_text="Partner configuration: region (US/EU), organization_name.",
+        help_text="Partner configuration: region (US/EU), organization_name, goal (the task the agent was given, up to 1000 characters).",
     )
     code_challenge = serializers.CharField(
         required=False,

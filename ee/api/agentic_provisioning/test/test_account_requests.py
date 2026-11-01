@@ -354,6 +354,23 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert kwargs["backend_processor"] == "AgenticProvisioning"
         assert kwargs["is_organization_first_user"] is True
         assert kwargs["social_provider"] == self.pkce_partner.name
+        assert kwargs["referral_source_ai_prompt"] == ""
+
+    @parameterized.expand(
+        [
+            ("goal", "  Add product analytics to my app  ", "Add product analytics to my app"),
+            ("long_goal", "a" * 1500, "a" * 1000),
+            ("non_string_goal", ["not", "a", "string"], ""),
+        ]
+    )
+    @patch("ee.api.agentic_provisioning.accounts.report_user_signed_up")
+    def test_new_user_signup_event_records_agent_goal(self, _name, goal, expected, mock_signup):
+        payload = self._account_request_payload(email="goal@example.com")
+        payload["configuration"] = {**payload.get("configuration", {}), "goal": goal}
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_args.kwargs["referral_source_ai_prompt"] == expected
 
     def test_pkce_partner_with_skip_consent_existing_user_requires_consent(self):
         # A public PKCE caller is identified only by a client_id anyone can send, so even with
