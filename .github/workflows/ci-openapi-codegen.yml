@@ -38,10 +38,34 @@ jobs:
                       /tools/openapi-codegen/
                   sparse-checkout-cone-mode: false
 
+            - name: Check master push inputs
+              id: changes
+              if: github.event_name == 'push'
+              env:
+                  BEFORE: ${{ github.event.before }}
+              # Use the complete push diff, not the trigger's first 300 changed files.
+              # Missing history or a failed comparison must run the tests.
+              run: |
+                  if [[ "$BEFORE" =~ ^[0-9a-f]{40}$ ]] &&
+                      git fetch --no-tags --depth=1 origin "$BEFORE" &&
+                      git diff --quiet "$BEFORE" "$GITHUB_SHA" -- \
+                          ':(top,glob)*' \
+                          ':(top,glob)**/package.json' \
+                          .github/workflows/ci-openapi-codegen.yml \
+                          .github/actions/pnpm-install/ \
+                          .github/actions/setup-pnpm/ \
+                          .husky/ bin/fix-rdkafka-paths patches/ tools/openapi-codegen/; then
+                      echo 'run=false' >> "$GITHUB_OUTPUT"
+                  else
+                      echo 'run=true' >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: Install pnpm dependencies
+              if: steps.changes.outputs.run != 'false'
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/openapi-codegen install --frozen-lockfile
 
             - name: Run tests
+              if: steps.changes.outputs.run != 'false'
               run: pnpm --filter=@posthog/openapi-codegen test
