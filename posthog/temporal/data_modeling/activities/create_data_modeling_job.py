@@ -43,6 +43,7 @@ class SkippedDataModelingNode:
     failed_upstream_total: int = 0
     suspended_upstream_node_ids: list[str] = dataclasses.field(default_factory=list)
     suspended_upstream_total: int = 0
+    built_by_another_run: bool = False
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -114,7 +115,11 @@ def _subject(names: list[str], total: int) -> str:
     return f"{noun} {shown[0]}"
 
 
-def _skip_reason(*, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int) -> str:
+def _skip_reason(
+    *, failed: list[str], failed_total: int, suspended: list[str], suspended_total: int, built_by_another_run: bool
+) -> str:
+    if built_by_another_run:
+        return "Skipped because another run is already building this view."
     if failed_total and suspended_total:
         subject = _subject(failed + suspended, failed_total + suspended_total)
         return f"Skipped because {subject} are failing or suspended."
@@ -170,6 +175,7 @@ def _record_skipped_data_modeling_jobs(
                     failed_total=skipped.failed_upstream_total,
                     suspended=[nodes[i].name for i in skipped.suspended_upstream_node_ids if i in nodes],
                     suspended_total=skipped.suspended_upstream_total,
+                    built_by_another_run=skipped.built_by_another_run,
                 ),
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
