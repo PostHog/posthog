@@ -1,16 +1,21 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { retryImport } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { type TodayForYouRow } from './todayForYouRows'
+import { TodayForYouViewSwitch } from './TodayForYouViewSwitch'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayLogic } from './todayLogic'
 import { TodayReportRow } from './TodayReportRow'
+
+const TodayFeed = lazy(() => retryImport(() => import('./TodayFeed').then((m) => ({ default: m.TodayFeed }))))
 
 function TodayRowsSkeleton(): JSX.Element {
     return (
@@ -50,6 +55,7 @@ export function TodayForYou(): JSX.Element {
         moreReportsLoading,
         listExpanded,
         isNewProject,
+        forYouView,
     } = useValues(todayLogic)
     const { showMoreForYou, setListExpanded, retryFailedLoads } = useActions(todayLogic)
 
@@ -57,6 +63,7 @@ export function TodayForYou(): JSX.Element {
         <section className="TodayHome__list" aria-label="For you today">
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading count={forYouReady ? forYouOpenCount : undefined}>For you today</TodayHomeHeading>
+                <TodayForYouViewSwitch />
             </div>
             {!forYouReady ? (
                 <TodayRowsSkeleton />
@@ -68,6 +75,10 @@ export function TodayForYou(): JSX.Element {
                             : 'Nothing needs you today. Changes in your data that need you show up here.'}
                     </p>
                 )
+            ) : forYouView === 'feed' ? (
+                <Suspense fallback={<TodayRowsSkeleton />}>
+                    <TodayFeed />
+                </Suspense>
             ) : (
                 <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
             )}
