@@ -1648,7 +1648,6 @@ class IntegrationViewSet(
         "request_access",
         "push_tokens",
         "email_update",
-        "email_verify",
         "domain_connect_apply_url",
     ]
     permission_classes = [
