@@ -57,6 +57,15 @@ def creator_can_scan(scanner: ReplayScanner) -> bool:
     return scanner.created_by is None or recording_viewer_access(scanner.created_by, scanner.team) is not None
 
 
+def unrunnable_reason(scanner: ReplayScanner) -> Literal["no_ai_consent", "creator_lost_access"] | None:
+    """Why the sweep can never spend for this scanner, or None when it can."""
+    if not scanner.team.organization.is_ai_data_processing_approved:
+        return "no_ai_consent"
+    if not creator_can_scan(scanner):
+        return "creator_lost_access"
+    return None
+
+
 def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]":
     """Every scanner whose observations can be read, inline scans included.
 
