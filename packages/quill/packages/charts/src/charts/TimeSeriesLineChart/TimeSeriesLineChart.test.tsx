@@ -10,7 +10,7 @@ import {
     setupSyncRaf,
     waitForChartTooltip,
 } from '../../testing'
-import { TimeSeriesLineChart } from './TimeSeriesLineChart'
+import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = {
     colors: ['#111', '#222', '#333'],
@@ -606,6 +606,40 @@ describe('TimeSeriesLineChart', () => {
     })
 
     describe('interactive legend', () => {
+        // MULTI_SERIES peaks at 3 in both series.
+        it.each<[string, Partial<TimeSeriesLineChartConfig>, string[][]]>([
+            [
+                'formats legend values with each series axis format',
+                {
+                    yAxis: [
+                        { id: 'left', suffix: ' ms' },
+                        { id: 'right', prefix: '$' },
+                    ],
+                },
+                [['3 ms'], ['$3']],
+            ],
+            [
+                'keeps a secondary axis without a format plain',
+                { yAxis: [{ id: 'left', suffix: ' ms' }, { id: 'right' }] },
+                [['3 ms'], ['3']],
+            ],
+            [
+                'keeps raw values plain on a percent chart',
+                { yAxis: { format: 'percentage_scaled' }, percentStackView: true },
+                [['3'], ['3']],
+            ],
+        ])('%s', (_, config, expectedValues) => {
+            const { chart } = renderChart(
+                <TimeSeriesLineChart
+                    series={[MULTI_SERIES[0], { ...MULTI_SERIES[1], yAxisId: 'right' }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ ...config, legend: { show: true, values: ['max'] } }}
+                />
+            )
+            expect(chart.legendValues()).toEqual(expectedValues)
+        })
+
         it('lists the raw series (not derived trend lines) and isolates one on click', () => {
             const { container, chart } = renderChart(
                 <TimeSeriesLineChart
