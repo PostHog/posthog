@@ -7,9 +7,17 @@ import temporalio
 import posthoganalytics
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from products.signals.backend.temporal.buffer import SubmitSignalToBufferInput, submit_signal_to_buffer_activity
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.types import EmitSignalInputs
+
+# Total time a signal can wait for buffer space, across all attempts.
+SUBMIT_TO_BUFFER_TIMEOUT = timedelta(hours=3)
+# Outlives the submit activity, so the workflow always sees the activity fail and can record the drop.
+# A run that times out first ends silently after `signal_emitted`, and the signal has no outcome event.
+EMITTER_RUN_TIMEOUT = SUBMIT_TO_BUFFER_TIMEOUT + timedelta(minutes=10)
 
 
 @dataclass
@@ -41,10 +49,14 @@ class SignalEmitterWorkflow:
             await self._run_impl(input)
 
     async def _run_impl(self, input: SignalEmitterInput) -> None:
-        await workflow.execute_activity(
-            submit_signal_to_buffer_activity,
-            SubmitSignalToBufferInput(team_id=input.team_id, signal=input.signal),
-            start_to_close_timeout=timedelta(hours=3),
-            heartbeat_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            await workflow.execute_activity(
+                submit_signal_to_buffer_activity,
+                SubmitSignalToBufferInput(team_id=input.team_id, signal=input.signal),
+                schedule_to_close_timeout=SUBMIT_TO_BUFFER_TIMEOUT,
+                heartbeat_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except ActivityError as e:
+            await capture_signal_dropped(input.signal, e, stage="emission")
+            raise
