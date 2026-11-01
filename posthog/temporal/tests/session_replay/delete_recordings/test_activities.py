@@ -120,14 +120,8 @@ def _mock_delete_response_client(mock_client_cls):
 @pytest.mark.parametrize(
     "internal_secret, jwt_secret, expected_headers",
     [
-        pytest.param("my-secret-key", "", {"X-Internal-Api-Secret"}, id="legacy_secret_only"),
         pytest.param("", "signing-key", {"Authorization"}, id="jwt_only"),
-        pytest.param(
-            "my-secret-key",
-            "signing-key",
-            {"X-Internal-Api-Secret", "Authorization"},
-            id="both_during_rollout",
-        ),
+        pytest.param("my-secret-key", "signing-key", {"Authorization"}, id="internal_secret_not_sent"),
     ],
 )
 async def test_delete_recordings_auth_headers(internal_secret, jwt_secret, expected_headers):
@@ -148,8 +142,6 @@ async def test_delete_recordings_auth_headers(internal_secret, jwt_secret, expec
     mock_client_cls.assert_called_once()
     headers = mock_client_cls.call_args.kwargs["headers"]
     assert set(headers) == expected_headers
-    if "X-Internal-Api-Secret" in expected_headers:
-        assert headers["X-Internal-Api-Secret"] == internal_secret
 
 
 @pytest.mark.asyncio
@@ -184,11 +176,11 @@ async def test_delete_recordings_raises_when_no_recording_api_url():
 
 
 @pytest.mark.asyncio
-async def test_delete_recordings_raises_when_no_credential_configured():
+async def test_delete_recordings_raises_when_no_signing_secret_configured():
     with (
         override_settings(
             RECORDING_API_URL="http://recording-api:8000",
-            INTERNAL_API_SECRET="",
+            INTERNAL_API_SECRET="internal",
             RECORDING_API_JWT_SECRET="",
         ),
         patch(

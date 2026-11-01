@@ -430,36 +430,19 @@ class TestPerRequestAuthScoping:
         fixed_recording_api_token.assert_called_once_with(42, "delete")
 
 
-class TestAuthHeaderRollout:
-    @override_settings(RECORDING_API_JWT_SECRET="dev-secret", INTERNAL_API_SECRET="legacy")
-    def test_sends_both_when_jwt_and_legacy_configured(self):
+class TestAuthHeaders:
+    @override_settings(RECORDING_API_JWT_SECRET="dev-secret", INTERNAL_API_SECRET="internal")
+    def test_sends_only_the_bearer_token_when_internal_secret_is_set(self):
         # mint is patched to "test-token" by the autouse fixture.
-        assert recording_api_auth_headers(7, "read") == {
-            "X-Internal-Api-Secret": "legacy",
-            "Authorization": "Bearer test-token",
-        }
-
-    @override_settings(RECORDING_API_JWT_SECRET="dev-secret", INTERNAL_API_SECRET="")
-    def test_sends_only_bearer_when_no_legacy_secret(self):
         assert recording_api_auth_headers(7, "read") == {"Authorization": "Bearer test-token"}
-
-    @override_settings(RECORDING_API_JWT_SECRET="", INTERNAL_API_SECRET="legacy")
-    def test_sends_only_legacy_when_jwt_disabled(self):
-        assert recording_api_auth_headers(7, "read") == {"X-Internal-Api-Secret": "legacy"}
-
-    @override_settings(RECORDING_API_JWT_SECRET="", INTERNAL_API_SECRET="")
-    def test_no_auth_header_and_warns_when_nothing_configured(self):
-        with patch("posthog.session_recordings.recordings.recording_api_jwt.logger") as mock_logger:
-            assert recording_api_auth_headers(7, "read") == {}
-            mock_logger.warning.assert_called_once_with("recording_api.no_auth_configured")
 
 
 class TestClientPreconditions:
     @pytest.mark.asyncio
     @override_settings(
-        RECORDING_API_URL="http://recording-api:6738", RECORDING_API_JWT_SECRET="", INTERNAL_API_SECRET=""
+        RECORDING_API_URL="http://recording-api:6738", RECORDING_API_JWT_SECRET="", INTERNAL_API_SECRET="internal"
     )
-    async def test_no_credential_is_a_configuration_error_not_a_401(self):
+    async def test_no_signing_secret_is_a_configuration_error_not_a_401(self):
         # Without a credential the request goes out unauthenticated and comes back 401, which the
         # tolerant listing handlers flatten into "this recording has no blocks".
         with pytest.raises(RecordingApiConfigurationError):
