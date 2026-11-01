@@ -46,6 +46,11 @@ pub fn is_llm_event(info: EventInfo) -> bool {
     info.name.starts_with("$ai_")
 }
 
+// for QuotaResource::MCPEvents
+pub fn is_mcp_event(info: EventInfo) -> bool {
+    info.name.starts_with("$mcp_")
+}
+
 // TODO: define more limiter predicates here!
 
 /// See server.rs for an example of how to use CaptureQuotaLimiter
