@@ -1,10 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { RefObject, useEffect, useRef } from 'react'
 
-import { IconCopy } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
-
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 import { EditWithAgentPrompt } from './EditWithAgentPrompt'
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
@@ -12,7 +9,7 @@ import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTempla
 export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Element {
     const logic = messageTemplateLogic(props)
     const { agentPromptOpen, templateLoading } = useValues(logic)
-    const { setAgentPromptOpen, copyHtmlFile } = useActions(logic)
+    const { setAgentPromptOpen } = useActions(logic)
     const loadingReason = templateLoading ? 'Wait for the template to load' : undefined
     const promptRef = useRef<HTMLDivElement>(null)
     const triggerRef = useFocusBackOnClose(agentPromptOpen, promptRef)
@@ -38,26 +35,6 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
                 size="small"
                 onClick={() => setAgentPromptOpen(!agentPromptOpen)}
                 disabledReason={loadingReason}
-                sideAction={{
-                    'data-attr': 'message-template-copy-options',
-                    'aria-label': 'More ways to copy this template',
-                    disabledReason: loadingReason,
-                    dropdown: {
-                        placement: 'bottom-end',
-                        overlay: (
-                            <LemonMenuOverlay
-                                items={[
-                                    {
-                                        label: 'Copy HTML file',
-                                        icon: <IconCopy />,
-                                        onClick: copyHtmlFile,
-                                        'data-attr': 'message-template-copy-html-file',
-                                    },
-                                ]}
-                            />
-                        ),
-                    },
-                }}
             >
                 Edit with your agent
             </LemonButton>
