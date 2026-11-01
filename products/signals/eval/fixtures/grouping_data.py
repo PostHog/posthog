@@ -483,11 +483,11 @@ GROUP_DATA = [
             ),
         ],
     ),
-    # --- Group 15: Pure noise — status updates, questions, non-issues ---
+    # --- Group 15: Questions about the product (actionable: questions are product feedback) ---
     EvalGroupSpec(
         scenario="Support tickets that are questions or status updates, not product issues",
         safe=True,
-        actionable=False,
+        actionable=True,
         signals=[
             EvalSignalSpec(
                 source=Z,
@@ -1029,11 +1029,11 @@ GROUP_DATA = [
             ),
         ],
     ),
-    # --- Group 32: Expected behavior misunderstood as bugs (3 signals, non-actionable) ---
+    # --- Group 32: Expected behavior misunderstood as bugs (3 signals, actionable as product confusion) ---
     EvalGroupSpec(
         scenario="Users reporting correct product behavior as bugs because they misunderstand how the feature works",
         safe=True,
-        actionable=False,
+        actionable=True,
         signals=[
             EvalSignalSpec(
                 source=Z,
@@ -1072,11 +1072,11 @@ GROUP_DATA = [
             ),
         ],
     ),
-    # --- Group 33: User's own infrastructure, not PostHog (2 signals, non-actionable) ---
+    # --- Group 33: User's own infrastructure, not PostHog (2 signals, actionable as setup problems) ---
     EvalGroupSpec(
         scenario="Issues caused by the user's own infrastructure or environment, not PostHog bugs",
         safe=True,
-        actionable=False,
+        actionable=True,
         signals=[
             EvalSignalSpec(
                 source=Z,
