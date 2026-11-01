@@ -655,8 +655,9 @@ class TransactionalEmailUnavailable(exceptions.APIException):
 
 class UnconfirmedEmailSend(TransactionalEmailUnavailable):
     default_detail = (
-        "The email pipeline did not confirm the send, so the email may still go out. To retry, send it again with the "
-        "same Idempotency-Key, which never sends it twice. A retry without that key may send it twice."
+        "The email pipeline did not confirm the send, so the email may still go out. To retry, send it again "
+        "within 24 hours with the same Idempotency-Key, so it goes out once. A retry without that key, or after "
+        "that time, may send it twice."
     )
 
 
