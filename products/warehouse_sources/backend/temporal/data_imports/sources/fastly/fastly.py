@@ -63,6 +63,10 @@ AI_USAGE_METRICS_GRANULARITY = "daily"
 # Metrics v2 pages hold up to 10,000 rows. A day per POP keeps a year of one service to a few pages.
 PLATFORM_METRICS_PAGE_LIMIT = 10000
 
+# Metrics v2 names its path granularity `minutely` / `hourly` / `daily`, not the `minute` / `hour` /
+# `day` the older metrics APIs take.
+PLATFORM_METRICS_GRANULARITY = "daily"
+
 PLATFORM_METRICS_GROUP_BY = "datacenter"
 
 # The delivery and Compute sets cover what `/stats` reports. The response is sparse, so a set a
@@ -597,7 +601,9 @@ def _get_platform_metrics_rows(
         params["from"] = datetime.fromtimestamp(incremental_start, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     for service_id in _iter_services_from_bookmark(session, config, headers, logger, resumable_source_manager):
-        url_base = f"{FASTLY_BASE_URL}{config.path.format(service_id=service_id, granularity=METRICS_DOWNSAMPLE)}"
+        url_base = (
+            f"{FASTLY_BASE_URL}{config.path.format(service_id=service_id, granularity=PLATFORM_METRICS_GRANULARITY)}"
+        )
         cursor: str | None = None
 
         while True:

@@ -773,7 +773,7 @@ class TestGetRowsPlatformMetrics:
             params["from"] = start
         if cursor is not None:
             params["cursor"] = cursor
-        return unquote(_build_url(f"{FASTLY_BASE_URL}/metrics/v2/platform/entities/{service_id}/day", params))
+        return unquote(_build_url(f"{FASTLY_BASE_URL}/metrics/v2/platform/entities/{service_id}/daily", params))
 
     def test_walks_each_service_cursor_and_keys_rows_by_service_and_day(self) -> None:
         # A row without a readable timestamp has no partition or key and is dropped.
