@@ -311,7 +311,7 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"
