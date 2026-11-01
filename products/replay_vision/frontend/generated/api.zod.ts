@@ -605,6 +605,7 @@ export const visionScannersCreateBodyTagsMax = 32
 
 export const visionScannersCreateBodyGoalMax = 2000
 
+export const visionScannersCreateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -655,6 +656,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersCreateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                'The in-app surface the creator started from, as a lowercase slug such as `replay_filters` or `error_tracking`. Reported to product analytics at creation, so each entry point can be measured by the scanners it produces, and not stored on the scanner. Only the app can answer this, so a request from anywhere else reports none. Ignored on update.'
             ),
         scanner_config: zod
             .unknown()
@@ -760,6 +768,7 @@ export const visionScannersPartialUpdateBodyTagsMax = 32
 
 export const visionScannersPartialUpdateBodyGoalMax = 2000
 
+export const visionScannersPartialUpdateBodyEntryPointRegExp = new RegExp('^[a-z0-9_]{1,64}$')
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -812,6 +821,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        entry_point: zod
+            .string()
+            .regex(visionScannersPartialUpdateBodyEntryPointRegExp)
+            .nullish()
+            .describe(
+                'The in-app surface the creator started from, as a lowercase slug such as `replay_filters` or `error_tracking`. Reported to product analytics at creation, so each entry point can be measured by the scanners it produces, and not stored on the scanner. Only the app can answer this, so a request from anywhere else reports none. Ignored on update.'
             ),
         scanner_config: zod
             .unknown()
