@@ -1,3 +1,4 @@
+import { groupBy } from 'lodash'
 import { Gauge } from 'prom-client'
 
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
@@ -5,12 +6,41 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
-import { CyclotronJobInvocationResult } from '../../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 
 const capturedEventsPending = new Gauge({
     name: 'cdp_captured_events_pending',
     help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
 })
+
+const MAX_BATCH_BYTES = 2 * 1024 * 1024
+
+function isSourceWebhookResult(result: CyclotronJobInvocationResult): boolean {
+    return (
+        (result.invocation as Partial<CyclotronJobInvocationHogFunction> | undefined)?.hogFunction?.type ===
+        'source_webhook'
+    )
+}
+
+function splitBySize(events: InternalCaptureEvent[]): InternalCaptureEvent[][] {
+    const groups: InternalCaptureEvent[][] = []
+    let group: InternalCaptureEvent[] = []
+    let groupBytes = 0
+    for (const event of events) {
+        const eventBytes = Buffer.byteLength(JSON.stringify(event))
+        if (group.length > 0 && groupBytes + eventBytes > MAX_BATCH_BYTES) {
+            groups.push(group)
+            group = []
+            groupBytes = 0
+        }
+        group.push(event)
+        groupBytes += eventBytes
+    }
+    if (group.length > 0) {
+        groups.push(group)
+    }
+    return groups
+}
 
 /**
  * Collects and flushes PostHog capture events emitted by hog function
@@ -20,7 +50,7 @@ const capturedEventsPending = new Gauge({
  * service.
  */
 export class CapturedEventsService {
-    private queuedEvents: InternalCaptureEvent[] = []
+    private queuedGroups: InternalCaptureEvent[][] = []
 
     constructor(
         private internalCaptureService: InternalCaptureService,
@@ -29,13 +59,9 @@ export class CapturedEventsService {
 
     /** Append already-resolved events onto the flush buffer. */
     queue(events: InternalCaptureEvent[]): void {
-        if (events.length === 0) {
-            return
-        }
         for (const event of events) {
-            this.queuedEvents.push(event)
+            this.queueGroup([event])
         }
-        capturedEventsPending.set(this.queuedEvents.length)
     }
 
     /**
@@ -47,14 +73,15 @@ export class CapturedEventsService {
         if (!team) {
             return
         }
-        this.queuedEvents.push({
-            team_token: team.api_token,
-            event: event.event,
-            distinct_id: event.distinct_id,
-            timestamp: event.timestamp,
-            properties: event.properties,
-        })
-        capturedEventsPending.set(this.queuedEvents.length)
+        this.queueGroup([
+            {
+                team_token: team.api_token,
+                event: event.event,
+                distinct_id: event.distinct_id,
+                timestamp: event.timestamp,
+                properties: event.properties,
+            },
+        ])
     }
 
     /**
@@ -68,12 +95,13 @@ export class CapturedEventsService {
                 if (!capturedEvents || capturedEvents.length === 0) {
                     return
                 }
+                const events: InternalCaptureEvent[] = []
                 for (const event of capturedEvents) {
                     const team = await this.teamManager.getTeam(event.team_id)
                     if (!team) {
                         continue
                     }
-                    this.queuedEvents.push({
+                    events.push({
                         team_token: team.api_token,
                         event: event.event,
                         distinct_id: event.distinct_id,
@@ -81,7 +109,13 @@ export class CapturedEventsService {
                         properties: event.properties,
                     })
                 }
-                capturedEventsPending.set(this.queuedEvents.length)
+                if (!isSourceWebhookResult(result)) {
+                    this.queue(events)
+                    return
+                }
+                for (const teamEvents of Object.values(groupBy(events, (event) => event.team_token))) {
+                    splitBySize(teamEvents).forEach((group) => this.queueGroup(group))
+                }
             })
         )
     }
@@ -93,21 +127,37 @@ export class CapturedEventsService {
     }
 
     async flush(): Promise<void> {
-        const events = this.queuedEvents
-        this.queuedEvents = []
+        const groups = this.queuedGroups
+        this.queuedGroups = []
         capturedEventsPending.set(0)
 
-        if (events.length === 0) {
+        await Promise.all(groups.map((group) => this.sendAndReport(group)))
+    }
+
+    private queueGroup(group: InternalCaptureEvent[]): void {
+        this.queuedGroups.push(group)
+        capturedEventsPending.inc(group.length)
+    }
+
+    private async sendAndReport(group: InternalCaptureEvent[]): Promise<void> {
+        try {
+            await this.send(group)
+        } catch (error) {
+            logger.error('Error capturing internal event', { error })
+            captureException(error)
+        }
+    }
+
+    private async send(group: InternalCaptureEvent[]): Promise<void> {
+        if (group.length === 1) {
+            await this.internalCaptureService.capture(group[0])
             return
         }
-
-        await Promise.all(
-            events.map((event) =>
-                this.internalCaptureService.capture(event).catch((error) => {
-                    logger.error('Error capturing internal event', { error })
-                    captureException(error)
-                })
-            )
-        )
+        const response = await this.internalCaptureService.captureBatch(group)
+        if (response.status === 400) {
+            await Promise.all(group.map((event) => this.sendAndReport([event])))
+        } else if (response.status >= 300) {
+            logger.warn('Capture refused an internal event batch', { status: response.status, events: group.length })
+        }
     }
 }

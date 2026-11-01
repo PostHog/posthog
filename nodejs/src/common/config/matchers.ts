@@ -34,6 +34,14 @@ export function buildIntegerMatcher(config: string | undefined, allowStar: boole
  *   '123,*:0.05' → team 123 always + 5% of all other teams
  */
 export function buildIntegerMatcherWithPercentage(config: string | undefined): ValueMatcher<number> {
+    return buildRolloutMatcher(config, () => Math.random())
+}
+
+export function buildStableTeamMatcherWithPercentage(config: string | undefined): ValueMatcher<number> {
+    return buildRolloutMatcher(config, (teamId) => (Math.imul(teamId, 0x9e3779b1) >>> 0) / 2 ** 32)
+}
+
+function buildRolloutMatcher(config: string | undefined, draw: (value: number) => number): ValueMatcher<number> {
     if (!config || config.trim().length === 0) {
         return () => false
     }
@@ -61,8 +69,22 @@ export function buildIntegerMatcherWithPercentage(config: string | undefined): V
             return true
         }
         if (percentage > 0) {
-            return Math.random() < percentage
+            return draw(teamId) < percentage
         }
         return false
+    }
+}
+
+export function assertRolloutFractions(name: string, config: string): void {
+    const fractions = config
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.startsWith('*:'))
+        .map((part) => part.slice(2))
+    for (const fraction of fractions) {
+        const value = Number(fraction)
+        if (fraction === '' || !Number.isFinite(value) || value < 0 || value > 1) {
+            throw new Error(`${name} takes a fraction between 0 and 1 after '*:', got '${fraction}'`)
+        }
     }
 }

@@ -34,6 +34,7 @@ describe('CapturedEventsService', () => {
     beforeEach(() => {
         internalCaptureService = {
             capture: jest.fn().mockResolvedValue({ status: 200 }),
+            captureBatch: jest.fn().mockResolvedValue({ status: 200 }),
         } as unknown as jest.Mocked<InternalCaptureService>
 
         teamManager = {
@@ -154,6 +155,35 @@ describe('CapturedEventsService', () => {
                 timestamp: 't3',
                 properties: { foo: 'bar' },
             })
+        })
+
+        it.each([
+            ['source_webhook', 200, 'small', ['batch a,b'], 'x'],
+            ['source_webhook', 400, 'small', ['batch a,b', 'single a', 'single b'], 'x'],
+            ['source_webhook', 200, '1.2 MB', ['single a', 'single b'], '漢'.repeat(400_000)],
+            ['destination', 200, 'small', ['single a', 'single b'], 'x'],
+        ])('sends a %s result answered %s with %s events as %j', async (type, status, _size, expected, blob) => {
+            teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
+            internalCaptureService.captureBatch.mockResolvedValueOnce({ status } as any)
+            const properties = { blob }
+
+            await service.queueInvocationResults([
+                {
+                    ...buildResult([
+                        buildCapturedEvent(1, { event: 'a', properties }),
+                        buildCapturedEvent(1, { event: 'b', properties }),
+                    ]),
+                    invocation: { hogFunction: { type } },
+                } as unknown as CyclotronJobInvocationResult,
+            ])
+            await service.flush()
+
+            expect([
+                ...internalCaptureService.captureBatch.mock.calls.map(
+                    ([events]) => `batch ${events.map((event) => event.event).join(',')}`
+                ),
+                ...internalCaptureService.capture.mock.calls.map(([event]) => `single ${event.event}`),
+            ]).toEqual(expected)
         })
 
         it('drops events whose team is not found (teamManager returns null)', async () => {

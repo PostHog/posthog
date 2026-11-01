@@ -3,8 +3,10 @@ import { Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
+import { assertRolloutFractions, buildStableTeamMatcherWithPercentage } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
+import type { ValueMatcher } from '~/types'
 
 import type {
     CyclotronJobInvocationHogFunction,
@@ -29,7 +31,10 @@ import type { PreferencesTokenSource } from './messaging/recipient-tokens.servic
 export interface HogExecutorConfig {
     /** Hard wall-clock limit for one Hog program. The VM aborts the invocation once it elapses. */
     executionTimeoutMs: number
+    sourceWebhookMultiCaptureTeams?: string
 }
+
+export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
@@ -93,10 +98,16 @@ export type HogExecutorExecuteOptions = {
  * to suspend and resume belongs in HogExecutorAsyncService, which wraps this one.
  */
 export class HogExecutorService {
+    private multiCaptureTeams: ValueMatcher<number>
+
     constructor(
         private config: HogExecutorConfig,
         private hogInputsService: HogInputsService
-    ) {}
+    ) {
+        const multiCaptureTeams = config.sourceWebhookMultiCaptureTeams ?? ''
+        assertRolloutFractions('CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS', multiCaptureTeams)
+        this.multiCaptureTeams = buildStableTeamMatcherWithPercentage(multiCaptureTeams)
+    }
 
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
@@ -222,6 +233,12 @@ export class HogExecutorService {
 
             try {
                 let hogLogs = 0
+                const isSourceWebhook = invocation.hogFunction.type === 'source_webhook'
+                const maxCapturedEvents =
+                    isSourceWebhook && this.multiCaptureTeams(invocation.teamId)
+                        ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS
+                        : 1
+                let droppedCaptures = 0
 
                 const asyncFunctions = (options.asyncFunctionsNames ?? []).reduce(
                     (acc, fn) => {
@@ -269,10 +286,14 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
-                            if (result.capturedPostHogEvents.length > 0) {
-                                throw new Error(
-                                    'postHogCapture was called more than once. Only one call is allowed per function'
-                                )
+                            if (result.capturedPostHogEvents.length >= maxCapturedEvents) {
+                                if (!isSourceWebhook) {
+                                    throw new Error(
+                                        'postHogCapture was called more than once. Only one call is allowed per function'
+                                    )
+                                }
+                                droppedCaptures++
+                                return
                             }
 
                             if (globals.event) {
@@ -307,6 +328,20 @@ export class HogExecutorService {
                 })
 
                 hogExecutionDuration.observe(execHogOutcome.durationMs)
+
+                if (droppedCaptures > 0) {
+                    addLog(
+                        'warn',
+                        `Captured ${maxCapturedEvents} of ${maxCapturedEvents + droppedCaptures} postHogCapture calls and dropped the rest.`
+                    )
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'dropped',
+                        count: droppedCaptures,
+                    })
+                }
 
                 result.invocation.state.timings.push({
                     kind: 'hog',

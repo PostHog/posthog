@@ -67,7 +67,7 @@ describe('Hog Executor', () => {
     let executor: HogExecutorAsyncService
     let hub: Hub
 
-    const createExecutor = (encryptedFields: EncryptedFields): HogExecutorAsyncService => {
+    const createExecutor = (encryptedFields: EncryptedFields, multiCaptureTeams = ''): HogExecutorAsyncService => {
         const hogInputsService = new HogInputsService(
             hub.integrationManager,
             new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
@@ -93,7 +93,13 @@ describe('Hog Executor', () => {
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
-            new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
+            new HogExecutorService(
+                {
+                    executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                    sourceWebhookMultiCaptureTeams: multiCaptureTeams,
+                },
+                hogInputsService
+            ),
             {
                 googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: hub.CDP_FETCH_RETRIES,
@@ -547,6 +553,50 @@ describe('Hog Executor', () => {
     })
 
     describe('posthogCaptue', () => {
+        const captureRepeatedly = async (type: HogFunctionType['type'], times: number, multiCaptureTeams: string) => {
+            const bytecode = await compileHog(`
+                let i := 0
+                while (i < ${times}) {
+                    postHogCapture({'event': 'line', 'distinct_id': 'distinct_id', 'properties': {}})
+                    i := i + 1
+                }
+            `)
+            const hogFunction = createHogFunction({ type, bytecode, team_id: 1 })
+            return await createExecutor(hub.encryptedFields, multiCaptureTeams).execute(
+                createExampleInvocation(hogFunction)
+            )
+        }
+
+        it.each([
+            ['1', 3, 3, 0],
+            ['*', 102, 100, 2],
+            ['', 3, 1, 2],
+            ['2', 3, 1, 2],
+        ])(
+            'lets a source webhook with multi-capture teams %j that captures %s times keep %s events and drop %s',
+            async (multiCaptureTeams, times, captured, dropped) => {
+                const result = await captureRepeatedly('source_webhook', times, multiCaptureTeams)
+
+                expect(result.error).toBeUndefined()
+                expect(result.capturedPostHogEvents).toHaveLength(captured)
+                const droppedMetrics = result.metrics.filter((metric) => metric.metric_name === 'dropped')
+                expect(droppedMetrics.map((metric) => metric.count)).toEqual(dropped ? [dropped] : [])
+            }
+        )
+
+        it('fails a destination that captures more than once', async () => {
+            const result = await captureRepeatedly('destination', 2, '*')
+
+            expect(result.error).toContain('postHogCapture was called more than once')
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+        })
+
+        it('refuses to start with a multi-capture fraction above 1', () => {
+            expect(() => createExecutor(hub.encryptedFields, '*:10')).toThrow(
+                "CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS takes a fraction between 0 and 1 after '*:', got '10'"
+            )
+        })
+
         it('captures events', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
