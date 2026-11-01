@@ -220,6 +220,12 @@ class DeliveryConfigSerializer(serializers.Serializer):
         help_text="Prompt subscriptions only: include generated chart images. Defaults to true when omitted. "
         + _AI_DISPLAY_FIELD_SCOPE_NOTE,
     )
+    charts_in_thread = serializers.BooleanField(
+        required=False,
+        help_text="Prompt subscriptions only: post the generated charts as a reply in the Slack thread "
+        "instead of in the main message, so the main message holds only the report summary. Defaults to "
+        "false when omitted. Email and Microsoft Teams reports ignore it. " + _AI_DISPLAY_FIELD_SCOPE_NOTE,
+    )
     include_feedback = serializers.BooleanField(
         required=False,
         help_text="Prompt subscriptions only: include report feedback links. Defaults to true when omitted. "

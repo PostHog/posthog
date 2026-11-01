@@ -72,11 +72,12 @@ For `days_ago_range`, also set `end_days_ago` from 0 through 365.
 Set these optional fields in `delivery_config`:
 
 - `include_images`: Include generated chart images. The default is `true`.
+- `charts_in_thread`: Post the chart images as a reply in the Slack thread, so the main message holds only the summary. The default is `false`.
 - `include_feedback`: Include report feedback links. The default is `true`.
 - `include_manage_link`: Include a subscription management link. The default is `true`.
 - `include_posthog_hint`: Include PostHog guidance in Slack. The default is `true`.
 
-`include_posthog_hint` does not apply to email or Teams.
+`include_posthog_hint` and `charts_in_thread` do not apply to email or Teams.
 
 ## AI summary on a saved snapshot
 

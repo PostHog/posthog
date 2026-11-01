@@ -4254,6 +4254,12 @@ class TestAISubscriptionAPI(APILicensedTest):
                 "subscription has resource_type 'insight', so remove them from delivery_config.",
             ),
             (
+                "charts_in_thread",
+                {"charts_in_thread": True},
+                "charts_in_thread only applies to prompt subscriptions. This subscription has "
+                "resource_type 'insight', so remove it from delivery_config.",
+            ),
+            (
                 "alongside_a_valid_option",
                 {"include_manage_link": True, "post_all_insights_in_main_message": False},
                 "include_manage_link only applies to prompt subscriptions. This subscription has "
