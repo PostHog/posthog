@@ -357,7 +357,7 @@ def capture_census(census: list[TeamCensus], now: datetime.datetime) -> None:
             properties={
                 "deployment": settings.CLOUD_DEPLOYMENT,
                 "team_id": team.team_id,
-                "day": day.isoformat(),
+                "census_date": day.isoformat(),
                 "active_insights": team.active,
                 **{f"active_{reason}": count for reason, count in team.active_reasons.items()},
                 **{f"interval_{interval}": count for interval, count in team.active_intervals.items()},
