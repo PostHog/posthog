@@ -130,38 +130,42 @@ class _OwnedEntry:
     latest: ActivityItem
     edit_days: int
     created: bool
+    group_days: frozenset[datetime.date]
+    group_created: bool
 
 
 def _owned_entries(edits: dict[tuple[str, str], list[ActivityItem]]) -> list[_OwnedEntry]:
     """One entry per type and name, the most edited first, at most `MAX_OWNED`.
 
-    Objects of one type with the same name merge: their edit days add up, and the entry keeps the id
-    with the newest row. A created dashboard ranks above the objects edited on as many days, such as
-    the insights on it. The first pass takes at most `MAX_OWNED_PER_TYPE` of a type, and the second
-    fills the rest of the slots."""
-    merged: dict[tuple[str, str], list[_OwnedEntry]] = {}
+    Objects of one type with the same name share one entry, the one with the newest row. The API returns
+    `id`, `edit_days` and `created` together, so they all describe that object. Only the rank uses the
+    distinct days of the whole group, so ten copies edited on one day rank as one day of work.
+
+    A created dashboard ranks above the objects edited on as many days, such as the insights on it. The
+    first pass takes at most `MAX_OWNED_PER_TYPE` of a type, and the second fills the rest of the slots."""
+    merged: dict[tuple[str, str], list[tuple[str, list[ActivityItem]]]] = {}
     for (scope, object_id), rows in edits.items():
         latest = max(rows, key=lambda row: row.at)
-        entry = _OwnedEntry(
-            scope=scope,
-            id=object_id,
-            latest=latest,
-            edit_days=len({_day(row.at) for row in rows}),
-            created=any(row.activity == "created" for row in rows),
+        merged.setdefault((scope, _name(latest.name or "").casefold()), []).append((object_id, rows))
+    entries: list[_OwnedEntry] = []
+    for (scope, _), objects in merged.items():
+        object_id, rows = max(objects, key=lambda pair: max(row.at for row in pair[1]))
+        group_rows = [row for _, object_rows in objects for row in object_rows]
+        entries.append(
+            _OwnedEntry(
+                scope=scope,
+                id=object_id,
+                latest=max(rows, key=lambda row: row.at),
+                edit_days=len({_day(row.at) for row in rows}),
+                created=any(row.activity == "created" for row in rows),
+                group_days=frozenset(_day(row.at) for row in group_rows),
+                group_created=any(row.activity == "created" for row in group_rows),
+            )
         )
-        merged.setdefault((scope, _name(latest.name or "").casefold()), []).append(entry)
-    entries = [
-        dataclasses.replace(
-            max(objects, key=lambda entry: entry.latest.at),
-            edit_days=sum(entry.edit_days for entry in objects),
-            created=any(entry.created for entry in objects),
-        )
-        for objects in merged.values()
-    ]
     entries.sort(
         key=lambda entry: (
-            -entry.edit_days,
-            not (entry.scope == DASHBOARD_SCOPE and entry.created),
+            -len(entry.group_days),
+            not (entry.scope == DASHBOARD_SCOPE and entry.group_created),
             -entry.latest.at.timestamp(),
             entry.scope,
             entry.id,

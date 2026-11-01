@@ -252,7 +252,7 @@ def _clean(value: Any, max_chars: int | None = None) -> str | None:
     return cap_line(text, max_chars) if max_chars is not None else text
 
 
-def refdays_text(computed: Mapping[str, Any] | None) -> dict[str, str]:
+def ref_days(computed: Mapping[str, Any] | None) -> dict[str, str]:
     """The last day of each ref in the computed lists."""
     if not computed:
         return {}
@@ -334,7 +334,7 @@ def normalize_summary(
     return {
         "profile": profile,
         "headline": cap_line(headline, MAX_HEADLINE_CHARS),
-        "themes": _themes(parsed.get("themes"), refdays_text(computed)),
+        "themes": _themes(parsed.get("themes"), ref_days(computed)),
         "modes": _modes(parsed.get("modes")),
         "recent_shift": recent_shift,
     }

@@ -567,7 +567,11 @@ def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
             "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0dXNlcjEyMyJ9.c2lnbmF0dXJlMTIzNDU2Nzg5",
             "Bearer <token>.<token>.<token>",
         ),
+        ("short numeric segments of a key", "Use botx-123456789012-1234567890123456-abcdef", "Use <token>"),
+        ("evenly split key", "Use abcd-1234-efgh-5678-ijkl-9012", "Use <token>"),
+        ("url-safe key with short segments", "Use phx_aB3d-Xy9kQ_w2eRt-Lm8nP_zT4v-Hj6s", "Use <token>"),
         ("a hyphenated name is kept", "checkout-redesign-test-2026", "checkout-redesign-test-2026"),
+        ("a capitalized name is kept", "Q4-Revenue-Forecast-Review-2026", "Q4-Revenue-Forecast-Review-2026"),
         ("a snake case name is kept", "activity_summary_mcp_pairs_v2", "activity_summary_mcp_pairs_v2"),
         ("a name with a quarter is kept", "new-onboarding-flow-q4-2026", "new-onboarding-flow-q4-2026"),
         ("multiline text folds onto one line", "First line\n\n  second\tline ", "First line second line"),
@@ -840,19 +844,23 @@ def test_compute_fields_cap_one_type_and_merge_objects_with_the_same_name() -> N
         _change("Notebook", "updated", "Pricing notes", days_ago=4, item_id="n1"),
         _change("Notebook", "updated", "pricing notes", days_ago=2, item_id="n2"),
     ]
+    same_day_copies = [
+        _change("Subscription", "created", "Weekly report", days_ago=1.2, item_id=f"s{n}") for n in range(3)
+    ]
     dashboard = [_change("Dashboard", "created", "Quality review", days_ago=1.5, item_id="d1")]
 
-    owned = compute_fields([], insights + flags + copies + dashboard, []).as_json()["owned"]
+    owned = compute_fields([], insights + flags + copies + same_day_copies + dashboard, []).as_json()["owned"]
 
     assert len(owned) == MAX_OWNED
     assert [(item["type"], item["id"], item["edit_days"]) for item in owned[:2]] == [
-        ("notebook", "n2", 2),
+        ("notebook", "n2", 1),
         ("dashboard", "d1", 1),
     ]
     assert Counter(item["type"] for item in owned) == {
-        "insight": MAX_OWNED - 6,
+        "insight": MAX_OWNED - 7,
         "feature_flag": 4,
         "notebook": 1,
+        "subscription": 1,
         "dashboard": 1,
     }
 

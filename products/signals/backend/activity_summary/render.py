@@ -101,13 +101,18 @@ _AUTO_NAME = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|model report", re.IGNORECASE)
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _URL = re.compile(r"<?https?://[^\s<>]+>?")
-# Long runs of word characters. A run with a long segment that mixes letters and digits is an API key,
-# session token or hash, but a name like "checkout-redesign-test-2026" has only short segments. The
-# segment checks run in `_mask_token`, because lookaheads in the pattern rescan the run at every word
-# boundary inside it and take quadratic time on a long input.
+# Long runs of word characters. A run that mixes letters and digits is masked when one segment looks like
+# an API key, session token or hash, or when a long run does not read as a name. The checks run in
+# `_mask_token`, because lookaheads in the pattern rescan the run at every word boundary inside it and
+# take quadratic time on a long input.
 _WORD_RUN = re.compile(r"[\w-]{16,}")
 _RUN_SEPARATORS = re.compile(r"[-_]")
 MIN_SECRET_SEGMENT_CHARS = 16
+# Masking is the default for a run this long, because a URL-safe credential can have only short segments.
+MIN_SECRET_RUN_CHARS = 24
+# A name such as "new-onboarding-flow-q4-2026" has few segments with digits, and they are short.
+MAX_NAME_DIGIT_SEGMENTS = 2
+MAX_NAME_DIGIT_SEGMENT_CHARS = 4
 # UUID segments are shorter than `MIN_SECRET_SEGMENT_CHARS`, so they have their own pattern.
 _UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
 _DIGIT = re.compile(r"\d")
@@ -436,11 +441,26 @@ class RenderedInput:
         return self.n_tasks + self.n_activity_lines + self.n_view_lines + self.n_mcp_lines + self.n_page_units
 
 
+def _reads_as_name(segments: Sequence[str]) -> bool:
+    with_digits = [segment for segment in segments if _DIGIT.search(segment)]
+    if len(with_digits) > MAX_NAME_DIGIT_SEGMENTS:
+        return False
+    if any(len(segment) > MAX_NAME_DIGIT_SEGMENT_CHARS for segment in with_digits):
+        return False
+    # Random URL-safe text mixes cases inside a segment. The words of a name do not.
+    return all(segment in (segment.lower(), segment.upper(), segment.capitalize()) for segment in segments)
+
+
 def _mask_token(match: re.Match[str]) -> str:
     run = match.group()
-    for segment in _RUN_SEPARATORS.split(run):
+    if not (_DIGIT.search(run) and _LETTER.search(run)):
+        return run
+    segments = _RUN_SEPARATORS.split(run)
+    for segment in segments:
         if len(segment) >= MIN_SECRET_SEGMENT_CHARS and _DIGIT.search(segment) and _LETTER.search(segment):
             return "<token>"
+    if len(run) >= MIN_SECRET_RUN_CHARS and not _reads_as_name(segments):
+        return "<token>"
     return run
 
 
