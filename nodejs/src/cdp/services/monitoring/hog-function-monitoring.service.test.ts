@@ -1,28 +1,36 @@
+import { DateTime } from 'luxon'
+
 import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
+import { internalFetch } from '~/common/utils/request'
+import { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
-import { MetricLogSource, MinimalAppMetric } from '../../types'
+import { LogEntry, MetricLogSource, MinimalAppMetric } from '../../types'
 import { HogFunctionMonitoringService, MonitoringOutput } from './hog-function-monitoring.service'
+
+jest.mock('~/common/utils/request', () => ({ internalFetch: jest.fn() }))
 
 describe('HogFunctionMonitoringService', () => {
     let service: HogFunctionMonitoringService
     let queueMessagesMock: jest.Mock<Promise<void>, [any[]]>
+    let outputs: IngestionOutputs<MonitoringOutput>
+    let produceMock: jest.Mock
 
     beforeEach(() => {
         queueMessagesMock = jest.fn().mockResolvedValue(undefined)
+        produceMock = jest.fn().mockResolvedValue(undefined)
         const fakeOutput = {
-            produce: jest.fn().mockResolvedValue(undefined),
+            produce: produceMock,
             queueMessages: queueMessagesMock,
             checkHealth: jest.fn().mockResolvedValue(undefined),
             checkTopicExists: jest.fn().mockResolvedValue(undefined),
         } as any
-        service = new HogFunctionMonitoringService(
-            new IngestionOutputs<MonitoringOutput>({
-                [APP_METRICS_OUTPUT]: fakeOutput,
-                [LOG_ENTRIES_OUTPUT]: fakeOutput,
-            })
-        )
+        outputs = new IngestionOutputs<MonitoringOutput>({
+            [APP_METRICS_OUTPUT]: fakeOutput,
+            [LOG_ENTRIES_OUTPUT]: fakeOutput,
+        })
+        service = new HogFunctionMonitoringService(outputs)
     })
 
     async function flushedRows(): Promise<Record<string, unknown>[]> {
@@ -114,5 +122,70 @@ describe('HogFunctionMonitoringService', () => {
         expect(rows.filter((row) => row.app_source === 'hog_flow_version')).toEqual([
             expect.objectContaining({ app_source_id: 'flow-1/3', count: 2 }),
         ])
+    })
+
+    const internalLogsProducer = (): InternalLogsProducer =>
+        new InternalLogsProducer(
+            {
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'key',
+                LOGS_INTERNAL_PRODUCER_URL: 'http://capture-logs.test/i/v1/logs',
+                LOGS_INTERNAL_PRODUCER_TEAMS: '2',
+                LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
+                LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 1024 * 1024,
+                LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 1_000,
+            },
+            { getTeam: (teamId: number) => Promise.resolve({ id: teamId, api_token: `phc_${teamId}` } as any) }
+        )
+
+    const log = (teamId: number): LogEntry => ({
+        team_id: teamId,
+        log_source: 'hog_flow',
+        log_source_id: 'flow-1',
+        instance_id: 'run-1',
+        timestamp: DateTime.fromISO('2026-10-27T12:00:00Z'),
+        level: 'info',
+        message: `team ${teamId}`,
+    })
+
+    it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        service = new HogFunctionMonitoringService(
+            outputs,
+            internalLogsProducer(),
+            new Set(['hog_flow', 'hog_function'])
+        )
+        service.queueLogs([log(2), log(2), log(3)], 'hog_flow')
+        service.queueLogs([log(2)], 'hog_function')
+
+        await service.flush()
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(produceMock).toHaveBeenCalledTimes(4)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const [, options] = fetchMock.mock.calls[0]
+        const body = parseJSON(options!.body as string) as any
+        const records = body.resourceLogs[0].scopeLogs[0].logRecords
+        expect(records.map((r: any) => r.body.stringValue)).toEqual(['team 2', 'team 2'])
+        const entryMillis = produceMock.mock.calls
+            .map(([message]) => parseJSON(message.value.toString()) as Record<string, unknown>)
+            .filter((row) => row.team_id === 2 && row.log_source === 'hog_flow')
+            .map((row) => DateTime.fromSQL(row.timestamp as string, { zone: 'utc' }).toMillis())
+        expect(records.map((r: any) => Number(BigInt(r.timeUnixNano) / 1_000_000n))).toEqual(entryMillis)
+
+        service.queueLogs([log(2)], 'hog_flow')
+        await service.stop()
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('sends nothing to the logs product for a source not in CDP_INTERNAL_LOGS_SOURCES', async () => {
+        const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
+        service = new HogFunctionMonitoringService(outputs, internalLogsProducer(), new Set(['hog_function']))
+
+        service.queueLogs([log(2)], 'hog_flow')
+        await service.flush()
+        await service.stop()
+
+        expect(produceMock).toHaveBeenCalledTimes(1)
+        expect(fetchMock).not.toHaveBeenCalled()
     })
 })
