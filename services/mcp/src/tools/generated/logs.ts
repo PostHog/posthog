@@ -620,6 +620,29 @@ const logsAttributesList = (): ToolBase<
     },
 })
 
+const LogsContextSchema = () => {
+    const LogsContextCreateBody = orvalSchemas.LogsContextCreateBody()
+    return LogsContextCreateBody
+}
+
+const logsContext = (): ToolBase<ReturnType<typeof LogsContextSchema>, Schemas.LogsContextResponse> => ({
+    name: 'logs-context',
+    schema: LogsContextSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsContextSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas.LogsContextResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/context/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LogsCountSchema = () => {
     const LogsCountCreateBody = orvalSchemas.LogsCountCreateBody()
     return LogsCountCreateBody
@@ -898,6 +921,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-anomalies-series-bands': logsAnomaliesSeriesBands,
     'logs-attribute-values-list': logsAttributeValuesList,
     'logs-attributes-list': logsAttributesList,
+    'logs-context': logsContext,
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
     'logs-facet-values-create': logsFacetValuesCreate,
