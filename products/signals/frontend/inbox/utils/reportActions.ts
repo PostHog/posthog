@@ -13,6 +13,14 @@ export function canUnassignMe(report: SignalReport, isScopedToMe: boolean): bool
 }
 
 /**
+ * Can the signed-in user dismiss or resolve this report? The server decides, because a project can
+ * require the user to claim the report first. Rows from an older payload carry no answer, so they stay open.
+ */
+export function canCloseReport(report: Pick<SignalReport, 'viewer_can_close'>): boolean {
+    return report.viewer_can_close !== false
+}
+
+/**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
  * the server-side autostart rules: only when ready & actionable, or blocked on user input.
  */
