@@ -1,7 +1,7 @@
 import copy
 import json
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import Enum
 from functools import lru_cache, partial
 from itertools import batched, groupby
@@ -40,7 +40,7 @@ from posthog.tasks.usage_report import (
     iter_billable_teams,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
-from posthog.utils import get_current_day
+from posthog.utils import DayRange, get_current_day, get_previous_day
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
@@ -168,6 +168,10 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_memory_mib_seconds",
 )
 BILLING_STATUS_STAMP_KEYS = ("billing_status_computed_at", "billing_latest_usage_report_date")
+YESTERDAYS_COUNTS_KEY_PREFIX = "@posthog/quota-limits-yesterdays-counts/"
+# A quota run sets this field after it stores the counts for every organization that needs them.
+YESTERDAYS_COUNTS_COMPLETE_FIELD = "complete"
+YESTERDAYS_COUNTS_TTL = timedelta(days=2)
 # -------------------------------------------------------------------------------------------------
 # REDIS FUNCTIONS
 # -------------------------------------------------------------------------------------------------
@@ -451,6 +455,7 @@ def org_quota_limited_until(
     previously_quota_limited_team_tokens: Collection[str],
     team_tokens: Sequence[str] | None = None,
     *,
+    yesterdays_usage: int = 0,
     batch: QuotaUsageBatch | None = None,
 ) -> Optional[OrgQuotaLimitingInformation]:
     report_action = batch.report_action if batch is not None else report_organization_action
@@ -462,7 +467,7 @@ def org_quota_limited_until(
         return None
     usage = summary.get("usage") or 0
     todays_usage = summary.get("todays_usage") or 0
-    current_usage = usage + todays_usage
+    current_usage = usage + todays_usage + yesterdays_usage
     limit = summary.get("limit")
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
@@ -862,6 +867,31 @@ def invalidate_llm_gateway_quota_cache(team_ids: Iterable[int]) -> None:
         capture_exception(e)
 
 
+def _billing_total_lacks_day(usage: Mapping[str, Any] | None, day: date) -> bool:
+    # Without the stamp PostHog cannot tell which days billing's total covers, so the decision
+    # stays on billing's total and today's count.
+    if not usage or "billing_latest_usage_report_date" not in usage:
+        return False
+    period = usage.get("period")
+    # Billing's total covers the current billing period only.
+    if not period or day < dateutil.parser.isoparse(period[0]).date():
+        return False
+    latest_report_date = usage["billing_latest_usage_report_date"]
+    return latest_report_date is None or dateutil.parser.isoparse(latest_report_date).date() < day
+
+
+def _yesterdays_counts_key(day: date) -> str:
+    return f"{YESTERDAYS_COUNTS_KEY_PREFIX}{day.isoformat()}"
+
+
+def _get_yesterdays_counts(organization: Organization) -> dict[str, int]:
+    yesterday = get_previous_day().start.date()
+    if not _billing_total_lacks_day(organization.usage, yesterday):
+        return {}
+    counts = get_client().hget(_yesterdays_counts_key(yesterday), str(organization.id))
+    return json.loads(counts) if counts else {}
+
+
 def update_org_billing_quotas(organization: Organization):
     """
     This method is basically update_all_orgs_billing_quotas but for a single org. It's called more often
@@ -878,6 +908,7 @@ def update_org_billing_quotas(organization: Organization):
     if not team_attributes:
         logger.debug("quota_limiting_no_team_tokens", organization_id=str(organization.id))
     team_attributes_set: set[str] = set(team_attributes)
+    yesterdays_counts = _get_yesterdays_counts(organization)
     prev_recordings_zset_tokens: set[str] = _get_previous_recordings_zset_tokens() & team_attributes_set
     recordings_transitioned_team_ids: set[int] = set()
 
@@ -889,7 +920,13 @@ def update_org_billing_quotas(organization: Organization):
         )
 
         # Get the quota limiting information (e.g. {"quota_limited_until": 1737867600, "quota_limiting_suspended_until": 1737867600})
-        result = org_quota_limited_until(organization, resource, previously_quota_limited_team_tokens, team_attributes)
+        result = org_quota_limited_until(
+            organization,
+            resource,
+            previously_quota_limited_team_tokens,
+            team_attributes,
+            yesterdays_usage=yesterdays_counts.get(resource.value, 0),
+        )
 
         if resource == QuotaResource.RECORDINGS:
             now_limited_for_recordings = bool(result and result.get("quota_limited_until"))
@@ -1159,6 +1196,7 @@ def _identify_refresh_candidates(
     previously_quota_limiting_suspended_team_tokens: dict[str, list[str]],
     *,
     redis_indicator_lookup: dict[str, set[str]] | None = None,
+    yesterdays_counts_by_org: Mapping[str, Mapping[str, int]] | None = None,
 ) -> set[str]:
     """
     Returns the set of org ids whose quota decision could change in this run, computed
@@ -1172,7 +1210,7 @@ def _identify_refresh_candidates(
       2. its cached `usage[resource]` already carries a `quota_limited_until` or
          `quota_limiting_suspended_until` marker;
       3. it appears newly limitable from cached state — `usage + todays_usage >= limit + buffer`
-         for any resource.
+         for any resource, with yesterday's count added when billing's total lacks yesterday.
 
     A resource with a zero limit and no overage buffer never makes an org a candidate. That
     limit blocks the resource at any usage, so the cached state gives the same decision.
@@ -1194,6 +1232,7 @@ def _identify_refresh_candidates(
             continue
 
         team_token_set: set[str] = set(teams_by_org.get(org_id, []))
+        org_yesterdays_counts = (yesterdays_counts_by_org or {}).get(org_id, {})
         is_candidate = False
 
         for resource in QuotaResource:
@@ -1224,7 +1263,8 @@ def _identify_refresh_candidates(
                 continue
             usage_value = usage_for_resource.get("usage") or 0
             todays_for_field = todays_report[field]  # type: ignore[literal-required]
-            if usage_value + todays_for_field >= limit + OVERAGE_BUFFER[resource]:
+            yesterdays_for_field = org_yesterdays_counts.get(field, 0)
+            if usage_value + todays_for_field + yesterdays_for_field >= limit + OVERAGE_BUFFER[resource]:
                 is_candidate = True
                 break
 
@@ -1349,55 +1389,47 @@ def _iter_quota_organizations(
         page = organizations.filter(id__gt=batch[-1].id)
 
 
-def update_all_orgs_billing_quotas(
-    dry_run: bool = False,
-    progress_callback: Callable[[str, str, str], None] | None = None,
-) -> QuotaLimitingRunResult:
-    """
-    This is called on a cron job every 30 minutes to update all orgs with their quotas.
-    Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
-    field on the Organization model.
+QUOTA_USAGE_COUNTERS = (
+    UsageCounter.EVENTS,
+    UsageCounter.EXCEPTIONS,
+    UsageCounter.RECORDINGS,
+    UsageCounter.FEATURE_FLAG_REQUESTS,
+    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+    UsageCounter.CDP_INVOCATIONS,
+    UsageCounter.SURVEY_RESPONSES,
+    UsageCounter.AI_EVENTS,
+    UsageCounter.WORKFLOW_EMAILS,
+    UsageCounter.WORKFLOW_PUSH,
+    UsageCounter.WORKFLOW_INVOCATIONS,
+    UsageCounter.ROWS_SYNCED,
+    UsageCounter.ROWS_EXPORTED,
+    UsageCounter.LOGS_BYTES,
+    UsageCounter.AI_CREDITS,
+    UsageCounter.SIGNALS_CREDITS,
+    UsageCounter.POSTHOG_CODE_CREDITS,
+    UsageCounter.SANDBOX_COMPUTE_CREDITS,
+    UsageCounter.REPLAY_VISION_CREDITS,
+)
 
-    # Start and end of the current day
-    """
-    total_start = time()
-    period = get_current_day()
-    service = UsageCounterService()
-    plan = service.resolve_plan(
-        period,
-        caller="quota_limiting",
-        complete=False,
-        counters=(
-            UsageCounter.EVENTS,
-            UsageCounter.EXCEPTIONS,
-            UsageCounter.RECORDINGS,
-            UsageCounter.FEATURE_FLAG_REQUESTS,
-            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
-            UsageCounter.CDP_INVOCATIONS,
-            UsageCounter.SURVEY_RESPONSES,
-            UsageCounter.AI_EVENTS,
-            UsageCounter.WORKFLOW_EMAILS,
-            UsageCounter.WORKFLOW_PUSH,
-            UsageCounter.WORKFLOW_INVOCATIONS,
-            UsageCounter.ROWS_SYNCED,
-            UsageCounter.ROWS_EXPORTED,
-            UsageCounter.LOGS_BYTES,
-            UsageCounter.AI_CREDITS,
-            UsageCounter.SIGNALS_CREDITS,
-            UsageCounter.POSTHOG_CODE_CREDITS,
-            UsageCounter.SANDBOX_COMPUTE_CREDITS,
-            UsageCounter.REPLAY_VISION_CREDITS,
-        ),
-    )
 
-    tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
-    logger.info("quota_limiting_run", phase="queries", status="start")
-    queries_start = time()
+@frozen
+class _QuotaUsageCounts:
+    # Counter name to team id to count.
+    by_team: dict[str, dict[int, int]]
+    offline_by_org: dict[str, dict[int, int]]
+
+
+def _fetch_quota_usage_counts(
+    service: UsageCounterService, period: DayRange, *, compare_counters: bool
+) -> _QuotaUsageCounts:
+    # A complete plan also runs the legacy comparison queries, which the quota decision does not use.
+    plan = service.resolve_plan(period, caller="quota_limiting", complete=False, counters=QUOTA_USAGE_COUNTERS)
     offline_usage = _timed_query(
         "offline_evaluation_usage", get_offline_evaluation_usage, period.start, period.start + timedelta(days=1)
     )
     counter_report = _timed_query("usage_counters", service.fetch_report, period, plan=plan)
-    log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
+    if compare_counters:
+        log_usage_counter_comparisons(counter_report, caller="quota_limiting", date=period.start.date().isoformat())
 
     api_queries_usage = _timed_query(
         "api_queries_metrics", get_teams_with_api_queries_metrics, period.start, period.end
@@ -1413,7 +1445,7 @@ def update_all_orgs_billing_quotas(
     )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
-    all_data = {
+    all_data: dict[str, dict[int, int]] = {
         "teams_with_event_count_in_period": dict(counter_report.counts[UsageCounter.EVENTS]),
         "teams_with_exceptions_captured_in_period": dict(counter_report.counts[UsageCounter.EXCEPTIONS]),
         "teams_with_recording_count_in_period": dict(counter_report.counts[UsageCounter.RECORDINGS]),
@@ -1455,6 +1487,92 @@ def update_all_orgs_billing_quotas(
             for team_id in logs_bytes.keys() | apm_tracing_bytes.keys()
         },
     }
+    return _QuotaUsageCounts(by_team=all_data, offline_by_org=offline_usage)
+
+
+class _YesterdaysCounts:
+    """
+    Yesterday's quota counts for organizations whose billing total does not include yesterday yet.
+
+    The first quota run of a day that needs them counts yesterday once and stores the counts in Redis.
+    Later runs and `update_org_billing_quotas` read them there instead of counting a whole day again.
+    Events for yesterday that arrive after that run count only when billing saves yesterday's report.
+    """
+
+    def __init__(self, service: UsageCounterService, *, today: DayRange) -> None:
+        self._service = service
+        self._range = get_previous_day(at=today.start)
+        self.day = self._range.start.date()
+        self._key = _yesterdays_counts_key(self.day)
+        self._redis = get_client()
+        self._stored: bool | None = None
+        self._counts: _QuotaUsageCounts | None = None
+
+    def for_organizations(
+        self, teams: Sequence[Team], organizations: Sequence[Organization]
+    ) -> dict[str, dict[str, int]]:
+        org_ids = {str(org.id) for org in organizations if _billing_total_lacks_day(org.usage, self.day)}
+        if not org_ids:
+            return {}
+        if self._stored is None:
+            self._stored = bool(self._redis.hexists(self._key, YESTERDAYS_COUNTS_COMPLETE_FIELD))
+        if self._stored:
+            ordered_ids = sorted(org_ids)
+            stored = self._redis.hmget(self._key, ordered_ids)
+            return {org_id: json.loads(value) for org_id, value in zip(ordered_ids, stored) if value}
+
+        if self._counts is None:
+            self._counts = _fetch_quota_usage_counts(self._service, self._range, compare_counters=False)
+        reports = _aggregate_quota_usage(
+            teams, self._counts.by_team, offline_usage=self._counts.offline_by_org, organizations=organizations
+        )
+        counts: dict[str, dict[str, int]] = {}
+        for org_id in org_ids:
+            report = cast(dict[str, int], reports.usage.get(org_id, {}))
+            org_counts = {
+                resource.value: report[resource.value] for resource in QuotaResource if report.get(resource.value)
+            }
+            if org_counts:
+                counts[org_id] = org_counts
+        if counts:
+            pipeline = self._redis.pipeline(transaction=False)
+            pipeline.hset(self._key, mapping={org_id: json.dumps(org_counts) for org_id, org_counts in counts.items()})
+            pipeline.expire(self._key, YESTERDAYS_COUNTS_TTL)
+            pipeline.execute()
+        return counts
+
+    def finish(self) -> None:
+        # A run that stops early leaves the day unmarked, so the next run counts yesterday again.
+        if self._counts is None:
+            return
+        pipeline = self._redis.pipeline(transaction=False)
+        pipeline.hset(self._key, YESTERDAYS_COUNTS_COMPLETE_FIELD, 1)
+        pipeline.expire(self._key, YESTERDAYS_COUNTS_TTL)
+        pipeline.execute()
+
+
+def update_all_orgs_billing_quotas(
+    dry_run: bool = False,
+    progress_callback: Callable[[str, str, str], None] | None = None,
+) -> QuotaLimitingRunResult:
+    """
+    This is called on a cron job every 30 minutes to update all orgs with their quotas.
+    Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
+    field on the Organization model.
+
+    # Start and end of the current day
+    """
+    total_start = time()
+    period = get_current_day()
+    service = UsageCounterService()
+
+    tag_queries(product=Product.BILLING, feature=Feature.QUOTA_LIMITING)
+    logger.info("quota_limiting_run", phase="queries", status="start")
+    queries_start = time()
+    todays_counts = _fetch_quota_usage_counts(service, period, compare_counters=True)
+    all_data = todays_counts.by_team
+    offline_usage = todays_counts.offline_by_org
+    yesterdays_counts = _YesterdaysCounts(service, today=period)
 
     queries_duration_s = round((time() - queries_start), 1)
     logger.info(
@@ -1532,6 +1650,7 @@ def update_all_orgs_billing_quotas(
         )
         orgs_by_id = reports.organizations
         teams_by_org = reports.team_tokens
+        yesterdays_counts_by_org = yesterdays_counts.for_organizations(teams, list(orgs_by_id.values()))
         candidates_start = time()
         refresh_candidates = _identify_refresh_candidates(
             orgs_by_id,
@@ -1540,6 +1659,7 @@ def update_all_orgs_billing_quotas(
             previously_quota_limited_team_tokens,
             previously_quota_limiting_suspended_team_tokens,
             redis_indicator_lookup=redis_indicator_lookup,
+            yesterdays_counts_by_org=yesterdays_counts_by_org,
         )
         candidate_count += len(refresh_candidates)
         candidates_total_seconds += time() - candidates_start
@@ -1592,6 +1712,11 @@ def update_all_orgs_billing_quotas(
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
                             todays_report["signals_credits"] = signals_recounts.get(org_id, 0)
                     _patch_todays_usage(org, todays_report, batch=usage_batch)
+                    org_yesterdays_counts = (
+                        yesterdays_counts_by_org.get(org_id, {})
+                        if _billing_total_lacks_day(org.usage, yesterdays_counts.day)
+                        else {}
+                    )
                     org_is_limited = org_is_suspended = False
                     for resource in QuotaResource:
                         field = resource.value
@@ -1600,6 +1725,7 @@ def update_all_orgs_billing_quotas(
                             resource,
                             previously_quota_limited_team_token_sets[field],
                             teams_by_org.get(org_id, []),
+                            yesterdays_usage=org_yesterdays_counts.get(field, 0),
                             batch=usage_batch,
                         )
                         if result:
@@ -1707,6 +1833,7 @@ def update_all_orgs_billing_quotas(
                 f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
             )
 
+    yesterdays_counts.finish()
     if not settings.TEST:
         close_old_connections()
     logger.info(

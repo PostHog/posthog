@@ -21,7 +21,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.test.fixtures import create_app_metric2
-from posthog.usage_counters import UsageRecordTotal, UsageRecordTotals
+from posthog.usage_counters import UsageCounterService, UsageRecordTotal, UsageRecordTotals
 
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
 
@@ -29,6 +29,7 @@ from ee.billing.quota_limiting import (
     BILLING_STATUS_STAMP_KEYS,
     INFORMATIONAL_USAGE_RESOURCES,
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
+    YESTERDAYS_COUNTS_KEY_PREFIX,
     OrganizationUsageInfo,
     QuotaLimitingCaches,
     QuotaLimitingRunResult,
@@ -86,6 +87,8 @@ class TestQuotaLimiting(BaseTest):
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/mcp_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/cdp_trigger_events")
         self.redis_client.delete(f"@posthog/quota-limiting-suspended/ai_credits")
+        for key in self.redis_client.scan_iter(f"{YESTERDAYS_COUNTS_KEY_PREFIX}*"):
+            self.redis_client.delete(key)
         materialize("events", "$exception_values")
 
     def _run_quota_limiting(self) -> QuotaLimitingRunResult:
@@ -115,6 +118,64 @@ class TestQuotaLimiting(BaseTest):
             self.organization.refresh_from_db()
             self.assertEqual(self.organization.usage["llm_events"]["usage"], 50)
             self.assertEqual(self.organization.usage["llm_events"]["todays_usage"], 0 if deleted_team else 30)
+
+    @parameterized.expand(
+        [
+            ("billing_total_lacks_yesterday", True, "2026-10-30", "2026-10-01T00:00:00Z", True),
+            ("no_report_yet_this_period", True, None, "2026-10-01T00:00:00Z", True),
+            ("billing_total_has_yesterday", True, "2026-10-31", "2026-10-01T00:00:00Z", False),
+            ("yesterday_is_in_the_previous_period", True, "2026-10-30", "2026-11-01T00:00:00Z", False),
+            ("no_stamp", False, None, "2026-10-01T00:00:00Z", False),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    @time_machine.travel("2026-11-01T00:30:00Z", tick=False)
+    def test_quota_run_counts_yesterday_until_billings_total_has_it(
+        self,
+        _name: str,
+        has_stamp: bool,
+        latest_usage_report_date: str | None,
+        period_start: str,
+        expect_limited: bool,
+        _capture,
+    ) -> None:
+        usage: dict[str, Any] = {
+            "events": {"usage": 90, "limit": 100, "todays_usage": 0},
+            "period": [period_start, "2026-12-01T00:00:00Z"],
+        }
+        if has_stamp:
+            usage["billing_status_computed_at"] = "2026-10-31T09:00:00+00:00"
+            usage["billing_latest_usage_report_date"] = latest_usage_report_date
+        self.organization.usage = usage
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+        for timestamp, count in (("2026-10-31T12:00:00Z", 15), ("2026-11-01T00:10:00Z", 1)):
+            for _ in range(count):
+                _create_event(
+                    distinct_id=str(uuid4()),
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=timestamp,
+                    team=self.team,
+                )
+        flush_persons_and_events()
+        limited = [self.team.api_token.encode("UTF-8")] if expect_limited else []
+
+        with patch.object(
+            UsageCounterService, "fetch_report", autospec=True, side_effect=UsageCounterService.fetch_report
+        ) as fetch_report:
+            for _ in range(2):
+                self._run_quota_limiting()
+                assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == limited
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage["events"]["todays_usage"] == 1
+        update_org_billing_quotas(self.organization)
+        assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == limited
+        today, yesterday = datetime.date(2026, 11, 1), datetime.date(2026, 10, 31)
+        assert [call.args[1].start.date() for call in fetch_report.call_args_list] == (
+            [today, yesterday, today] if expect_limited else [today, today]
+        )
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -2624,6 +2685,19 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
                 True,
             ),
             (
+                "flags_orgs_over_limit_only_with_yesterdays_count",
+                {
+                    "events": {"usage": 900, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(events=50),
+                [],
+                {},
+                {},
+                True,
+                {"events": 100},
+            ),
+            (
                 "skips_under_limit_orgs_without_markers_or_redis",
                 {
                     "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
@@ -2817,6 +2891,7 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
         previously_limited_overrides: dict[str, list[str]],
         previously_suspended_overrides: dict[str, list[str]],
         expected_candidate: bool,
+        yesterdays_counts: dict[str, int] | None = None,
     ) -> None:
         org = _fake_org(usage=usage)
         org_id = str(org.id)
@@ -2830,7 +2905,12 @@ class TestIdentifyRefreshCandidates(SimpleTestCase):
         previously_suspended.update(previously_suspended_overrides)
 
         candidates = _identify_refresh_candidates(
-            orgs_by_id, todays_usage_report, teams_by_org, previously_limited, previously_suspended
+            orgs_by_id,
+            todays_usage_report,
+            teams_by_org,
+            previously_limited,
+            previously_suspended,
+            yesterdays_counts_by_org={org_id: yesterdays_counts or {}},
         )
 
         assert candidates == ({org_id} if expected_candidate else set())
