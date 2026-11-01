@@ -1575,6 +1575,27 @@ const visionScannersScoutsCreate = (): ToolBase<
     },
 })
 
+const VisionScannersScoutsTemplatesListSchema = () => {
+    const VisionScannersScoutsTemplatesListParams = orvalSchemas.VisionScannersScoutsTemplatesListParams()
+    return VisionScannersScoutsTemplatesListParams.omit({ project_id: true })
+}
+
+const visionScannersScoutsTemplatesList = (): ToolBase<
+    ReturnType<typeof VisionScannersScoutsTemplatesListSchema>,
+    Schemas.ScannerScoutTemplate[]
+> => ({
+    name: 'vision-scanners-scouts-templates-list',
+    schema: VisionScannersScoutsTemplatesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersScoutsTemplatesListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScannerScoutTemplate[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/scouts/templates/`,
+        })
+        return result
+    },
+})
+
 const VisionScannersSelfDrivingStatsSchema = () => {
     const VisionScannersSelfDrivingStatsRetrieveParams = orvalSchemas.VisionScannersSelfDrivingStatsRetrieveParams()
     return VisionScannersSelfDrivingStatsRetrieveParams.omit({ project_id: true })
@@ -1744,6 +1765,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-scout-reports-get': visionScannersScoutReportsGet,
     'vision-scanners-scout-reports-list': visionScannersScoutReportsList,
     'vision-scanners-scouts-create': visionScannersScoutsCreate,
+    'vision-scanners-scouts-templates-list': visionScannersScoutsTemplatesList,
     'vision-scanners-self-driving-stats': visionScannersSelfDrivingStats,
     'vision-scanners-update': visionScannersUpdate,
     'vision-scanners-variants-list': visionScannersVariantsList,

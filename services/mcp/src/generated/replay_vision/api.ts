@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 51 enabled ops
+ * PostHog API - MCP 52 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2110,6 +2110,18 @@ export const VisionScannersScoutsCreateBody = () => zod
     .describe(
         "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."
     )
+
+/**
+ * The scout templates this scanner offers, rendered for it, in the order the picker shows them.
+ */
+export const VisionScannersScoutsTemplatesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    scanner_id: zod.string(),
+})
 
 /**
  * Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.

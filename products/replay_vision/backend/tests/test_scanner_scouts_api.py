@@ -96,6 +96,22 @@ class TestScannerScoutCreate(_VisionAPITestCase):
         with team_scope(self.team.id):
             assert not SignalScoutConfig.objects.filter(source_id=str(self.scanner.id)).exists()
 
+    def test_templates_are_rendered_for_the_scanner_in_the_url(self) -> None:
+        response = self.client.get(f"{self._scouts_url(str(self.scanner.id))}templates/")
+        assert response.status_code == 200, response.json()
+        templates = response.json()
+        assert [t["key"] for t in templates] == ["daily-digest", "root-cause", "trend-watch", "new-issues", "scratch"]
+        assert all(f"`vision-scanners-get` with id `{self.scanner.id}`" in t["body"] for t in templates)
+
+    def test_a_body_with_unfilled_placeholders_is_rejected(self) -> None:
+        response = self.client.post(
+            self._scouts_url(str(self.scanner.id)),
+            data=self._payload(body="Report on <WHAT THIS SCOUT WATCHES FOR> every day."),
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "body"
+
     def test_a_scout_can_be_created_with_a_slack_destination(self) -> None:
         # The create modal offers a Slack channel, so the destination arrives on the create call
         # rather than a follow-up PATCH. Validating it needs the project and the request in the
