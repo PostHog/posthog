@@ -349,10 +349,12 @@ export interface featureFlagsLogicActions {
     }
     setFeatureFlagsFilters: (
         filters: Partial<FeatureFlagsFilters>,
-        replace?: boolean
+        replace?: boolean,
+        debounce?: boolean
     ) => {
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
+        debounce: boolean
     }
     toggleFeatureFlagActive: (
         id: number,
@@ -525,7 +527,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         updateFlagActive: (id: number, active: boolean) => ({ id, active }),
         deleteFlag: (id: number) => ({ id }),
         setActiveTab: (tabKey: FeatureFlagsTab) => ({ tabKey }),
-        setFeatureFlagsFilters: (filters: Partial<FeatureFlagsFilters>, replace?: boolean) => ({ filters, replace }),
+        setFeatureFlagsFilters: (
+            filters: Partial<FeatureFlagsFilters>,
+            replace?: boolean,
+            debounce: boolean = true
+        ) => ({
+            filters,
+            replace,
+            debounce,
+        }),
         resetFilters: true,
         toggleFeatureFlagActive: (id: number, active: boolean) => ({ id, active }),
         closeEnrichAnalyticsNotice: true,
@@ -825,9 +835,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     actions.updateFeatureFlagArchived({ id, archived: true, via: 'disable-confirmation' }),
             })
         },
-        setFeatureFlagsFilters: async (_, breakpoint) => {
+        setFeatureFlagsFilters: async ({ debounce }, breakpoint) => {
             if (values.activeTab === FeatureFlagsTab.OVERVIEW) {
-                await breakpoint(300)
+                if (debounce) {
+                    await breakpoint(300)
+                }
                 actions.loadFeatureFlags()
             }
         },
@@ -881,7 +893,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.featureFlags()]: async (_, searchParams) => {
+        [urls.featureFlags()]: async (_, searchParams, __, { initial }, previousLocation) => {
             const tabInURL = searchParams['tab']
 
             if (!tabInURL) {
@@ -914,7 +926,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
             pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
 
-            actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
+            const filtersFromUrl = { ...DEFAULT_FILTERS, ...pageFiltersFromUrl }
+            // actionToUrl sends every filter change back here. Skip that echo: it would send the same request
+            // twice, or cut short the debounce of a search the user is still typing.
+            const arrived = initial || previousLocation?.pathname !== router.values.location.pathname
+            if (arrived || !objectsEqual({ ...values.filters, ...filtersFromUrl }, values.filters)) {
+                actions.setFeatureFlagsFilters(filtersFromUrl, false, false)
+            }
         },
     })),
 ])
