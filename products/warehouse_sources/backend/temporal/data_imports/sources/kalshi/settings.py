@@ -18,13 +18,13 @@ class KalshiEndpointConfig:
     # candlesticks take an explicit time window. Everything else accepts the param and silently ignores it, so those
     # endpoints are full-refresh only.
     supports_incremental: bool = False
-    # Trades, fills, and settlements come back newest-first; every other endpoint is treated as ascending.
+    # Trades, fills, settlements, and credits come back newest-first; every other endpoint is treated as ascending.
     newest_first: bool = False
     # `/series` returns the whole collection in one response with no `cursor` key.
     paginated: bool = True
     # Candlesticks are fetched per batch of markets, so rows arrive in no global time order.
     market_fan_out: bool = False
-    # The weather index is served one city at a time, with no listing endpoint for the cities.
+    # The weather index and its calibrations are served one city at a time, with no listing endpoint for the cities.
     city_fan_out: bool = False
     # Portfolio endpoints read the account's own data and need a signed API key.
     requires_auth: bool = False
@@ -192,6 +192,16 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         paginated=False,
         city_fan_out=True,
     ),
+    # Each city's append-only index configuration timeline: the launch configuration plus every
+    # weekly offset calibration. It has no filter and stays small, so it is a full refresh.
+    "weather_index_calibrations": KalshiEndpointConfig(
+        name="weather_index_calibrations",
+        path="/live_data/weather/{city}/calibrations",
+        data_key="calibrations",
+        primary_keys=["city", "config_version"],
+        paginated=False,
+        city_fan_out=True,
+    ),
     # The account's own executions. `min_ts` filters on the fill time, and fills come back
     # newest-first like public trades.
     "fills": KalshiEndpointConfig(
@@ -273,6 +283,19 @@ KALSHI_ENDPOINTS: dict[str, KalshiEndpointConfig] = {
         newest_first=True,
         requires_auth=True,
         subaccount_fan_out=True,
+        page_size=1000,
+    ),
+    # Credits to the account, newest-first. A credit's status moves from pending to applied or
+    # failed, but `min_ts` filters on creation time, so an incremental run would never see that
+    # change on an older credit. This is a full refresh.
+    "credit_history": KalshiEndpointConfig(
+        name="credit_history",
+        path="/portfolio/credit_history",
+        data_key="credits",
+        primary_keys=["credit_id"],
+        partition_key="created_time",
+        newest_first=True,
+        requires_auth=True,
         page_size=1000,
     ),
 }
