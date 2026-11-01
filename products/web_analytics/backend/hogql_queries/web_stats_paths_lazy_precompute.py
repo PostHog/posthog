@@ -117,6 +117,15 @@ class ScrollDepthUnsupported(LazyPrecomputeIneligible):
     pass
 
 
+class BackgroundPrecomputeFailed(Exception):
+    """A background warming run could not build or read an eligible paths shape.
+
+    Raised instead of the live fallback. The live join reads the whole range in one
+    query, so it needs much more memory than the per-window inserts that just failed,
+    and nobody waits for its result. It also bypasses the warmer's raw-replay budgets.
+    """
+
+
 class UnsupportedOrderBy(LazyPrecomputeIneligible):
     def __init__(self, field: object):
         self.field = field
