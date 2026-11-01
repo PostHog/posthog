@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.
 from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    USAGE_ENDPOINT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -73,7 +74,8 @@ class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Usage re-reads restated days, which only a merge on `date` keeps unique.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=(USAGE_ENDPOINT,))
 
     def validate_credentials(
         self,
@@ -125,7 +127,7 @@ class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]
             name=ExternalDataSourceType.RECALLAI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Recall.ai",
-            caption="Sync meeting bots, recordings, transcripts, participant events, and calendar data from Recall.ai.",
+            caption="Sync meeting bots, recordings, transcripts, participant events, calendar data, and bot usage from Recall.ai.",
             docsUrl="https://posthog.com/docs/cdp/sources/recall-ai",
             iconPath="/static/services/recall_ai.png",
             keywords=["meetings", "call recording", "transcripts", "bots"],
