@@ -42,7 +42,7 @@ from products.signals.backend.personal_ranking.config import (
     parse_config,
 )
 from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
-from products.signals.backend.personal_ranking.prompt import render_person, user_message
+from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
 from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
@@ -60,13 +60,15 @@ def _answer(ranked: list[dict], folded: list[dict] | None = None) -> str:
     return json.dumps({"ranked": ranked, "folded": folded or []})
 
 
-def _validate(content: str | None, limit: int = 2, rank_top: int = 10):
+def _validate(content: str | None, limit: int = 2, rank_top: int = 10, top_max: int = 5, worth_a_look_max: int = 10):
     return validate_ranking(
         content,
         refs=REFS,
         model_reasons=MODEL_REASONS,
         limit=limit,
         rank_top=rank_top,
+        top_max=top_max,
+        worth_a_look_max=worth_a_look_max,
         reason_limits=LIMITS,
         next_step_max_chars=12,
     )
@@ -180,6 +182,45 @@ class TestValidateRanking(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "full_top_spills_into_worth_a_look",
+                ["top"] * 4,
+                1,
+                2,
+                ["top", "worth_a_look", "worth_a_look", "later"],
+                3,
+            ),
+            (
+                "full_worth_a_look_spills_into_later",
+                ["top", "top", "top", "worth_a_look"],
+                2,
+                1,
+                ["top", "top", "worth_a_look", "later"],
+                2,
+            ),
+        ]
+    )
+    def test_entries_past_a_tier_cap_move_down_and_keep_their_rank(
+        self,
+        _name: str,
+        tiers: list[str],
+        top_max: int,
+        worth_a_look_max: int,
+        expected_tiers: list[str],
+        expected_demotions: int,
+    ) -> None:
+        ranked = [_entry(ref, rank, tier=tier) for rank, (ref, tier) in enumerate(zip(REFS, tiers), start=1)]
+
+        result = _validate(_answer(ranked), top_max=top_max, worth_a_look_max=worth_a_look_max)
+
+        assert [(entry.ref, entry.rank, entry.tier) for entry in result.entries] == [
+            (ref, rank, tier) for rank, (ref, tier) in enumerate(zip(REFS, expected_tiers), start=1)
+        ]
+        assert result.counts.tier_demotions == expected_demotions
+        assert result.counts.tier_corrections == 0
+
+    @parameterized.expand(
+        [
             ("empty", None),
             ("not_json", "Here is your ranking: c1, c2"),
             ("no_ranked_list", json.dumps({"order": ["c1"]})),
@@ -246,6 +287,12 @@ class TestPrompt(SimpleTestCase):
         assert message.count("model:") == 1
         assert "p" * 100 in message and "p" * 101 not in message
         assert "- Checkout (mode build, strength strong, last seen 2026-10-29)" in message
+
+    def test_system_prompt_states_the_tier_caps(self) -> None:
+        prompt = system_prompt(PersonalRankingConfig(top_max=3, worth_a_look_max=7), limit=25)
+
+        assert '"top" for at most 3 reports' in prompt
+        assert '"worth_a_look" for at most 7 other' in prompt
 
 
 class TestConfig(SimpleTestCase):
@@ -471,6 +518,7 @@ class TestBuildPersonalRanking(BaseTest):
         assert event["event"] == BUILT_EVENT
         assert event["properties"]["ranking_id"] == str(row.id)
         assert event["properties"]["personalized"] is with_summary
+        assert event["properties"]["tier_counts"] == {"top": 0, "worth_a_look": 2, "later": 1}
         serialized = json.dumps(event["properties"])
         assert "Waiting" not in serialized and "reason c" not in serialized and "checkout" not in serialized
 
