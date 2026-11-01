@@ -37,6 +37,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.access import has_autoresearch_access
 from products.autoresearch.backend.facade.contracts import (
+    DailyTrainingCapExceeded,
     ArtifactNotFound,
     ArtifactStorageUnavailable,
     AutoresearchConflict,
@@ -491,7 +492,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
-            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit."),
+            429: OpenApiResponse(description="The team is over its PostHog Desktop usage limit, or reached the daily training run limit."),
             503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
@@ -531,6 +532,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
+        except DailyTrainingCapExceeded as exc:
+            return Response(
+                {
+                    "type": "rate_limit_error",
+                    "code": "daily_cap_exceeded",
+                    "detail": str(exc),
+                    "runs_used": exc.runs_used,
+                    "limit": exc.limit,
+                    "next_slot_opens_at": exc.next_slot_opens_at.isoformat(),
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(
