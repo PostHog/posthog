@@ -607,6 +607,8 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
     started_at = models.DateTimeField(null=True, blank=True)
+    # The staleness TTL counts an IN_PROGRESS run from this time, so a long run that still finishes metrics stays active.
+    last_progress_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
