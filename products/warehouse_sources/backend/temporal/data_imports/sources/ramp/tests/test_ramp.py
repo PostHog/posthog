@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp 
     RampResumeConfig,
     _base_url,
     _format_timestamp,
+    check_endpoint_access,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import TOKEN_SCOPES
@@ -85,6 +86,21 @@ class TestValidateCredentials:
 
         assert is_valid is False
         assert "credentials" in (message or "")
+
+
+class TestCheckEndpointAccess:
+    @pytest.mark.parametrize(
+        "token_status, expected_denied",
+        [(200, False), (400, True)],
+    )
+    def test_billing_statements_probe_their_own_scope(self, token_status, expected_denied):
+        with scripted_network([_token(status_code=token_status)]) as network:
+            reason = check_endpoint_access("production", "cid", "sec", "billing_statements")
+
+        assert parse_qs((network.requests_log[0].body or b"").decode())["scope"] == ["billing_statements:read"]
+        assert (reason is not None) == expected_denied
+        if expected_denied:
+            assert "billing_statements:read" in (reason or "")
 
 
 class TestGetRows:

@@ -121,6 +121,26 @@ def validate_credentials(environment: str, client_id: str, client_secret: str) -
     return True, None
 
 
+def check_endpoint_access(environment: str, client_id: str, client_secret: str, endpoint: str) -> str | None:
+    """Report why the app can't sync an endpoint that mints its own scopes, or None when it can.
+
+    Validation only mints TOKEN_SCOPES, so an app created without an endpoint's extra scope still
+    connects; probe that scope here so the table starts deselected instead of failing every sync."""
+    scopes = RAMP_ENDPOINTS[endpoint].scopes
+    if scopes is None:
+        return None
+    auth = _make_auth(environment, client_id, client_secret, scopes)
+    probe = Request(method="GET", url=_api_base_url(environment)).prepare()
+    try:
+        auth(probe)
+    except OAuth2AuthRequestError as e:
+        if e.is_permanent:
+            return f"Your Ramp developer app needs the `{scopes}` scope to sync this table."
+    except requests.RequestException:
+        pass
+    return None
+
+
 def ramp_source(
     environment: str,
     client_id: str,

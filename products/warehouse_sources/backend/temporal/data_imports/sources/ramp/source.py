@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.ramp import RampSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp import (
     RampResumeConfig,
+    check_endpoint_access,
     ramp_source,
     validate_credentials as validate_ramp_credentials,
 )
@@ -130,6 +131,14 @@ A Ramp admin can create a developer app under Settings > Developer API. Grant it
         self, config: RampSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_ramp_credentials(config.environment, config.client_id, config.client_secret)
+
+    def get_endpoint_permissions(
+        self, config: RampSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return {
+            endpoint: check_endpoint_access(config.environment, config.client_id, config.client_secret, endpoint)
+            for endpoint in endpoints
+        }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RampResumeConfig]:
         return ResumableSourceManager[RampResumeConfig](inputs, RampResumeConfig)
