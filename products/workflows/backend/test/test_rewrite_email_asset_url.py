@@ -212,8 +212,12 @@ class TestRewriteEmailAssetUrl(BaseTest):
         assert (stalled.version, OLD in json.dumps(stalled.actions)) == (1, True)
         assert (recovered.version, NEW in json.dumps(recovered.actions)) == (2, True)
 
-    @parameterized.expand([("default_run", False), ("workflow_id", True)])
-    def test_rewrites_a_transactional_workflow_whose_template_lacks_the_url(self, _name: str, by_id: bool) -> None:
+    @parameterized.expand(
+        [("default_run", False, False), ("workflow_id", True, False), ("template_draft", False, True)]
+    )
+    def test_rewrites_a_transactional_workflow_whose_template_lacks_the_url(
+        self, _name: str, by_id: bool, old_draft: bool
+    ) -> None:
         sender = Integration.objects.create(
             team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
         )
@@ -222,6 +226,7 @@ class TestRewriteEmailAssetUrl(BaseTest):
             team_id=self.team.id,
             name="Welcome",
             content={"email": {"subject": "Welcome", "html": f'<img src="{NEW}?w=960px" />'}},
+            draft_content={"email": {"html": f'<img src="{OLD}?w=960px" />'}} if old_draft else None,
         )
         workflow_id = make_transactional(self.team.id, template, user_id=self.user.id, from_integration_id=None)
         drifted = json.loads(json.dumps(HogFlow.objects.get(id=workflow_id).actions).replace(NEW, OLD))

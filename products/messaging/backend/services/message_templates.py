@@ -43,26 +43,30 @@ def templates_of(team_ids: list[int] | None) -> models.QuerySet[MessageTemplate]
     return queryset.filter(team_id__in=team_ids) if team_ids else queryset
 
 
-def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: str | None) -> list[UUID]:
+def _containing(
+    text: str, fields: tuple[str, ...], *, team_ids: list[int] | None, template_id: str | None
+) -> models.QuerySet[MessageTemplate]:
     queryset = templates_of(team_ids)
     if template_id:
         queryset = queryset.filter(id=template_id)
     # The text cast stays in the WHERE clause, so the scan never returns a full copy of each content blob.
-    return list(
-        queryset.annotate(
-            _text_content=Cast("content", models.TextField()),
-            _text_draft_content=Cast("draft_content", models.TextField()),
-        )
-        .filter(models.Q(_text_content__contains=text) | models.Q(_text_draft_content__contains=text))
-        .order_by("id")
-        .values_list("id", flat=True)
-    )
+    match = models.Q()
+    for field in fields:
+        queryset = queryset.annotate(**{f"_text_{field}": Cast(field, models.TextField())})
+        match |= models.Q(**{f"_text_{field}__contains": text})
+    return queryset.filter(match)
 
 
-def transactional_workflow_ids(template_ids: list[UUID]) -> set[UUID]:
-    linked = MessageTemplate.objects.filter(pk__in=template_ids, deleted=False).values_list(
-        "transactional_hog_flow_id", flat=True
-    )
+def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: str | None) -> list[UUID]:
+    matches = _containing(text, ("content", "draft_content"), team_ids=team_ids, template_id=template_id)
+    return list(matches.order_by("id").values_list("id", flat=True))
+
+
+def transactional_workflow_ids_containing(
+    text: str, *, team_ids: list[int] | None, template_id: str | None
+) -> set[UUID]:
+    matches = _containing(text, ("content",), team_ids=team_ids, template_id=template_id)
+    linked = matches.filter(deleted=False).values_list("transactional_hog_flow_id", flat=True)
     return {hog_flow_id for hog_flow_id in linked if hog_flow_id is not None}
 
 

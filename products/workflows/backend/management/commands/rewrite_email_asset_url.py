@@ -12,7 +12,10 @@ from django.utils import timezone
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.messaging.backend.facade.api import find_template_ids_containing, find_transactional_workflow_ids
+from products.messaging.backend.facade.api import (
+    find_template_ids_containing,
+    find_transactional_workflow_ids_containing,
+)
 from products.messaging.backend.facade.templates import rewrite_template_content
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
@@ -135,12 +138,14 @@ class Command(BaseCommand):
         self.stdout.write(f"Scope: {scope}")
         self.stdout.write(f"Replacing {from_url}\n       with {to_url}\n")
 
+        template_owned = (
+            find_transactional_workflow_ids_containing(from_url, team_ids=team_ids, template_id=options.get("row_id"))
+            if MESSAGE_TEMPLATES in targets
+            else set()
+        )
         totals = RewriteCounts()
-        template_owned: set[Any] = set()
         for target in targets:
-            counts, row_ids = self._process_target(target, from_url, to_url, options, template_owned=template_owned)
-            if target == MESSAGE_TEMPLATES:
-                template_owned = find_transactional_workflow_ids(row_ids)
+            counts = self._process_target(target, from_url, to_url, options, template_owned=template_owned)
             totals.rows_scanned += counts.rows_scanned
             totals.rows_changed += counts.rows_changed
             totals.occurrences += counts.occurrences
@@ -159,7 +164,7 @@ class Command(BaseCommand):
 
     def _process_target(
         self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, template_owned: set[Any]
-    ) -> tuple[RewriteCounts, list[Any]]:
+    ) -> RewriteCounts:
         counts = RewriteCounts()
         if target == MESSAGE_TEMPLATES:
             row_ids, rewrite_row = self._message_template_rows(from_url, to_url, options)
@@ -170,7 +175,7 @@ class Command(BaseCommand):
 
         self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
         if not row_ids:
-            return counts, row_ids
+            return counts
 
         batch_size: int = options["batch_size"]
         for start in range(0, len(row_ids), batch_size):
@@ -190,7 +195,7 @@ class Command(BaseCommand):
                     if options["list_rows"]:
                         self.stdout.write(f"  {row_id}: {occurrences} occurrence(s)")
 
-        return counts, row_ids
+        return counts
 
     def _message_template_rows(
         self, from_url: str, to_url: str, options: dict[str, Any]
