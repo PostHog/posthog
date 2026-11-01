@@ -19,7 +19,6 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.integrations import IntegrationManager
-from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -51,6 +50,8 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+# Matches the cap the tasks API puts on a task's repositories.
+MAX_TASK_REPOSITORIES = 10
 
 # The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
 # sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
@@ -96,17 +97,9 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    # Warehouse source rows must be read too, so the guard below can reject them.
-    rows = IntegrationManager.any.with_source_rows().get_many(get_team().id, integration_ids).values()
-    if any(row.kind == POSTHOG_CONNECT_KIND for row in rows):
+    if IntegrationManager.posthog.any.get_many(get_team().id, integration_ids):
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
-        )
-    # A row that a data warehouse source created holds the source's typed-in credentials (passwords,
-    # keys). The runtime passes an input's secrets to the function code, so no function may use it.
-    if any(WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in (row.config or {}) for row in rows):
-        raise serializers.ValidationError(
-            {"input": "This integration can't be used as a function input. Choose a different integration."}
         )
 
 
@@ -162,7 +155,7 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
     missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
     if missing_ids:
-        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
+        for integration in IntegrationManager.email.credentials.get_many(get_team().id, missing_ids).values():
             config = integration.config or {}
             domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
         for integration_id in missing_ids:
@@ -822,8 +815,17 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
         elif item_type == "task_repository":
-            if not isinstance(value, str):
-                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+            repositories = [value] if isinstance(value, str) else value
+            if (
+                not isinstance(repositories, list)
+                or not all(isinstance(v, str) for v in repositories)
+                or len(repositories) > MAX_TASK_REPOSITORIES
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": f"Value must be a list of up to {MAX_TASK_REPOSITORIES} repository names like your-org/your-repo."
+                    }
+                )
         elif item_type == "task_model":
             # A non-empty value means a model was chosen (an empty value returned above as "use the
             # default model"), so it must name a usable model. Otherwise the run-time consumer drops
