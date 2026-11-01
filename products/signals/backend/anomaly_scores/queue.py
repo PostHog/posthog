@@ -424,10 +424,6 @@ def too_expensive_counts(insight_ids: list[int]) -> dict[int, int]:
     }
 
 
-def too_expensive_cooldown(count: int) -> datetime.timedelta:
-    return TOO_EXPENSIVE_COOLDOWNS[min(max(count, 1), len(TOO_EXPENSIVE_COOLDOWNS)) - 1]
-
-
 def mark_too_expensive(insight_id: int, previous: int) -> int:
     """Count one more too-expensive visit, and start the cooldown of the new count. Returns the new count.
 
@@ -436,7 +432,7 @@ def mark_too_expensive(insight_id: int, previous: int) -> int:
     """
     count = previous + 1
     cache.set(_too_expensive_key(insight_id), count, timeout=int(_TOO_EXPENSIVE_COUNT_TTL.total_seconds()))
-    mark_attempted(insight_id, too_expensive_cooldown(count))
+    mark_attempted(insight_id, TOO_EXPENSIVE_COOLDOWNS[min(count, len(TOO_EXPENSIVE_COOLDOWNS)) - 1])
     return count
 
 

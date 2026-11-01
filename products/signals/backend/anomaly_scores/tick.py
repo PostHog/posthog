@@ -96,7 +96,7 @@ _PLAN_TIMEOUT = datetime.timedelta(minutes=2)
 # A timed-out attempt does not stop its thread, so a plan that ends in time also keeps its retry from overlapping it.
 _PLAN_LOAD_BUDGET = _PLAN_TIMEOUT / 2
 # All the scoring queries of one insight stop within their budget. The rest is detection, the capture request,
-# and the failure classification. A query timeout must reach the classification, so that it gets the too-expensive cooldown.
+# and the failure classification. A query timeout must reach the classification, so that its cooldown grows.
 _INSIGHT_TIMEOUT = datetime.timedelta(seconds=SCORING_QUERY_BUDGET_SECONDS) + datetime.timedelta(seconds=90)
 _INSIGHT_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
 _CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
