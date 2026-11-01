@@ -148,6 +148,20 @@ describe('HogFlowManager', () => {
         }, 10000)
     })
 
+    it('reads the primary once for concurrent jobs of a workflow the database no longer has', async () => {
+        const deletedId = new FixtureHogFlowBuilder().withTeamId(teamId1).build().id
+        const querySpy = jest.spyOn(hub.postgres, 'query')
+
+        const flows = await Promise.all(
+            Array.from({ length: 5 }, () => manager.getHogFlowCheckingPrimaryOnMiss(deletedId))
+        )
+
+        expect(flows).toEqual(Array(5).fill(null))
+        expect(
+            querySpy.mock.calls.filter(([use, , , tag]) => use === PostgresUse.COMMON_WRITE && tag === 'fetchHogFlows')
+        ).toHaveLength(1)
+    })
+
     describe('email sending pause', () => {
         // The pause only reaches the send choke point through the manager's column list, so a
         // column left out of HOG_FLOW_FIELDS silently lets a paused workflow keep sending.
