@@ -1,7 +1,7 @@
 import gzip
 import json
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -12,10 +12,11 @@ from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import jwt
+import httpx
 import requests
 from asgiref.sync import async_to_sync
 from dateutil.relativedelta import relativedelta
@@ -56,6 +57,7 @@ from ee.api.billing import (
     _resolve_team_labels,
     _rewrite_csv_labels,
     _stream_chunks,
+    ai_spend_period,
 )
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_manager import BillingManager, BillingServiceResponseError
@@ -1498,6 +1500,22 @@ def _billing_answer(status_code: int, body: dict[str, Any]) -> MagicMock:
     return answer
 
 
+GATEWAY_SPEND = {
+    "balance_usd": "118.400000",
+    "spend_usd": "302.550000",
+    "free_usd": "30.000000",
+    "products": [
+        {
+            "product": "self_driving",
+            "name": "Self-driving",
+            "spend_usd": "219.200000",
+            "free_usd": "10.000000",
+        }
+    ],
+    "days": [{"date": "2026-10-18", "spend_usd": {"self_driving": "12.400000"}}],
+}
+
+
 class TestAICreditsBillingAPI(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1596,6 +1614,65 @@ class TestAICreditsBillingAPI(APILicensedTest):
 
         assert (response.status_code, response.json()["attr"]) == (400, field)
         mock_request.assert_not_called()
+
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.get")
+    def test_reads_the_billing_period_from_the_gateway(self, mock_get: MagicMock) -> None:
+        self.organization.usage = {"period": ["2026-10-18T00:00:00Z", "2026-11-18T00:00:00Z"]}
+        self.organization.save()
+        mock_get.return_value = httpx.Response(200, json=GATEWAY_SPEND, request=httpx.Request("GET", "http://gw"))
+
+        response = self.client.get("/api/billing/ai_credits/spend?period=previous")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_get.call_args.args[0] == f"http://gateway.example/internal/accounts/{self.organization.id}/spend"
+        assert mock_get.call_args.kwargs["params"] == {"start": "2026-09-18", "end": "2026-10-18"}
+        assert (response.json()["period_start"], response.json()["period_end"]) == ("2026-09-18", "2026-10-18")
+
+    @parameterized.expand(
+        [
+            ("gateway_error", httpx.Response(500, json={"error": "gateway's own words"})),
+            ("answer_missing_fields", httpx.Response(200, json={"balance_usd": "gateway's own words"})),
+        ]
+    )
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.get")
+    def test_a_failed_gateway_read_is_a_named_error(
+        self, _name: str, gateway_answer: httpx.Response, mock_get: MagicMock
+    ) -> None:
+        gateway_answer.request = httpx.Request("GET", "http://gw")
+        mock_get.return_value = gateway_answer
+
+        response = self.client.get("/api/billing/ai_credits/spend")
+
+        assert (response.status_code, response.json()["code"]) == (503, "ai_spend_unavailable")
+        assert "gateway's own words" not in response.content.decode()
+
+
+class TestAISpendPeriod(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "current",
+                ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"],
+                "current",
+                date(2026, 10, 18),
+                date(2026, 11, 18),
+            ),
+            (
+                "previous",
+                ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"],
+                "previous",
+                date(2026, 9, 18),
+                date(2026, 10, 18),
+            ),
+            ("calendar_month_without_a_billing_period", None, "current", date(2026, 11, 1), date(2026, 12, 1)),
+        ]
+    )
+    def test_period_bounds(self, _name: str, period: list[str] | None, which: str, start: date, end: date) -> None:
+        organization = Organization(usage={"period": period} if period else None)
+
+        assert ai_spend_period(organization, which, datetime(2026, 11, 3, 12, tzinfo=UTC)) == (start, end)
 
 
 class TestPartnerManagedBillingAPI(APILicensedTest):

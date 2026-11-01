@@ -15,10 +15,12 @@ import type {
     AICreditPurchaseResponseApi,
     AICreditQuoteResponseApi,
     AICreditSettingsResponseApi,
+    AISpendResponseApi,
     BillingActivationRequestApi,
     BillingActivationResponseApi,
     BillingAiCreditsHistoryRetrieveParams,
     BillingAiCreditsQuoteRetrieveParams,
+    BillingAiCreditsSpendRetrieveParams,
     BillingAlertCheckNowResponseApi,
     BillingAlertConfigurationApi,
     BillingAlertDeleteDestinationApi,
@@ -281,6 +283,32 @@ export const billingAiCreditsSettingsSpendLimitPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedAISpendLimitRequestApi),
+    })
+}
+
+export const getBillingAiCreditsSpendRetrieveUrl = (params?: BillingAiCreditsSpendRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/billing/ai_credits/spend/?${stringifiedParams}`
+        : `/api/billing/ai_credits/spend/`
+}
+
+export const billingAiCreditsSpendRetrieve = async (
+    params?: BillingAiCreditsSpendRetrieveParams,
+    options?: RequestInit
+): Promise<AISpendResponseApi> => {
+    return apiMutator<AISpendResponseApi>(getBillingAiCreditsSpendRetrieveUrl(params), {
+        ...options,
+        method: 'GET',
     })
 }
 

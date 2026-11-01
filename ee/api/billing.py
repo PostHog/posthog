@@ -2,7 +2,7 @@ import re
 import json
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, NoReturn, Optional, cast
 from uuid import UUID
@@ -18,6 +18,7 @@ from django.utils.cache import patch_vary_headers
 import requests
 import structlog
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
@@ -32,6 +33,7 @@ from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, get_org_spend
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_provisioning import get_billing_lock_partner
@@ -889,6 +891,68 @@ class AICreditPurchaseResponseSerializer(serializers.Serializer):
     )
 
 
+class AISpendUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "ai_spend_unavailable"
+    default_detail = "AI spend isn't available right now. Try again in a few minutes."
+
+
+class AISpendPeriod(models.TextChoices):
+    CURRENT = "current", "Current"
+    PREVIOUS = "previous", "Previous"
+
+
+def _spend_field(help_text: str) -> serializers.DecimalField:
+    # The gateway's ledger keeps amounts to the millionth of a dollar.
+    return serializers.DecimalField(max_digits=18, decimal_places=6, help_text=help_text)
+
+
+class AISpendRequestSerializer(serializers.Serializer):
+    period = serializers.ChoiceField(
+        choices=AISpendPeriod.choices,
+        default=AISpendPeriod.CURRENT,
+        help_text="The current billing period, or the one before it.",
+    )
+
+
+class AISpendProductSerializer(serializers.Serializer):
+    product = serializers.CharField(help_text="The AI product, as the AI gateway names it.")
+    name = serializers.CharField(help_text="The product's name for display.")
+    spend_usd = _spend_field("Charged to the AI balance in the period, in USD.")
+    free_usd = _spend_field("The list cost minus the charged amount, in USD.")
+
+
+class AISpendDaySerializer(serializers.Serializer):
+    date = serializers.DateField(help_text="The day, in UTC.")
+    spend_usd = serializers.DictField(
+        child=_spend_field("Charged that day, in USD."),
+        help_text="Charged to the AI balance that day, in USD, by product.",
+    )
+
+
+class AISpendResponseSerializer(serializers.Serializer):
+    balance_usd = _spend_field("The organization's AI balance now, in USD. Below zero after overage.")
+    period_start = serializers.DateField(help_text="The first day of the billing period.")
+    period_end = serializers.DateField(help_text="The day the next billing period starts.")
+    spend_usd = _spend_field("Charged to the AI balance in the period, in USD.")
+    free_usd = _spend_field("The list cost minus the charged amount, in USD.")
+    products = AISpendProductSerializer(many=True, help_text="Spend by AI product.")
+    days = AISpendDaySerializer(many=True, help_text="Spend by day, for the days so far.")
+
+
+def ai_spend_period(organization: Organization, period: str, now: datetime) -> tuple[date, date]:
+    """The period's first day and the next period's first day. An organization with no billing period gets the calendar month."""
+    billing_period = organization.current_billing_period
+    if billing_period:
+        start, end = billing_period.start.date(), billing_period.end.date()
+    else:
+        start = now.date().replace(day=1)
+        end = start + relativedelta(months=1)
+    if period == AISpendPeriod.PREVIOUS:
+        return start - relativedelta(months=1), start
+    return start, end
+
+
 def _ai_credits_error(
     error: BillingServiceResponseError,
     organization: Organization,
@@ -1530,6 +1594,34 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             lambda manager, organization: manager.ai_credit_history(organization, query["limit"], query["offset"])
         )
         return Response(AICreditHistoryResponseSerializer(answer).data)
+
+    @validated_request(
+        query_serializer=AISpendRequestSerializer,
+        responses={200: OpenApiResponse(response=AISpendResponseSerializer)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="ai_credits/spend",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
+    def ai_spend(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if not get_cached_instance_license():
+            raise NotFound("AI credits need PostHog Cloud.")
+        organization = self._get_org_required()
+        start, end = ai_spend_period(organization, request.validated_query_data["period"], timezone.now())
+        try:
+            spend = get_org_spend(str(organization.id), start, end)
+        except AIGatewayInternalError as error:
+            logger.warning("ai_spend_gateway_unavailable", organization_id=str(organization.id))
+            raise AISpendUnavailable() from error
+        answer = AISpendResponseSerializer(data={**spend, "period_start": start, "period_end": end})
+        if not answer.is_valid():
+            logger.warning(
+                "ai_spend_gateway_answer_invalid", organization_id=str(organization.id), errors=answer.errors
+            )
+            raise AISpendUnavailable()
+        return Response(answer.data)
 
     @validated_request(responses={200: OpenApiResponse(response=AICreditCardResponseSerializer)})
     @action(

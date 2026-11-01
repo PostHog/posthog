@@ -749,6 +749,61 @@ export namespace Schemas {
     }
 
     /**
+     * Charged to the AI balance that day, in USD, by product.
+     */
+    export type AISpendDaySpendUsd = {[key: string]: string};
+
+    export interface AISpendDay {
+      /** The day, in UTC. */
+      date: string;
+      /** Charged to the AI balance that day, in USD, by product. */
+      spend_usd: AISpendDaySpendUsd;
+    }
+
+    export interface AISpendProduct {
+      /** The AI product, as the AI gateway names it. */
+      product: string;
+      /** The product's name for display. */
+      name: string;
+      /**
+         * Charged to the AI balance in the period, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      spend_usd: string;
+      /**
+         * The list cost minus the charged amount, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      free_usd: string;
+    }
+
+    export interface AISpendResponse {
+      /**
+         * The organization's AI balance now, in USD. Below zero after overage.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      balance_usd: string;
+      /** The first day of the billing period. */
+      period_start: string;
+      /** The day the next billing period starts. */
+      period_end: string;
+      /**
+         * Charged to the AI balance in the period, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      spend_usd: string;
+      /**
+         * The list cost minus the charged amount, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      free_usd: string;
+      /** Spend by AI product. */
+      products: AISpendProduct[];
+      /** Spend by day, for the days so far. */
+      days: AISpendDay[];
+    }
+
+    /**
      * * `full` - Full
      * * `incremental` - Incremental
      */
@@ -129311,6 +129366,25 @@ export namespace Schemas {
      */
     amount_usd: string;
     };
+
+    export type BillingAiCreditsSpendRetrieveParams = {
+    /**
+     * The current billing period, or the one before it.
+     *
+     * * `current` - Current
+     * * `previous` - Previous
+     * @minLength 1
+     */
+    period?: BillingAiCreditsSpendRetrievePeriod;
+    };
+
+    export type BillingAiCreditsSpendRetrievePeriod = typeof BillingAiCreditsSpendRetrievePeriod[keyof typeof BillingAiCreditsSpendRetrievePeriod];
+
+
+    export const BillingAiCreditsSpendRetrievePeriod = {
+      Current: 'current',
+      Previous: 'previous',
+    } as const;
 
     export type BillingSpendRetrieveParams = {
     /**
