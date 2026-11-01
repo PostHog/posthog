@@ -278,8 +278,9 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
             }
 
             switch (change.field) {
+                case 'paused':
+                // Older log entries store the "paused" values under the "enabled" field name
                 case 'enabled': {
-                    // Raw value is "paused" — true means paused/disabled
                     if (change.after) {
                         changes.push({ inline: 'disabled', inlist: 'disabled the batch export' })
                     } else {
