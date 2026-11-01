@@ -25,7 +25,7 @@ from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
-from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -66,6 +66,7 @@ from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ES
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.scanner_access import recording_viewer_access
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
@@ -220,23 +221,71 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["sampling_rate"], value)
 
-    def test_create_without_ai_consent_returns_tagged_400(self) -> None:
+    @parameterized.expand([("create",), ("turn_on",)])
+    def test_without_ai_consent_returns_tagged_400(self, action: str) -> None:
         # The code is a contract the experiment wizard reads to keep this expected 400 out of error
         # tracking, so it must stay stable, not just the status.
+        scanner = self._create_scanner(enabled=False)
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
-        resp = self.client.post(
-            self.scanners_url,
-            data={
-                "name": "needs-consent",
-                "scanner_type": ScannerType.MONITOR,
-                "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_8_FLASH,
-            },
-            format="json",
-        )
+        if action == "create":
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "needs-consent",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                },
+                format="json",
+            )
+        else:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
+
+    @parameterized.expand(
+        [
+            ("creator_left_without_take_over", True, False, "admin", "scanner_creator_lost_access", False, False),
+            ("creator_left_with_take_over", True, True, "admin", None, True, True),
+            ("taker_cannot_view_recordings", True, True, "no_recordings", "invalid_input", False, False),
+            ("taker_cannot_manage_access", True, True, "member", "invalid_input", False, False),
+            ("creator_still_member_ignores_take_over", False, True, "member", None, True, False),
+        ]
+    )
+    def test_turning_on_a_scanner_whose_creator_lost_access_needs_an_explicit_take_over(
+        self,
+        _name: str,
+        creator_left: bool,
+        take_over: bool,
+        taker: str,
+        error_code: str | None,
+        enabled: bool,
+        taken_over: bool,
+    ) -> None:
+        if taker != "member":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+        creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+        if not creator_left:
+            self.organization.members.add(creator)
+        scanner = self._create_scanner(enabled=False, created_by=creator)
+
+        with patch(
+            "products.replay_vision.backend.api.scanners.recording_viewer_access",
+            side_effect=(lambda *_: None) if taker == "no_recordings" else None,
+            wraps=recording_viewer_access,
+        ):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/", {"enabled": True, "take_over_as_creator": take_over}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 400 if error_code else 200, resp.json())
+        if error_code:
+            self.assertEqual(resp.json()["code"], error_code)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.enabled, enabled)
+        self.assertEqual(scanner.created_by, self.user if taken_over else creator)
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")
@@ -431,6 +480,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(waiting.status_code, 201, waiting.json())
         other = post("waiting-on-other-draft", other_draft.id, enabled=False)
         self.assertEqual(other.status_code, 201, other.json())
+        departed_creator = post("waiting-without-a-creator", draft.id, enabled=False)
+        ReplayScanner.objects.filter(id=departed_creator.json()["id"]).update(
+            created_by=User.objects.create_user(email="departed@example.com", password="x", first_name="d")
+        )
 
         early_enable = self.client.patch(
             f"{self.scanners_url}{waiting.json()['id']}/", data={"enabled": True}, format="json"
@@ -445,6 +498,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertTrue(started.enabled)
         self.assertNotIn("start_on_launch", started.scanner_config)
         self.assertFalse(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
+        never_started = ReplayScanner.objects.get(id=departed_creator.json()["id"])
+        self.assertFalse(never_started.enabled)
+        self.assertTrue(never_started.scanner_config["start_on_launch"])
 
         # Setting a start date on a draft also launches it, through the experiment update path.
         patch_launch = self.client.patch(
