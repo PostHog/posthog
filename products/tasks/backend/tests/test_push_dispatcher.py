@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from contextlib import nullcontext
 from uuid import uuid4
 
@@ -9,6 +10,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -19,8 +21,10 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.awaiting_input import dispatch_awaiting_input
+from products.tasks.backend.logic.stream.push_message import PushMessage
+from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.mobile_push import mobile_push_user_ids, record_mobile_pickup
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
     notify_task_handoff,
     notify_task_pull_request_outcome,
@@ -30,7 +34,7 @@ from products.tasks.backend.push_dispatcher import (
     notify_task_run_failed,
     notify_task_run_turn_completed,
 )
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync
 
 
 # The Celery dispatch is deferred via transaction.on_commit, which never fires
@@ -58,21 +62,39 @@ class TestPushDispatcher(TestCase):
 
     @parameterized.expand(
         [
-            ("completed", notify_task_run_completed, "finished"),
-            ("failed", notify_task_run_failed, "failed"),
-            ("cancelled", notify_task_run_cancelled, "cancelled"),
-            ("awaiting", notify_task_run_awaiting_input, "needs your input"),
-            ("turn_completed", notify_task_run_turn_completed, "finished"),
+            ("completed", notify_task_run_completed, "finished", None, "  Updated chat  "),
+            ("completed", notify_task_run_completed, "Fixed the chart.", "Fixed the chart.", "  Updated chat  "),
+            ("failed", notify_task_run_failed, "failed", None, "  Updated chat  "),
+            ("cancelled", notify_task_run_cancelled, "cancelled", None, "  Updated chat  "),
+            ("awaiting", notify_task_run_awaiting_input, "needs your input", None, "  Updated chat  "),
+            ("turn_completed", notify_task_run_turn_completed, "finished", None, "  Updated chat  "),
+            ("turn_completed", notify_task_run_turn_completed, "Current reply.", "Current reply.", "  Updated chat  "),
+            ("turn_completed", notify_task_run_turn_completed, "finished", None, ""),
         ]
     )
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_notify_enqueues_push(self, _name, notify_fn, expected_body_fragment, mock_delay):
+    def test_notify_enqueues_push(
+        self,
+        _name: str,
+        notify_fn: Callable[[TaskRun], object],
+        expected_body_fragment: str,
+        preview: str | None,
+        chat_title: str,
+        mock_delay: Mock,
+    ) -> None:
+        Task.objects.filter(id=self.task.id, team_id=self.team.id).update(title=chat_title)
+        key = f"{get_task_run_stream_key(str(self.task_run.id))}:push-message"
+        client = get_tasks_stream_redis_sync()
+        if preview is not None:
+            self.task_run.output = {"final_message": "Previous reply."}
+            client.set(key, PushMessage(text=preview).to_json(), ex=60)
+        self.addCleanup(client.delete, key)
         with self.captureOnCommitCallbacks(execute=True):
             notify_fn(self.task_run)
         mock_delay.assert_called_once()
         user_id, title, body, data, suppressed = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
-        self.assertEqual(title, "PostHog")
+        self.assertEqual(title, chat_title.strip() or "Untitled task")
         self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
         self.assertEqual(data["projectId"], self.task.team_id)
@@ -80,6 +102,34 @@ class TestPushDispatcher(TestCase):
         self.assertEqual(data["notificationKind"], _name)
         # No presence rows in this test's setUp, so nothing to suppress.
         self.assertEqual(suppressed, [])
+
+    @parameterized.expand(
+        [
+            (notify, use_dedicated)
+            for notify in (notify_task_run_completed, notify_task_run_turn_completed, notify_task_run_awaiting_input)
+            for use_dedicated in (False, True)
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.get_tasks_stream_redis_sync")
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_preview_timeout_falls_back_to_status(
+        self,
+        notify: Callable[[TaskRun], object],
+        use_dedicated: bool,
+        mock_delay: Mock,
+        mock_redis: Mock,
+    ) -> None:
+        self.task_run.state = {"use_dedicated_stream": use_dedicated}
+        self.task_run.output = {"final_message": "Previous reply."}
+        mock_redis.return_value.get.side_effect = RedisTimeoutError("preview unavailable")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.task_run)
+
+        mock_redis.assert_called_once_with(use_dedicated, socket_timeout=0.5, socket_connect_timeout=0.5)
+        mock_delay.assert_called_once()
+        expected_status = "needs your input" if notify is notify_task_run_awaiting_input else "finished"
+        self.assertEqual(mock_delay.call_args.args[2], f'"My Task" {expected_status}')
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_trial_completion_does_not_notify_the_operator(self, mock_delay) -> None:
@@ -230,6 +280,54 @@ class TestPushDispatcher(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(outsider_run)
         mock_delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("removed_cached_reply", Channel.ChannelType.PRIVATE, True, "cached", False),
+            ("removed_final_reply", Channel.ChannelType.PRIVATE, True, "final", False),
+            ("removed_status", Channel.ChannelType.PRIVATE, True, "status", False),
+            ("private_member", Channel.ChannelType.PRIVATE, False, "cached", True),
+            ("personal_owner", Channel.ChannelType.PERSONAL, False, "cached", True),
+            ("public_channel", Channel.ChannelType.PUBLIC, False, "cached", True),
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_notification_requires_channel_access(
+        self,
+        _name: str,
+        channel_type: str,
+        remove_membership: bool,
+        preview_source: str,
+        expected_push: bool,
+        mock_delay: Mock,
+    ) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(
+            team=self.team, name="Test channel", channel_type=channel_type, created_by=self.user
+        )
+        self.task.channel = channel
+        self.task.save(update_fields=["channel"])
+        if channel_type == Channel.ChannelType.PRIVATE:
+            membership = ChannelMembership.objects.for_team(self.team.id).create(
+                team=self.team, channel=channel, user=self.user
+            )
+            if remove_membership:
+                membership.delete()
+
+        key = f"{get_task_run_stream_key(str(self.task_run.id))}:push-message"
+        client = get_tasks_stream_redis_sync()
+        self.addCleanup(client.delete, key)
+        if preview_source == "cached":
+            client.set(key, PushMessage(text="Reply content.").to_json(), ex=60)
+        elif preview_source == "final":
+            self.task_run.output = {"final_message": "Reply content."}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
+        if expected_push:
+            mock_delay.assert_called_once()
+            self.assertEqual(mock_delay.call_args.args[2], "Reply content.")
+        else:
+            mock_delay.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_anonymous_task_is_noop(self, mock_delay):
@@ -455,7 +553,7 @@ class TestPushDispatcher(TestCase):
                 )
             get_tasks_cache().clear()
         mock_delay.assert_called_once()
-        self.assertEqual(mock_delay.call_args.args[1:3], ("PostHog", f'"My Task" pull request was {outcome}'))
+        self.assertEqual(mock_delay.call_args.args[1:3], (self.task.title, f'"My Task" pull request was {outcome}'))
         self.assertEqual(mock_delay.call_args.args[3]["pullRequestUrl"], pr_url)
         self.assertEqual(mock_delay.call_args.args[3]["notificationKind"], f"pr_{outcome}")
         with self.captureOnCommitCallbacks(execute=True):

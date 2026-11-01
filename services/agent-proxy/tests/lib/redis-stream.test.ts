@@ -106,6 +106,10 @@ class FakeRedis {
         return this._strings.get(key) ?? null
     }
 
+    async mget(...keys: string[]): Promise<(string | null)[]> {
+        return Promise.all(keys.map((key) => this.get(key)))
+    }
+
     async set(key: string, value: string | number, ...args: unknown[]): Promise<string> {
         const strValue = String(value)
         // Parse optional EX/NX flags
@@ -737,12 +741,42 @@ describe('redis-stream', () => {
                 await stream.markWatched()
             }
 
-            const write = await stream.writeEventWithSequence({ type: 'msg' }, 1)
+            const event = {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: {
+                        update: {
+                            sessionUpdate: 'agent_message_chunk',
+                            content: { type: 'text', text: 'Final reply.' },
+                        },
+                    },
+                },
+            }
+            const write = await stream.writeEventWithSequence(event, 1)
+            const duplicate = await stream.writeEventWithSequence(event, 1)
+            const following = {
+                ...event,
+                notification: {
+                    ...event.notification,
+                    params: {
+                        update: {
+                            sessionUpdate: 'agent_message_chunk',
+                            content: { type: 'text', text: ' Done\ud800.' },
+                        },
+                    },
+                },
+            }
+            await stream.writeEventWithSequence(following, 2)
+            expect(duplicate.accepted).toBe(false)
+            expect(JSON.parse(redis.getStringValue(`${streamKey}:push-message`)!)).toMatchObject({
+                text: 'Final reply. Done�.',
+            })
 
             expect(write.accepted).toBe(true)
             expect(write.streamId !== null).toBe(mirrored)
-            expect(redis.readStreamData(streamKey)).toEqual(mirrored ? [{ type: 'msg' }] : [])
-            expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('1')
+            expect(redis.readStreamData(streamKey)).toEqual(mirrored ? [event, following] : [])
+            expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('2')
         })
 
         it('keeps advancing the sequence across a skip so a later watched write is not a gap', async () => {
