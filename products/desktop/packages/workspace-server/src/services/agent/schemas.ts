@@ -37,6 +37,8 @@ export const startSessionInput = z.object({
   permissionMode: z.string().optional(),
   autoProgress: z.boolean().optional(),
   runMode: z.enum(["local", "cloud"]).optional(),
+  /** Keeps the session's log off the server, for a host whose local sessions have no task run to append to. */
+  skipLogPersistence: z.boolean().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
   codexModelAccess: modelAccessSchema.optional(),
   claudeModelAccess: modelAccessSchema.optional(),

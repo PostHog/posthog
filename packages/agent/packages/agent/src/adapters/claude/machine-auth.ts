@@ -4,6 +4,9 @@ import * as path from "node:path";
 export interface MachineClaudeAuth {
   configDir?: string;
   oauthToken?: string;
+  // Leave CLAUDE_CONFIG_DIR as the user has it: the CLI keeps a separate Keychain login per explicit dir, so pinning
+  // even the default path hides the login a plain `claude auth login` made.
+  keepUserConfigDir?: boolean;
 }
 
 /** Keys that pick the CLI's provider or its endpoint without ANTHROPIC_BASE_URL. */
@@ -70,6 +73,14 @@ export function setMachineClaudeConfigDir(configDir: string | undefined): void {
   resolvedMachineAuth = configDir ? { configDir } : {};
 }
 
+// Set on the process as well, because a bundler can give the caller and the agent separate copies of this module.
+const KEEP_USER_CONFIG_DIR_ENV = "POSTHOG_CLAUDE_USER_CONFIG_DIR";
+
+export function keepUserClaudeConfigDir(): void {
+  resolvedMachineAuth = { keepUserConfigDir: true };
+  process.env[KEEP_USER_CONFIG_DIR_ENV] = "1";
+}
+
 export function machineClaudeAuth(): MachineClaudeAuth {
   return resolvedMachineAuth;
 }
@@ -90,7 +101,10 @@ export function applyMachineClaudeAuth(
   }
   if (auth.configDir) {
     env.CLAUDE_CONFIG_DIR = auth.configDir;
-  } else {
+  } else if (
+    !auth.keepUserConfigDir &&
+    process.env[KEEP_USER_CONFIG_DIR_ENV] !== "1"
+  ) {
     env.CLAUDE_CONFIG_DIR = path.join(os.homedir(), ".claude");
   }
 }
