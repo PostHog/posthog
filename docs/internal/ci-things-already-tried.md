@@ -470,6 +470,8 @@ The Dagster path validator also uses a sparse checkout of every internal Python 
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
 OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
+OAuth Proxy checks use the same workspace and install inputs, plus the complete `services/oauth-proxy/` tree, including the HTML read by tests.
+The filtered install supplies the brand fonts used by the service.
 
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
