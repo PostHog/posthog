@@ -423,7 +423,18 @@ def first_code_send_recorded(team_id: int) -> bool:
     return FirstCodeSend.objects.for_team(team_id).exists()
 
 
-def record_first_code_send(team_id: int) -> bool:
+def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:
+    if not _claim_first_code_send(team_id):
+        return
+    captured = False
+    try:
+        captured = capture()
+    finally:
+        if not captured:
+            FirstCodeSend.objects.for_team(team_id).delete()
+
+
+def _claim_first_code_send(team_id: int) -> bool:
     if first_code_send_recorded(team_id):
         return False
     try:
@@ -434,10 +445,6 @@ def record_first_code_send(team_id: int) -> bool:
             raise
         return False
     return True
-
-
-def forget_first_code_send(team_id: int) -> None:
-    FirstCodeSend.objects.for_team(team_id).delete()
 
 
 def require_code_email_access(

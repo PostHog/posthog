@@ -95,11 +95,9 @@ from products.messaging.backend.facade.transactional_email import (
     TemplateSendOptions,
     TransactionalEmailError,
     TransactionalEmailStage,
-    first_code_send_recorded,
-    forget_first_code_send,
     make_transactional,
     observe_transactional_email_stage,
-    record_first_code_send,
+    report_first_code_send,
     require_code_email_access,
     send_code_email,
     send_transactional_email,
@@ -1001,29 +999,21 @@ class TransactionalEmailSendMixin:
 
     def _report_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> None:
         try:
-            if first_code_send_recorded(self.team_id):
-                return
-            key_creator = _current_creator(key)
-            if key_creator is not None and record_first_code_send(self.team_id):
-                self._capture_first_code_send(key_creator, addressed_by)
+            report_first_code_send(self.team_id, lambda: self._capture_first_code_send(key, addressed_by))
         except Exception as e:
             logger.warning("Failed to capture the first code send", team_id=self.team_id, error=str(e))
 
-    def _capture_first_code_send(self, key_creator: User, addressed_by: str) -> None:
-        queued = False
-        try:
-            queued = (
-                posthoganalytics.capture(
-                    distinct_id=key_creator.distinct_id,
-                    event=FIRST_CODE_SEND_EVENT,
-                    properties={"team_id": self.team_id, "addressed_by": addressed_by},
-                    groups=groups(self.organization, self.team),
-                )
-                is not None
-            )
-        finally:
-            if not queued:
-                forget_first_code_send(self.team_id)
+    def _capture_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> bool:
+        key_creator = _current_creator(key)
+        if key_creator is None:
+            return False
+        queued = posthoganalytics.capture(
+            distinct_id=key_creator.distinct_id,
+            event=FIRST_CODE_SEND_EVENT,
+            properties={"team_id": self.team_id, "addressed_by": addressed_by},
+            groups=groups(self.organization, self.team),
+        )
+        return queued is not None
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         self._capture_api_usage(request, "transactional email api send", properties)

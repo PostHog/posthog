@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -24,7 +25,7 @@ from posthog.models.utils import generate_random_token_personal, generate_random
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.contracts import TemplateManagedBy
-from products.messaging.backend.facade.transactional_email import record_first_code_send
+from products.messaging.backend.facade.transactional_email import report_first_code_send
 from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -1265,23 +1266,33 @@ class TestTransactionalEmail(APIBaseTest):
             if 'INSERT INTO "messaging_firstcodesend"' in query["sql"]
         ] == []
 
-    def test_records_a_projects_first_code_send_once(self, _mock_post, _flag, _capture):
+    def test_reports_a_projects_first_code_send_once(self, _mock_post, _flag, _capture):
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
         other_team = Team.objects.create(organization=self.organization)
+        captured: list[int] = []
 
-        recorded = [
-            record_first_code_send(team_id) for team_id in (self.team.id, self.team.id, environment.id, other_team.id)
-        ]
+        def capture_for(team_id: int) -> Callable[[], bool]:
+            def capture() -> bool:
+                captured.append(team_id)
+                return True
 
-        assert recorded == [True, False, False, True]
+            return capture
+
+        for team_id in (self.team.id, self.team.id, environment.id, other_team.id):
+            report_first_code_send(team_id, capture_for(team_id))
+
+        assert captured == [self.team.id, other_team.id]
 
     def test_the_unique_row_settles_a_first_code_send_the_lookup_missed(self, _mock_post, _flag, _capture):
-        record_first_code_send(self.team.id)
+        report_first_code_send(self.team.id, lambda: True)
+        capture = MagicMock(return_value=True)
 
         with pytest.raises(IntegrityError), transaction.atomic():
             FirstCodeSend.objects.for_team(self.team.id).create(team_id=self.team.id)
         with patch.object(transactional_email, "first_code_send_recorded", return_value=False):
-            assert record_first_code_send(self.team.id) is False
+            report_first_code_send(self.team.id, capture)
+
+        capture.assert_not_called()
 
 
 @pytest.mark.ee
