@@ -30,6 +30,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -53,10 +54,13 @@ from products.tasks.backend.dev_stack_image_models import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.profiles import (
+    PrAuthorship,
     TaskProfile,
+    TaskProfileError,
     TaskRunOptions,
     TaskSource,
     check_task_source,
+    get_task_profile,
     resolve_task_origin,
 )
 from products.tasks.backend.feature_flags import (
@@ -453,6 +457,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Metrics dashboard imports from a Grafana export or a screenshot. Reserved: only the
         # metrics import endpoint creates these, and they stay internal so the task APIs never list them.
         METRICS_IMPORT = "metrics_import", "Metrics Import"
+        # Docs pull requests written by the knowledge writer. Reserved: only its intake creates these.
+        KNOWLEDGE_WRITER = "knowledge_writer", "Knowledge Writer"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -643,6 +649,22 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if is_new:
             transaction.on_commit(self._track_task_created)
+
+    @property
+    def stored_profile(self) -> TaskProfile | None:
+        if not self.profile:
+            return None
+        try:
+            return get_task_profile(self.profile)
+        except TaskProfileError:
+            logger.warning("task_profile_not_registered", task_id=str(self.id), profile=self.profile)
+            return None
+
+    def _resolves_pr_authorship_per_run(self) -> bool:
+        profile = self.stored_profile
+        if profile is None:
+            return self.origin_product == Task.OriginProduct.POSTHOG_AI
+        return profile.user_authorable_prs and profile.default_pr_authorship == PrAuthorship.BOT
 
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
@@ -906,7 +928,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["startup_requested_at"] = startup_requested_at.isoformat()
             state.setdefault("repositories", task.repositories or ([task.repository] if task.repository else []))
             carry_config_snapshot = (
-                task.origin_product == Task.OriginProduct.WORKFLOW and "config_snapshot" not in state
+                task.origin_product in (Task.OriginProduct.WORKFLOW, Task.OriginProduct.KNOWLEDGE_WRITER)
+                and "config_snapshot" not in state
             )
             if state.get("sandbox_template") is None:
                 # A null is "no choice", the same as an absent key, so it must not block the carry.
@@ -933,7 +956,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # Later runs keep the image the task was first provisioned with.
             if carry_sandbox_template and previous_state.get("sandbox_template"):
                 state["sandbox_template"] = previous_state["sandbox_template"]
-            if task.origin_product == Task.OriginProduct.POSTHOG_AI and "pr_authorship_mode" not in state:
+            if task._resolves_pr_authorship_per_run() and "pr_authorship_mode" not in state:
                 from products.tasks.backend.temporal.process_task.utils import (
                     PrAuthorshipMode,
                     resolve_user_github_integration_for_task,
@@ -1060,6 +1083,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "startup_requested_at": startup_requested_at.isoformat(),
                         "startup_run_created_at": task_run.created_at.isoformat(),
                         "startup_scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
+                        # NULL when the caller pinned nothing and the run takes the Tasks default.
+                        "model": state.get("model"),
+                        "runtime_adapter": state.get("runtime_adapter"),
+                        "reasoning_effort": state.get("reasoning_effort"),
                     },
                 )
 
@@ -1281,7 +1308,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
-        profile_key: str | None = None,
+        profile: TaskProfile | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
@@ -1310,10 +1337,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             parse_requested_sandbox_template(sandbox_template) if sandbox_template is not None else None
         )
         from products.tasks.backend.temporal.process_task.utils import (
-            USER_AUTHORABLE_ORIGIN_PRODUCTS,
             PrAuthorshipMode,
             RunSource,
             apply_runtime_adapter_run_state,
+            is_user_authorable,
             resolve_user_github_integration_for_task,
             user_github_integration_is_usable,
         )
@@ -1321,12 +1348,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         github_resolution_allowed = Task._github_resolution_allowed(origin_product, has_repository=bool(repository))
         github_integration = None
         if github_resolution_allowed:
-            github_integration = (
-                Integration.objects.filter(team=team, kind="github")
-                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-                .first()
+            github_integration = next(
+                (
+                    row
+                    for row in IntegrationManager.github.oauth.list(team.id)
+                    if row.errors != ERROR_TOKEN_REFRESH_FAILED
+                    and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+                ),
+                None,
             )
+        github_integration_id = github_integration.id if github_integration is not None else None
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1334,12 +1365,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             client_provenance=client_provenance,
             created_by=created_by,
             repository=repository,
-            github_integration=github_integration,
+            github_integration_id=github_integration_id,
             runtime=runtime,
         )
-        authorship_mode = (
-            PrAuthorshipMode.USER if origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
-        )
+        user_authorable = is_user_authorable(origin_product, profile)
+        authorship_mode = PrAuthorshipMode.USER if user_authorable else PrAuthorshipMode.BOT
         if not github_resolution_allowed:
             pass
         elif authorship_mode == PrAuthorshipMode.USER:
@@ -1400,10 +1430,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
-            profile=profile_key,
+            profile=profile.key if profile else None,
             client_provenance=client_provenance,
             created_by=created_by,
-            github_integration=github_integration,
+            github_integration_id=github_integration_id,
             github_user_integration=github_user_integration,
             repository=repository,
             repositories=resolved_repositories,
@@ -1431,7 +1461,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if origin_product == Task.OriginProduct.SIGNAL_REPORT:
             extra_state["run_source"] = RunSource.SIGNAL_REPORT.value
             extra_state["pr_authorship_mode"] = PrAuthorshipMode.BOT.value
-        elif origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        elif user_authorable:
             extra_state["pr_authorship_mode"] = (
                 PrAuthorshipMode.USER.value if github_user_integration is not None else PrAuthorshipMode.BOT.value
             )
@@ -1618,7 +1648,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             title=title,
             description=description,
             origin_product=cast("Task.OriginProduct", origin.origin_product),
-            profile_key=origin.profile_key,
+            profile=profile,
             user_id=user_id,
             repository=repository,
             repositories=repositories,
@@ -1773,7 +1803,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             title=title,
             description=description,
             origin_product=origin_product,
-            profile_key=origin.profile_key,
+            profile=profile,
             user_id=user_id,
             title_manually_set=title_manually_set,
             repository=repository,

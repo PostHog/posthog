@@ -30,6 +30,8 @@ The query comes from the first source that applies (`resolve_effective_precheck`
 3. The default the canonical skill ships (`scout-precheck-query` frontmatter), for a project
    inside that skill's rollout (`precheck_default_rollout` in the `signals-scout` flag payload).
    Projects outside the rollout run as if there were no default, and form the control group.
+   A background config whose lane sets `require_precheck` always uses the default, whatever the
+   rollout says.
 
 A canonical scout whose input lives in Postgres tables that HogQL cannot read ships its default as a
 code check in `_CODE_PRECHECKS` instead of a query. The same rollout and the same overrides apply. The
@@ -76,6 +78,7 @@ from products.signals.backend.scout_harness.limits import MAX_PRECHECK_ROWS_BYTE
 from products.signals.backend.scout_harness.team_limits import (
     precheck_default_rollout_bucket,
     precheck_default_rollout_percent,
+    resolve_background_lane,
 )
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
@@ -184,11 +187,14 @@ def _placeholders(*, since: datetime, now: datetime, interval_minutes: int) -> d
     }
 
 
-def resolve_effective_precheck(config: SignalScoutConfig, *, is_canonical: bool) -> EffectivePrecheck:
+def resolve_effective_precheck(
+    config: SignalScoutConfig, *, is_canonical: bool, require_default: bool = False
+) -> EffectivePrecheck:
     """The pre-check query a scheduled run of this scout uses, and where it came from.
 
     `is_canonical` says whether the project's skill row is the one the harness ships. A team's own
-    skill can share a canonical name, and it inherits no default from disk.
+    skill can share a canonical name, and it inherits no default from disk. `require_default` skips
+    the rollout check, for a background lane that dispatches only when the default finds something.
     """
     if config.precheck_disabled:
         return EffectivePrecheck(query=None, source="off")
@@ -199,9 +205,16 @@ def resolve_effective_precheck(config: SignalScoutConfig, *, is_canonical: bool)
     if not default and not code_check:
         return EffectivePrecheck(query=None, source="off")
     bucket = precheck_default_rollout_bucket(config.team_id, config.skill_name)
-    if bucket >= precheck_default_rollout_percent(config.skill_name):
+    if not require_default and bucket >= precheck_default_rollout_percent(config.skill_name):
         return EffectivePrecheck(query=None, source="off", rollout_bucket=bucket)
     return EffectivePrecheck(query=default, source="skill_default", rollout_bucket=bucket, code_check=code_check)
+
+
+def _background_lane_requires_precheck(config: SignalScoutConfig) -> bool:
+    if config.managed_by != SignalScoutConfig.ManagedBy.BACKGROUND:
+        return False
+    lane = resolve_background_lane(config.skill_name)
+    return lane is not None and lane.require_precheck
 
 
 def scout_skill_is_canonical(team_id: int, skill_name: str) -> bool:
@@ -246,6 +259,7 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
             "skill_name",
             "created_at",
             "status",
+            "managed_by",
             "enabled_by",
             "created_by",
             "precheck_query",
@@ -261,7 +275,11 @@ def evaluate_scout_precheck(team_id: int, skill_name: str, now: datetime | None 
     # succeed. A skip would hold the lane paused for as long as it stays quiet.
     if config is None or config.status not in SignalScoutConfig.RUNNABLE_STATUSES:
         return None
-    effective = resolve_effective_precheck(config, is_canonical=scout_skill_is_canonical(team_id, skill_name))
+    effective = resolve_effective_precheck(
+        config,
+        is_canonical=scout_skill_is_canonical(team_id, skill_name),
+        require_default=_background_lane_requires_precheck(config),
+    )
     now = now or timezone.now()
     if effective.code_check:
         team = Team.objects.select_related("organization").get(pk=team_id)

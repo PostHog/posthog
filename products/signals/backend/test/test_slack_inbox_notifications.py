@@ -237,8 +237,8 @@ def org_and_team():
     org.delete()
 
 
-def _set_team_channel(team: Team, channel: str) -> None:
-    set_default_slack_notification_channel(team.id, channel)
+def _set_team_channel(team: Team, channel: str, integration: Integration | None = None) -> None:
+    set_default_slack_notification_channel(team.id, channel, integration_id=integration.id if integration else None)
 
 
 def _make_reviewer_user(org: Organization, email: str, login: str) -> User:
@@ -442,6 +442,31 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team, ai
     # a reviewer can be added to a retained report after that approval is revoked. Which of the
     # two variants renders is the shared builder's decision, tested in products/slack_app.
     assert ("@PostHog" in call_kwargs["blocks"][-1]["elements"][0]["text"]) is ai_approved
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("binding", ["bound", "unbound", "removed"])
+def test_dispatch_posts_team_channel_through_the_workspace_that_owns_it(org_and_team, binding):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "workspace-reviewer@example.com", "workspace-bot")
+    oldest = _make_slack_integration(team, reviewer)
+    newer = Integration.objects.create(
+        team=team, kind="slack", integration_id="T456", config={}, sensitive_config={"access_token": "xoxb-other"}
+    )
+    removed = Integration.objects.create(team=team, kind="slack", integration_id="T789", config={})
+    _set_team_channel(team, "CTEAM|#posthog-signals", {"bound": newer, "unbound": None, "removed": removed}[binding])
+    removed.delete()
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["workspace-bot"])
+
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+    ):
+        slack_cls.return_value.client = MagicMock()
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert slack_cls.call_args.args[0] == (newer if binding == "bound" else oldest)
 
 
 @pytest.mark.parametrize(
@@ -655,9 +680,9 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
 
 
 @pytest.mark.django_db
-def test_dispatch_skips_team_channel_when_reviewer_has_own_channel(org_and_team):
-    # The only reviewer has their own channel → they are routed there and nobody falls
-    # back to the team default, so the team channel is not posted to at all.
+def test_dispatch_posts_team_channel_when_reviewer_has_own_channel(org_and_team):
+    # The only reviewer has their own channel. The team channel still gets the report, without
+    # mentioning that reviewer a second time.
     org, team = org_and_team
     user = _make_reviewer_user(org, "own-only@example.com", "own-only-bot")
     integration = _make_slack_integration(team, user)
@@ -680,9 +705,10 @@ def test_dispatch_skips_team_channel_when_reviewer_has_own_channel(org_and_team)
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    assert sent == 1
-    channels = {c.kwargs["channel"] for c in fake_client.chat_postMessage.call_args_list}
-    assert channels == {"CUSER"}
+    assert sent == 2
+    posts = {c.kwargs["channel"]: c.kwargs["blocks"] for c in fake_client.chat_postMessage.call_args_list}
+    assert set(posts) == {"CUSER", "CTEAM"}
+    assert "Suggested" not in json.dumps(posts["CTEAM"])
 
 
 @pytest.mark.django_db
@@ -749,9 +775,9 @@ def test_dispatch_respects_per_user_min_priority_filter(org_and_team):
 
 
 @pytest.mark.django_db
-def test_dispatch_filtered_own_channel_reviewer_does_not_fall_back_to_team(org_and_team):
+def test_dispatch_filtered_own_channel_reviewer_is_not_mentioned_in_team_channel(org_and_team):
     # A reviewer whose own channel is filtered out by their min-priority chose that
-    # threshold — they are not silently rerouted to the team default channel.
+    # threshold, so the team channel gets the report without mentioning them.
     org, team = org_and_team
     user = _make_reviewer_user(org, "low-pri@example.com", "low-bot")
     integration = _make_slack_integration(team, user)
@@ -762,7 +788,7 @@ def test_dispatch_filtered_own_channel_reviewer_does_not_fall_back_to_team(org_a
         slack_notification_min_priority=AutonomyPriority.P1,
     )
     _set_team_channel(team, "CTEAM|#posthog-signals")
-    # P3 is below the user's P1 threshold → no own-channel post and no team fallback.
+    # P3 is below the user's P1 threshold → no own-channel post.
     report = _make_ready_report(team, priority=AutonomyPriority.P3, suggested_logins=["low-bot"])
 
     fake_client = MagicMock()
@@ -776,8 +802,10 @@ def test_dispatch_filtered_own_channel_reviewer_does_not_fall_back_to_team(org_a
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
-    assert sent == 0
-    assert fake_client.chat_postMessage.call_count == 0
+    assert sent == 1
+    call_kwargs = fake_client.chat_postMessage.call_args.kwargs
+    assert call_kwargs["channel"] == "CTEAM"
+    assert "Suggested" not in json.dumps(call_kwargs["blocks"])
 
 
 @pytest.mark.django_db

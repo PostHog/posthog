@@ -142,6 +142,28 @@ The default of a kind is stored data. Do not change the default of a kind that h
 Warehouse source kinds are not in the catalogue. The warehouse product registers them at startup with `register_source_kinds`, and callers reach their rows through `IntegrationManager.source(kind)`.
 A warehouse source row has `config["warehouse_source_type"]`. Every other accessor skips these rows unless you call `with_source_rows()`, and `IntegrationManager.source(kind)` reads only these rows.
 
+## Metrics
+
+`observability.py` records Prometheus metrics for every operation.
+The `instrumented` decorator on each accessor method does this, so a new operation needs only the decorator.
+An async form counts as the operation it calls.
+No label holds a team id, an integration id, an external id or a config value.
+A failure in the metric code is logged and never reaches the caller.
+
+| Metric                                                                             | Answers                                                                 |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `integrations_sdk_operations_total{operation, accessor, kind, auth_type, outcome}` | Which operations, accessors, kinds and auth types callers use           |
+| `integrations_sdk_operation_duration_seconds{operation, accessor, outcome}`        | How long each operation takes                                           |
+| `integrations_sdk_rows_returned{operation, accessor}`                              | How many rows `list`, `get_many` and `list_by_external_id` return       |
+| `integrations_sdk_rows_written_total{operation, kind}`                             | How many rows `update_by_external_id` and `delete_by_external_id` touch |
+| `integrations_sdk_token_refresh_total{kind, result}`                               | How often a refresh is needed, and how often it fails                   |
+
+- `accessor` is `named` (one kind), `any` (`IntegrationManager.any`), `kinds` (`IntegrationManager.kinds(...)`) or `source` (`IntegrationManager.source(kind)`).
+- `kind` is `multi` for `any` and `kinds`.
+- `auth_type` is `oauth`, `token`, `credentials` or `any`.
+- `outcome` is `ok`, `not_found`, `conflict`, `in_use`, `unsupported_filter`, `unsupported_auth_type` or `error`. `error` is any other exception, which the SDK raises again unchanged.
+- `result` is `fresh` (no refresh needed), `refreshed`, `stale_token` (refreshed because the caller passed the stored token) or `error` (the refresh failed).
+
 ## Report usages
 
 A product that uses integration rows reports them from `products/<product>/backend/integration_usages.py`:

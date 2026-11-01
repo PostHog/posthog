@@ -2634,6 +2634,38 @@ describe('LogsIngestionConsumer', () => {
         })
 
         it.each([
+            ['emits', {}, ['posthog.log.records']],
+            ['does not emit under the killswitch', { LOGS_METRICS_RULES_KILLSWITCH: true }, null],
+        ])(
+            'default rules for an allowlisted team without rules of its own: %s',
+            async (_label, overrides, expectedMetricNames) => {
+                // Team rules are off, so only the default-rules allowlist can turn emission on.
+                await createConsumerWithMetricRules({
+                    LOGS_METRICS_RULES_ENABLED_TEAMS: '',
+                    LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: String(team2.id),
+                    ...overrides,
+                })
+                const messages = await createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token,
+                    bytes_uncompressed: '400',
+                    record_count: '1',
+                })
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+                if (expectedMetricNames === null) {
+                    expect(mockEmitter.emit).not.toHaveBeenCalled()
+                    return
+                }
+                expect(mockEmitter.emit).toHaveBeenCalledTimes(1)
+                const [, teamId, payload] = mockEmitter.emit.mock.calls[0]
+                expect(teamId).toBe(team2.id)
+                const names = payload.resourceMetrics.flatMap((rm: any) =>
+                    rm.scopeMetrics[0].metrics.map((m: any) => m.name)
+                )
+                expect(names).toEqual(expectedMetricNames)
+            }
+        )
+
+        it.each([
             ['killswitch', { LOGS_METRICS_RULES_KILLSWITCH: true }],
             ['team gating', { LOGS_METRICS_RULES_ENABLED_TEAMS: '' }],
         ])('does not evaluate rules when disabled via %s', async (_label, overrides) => {

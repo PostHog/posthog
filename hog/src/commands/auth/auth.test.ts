@@ -61,6 +61,36 @@ describe('hog auth login', () => {
         ])
     })
 
+    test.each([
+        ['a posthog.json Cloud host picks the region', [], 'https://eu.posthog.com', 'https://eu.posthog.com'],
+        [
+            '--region beats the posthog.json host',
+            ['--region', 'eu'],
+            'https://us.posthog.com',
+            'https://eu.posthog.com',
+        ],
+    ])('%s', async (_name, flags, configHost, loginHost) => {
+        const result = await runHog(['auth', 'login', ...flags], {
+            env: { CLAUDECODE: '1' },
+            files: { '/work/posthog.json': JSON.stringify({ host: configHost }) },
+            respond: deviceFlow(0),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.requests.map((request) => request.url)).toEqual([`${loginHost}/api/cli-auth/device-code/`])
+    })
+
+    test('a posthog.json host outside PostHog Cloud never starts a login', async () => {
+        const result = await runHog(['auth', 'login'], {
+            env: { CLAUDECODE: '1' },
+            files: { '/work/posthog.json': JSON.stringify({ host: 'https://login.example.com' }) },
+            respond: deviceFlow(0),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'region_required' })
+        expect(result.requests).toEqual([])
+    })
+
     test('an agent that retries gets the same code, so the link it shared keeps working', async () => {
         const result = await runHog(['auth', 'login', '--region', 'eu'], {
             env: { CLAUDECODE: '1' },
@@ -222,10 +252,10 @@ describe('hog auth login', () => {
         [
             'a key in the environment',
             { [CREDENTIALS_FILE]: STORED },
-            { POSTHOG_CLI_API_KEY: 'phx_env' },
+            { HOG_API_KEY: 'phx_env' },
             'logged_out',
             'https://eu.posthog.com/settings/user-api-keys',
-            ['POSTHOG_CLI_API_KEY'],
+            ['HOG_API_KEY'],
         ],
     ])('logout with %s removes what hog stored', async (_name, files, env, status, revokeUrl, stillSet) => {
         const result = await runHog(['auth', 'logout'], { env: { CLAUDECODE: '1', ...env }, files })

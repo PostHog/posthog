@@ -16,6 +16,7 @@ export type ScannerStatus =
     | { kind: 'off'; reason: 'disabled' | 'no_sampling' }
     | { kind: 'limit_reached'; free_only: boolean; credit_limit: number | null; limit_from_free_credits: boolean }
     | { kind: 'quota_exhausted' }
+    | { kind: 'filter_error'; message: string }
     | { kind: 'starting' }
     | { kind: 'delayed'; lastCheckedAt: Dayjs }
     | { kind: 'no_matches'; drought: ScanDrought }
@@ -33,6 +34,7 @@ export type ScannerStatusFields = Pick<
     | 'sweep_throttle_factor'
     | 'created_at'
     | 'last_swept_at'
+    | 'filter_error'
 >
 
 /** The one status the scanner page leads with. Earlier checks win, so a scanner that is off never also reads as stopped. */
@@ -57,6 +59,9 @@ export function scannerStatus(
     }
     if (options.quotaExhausted) {
         return { kind: 'quota_exhausted' }
+    }
+    if (scanner.filter_error) {
+        return { kind: 'filter_error', message: scanner.filter_error }
     }
     const factor = Math.max(1, scanner.sweep_throttle_factor)
     const intervalMinutes = SWEEP_INTERVAL_MINUTES * factor

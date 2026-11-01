@@ -460,6 +460,11 @@ jobs:
               with:
                   # Run only trusted base-branch code with the token that can edit PR comments.
                   ref: ${{ github.event.pull_request.base.sha }}
+                  sparse-checkout: |
+                      .github/scripts/post-trunk-lane-section.mjs
+                      frontend/bin/ci-report/update-ci-report.mjs
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:

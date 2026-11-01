@@ -12,6 +12,7 @@ import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone, isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getRelativeNextPath, isEmail } from 'lib/utils/url'
@@ -22,7 +23,6 @@ import {
     setPendingVerificationEmail,
 } from 'scenes/authentication/shared/verificationCode'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { LoginMethod, SSOProvider } from '~/types'
@@ -217,7 +217,6 @@ export interface CodeVerificationForm {
 export interface loginLogicValues {
     devLoginTimeSavedLabel: string | null // devLoginLogic
     devUsers: DevUser[] // devLoginLogic
-    devUsersLoading: boolean // devLoginLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     preflight: PreflightStatus | null // preflightLogic
     autoRedirectAttemptedForEmail: string | null
@@ -272,7 +271,6 @@ export interface loginLogicActions {
     devLogin: (email: string) => {
         email: string
     } // devLoginLogic
-    loadDevUsers: (_: any) => any // devLoginLogic
     clearGeneralError: () => {
         value: true
     }
@@ -447,9 +445,9 @@ export const loginLogic = kea<loginLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             devLoginLogic,
-            ['devUsers', 'devUsersLoading', 'devLoginTimeSavedLabel'],
+            ['devUsers', 'devLoginTimeSavedLabel'],
         ],
-        actions: [devLoginLogic, ['devLogin', 'loadDevUsers']],
+        actions: [devLoginLogic, ['devLogin']],
     })),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
