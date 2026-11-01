@@ -59,6 +59,7 @@ from posthog.schema_migrations.upgrade import upgrade
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
+from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
@@ -183,6 +184,42 @@ def parse_error_code(e: Exception) -> CohortErrorCode:
 COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
 
 logger = structlog.get_logger(__name__)
+
+
+def _normalize_legacy_operators(properties: dict) -> None:
+    # Legacy groups store operators that filters validation rejects: person properties often omit
+    # `operator`, which every evaluator reads as exact, and cohort references use in/not_in where
+    # filters use `negation`.
+    for leaf in walk_filter_leaves(properties):
+        if leaf.get("type") in ("person", "person_metadata") and leaf.get("operator") is None:
+            leaf["operator"] = "exact"
+        elif leaf.get("type") == "cohort" and leaf.get("operator") in ("in", "not_in", None):
+            # Legacy readers negate when either `negation` or `not_in` is set, so the two never cancel out.
+            if leaf.pop("operator", None) == "not_in":
+                leaf["negation"] = True
+
+
+def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
+    """Convert legacy `groups` into `filters`, or return None if they're empty or any group can't be converted.
+
+    Copies `groups` first, because `Cohort.properties` rewrites them in place.
+    """
+    if not groups:
+        return None
+    try:
+        dummy_cohort = Cohort(filters=None, groups=copy.deepcopy(groups))
+        prop_group = dummy_cohort.properties
+        if prop_group and prop_group.values:
+            properties = prop_group.to_dict()
+            # parse_property_group_data swallows an invalid group into an empty one, so reject any
+            # empty group rather than store filters that match nobody.
+            if not all(properties.get("values") or []):
+                return None
+            _normalize_legacy_operators(properties)
+            return {"properties": properties}
+    except Exception:
+        logger.warning("cohort_legacy_groups_conversion_failed", exc_info=True)
+    return None
 
 
 def close_open_population_attempts(

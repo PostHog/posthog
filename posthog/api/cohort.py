@@ -6,7 +6,6 @@ import uuid
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
 from django.conf import settings
@@ -118,6 +117,7 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    legacy_groups_to_filters,
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
@@ -1551,10 +1551,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         instance = cast(Optional[Cohort], self.instance)
         return instance is not None and instance.is_static and attrs.get("is_static") is False
 
-    def _effective_filters_after_update(self, attrs: dict, team: Optional[Team] = None) -> dict | None:
-        # Derive the properties that survive the save, mirroring Cohort.properties precedence:
-        # filters win over the legacy groups field, so clearing filters re-activates preserved
-        # groups. Pass team on the create path, where there's no instance to read it from.
+    def _effective_filters_after_update(self, attrs: dict) -> dict | None:
+        # Derive the properties that survive the save, mirroring Cohort.properties precedence: filters
+        # win over the legacy groups field, so clearing filters re-activates preserved groups.
         instance = cast(Optional[Cohort], self.instance)
         filters = attrs.get("filters", instance.filters if instance else None)
         if filters:
@@ -1564,12 +1563,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if not groups:
             return None
 
-        effective_team = team or (instance.team if instance else None)
-        if effective_team is None:
-            return None
-
-        cohort = Cohort(team=effective_team, filters=None, groups=deepcopy(groups))
-        return {"properties": cohort.properties.to_dict()}
+        return legacy_groups_to_filters(groups)
 
     def validate_filters(self, raw: dict):
         """
@@ -1634,7 +1628,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             return
 
         # Check what survives the save, not just the fields in the payload.
-        effective = self._effective_filters_after_update(attrs, team=team)
+        effective = self._effective_filters_after_update(attrs)
         properties = effective.get("properties") if effective else None
         # A payload query is what's being saved; a flip re-activates the instance's preserved query.
         query = attrs["query"] if "query" in attrs else (instance.query if reactivating_static and instance else None)
@@ -1679,7 +1673,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         team = _team_from_serializer_context(self.context)
         if team is None:
             return
-        effective = self._effective_filters_after_update(attrs, team=team)
+        effective = self._effective_filters_after_update(attrs)
         if not effective:
             return
         referenced_ids = [
@@ -1716,6 +1710,17 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
+
+        cohort_will_be_static = self._cohort_will_be_static()
+        if not attrs.get("filters") and attrs.get("groups") and not cohort_will_be_static:
+            derived_filters = legacy_groups_to_filters(attrs["groups"])
+            if not derived_filters:
+                raise ValidationError(
+                    {"groups": "The provided legacy groups could not be converted to cohort filters."}
+                )
+
+            # Same schema and feature-flag checks as the `filters` field.
+            attrs["filters"] = self.validate_filters(derived_filters)
 
         parsed_csv = self._parse_csv_upload(attrs)
         if parsed_csv is not None:
@@ -1757,9 +1762,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         team = _team_from_serializer_context(self.context)
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
-        existing = self._effective_filters_after_update({}, team=team)
+        existing = self._effective_filters_after_update({})
         hidden_event = added_hidden_event(
-            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
+            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs))),
             _behavioral_event_names(_flat_properties(existing)),
         )
         if hidden_event and team is not None and hides_flag_calls_from_query_builders(team.organization_id):
