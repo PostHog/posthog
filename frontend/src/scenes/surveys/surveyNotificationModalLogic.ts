@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { hogql } from 'lib/utils/hogql'
 import { convertToHogFunctionInvocationGlobals } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { DESTINATION_OPTIONS, DestinationKey } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 import {
@@ -33,7 +34,6 @@ import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     CyclotronJobFilterEvents,
