@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -61,6 +61,24 @@ class EmailIntegration:
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
+        # Refused early as well as on the constraint below, so an address that already has a sender
+        # does not reach the provider and register a domain for a request that cannot succeed.
+        if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
+            raise ValidationError(
+                f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
+            )
+
+        # SES keeps one MAIL FROM per domain identity, shared by every sender on it, so a new
+        # sender must not bring its own: that would repoint bounce handling for the senders
+        # already using the domain, in this team and in the organization's other projects.
+        existing_on_domain = (
+            model.Integration.objects.filter(kind="email", config__domain=domain)
+            .exclude(config__mail_from_subdomain=None)
+            .first()
+        )
+        if existing_on_domain:
+            mail_from_subdomain = existing_on_domain.config.get("mail_from_subdomain", mail_from_subdomain)
+
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
         same_domain_integrations = model.Integration.objects.filter(kind="email", config__domain=domain)
@@ -88,23 +106,30 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=email_address,
-            defaults={
-                "config": {
-                    "email": email_address,
-                    "domain": domain,
-                    "mail_from_subdomain": mail_from_subdomain,
-                    "reply_to": config.get("reply_to", ""),
-                    "name": name,
-                    "provider": provider,
-                    "verified": True if provider == "maildev" else False,
-                },
-                "created_by": created_by,
-            },
-        )
+        # The provider call above takes seconds, so two creates for one address can both pass the
+        # check. Insert rather than upsert and let the unique constraint settle it: an upsert would
+        # resolve the race as an update and reset the winner's verified flag.
+        try:
+            with transaction.atomic():
+                integration = model.Integration.objects.create(
+                    team_id=team_id,
+                    kind="email",
+                    integration_id=email_address,
+                    config={
+                        "email": email_address,
+                        "domain": domain,
+                        "mail_from_subdomain": mail_from_subdomain,
+                        "reply_to": config.get("reply_to", ""),
+                        "name": name,
+                        "provider": provider,
+                        "verified": True if provider == "maildev" else False,
+                    },
+                    created_by=created_by,
+                )
+        except IntegrityError:
+            raise ValidationError(
+                f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
+            )
 
         if integration.errors:
             integration.errors = ""
@@ -116,7 +141,6 @@ class EmailIntegration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name, mail_from_subdomain, reply_to and setup_method can be updated
-        name: str = config.get("name", self.integration.config.get("name"))
         mail_from_subdomain: str = config.get(
             "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
         )
@@ -135,20 +159,47 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        changes: dict[str, str] = {
-            "name": name,
-            "mail_from_subdomain": mail_from_subdomain,
-            "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
-        }
+        # Only what the caller sent is written back. Filling the rest in from the copy of the row
+        # read before the lock would let an edit undo a field another request changed meanwhile.
+        changes: dict[str, str] = {key: config[key] for key in ("name", "reply_to") if key in config}
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
-        # The row is reread under a lock so a concurrent verification write is not overwritten.
+        if mail_from_changed:
+            # Written back only when the call above really repointed the domain, so an edit that
+            # leaves it out cannot restore a subdomain SES has stopped using.
+            changes["mail_from_subdomain"] = mail_from_subdomain
+        siblings_by_team: dict[int, list[int]] = {}
         with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
-            locked.config.update(changes)
-            locked.save(update_fields=["config"])
+            to_lock = model.Integration.objects.filter(id=self.integration.id)
+            if mail_from_changed:
+                # SES keeps one MAIL FROM per domain identity, so the call above repointed every
+                # sender on this domain. Their rows have to follow, or they keep reporting the old
+                # value and the next sender added to the domain inherits it. A sender from another
+                # organization should not be on this domain, but the check when one is created
+                # cannot rule it out, so stay inside the acting organization.
+                org_team_ids = Team.objects.filter(organization_id=self.integration.team.organization_id).values_list(
+                    "id", flat=True
+                )
+                to_lock = to_lock | model.Integration.objects.filter(
+                    kind="email", config__domain=domain, team_id__in=org_team_ids
+                )
+
+            # Rows are reread under a lock so a concurrent verification write is not overwritten,
+            # and are locked by id, the order _mark_domain_verified takes them in, so two edits on
+            # one domain cannot deadlock each other.
+            locked = self.integration
+            for row in to_lock.select_for_update().order_by("id"):
+                if row.id == self.integration.id:
+                    row.config.update(changes)
+                    locked = row
+                else:
+                    row.config["mail_from_subdomain"] = mail_from_subdomain
+                    siblings_by_team.setdefault(row.team_id, []).append(row.id)
+                row.save(update_fields=["config"])
         self.integration.config = locked.config
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        for sibling_team_id, sibling_ids in siblings_by_team.items():
+            reload_integrations_on_workers(sibling_team_id, sibling_ids)
 
         return self.integration
 
