@@ -1,3 +1,5 @@
+import { Suspense } from 'react'
+
 import * as chart from '@posthog/brand/hoggies/png/chart'
 import * as codeBubble from '@posthog/brand/hoggies/png/code-bubble'
 import * as cursor from '@posthog/brand/hoggies/png/cursor'
@@ -22,14 +24,17 @@ import * as workflows from '@posthog/brand/hoggies/png/workflows'
 import * as xRay from '@posthog/brand/hoggies/png/x-ray'
 import { IconGithub } from '@posthog/icons'
 
-import { Logomark } from 'lib/brand'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { ProductPushDisplay } from './navPanelAdShared'
+
+// The logo geometry is large, and only the PostHog Desktop card shows it. Load it when that card renders.
+const Logomark = lazyWithRetry(() => import('lib/brand').then(({ Logomark }) => ({ default: Logomark })))
 
 const HedgehogChart = pngHoggie(chart)
 const HedgehogCodeBubble = pngHoggie(codeBubble)
@@ -231,7 +236,11 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
         href: urls.settings('environment-integrations', 'integration-github'),
     },
     [ProductKey.POSTHOG_DESKTOP]: {
-        Icon: <Logomark size="xl" />,
+        Icon: (
+            <Suspense fallback={null}>
+                <Logomark size="xl" />
+            </Suspense>
+        ),
         iconUpright: true,
         accentColor: 'var(--color-accent)',
         tagline:
