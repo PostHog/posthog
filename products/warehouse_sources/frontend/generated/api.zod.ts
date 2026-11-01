@@ -782,3 +782,31 @@ export const WarehouseAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.o
         .max(warehouseAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
         .describe("IDs of the alert's destinations to delete, as the list endpoint returns them."),
 })
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
+    api_key: zod.string().describe('Read-only API key for the vendor account.'),
+    api_secret: zod.string().describe('Secret that belongs to the API key.'),
+})
+
+/**
+ * Skip many connections at once, or all but the ones to keep.
+ */
+
+export const WarehouseMigrationsItemsBulkSkipCreateBody = /* @__PURE__ */ zod.object({
+    item_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .optional()
+        .describe('Items to skip. Pass this or `keep_item_ids`, not both.'),
+    keep_item_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
+})
