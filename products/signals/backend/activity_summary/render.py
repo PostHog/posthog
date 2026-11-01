@@ -1127,10 +1127,7 @@ def _mcp_line(session: _McpSession, limits: RenderLimits) -> str:
     fixed = len(head) + len(MCP_CHAIN_SEPARATOR) * (len(chain) - 1) + len("…") * (len(chain) - len(intents))
     # A cap on each intent, so a long first intent cannot push the last one out.
     room = _intent_room([len(intent) for intent in intents], limits.mcp_line_chars - fixed)
-    return cap_line(
-        head + MCP_CHAIN_SEPARATOR.join(intent if intent == "…" else cap_line(intent, room) for intent in chain),
-        limits.mcp_line_chars,
-    )
+    return cap_line(head + MCP_CHAIN_SEPARATOR.join(cap_line(intent, room) for intent in chain), limits.mcp_line_chars)
 
 
 def mcp_units(
