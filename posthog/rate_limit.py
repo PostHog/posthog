@@ -626,6 +626,11 @@ class PostHogSupportTicketCreateSustainedThrottle(_PostHogSupportUserThrottle):
     rate = "20/day"
 
 
+class PostHogSupportTicketReadThrottle(_PostHogSupportUserThrottle):
+    scope = "posthog_support_ticket_read"
+    rate = "120/hour"
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per

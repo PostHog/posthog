@@ -302,7 +302,6 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'PostHog support',
         objectPlural: 'PostHog support tickets',
         info: 'Open and follow tickets with the PostHog support team as you. Tickets you open this way show as sent by you.',
-        disabledActions: ['read'],
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },

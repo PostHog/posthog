@@ -97057,6 +97057,17 @@ export namespace Schemas {
       error: string;
     }
 
+    export interface PostHogSupportMessage {
+      /** Who wrote it: `customer` for the user, `support` for PostHog staff, `AI` for the support assistant. */
+      author_type: string;
+      /** Display name of the author. */
+      author_name: string;
+      /** Message text. */
+      content: string;
+      /** When the message was sent. */
+      created_at: string;
+    }
+
     export interface PostHogSupportTicketCreated {
       /** ID of the new ticket in PostHog's support inbox. */
       ticket_id: string;
@@ -97064,6 +97075,61 @@ export namespace Schemas {
       ticket_status: string;
       /** When support received the first message. */
       created_at: string;
+    }
+
+    export interface PostHogSupportTicketDetail {
+      /** Ticket ID. */
+      ticket_id: string;
+      /** Current status of the ticket.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      ticket_status: TicketStatusEnum;
+      /** Messages the user can see, oldest first. */
+      messages: PostHogSupportMessage[];
+      /** True when the ticket has more messages than this response holds. */
+      has_more: boolean;
+    }
+
+    export interface PostHogSupportTicketSummary {
+      /** Ticket ID. Pass it to posthog-support-ticket-get to read the messages. */
+      id: string;
+      /** Ticket number that PostHog support uses in replies. */
+      ticket_number: number;
+      /** Current status of the ticket.
+       *
+       * * `new` - New
+       * * `open` - Open
+       * * `pending` - Pending
+       * * `on_hold` - On hold
+       * * `resolved` - Resolved */
+      status: TicketStatusEnum;
+      /** Support replies the user has not read yet. */
+      unread_count: number;
+      /**
+         * Start of the newest message in the ticket.
+         * @nullable
+         */
+      last_message: string | null;
+      /**
+         * When the newest message arrived.
+         * @nullable
+         */
+      last_message_at: string | null;
+      /** Number of messages in the ticket. */
+      message_count: number;
+      /** When the ticket was opened. */
+      created_at: string;
+    }
+
+    export interface PostHogSupportTicketList {
+      /** Total number of the user's tickets that match the filter. */
+      count: number;
+      /** The user's tickets, newest first. */
+      results: PostHogSupportTicketSummary[];
     }
 
     /**
@@ -141251,6 +141317,49 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PosthogSupportTicketsListParams = {
+    /**
+     * Number of tickets to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of tickets to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only return tickets with this status.
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved
+     * @minLength 1
+     */
+    status?: PosthogSupportTicketsListStatus;
+    };
+
+    export type PosthogSupportTicketsListStatus = typeof PosthogSupportTicketsListStatus[keyof typeof PosthogSupportTicketsListStatus];
+
+
+    export const PosthogSupportTicketsListStatus = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
+
+    export type PosthogSupportTicketsRetrieveParams = {
+    /**
+     * Only return messages sent after this time. When `has_more` is true, pass the `created_at` of the last message to read the next page.
+     */
+    after?: string;
     };
 
     export type PrecomputeDebugStateParams = {
