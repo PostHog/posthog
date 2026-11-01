@@ -18,7 +18,14 @@ class RecallAIEndpointConfig:
     extra_params: tuple[tuple[str, str], ...] = ()
     # False for endpoints that return a bare JSON array instead of a cursor-paginated envelope.
     paginated: bool = True
+    incremental_field_type: IncrementalFieldType = IncrementalFieldType.DateTime
 
+
+USAGE_ENDPOINT = "usage"
+# The usage endpoint allows 5 requests per minute per workspace.
+USAGE_REQUEST_INTERVAL_SECONDS = 12.0
+USAGE_BACKFILL_DAYS = 90
+USAGE_RESTATEMENT_DAYS = 3
 
 RECALL_AI_ENDPOINTS: dict[str, RecallAIEndpointConfig] = {
     # The bot list only filters on join_at (date granularity), and join_at is the scheduled
@@ -85,6 +92,17 @@ RECALL_AI_ENDPOINTS: dict[str, RecallAIEndpointConfig] = {
         scrub_fields=("zoom_rtms.signature", "google_meet_media_api.access_token"),
         paginated=False,
     ),
+    # One row per UTC day, built from one request per day. The endpoint only returns a bot_total
+    # for the requested range, so `date` and `bot_total` are the whole row. Recent days restate
+    # as late bot completions are billed, so incremental syncs re-read a trailing window.
+    USAGE_ENDPOINT: RecallAIEndpointConfig(
+        path="/api/v1/billing/usage/",
+        partition_key="date",
+        incremental_param="start",
+        incremental_field="date",
+        paginated=False,
+        incremental_field_type=IncrementalFieldType.Date,
+    ),
 }
 
 ENDPOINTS = tuple(RECALL_AI_ENDPOINTS.keys())
@@ -94,9 +112,9 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         [
             {
                 "label": config.incremental_field,
-                "type": IncrementalFieldType.DateTime,
+                "type": config.incremental_field_type,
                 "field": config.incremental_field,
-                "field_type": IncrementalFieldType.DateTime,
+                "field_type": config.incremental_field_type,
             }
         ]
         if config.incremental_param and config.incremental_field

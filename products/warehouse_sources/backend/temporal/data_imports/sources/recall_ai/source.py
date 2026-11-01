@@ -125,7 +125,7 @@ class RecallAISource(ResumableSource[RecallAISourceConfig, RecallAIResumeConfig]
             name=ExternalDataSourceType.RECALLAI,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Recall.ai",
-            caption="Sync meeting bots, recordings, transcripts, participant events, and calendar data from Recall.ai.",
+            caption="Sync meeting bots, recordings, transcripts, participant events, calendar data, and bot usage from Recall.ai.",
             docsUrl="https://posthog.com/docs/cdp/sources/recall-ai",
             iconPath="/static/services/recall_ai.png",
             keywords=["meetings", "call recording", "transcripts", "bots"],
