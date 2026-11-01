@@ -10,16 +10,19 @@ from products.messaging.backend.facade.contracts import TemplateChangePrompt, Te
 
 LIQUID_DELIMITERS: Final = (("{{", "}}"), ("{%", "%}"))
 VARIABLE: Final = re.compile(r"(?<![\w.])variables\.([A-Za-z_][\w-]*)")
-COMMIT_SHA: Final = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+COMMIT_SHA: Final = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$", re.IGNORECASE)
 SOURCE_REPOSITORY: Final = re.compile(r"[\w.-]+(?:/[\w.-]+)+")
 SOURCE_PATH: Final = re.compile(r"[\w.@+~,=()\[\]-]+(?:/[\w.@+~,=()\[\]-]+)*")
 SOURCE_REF: Final = re.compile(r"[\w./-]+")
 SHORT_SHA_LENGTH: Final = 7
 
 FILE_CONTRACT: Final = (
-    "The file is the whole email. The subject is the first `<title>`. The inbox preview text is the `content` of "
-    '`<meta name="preheader">`. Everything in the file is the HTML that PostHog sends.'
+    "If the app loads the file with `posthog.emails.templateFile()`, the file is the whole email: the subject is "
+    'the first `<title>`, and the inbox preview text is the `content` of `<meta name="preheader">`. If the app '
+    "uploads it by key, change the subject and preview text where its upload code sets them. PostHog sends the HTML "
+    "as it is."
 )
+LOADED_OR_UPLOADED: Final = " The app loads it with `posthog.emails.templateFile()` or uploads it by that key."
 PERSONALIZATION: Final = (
     "Personalize only with `{{ variables.<name> }}`. The values come from the `data` the app passes to "
     "`posthog.emails.send`."
@@ -108,12 +111,12 @@ def _identity(source: PromptSource, key: str) -> str:
     if source.path:
         sentence = f"`{source.path}` is the PostHog email template with the key `{key}`"
     else:
-        sentence = f"Find the HTML file that the app loads with `posthog.emails.templateFile()` for the key `{key}`"
+        sentence = f"Find the HTML file of the email template with the key `{key}`"
     if source.repository:
         sentence += f", in the repository `{source.repository}`"
     if source.ref:
         sentence += f", last uploaded from {_ref(source.ref)}"
-    return f"{sentence}."
+    return f"{sentence}." if source.path else f"{sentence}.{LOADED_OR_UPLOADED}"
 
 
 def _ref(ref: str) -> str:
@@ -168,7 +171,8 @@ def _join(items: Sequence[str]) -> str:
 
 def _how_it_goes_live(key: str) -> str:
     return (
-        "Do not upload the file by hand. If the app sends it with `posthog.emails.templateFile()`, the next send "
-        f"uploads the changed file. If the app sends it by the key `{key}`, upload the file again after the change "
+        "Publish only after the change is reviewed and merged, because an upload replaces the published template at "
+        "once. If the app sends the file with `posthog.emails.templateFile()`, its first send after the release "
+        f"uploads the changed file. If the app sends it by the key `{key}`, upload the file again after the merge "
         f"(PUT /api/projects/@current/messaging_templates/by_key/{key}/ or the PostHog MCP upload tool)."
     )

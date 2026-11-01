@@ -14,11 +14,11 @@ import { MessageTemplate } from './types'
 const TEMPLATE_ID = '01a148c7-7912-0000-f7e3-d9ac5081d0c6'
 
 const HOW_IT_GOES_LIVE =
-    '- Do not upload the file by hand. If the app sends it with `posthog.emails.templateFile()`, the next send uploads the changed file. If the app sends it by the key `welcome`, upload the file again after the change (PUT /api/projects/@current/messaging_templates/by_key/welcome/ or the PostHog MCP upload tool).\n' +
+    '- Publish only after the change is reviewed and merged, because an upload replaces the published template at once. If the app sends the file with `posthog.emails.templateFile()`, its first send after the release uploads the changed file. If the app sends it by the key `welcome`, upload the file again after the merge (PUT /api/projects/@current/messaging_templates/by_key/welcome/ or the PostHog MCP upload tool).\n' +
     `- The template in PostHog: https://us.posthog.com/project/997/workflows/library/templates/${TEMPLATE_ID}`
 
 const FILE_CONTRACT_AND_VARIABLES =
-    '- The file is the whole email. The subject is the first `<title>`. The inbox preview text is the `content` of `<meta name="preheader">`. Everything in the file is the HTML that PostHog sends.\n' +
+    '- If the app loads the file with `posthog.emails.templateFile()`, the file is the whole email: the subject is the first `<title>`, and the inbox preview text is the `content` of `<meta name="preheader">`. If the app uploads it by key, change the subject and preview text where its upload code sets them. PostHog sends the HTML as it is.\n' +
     '- Personalize only with `{{ variables.<name> }}`. The values come from the `data` the app passes to `posthog.emails.send`. This file uses `{{ variables.first_name }}` and `{{ variables.confirm_url }}`.\n'
 
 function codeManagedTemplate(overrides: Partial<MessageTemplate>): MessageTemplate {
@@ -48,7 +48,7 @@ const WITHOUT_PATH = codeManagedTemplate({
     change_prompt_starter: 'In the HTML file of the `welcome` email template, change ',
     change_prompt_context:
         'About this file:\n' +
-        '- Find the HTML file that the app loads with `posthog.emails.templateFile()` for the key `welcome`.\n' +
+        '- Find the HTML file of the email template with the key `welcome`. The app loads it with `posthog.emails.templateFile()` or uploads it by that key.\n' +
         FILE_CONTRACT_AND_VARIABLES +
         HOW_IT_GOES_LIVE,
 })
