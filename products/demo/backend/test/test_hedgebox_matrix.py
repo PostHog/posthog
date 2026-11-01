@@ -3,12 +3,18 @@ import datetime as dt
 from types import SimpleNamespace
 from typing import Any, cast
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.demo.backend.logic.matrix.matrix import Cluster
 from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxMatrix
 from products.demo.backend.logic.products.hedgebox.taxonomy import (
@@ -18,6 +24,69 @@ from products.demo.backend.logic.products.hedgebox.taxonomy import (
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
 )
+from products.product_analytics.backend.facade.models import Insight
+
+
+class TestHedgeboxMatrixInitialViews(BaseTest):
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.sync_issues_to_clickhouse")
+    @patch("products.demo.backend.logic.products.hedgebox.matrix.create_event")
+    def test_project_setup_populates_user_pins_and_last_24_hour_errors(
+        self, mock_create_event: MagicMock, _mock_sync: MagicMock
+    ) -> None:
+        matrix = HedgeboxMatrix(seed="initial-views", n_clusters=0)
+        matrix.clusters = [
+            cast(
+                Cluster,
+                SimpleNamespace(
+                    people=[
+                        SimpleNamespace(
+                            past_events=[object()],
+                            in_posthog_id=uuid.uuid4(),
+                            in_product_id="demo-person",
+                            distinct_ids_at_now={"demo-person"},
+                            properties_at_now={"email": "demo@example.com"},
+                            first_seen_at=matrix.start,
+                        )
+                    ]
+                ),
+            )
+        ]
+
+        existing_shortcut_ids = set(FileSystemShortcut.objects.values_list("pk", flat=True))
+
+        matrix.set_project_up(self.team, self.user)
+
+        dashboard_id = self.team.primary_dashboard_id
+        assert dashboard_id is not None
+        dashboard = Dashboard.objects.get(team=self.team, pk=dashboard_id, pinned=True)
+        expected_refs = {
+            ("dashboard", str(dashboard.pk)),
+            ("insight", Insight.objects.get(team=self.team, name="Weekly signups", saved=True).short_id),
+            (
+                "insight",
+                Insight.objects.get(team=self.team, name="Last month's signups by country", saved=True).short_id,
+            ),
+        }
+        new_shortcuts = FileSystemShortcut.objects.filter(type__in=["dashboard", "insight"]).exclude(
+            pk__in=existing_shortcut_ids
+        )
+        assert new_shortcuts.count() == len(expected_refs)
+        assert set(new_shortcuts.values_list("type", "ref", "surface", "team_id", "user_id")) == {
+            (item_type, ref, DEFAULT_SURFACE, self.team.pk, self.user.pk) for item_type, ref in expected_refs
+        }
+        assert FileSystemShortcut.objects.filter(pk__in=existing_shortcut_ids).count() == len(existing_shortcut_ids)
+
+        recent_errors = [
+            call.kwargs
+            for call in mock_create_event.call_args_list
+            if matrix.now - dt.timedelta(hours=24) < call.kwargs["timestamp"] < matrix.now
+        ]
+        assert len(recent_errors) == 3
+        assert len({event["properties"]["$exception_issue_id"] for event in recent_errors}) == 3
+        for event in recent_errors:
+            assert event["event"] == "$exception"
+            assert event["team"] == self.team
+            assert event["properties"]["$exception_list"][0]["stacktrace"]["frames"]
 
 
 class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):

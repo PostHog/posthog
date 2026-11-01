@@ -49,6 +49,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import PAGEVIEW_EVENT
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
+from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
@@ -907,6 +909,27 @@ class HedgeboxMatrix(Matrix):
             ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=13),
             last_modified_by=user,
+        )
+
+        FileSystemShortcut.objects.bulk_create(
+            [
+                FileSystemShortcut(
+                    team=team,
+                    user=user,
+                    surface=DEFAULT_SURFACE,
+                    type=item_type,
+                    ref=str(item_ref),
+                    path=item_name or "Untitled",
+                    order=order,
+                )
+                for order, (item_type, item_ref, item_name) in enumerate(
+                    [
+                        ("dashboard", key_metrics_dashboard.pk, key_metrics_dashboard.name),
+                        ("insight", weekly_signups_insight.short_id, weekly_signups_insight.name),
+                        ("insight", signups_by_country_insight.short_id, signups_by_country_insight.name),
+                    ]
+                )
+            ]
         )
 
         # Insight views
@@ -1881,7 +1904,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [2, 5, 11, 18],
+                "days_ago": [2, 5, 11, 18, 0],
             },
             {
                 "name": "File preview render failure",
@@ -1935,7 +1958,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [1, 4, 9],
+                "days_ago": [1, 4, 9, 0],
             },
             {
                 "name": "Team invite rejected",
@@ -1987,7 +2010,7 @@ class HedgeboxMatrix(Matrix):
                         ],
                     },
                 ],
-                "days_ago": [3, 7],
+                "days_ago": [3, 7, 0],
             },
         ]
 
@@ -2027,7 +2050,7 @@ class HedgeboxMatrix(Matrix):
                 distinct_id = (
                     sorted(person.distinct_ids_at_now)[0] if person.distinct_ids_at_now else person.in_product_id
                 )
-                timestamp = self.now - dt.timedelta(days=days_ago, hours=index % 5)
+                timestamp = self.now - dt.timedelta(days=days_ago, hours=2 if days_ago == 0 else index % 5)
                 frames = issue_spec["frames"]
                 event_frames = [self._stack_frame_contents(frame) for frame in frames]
                 exception_type = issue_spec["type"]

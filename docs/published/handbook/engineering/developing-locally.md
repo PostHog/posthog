@@ -194,6 +194,89 @@ If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself un
 
 If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
 
+### Prepare the usual local test account
+
+After the local services are ready and Postgres migrations have completed, run these commands from the repository root in the same development environment as the backend:
+
+```bash
+python manage.py setup_local_dev --json
+python manage.py check_local_dev --json
+```
+
+`setup_local_dev` creates the usual `test@posthog.com` account with password `12345678` through `generate_demo_data` only when the account is absent.
+A new account gets a smaller Hedgebox sample with the usual 120 days of historical coverage, including saved views.
+An existing account keeps its selected project, password, project token, and data.
+The command stops if the account uses a different password or has no selected project; sign in with its existing details and select a project before continuing.
+It also stops before changes if Postgres is unavailable or migrations are pending.
+Run `python manage.py migrate` after starting the services if it reports pending migrations.
+Local OAuth also needs `OIDC_RSA_PRIVATE_KEY` in the development environment; setup checks this before creating an account.
+Keep the private key out of source control and restart the backend after changing it.
+
+Setup takes a dedicated database lock, so a second concurrent run stops before creating another account.
+First-time generation also records progress in the local database under the `InstanceSetting` key `local_dev_setup:v1`.
+If generation fails or is interrupted, a later run stops with the affected account and project IDs when they can be identified safely.
+It does not treat a partially generated account as ready, rerun the simulation, or reset data automatically.
+
+To recover an interrupted first-time generation:
+
+1. Make ClickHouse, event ingestion, persons storage, and object storage ready, and inspect the original failure in the local logs.
+2. Inspect the account and project IDs in the error and progress marker. Manually repair those incomplete resources, or remove only the account and project you confirmed were created by that setup attempt. Existing unrelated accounts and projects do not need changes.
+3. After that repair or removal, clear only the progress marker from the same local database:
+
+   ```bash
+   python manage.py shell -c "from posthog.models.instance_setting import InstanceSetting; InstanceSetting.objects.filter(key='local_dev_setup:v1').delete()"
+   ```
+
+4. Run `python manage.py setup_local_dev --json` again. An existing repaired account keeps its selected project; if the incomplete account was removed, the normal generator creates it again.
+
+Clearing the marker alone does not repair generated data.
+If the error cannot identify the account and project safely, inspect the marker's start time and local resources before removing anything.
+
+The command registers the local desktop and mobile OAuth callbacks with `setup_tasks_oauth`, then adds repeatable personal Inbox reports and a completed Chat with stored messages through `seed_local_inbox_data`.
+It prints account, project, report, task, and run IDs without printing credentials or tokens.
+Rerunning it preserves your triage decisions and does not start agents or call model providers.
+To seed another existing local account and project, use the explicit IDs:
+
+```bash
+python manage.py seed_local_inbox_data --team-id <project-id> --user-id <user-id> --json
+```
+
+`check_local_dev` uses real HTTP requests against `SITE_URL` to check password login, OAuth consent and PKCE with `posthog-dev://callback`, authenticated account/project/Inbox/Chat reads, saved views and Pins, the seeded completed conversation's stored user and assistant messages, refresh, and token revocation.
+Use `--callback posthog://callback` or `--callback posthog-preview://callback` to check the other registered mobile schemes.
+The check does not open a native app or prove that the operating system delivers its callback.
+A native development build still needs the sign-in and project-switching checks on a simulator or device.
+Both commands require local development settings, no cloud deployment, and a loopback `SITE_URL`, such as `http://localhost:8010`.
+
+These commands add data without resetting the database.
+The generator's full simulation remains available as `python manage.py generate_demo_data`; it can create a disambiguated account when the requested email already exists, so use `setup_local_dev` when you want to preserve the usual test account.
+
+### Capture local session recordings
+
+The Hedgebox simulation does not include replay payloads.
+Enable session recording for your selected local project, then start the [Hedgebox dummy app](https://github.com/PostHog/posthog/tree/master/tools/hedgebox-dummy) with that project's ID and token, using the same database environment as the backend:
+
+```bash
+cd tools/hedgebox-dummy
+npm install
+npx playwright install chromium
+DEMO_TEAM_ID="<selected-project-id>" \
+NEXT_PUBLIC_POSTHOG_KEY="<selected-local-project-token>" \
+NEXT_PUBLIC_POSTHOG_HOST="http://localhost:8010" \
+npm run dev -- --port 3000
+```
+
+With the dummy app running at `http://localhost:3000`, run the capture helper from the repository root in another terminal, using the same project token and local PostHog host:
+
+```bash
+NEXT_PUBLIC_POSTHOG_KEY="<selected-local-project-token>" \
+NEXT_PUBLIC_POSTHOG_HOST="http://localhost:8010" \
+node products/demo/scripts/capture_sessions.cjs --app-url http://localhost:3000 --sessions 3
+```
+
+The helper performs real browser interactions and prints session IDs when the local capture endpoint accepts their snapshots.
+Its `snapshots_accepted_pending_ingestion` status means ingestion is still pending; open Sessions in the selected project and check playback separately.
+Both URLs must use loopback hosts.
+
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:
