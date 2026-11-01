@@ -52,6 +52,7 @@ from products.messaging.backend.models import FirstCodeSend, MessageCategory, Me
 from products.messaging.backend.models.first_code_send import FIRST_CODE_SEND_CONSTRAINT
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.models.transactional_email_key import TRANSACTIONAL_EMAIL_KEY_CONSTRAINT
+from products.messaging.backend.services.content_hash import email_content_hash
 from products.messaging.backend.services.html_text import text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary, get_workflow_version
 from products.workflows.backend.facade.transactional_emails import (
@@ -246,6 +247,11 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
     )
 
 
+def sent_email_hash(template: MessageTemplate) -> str:
+    email = template.content["email"]
+    return email_content_hash({**email, "text": _sent_text(template, email)})
+
+
 def _sent_text(template: MessageTemplate, email: dict[str, Any]) -> str:
     text = email.get("text") or ""
     if text or template.managed_by != TemplateManagedBy.CODE:
@@ -418,7 +424,18 @@ def first_code_send_recorded(team_id: int) -> bool:
     return FirstCodeSend.objects.for_team(team_id).exists()
 
 
-def record_first_code_send(team_id: int) -> bool:
+def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:
+    if not _claim_first_code_send(team_id):
+        return
+    captured = False
+    try:
+        captured = capture()
+    finally:
+        if not captured:
+            FirstCodeSend.objects.for_team(team_id).delete()
+
+
+def _claim_first_code_send(team_id: int) -> bool:
     if first_code_send_recorded(team_id):
         return False
     try:
@@ -429,10 +446,6 @@ def record_first_code_send(team_id: int) -> bool:
             raise
         return False
     return True
-
-
-def forget_first_code_send(team_id: int) -> None:
-    FirstCodeSend.objects.for_team(team_id).delete()
 
 
 def require_code_email_access(

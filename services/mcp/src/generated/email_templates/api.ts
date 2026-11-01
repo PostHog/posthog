@@ -44,7 +44,7 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            "Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template. Once you upload a template under this key, these sends run through that template's workflow, so their metrics and logs group with the template from then on."
+            "Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template. Once you upload a template under this key, these sends run through that template's workflow, so their metrics and logs group with the template from then on."
         ),
     distinct_id: zod
         .string()
@@ -63,18 +63,18 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .array(zod.email())
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
-        .describe('Addresses replies to the email your code rendered go to.'),
+        .describe("Addresses replies to the email go to. A send by `template.id` doesn't take it."),
     capture_engagement: zod
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
         ),
     from: zod
         .string()
         .optional()
         .describe(
-            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender."
+            "Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, a send with `template_key` goes out from the project's default sender, and a send by `template.key` from its template's sender. A send by `template.id` doesn't take it."
         ),
 })
 
