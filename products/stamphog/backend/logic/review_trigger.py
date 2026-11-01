@@ -13,16 +13,23 @@ from ..facade.enums import ReviewMode, ReviewTrigger
 
 
 def derive_review_trigger(
-    *, has_inbox_review: bool, review_mode: ReviewMode | str, has_manual_review: bool = False
+    *,
+    has_inbox_review: bool,
+    review_mode: ReviewMode | str,
+    has_manual_review: bool = False,
+    has_renovate_review: bool = False,
 ) -> ReviewTrigger:
-    """Inbox provenance outranks a manual request, and both outrank the repo mode.
+    """Bot provenance outranks a manual request, and both outrank the repo mode.
 
     A self-driving run is dispatched from the inbox whether or not the repo also reviews every PR
-    event, so a repo in ALL mode still reports SELF_DRIVING for those PRs. A manual request is an
-    explicit ask, so it reports MANUAL in either mode.
+    event, so a repo in ALL mode still reports SELF_DRIVING for those PRs. A Renovate run ignores
+    the repo mode the same way. A manual request is an explicit ask, so it reports MANUAL in either
+    mode.
     """
     if has_inbox_review:
         return ReviewTrigger.SELF_DRIVING
+    if has_renovate_review:
+        return ReviewTrigger.RENOVATE
     if has_manual_review:
         return ReviewTrigger.MANUAL
     if review_mode == ReviewMode.LABEL:
@@ -47,6 +54,7 @@ def trigger_for_run(*, output: dict[str, Any] | None, review_mode: ReviewMode | 
         return str(stamped)
     return derive_review_trigger(
         has_inbox_review=bool((output or {}).get("inbox_review")),
+        has_renovate_review=bool((output or {}).get("renovate_review")),
         has_manual_review=bool((output or {}).get("manual_review")),
         review_mode=review_mode,
     ).value

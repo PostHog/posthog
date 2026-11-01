@@ -220,6 +220,7 @@ class Pipeline:
         dry_run: bool = False,
         verbose: bool = False,
         self_driving: bool = False,
+        renovate_verification: dict | None = None,
         review_trigger: str = "",
         head_checkout: bool = False,
         checkout: bool = True,
@@ -232,6 +233,10 @@ class Pipeline:
         # implementation run. It relaxes two gates (bot author, draft) and swaps author trust for
         # task provenance.
         self.self_driving = self_driving
+        # Set only by the hosted runtime, for a Renovate PR to a repo that opted in: the server's
+        # proof of what the lockfiles install. A verified proof relaxes the bot-author refusal and
+        # the deps_toolchain deny of the lockfiles it covers. Anything else refuses the PR.
+        self.renovate_verification = renovate_verification
         # Why the hosted runtime is reviewing this PR: "label", "all" or "self_driving". Descriptive
         # only. It reaches the prompt as one line and gates nothing, unlike self_driving above.
         # Empty for a local run, which has no trigger to report.
@@ -268,8 +273,8 @@ class Pipeline:
         """Run the full pipeline, return final verdict string."""
         self._fetch()
 
-        if self.pr.author_is_bot and not self.self_driving:
-            return self._refuse_bot_author()
+        if self._refuse_unreviewable_bot():
+            return self.final_verdict
 
         gate_verdict = self._classify_and_gate()
 
@@ -320,6 +325,49 @@ class Pipeline:
         if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
             return False
         return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
+
+    @property
+    def _renovate_proof(self) -> dict:
+        """The server's Renovate proof when it verified this bot-authored PR, else an empty mapping."""
+        proof = self.renovate_verification or {}
+        return proof if self.pr.author_is_bot and proof.get("verified") else {}
+
+    @property
+    def renovate_verified(self) -> bool:
+        return bool(self._renovate_proof)
+
+    @property
+    def renovate_cleared_paths(self) -> set[str]:
+        return set(self._renovate_proof.get("cleared_paths") or [])
+
+    @property
+    def sized_files(self) -> list[dict]:
+        """The files the size gate counts. A lockfile a Renovate proof covers is checked line by line already."""
+        cleared = self.renovate_cleared_paths
+        return [f for f in self.pr.files if f["filename"] not in cleared]
+
+    def _refuse_unreviewable_bot(self) -> bool:
+        """Refuse a bot-authored PR that no carve-out admits, and say whether it refused."""
+        if not self.pr.author_is_bot or self.self_driving or self.renovate_verified:
+            return False
+        if self.renovate_verification is None:
+            self._refuse_bot_author()
+        else:
+            self._refuse_unverified_renovate()
+        return True
+
+    def _refuse_unverified_renovate(self) -> None:
+        problems = [str(problem) for problem in (self.renovate_verification or {}).get("problems") or []]
+        listed = "\n".join(f"- {problem}" for problem in problems) or "- It changes no locked version."
+        self.final_verdict = "REFUSED"
+        self.reviewer_output = {
+            "verdict": "REFUSE",
+            "reasoning": f"Stamphog could not verify this Renovate update, so it needs a human reviewer.\n{listed}",
+            "risk": "unknown",
+            "issues": [],
+        }
+        print(f"\n{_fail('REFUSED')} — Renovate update not verified")
+        self._capture_review_completed("DENIED", "RENOVATE-UNVERIFIED")
 
     def _refuse_bot_author(self) -> str:
         """Hard gate: stamphog never reviews bot-authored PRs.
@@ -438,9 +486,15 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
+        # A verified Renovate proof covers what its lockfiles install, so it lifts deps_toolchain for
+        # them and no other category: a lockfile under stamphog's own engine still needs a human.
+        renovate_lift = {"deps_toolchain": self.renovate_cleared_paths}
+        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, ignored_by_category=renovate_lift)
         exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+            detect_deny_categories(
+                pr.deny_paths, ignored_files=safe_migrations, ignored_by_category=renovate_lift, apply_exceptions=False
+            )
+            != deny
         )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
@@ -533,6 +587,9 @@ class Pipeline:
             # False renders the provenance block empty, leaving every other prompt unchanged.
             # True swaps the author trust context for task provenance.
             "self_driving": self.self_driving,
+            # Empty renders the Renovate block empty. The server checked every name and version
+            # against a strict pattern, so the block can quote them as trusted facts.
+            "renovate_changes": self._renovate_proof.get("changes") or [],
             "review_trigger": self.review_trigger,
         }
 
@@ -719,12 +776,15 @@ class Pipeline:
         return self.classification["ownership_summary"]
 
     def _check_size(self) -> tuple[bool, str]:
-        lines, files = substantive_size(self.pr.files)
+        lines, files = substantive_size(self.sized_files)
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
-        exempt_files = len(self.pr.files) - files
+        renovate_cleared = len(self.pr.files) - len(self.sized_files)
+        exempt_files = len(self.sized_files) - files
         suffix_parts = []
         if binary_count:
             suffix_parts.append(f"{binary_count} binary")
+        if renovate_cleared:
+            suffix_parts.append(f"{renovate_cleared} lockfile(s) proven by the Renovate check")
         if exempt_files:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
@@ -768,7 +828,7 @@ class Pipeline:
 
     def _files_in(self, scope: ScopeBudget) -> list[dict]:
         in_scope = set(scope.files)
-        return [f for f in self.pr.files if f["filename"] in in_scope]
+        return [f for f in self.sized_files if f["filename"] in in_scope]
 
     def _size_budgets(self) -> EffectivePolicy:
         """The PR's resolved size budgets, or global-only ones when resolution did not run."""
@@ -1160,6 +1220,8 @@ class Pipeline:
                 "familiarity": familiarity_evidence(self.familiarity),
                 # Audit trail: records that this review ran with the gates relaxed (see __init__).
                 "self_driving": self.self_driving,
+                # Audit trail: records that a verified Renovate proof relaxed the bot and lockfile gates.
+                "renovate_verified": self.renovate_verified,
                 # Audit trail: what the reviewer was told about why it was asked.
                 "review_trigger": self.review_trigger,
             },

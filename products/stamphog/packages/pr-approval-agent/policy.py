@@ -282,8 +282,9 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # and the engine never reads their contents. `digest` is read by logic/digest_config.py. `dismiss`
 # is tolerated for policies that still declare it, and nothing reads it: the server decides whether
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
-# rules could keep an approval standing across arbitrary code pushes.
-_SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
+# rules could keep an approval standing across arbitrary code pushes. `renovate` is read by
+# logic/renovate_config.py.
+_SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss", "renovate"}
 _OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
