@@ -46,7 +46,7 @@ Compose and edit email designs with the **`designing-email-templates`** skill.
 
 ## Changing a live workflow
 
-Editing an active workflow stages a **draft** instead of changing what's running: nothing reaches real people until you publish. Work the cycle:
+Editing an active workflow stages a **draft** instead of changing what's running: nothing reaches real people until you publish. Disabling an active workflow with `workflows-disable` stops new runs and returns it to `draft`; content edits after disabling also stage a draft. Work the cycle:
 
 1. **Edit.** `workflows-patch-graph` (or `workflows-update` for content fields) on the active workflow writes to its draft — the first edit copies the live graph into the draft, later edits compose onto it. `workflows-get` shows the staged draft in `draft`; the live config stays in `actions`/`edges`. Metadata (name, description) applies live immediately.
 2. **Test the draft.** `workflows-test-run` with `use_draft=true` executes the staged draft instead of the live config. Re-test every path you changed.
