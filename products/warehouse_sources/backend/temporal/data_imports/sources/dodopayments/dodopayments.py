@@ -124,10 +124,10 @@ def get_resource(
     endpoint_config: Endpoint = {
         "path": config.path,
         "params": params,
-        "data_selector": "items",
+        "data_selector": config.data_selector,
         "paginator": DodoPaymentsPaginator() if config.paginated else "single_page",
-        # Every list endpoint wraps its rows in `items`; a body without it is a response
-        # shape change, which should fail loud rather than sync zero rows.
+        # Every endpoint wraps its rows in a known key; a body without it is a response shape
+        # change, which should fail loud rather than sync zero rows.
         "data_selector_required": True,
         "data_selector_empty_ok": True,
     }

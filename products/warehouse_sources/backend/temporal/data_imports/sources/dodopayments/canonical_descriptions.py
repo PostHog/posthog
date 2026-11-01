@@ -559,4 +559,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Timestamp when the email was sent.",
         },
     },
+    "discount_customers": {
+        "description": "Customers on each discount's allow list, one row per discount and customer.",
+        "docs_url": f"{_DOCS_ROOT}/discounts/list-discount-customers",
+        "columns": {
+            "discount_id": "Discount whose allow list the customer is on.",
+            "customer_id": "Customer attached to the discount's allow list.",
+        },
+    },
+    "moderation_usage": {
+        "description": "Billable moderation screens per UTC day over the last 30 days. Days with no screens are left out.",
+        "docs_url": f"{_DOCS_ROOT}/moderation/get-usage",
+        "columns": {
+            "date": "The UTC day.",
+            "screens": "Billable screens on that day, charged or not.",
+        },
+    },
 }
