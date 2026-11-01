@@ -13,6 +13,9 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
@@ -252,6 +255,54 @@ class TestGetDirectConnectionSource(APIBaseTest):
         for source in (deleted_source, cross_team_source):
             self.assertIsNone(get_direct_connection_source(self.team, str(source.id)))
             self.assertIsNone(get_direct_external_data_source_for_connection(self.team.id, str(source.id)))
+
+
+    def test_shared_link_user_resolves_source_without_acl_lock(self):
+        # Regression: SharedLinkUser must reach a source that has no explicit lock,
+        # i.e. the normal shared-dashboard case where no admin denied access.
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        user = SharedLinkUser(sharing_config)
+
+        resolved = get_direct_connection_source(self.team, str(source.id), user=user)
+
+        assert resolved is not None
+        self.assertEqual(resolved.id, source.id)
+
+    def test_shared_link_user_blocked_when_source_has_explicit_none_acl(self):
+        # Regression: if an admin locked the source to no default access (team-wide "none" row),
+        # a SharedLinkUser on a shared dashboard must not bypass it.
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+        )
+        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        user = SharedLinkUser(sharing_config)
+
+        resolved = get_direct_connection_source(self.team, str(source.id), user=user)
+
+        self.assertIsNone(resolved)
+
+    def test_synthetic_user_resolves_source_even_with_explicit_none_acl(self):
+        # SyntheticUser is an internal service principal and must bypass source-level ACL
+        # regardless of any team-wide lock, matching the existing raw_query_denied_by_table_access
+        # exemption pattern.
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+        )
+        user = SyntheticUser(self.team, "synthetic-test")
+
+        resolved = get_direct_connection_source(self.team, str(source.id), user=user)
+
+        assert resolved is not None
+        self.assertEqual(resolved.id, source.id)
 
 
 class TestRawQueryTableAccess(APIBaseTest):
