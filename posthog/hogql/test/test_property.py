@@ -487,6 +487,21 @@ class TestProperty(BaseTest):
         assert isinstance(result.right.args[0], ast.Constant)
         assert result.right.args[0].value == expected_rhs
 
+    @parameterized.expand(
+        [
+            ("is_date_exact", "is_date_exact"),
+            ("is_date_before", "is_date_before"),
+            ("is_date_after", "is_date_after"),
+        ]
+    )
+    def test_property_to_expr_date_operator_validation(self, _name: str, operator: str):
+        for invalid_value in [12345, [2026], ["2026-03-19"], None, {"date": "2026-03-19"}]:
+            with self.subTest(invalid_value=invalid_value):
+                with self.assertRaisesMessage(QueryError, f"{operator} operator requires a string date value"):
+                    self._property_to_expr(
+                        {"type": "event", "key": "a", "value": invalid_value, "operator": operator}
+                    )
+
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_property_to_expr_event_dotted_key_reads_one_flat_path(self):
         # A filter key is one property name however many dots it holds, so the native read must bind the escaped
