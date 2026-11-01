@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -151,5 +151,33 @@ export const PosthogSupportTicketsRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'Only return messages sent after this time. When `has_more` is true, pass the `created_at` of the last message to read the next page.'
+        ),
+})
+
+/**
+ * Add a message from the signed-in user to one of their tickets with the PostHog support team.
+ * @summary Reply to a PostHog support ticket
+ */
+export const posthogSupportTicketsReplyCreatePathIdRegExp = new RegExp(
+    '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
+
+export const PosthogSupportTicketsReplyCreateParams = () => zod.object({
+    id: zod.string().regex(posthogSupportTicketsReplyCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const posthogSupportTicketsReplyCreateBodyMessageMax = 8000
+
+export const PosthogSupportTicketsReplyCreateBody = () => zod.object({
+    message: zod
+        .string()
+        .max(posthogSupportTicketsReplyCreateBodyMessageMax)
+        .describe(
+            'The reply in plain text, for example the details support asked for. Do not include secrets, API keys or personal data.'
         ),
 })
