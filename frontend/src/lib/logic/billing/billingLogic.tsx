@@ -18,7 +18,7 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { afterSceneRendered } from 'lib/utils/bootTiming'
+import { sceneRenderedLogic } from 'lib/logic/sceneRenderedLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -207,6 +207,7 @@ export interface billingLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationId: string // organizationLogic
     preflight: PreflightStatus | null // preflightLogic
+    sceneHasRendered: boolean // sceneRenderedLogic
     fakeBillingAlert: FakeBillingAlert // superpowersLogic
     accountOwner: {
         email?: string
@@ -347,6 +348,9 @@ export interface billingLogicActions {
         value: true
     } // lemonBannerLogic
     loadCurrentOrganization: () => any // organizationLogic
+    sceneRendered: () => {
+        value: true
+    } // sceneRenderedLogic
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
@@ -796,8 +800,12 @@ export const billingLogic = kea<billingLogicType>([
             ['currentOrganization', 'currentOrganizationId'],
             superpowersLogic,
             ['fakeBillingAlert'],
+            sceneRenderedLogic,
+            ['sceneHasRendered'],
         ],
         actions: [
+            sceneRenderedLogic,
+            ['sceneRendered'],
             userLogic,
             ['loadUser'],
             organizationLogic,
@@ -1611,7 +1619,7 @@ export const billingLogic = kea<billingLogicType>([
             }),
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         reportBillingShown: () => {
             posthog.capture('billing v2 shown')
         },
@@ -1648,6 +1656,12 @@ export const billingLogic = kea<billingLogicType>([
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
+        sceneRendered: () => {
+            if (cache.loadCreditOverviewAfterScene) {
+                cache.loadCreditOverviewAfterScene = false
+                actions.loadCreditOverview()
+            }
+        },
         loadBillingSuccess: async ({ payload }, breakpoint) => {
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
@@ -1657,7 +1671,11 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
             // Only billing views show credits, so this request waits for the scene's own requests.
-            void afterSceneRendered().then(() => actions.loadCreditOverview())
+            if (values.sceneHasRendered) {
+                actions.loadCreditOverview()
+            } else {
+                cache.loadCreditOverviewAfterScene = true
+            }
 
             // If the activation is successful, we reload the user/organization to get the updated available features
             // activation can be triggered from the billing page or onboarding

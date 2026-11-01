@@ -42,14 +42,18 @@ describe('productSetupPreloadLogic', () => {
     })
 
     it('sends one request when the flags arrive while the mount request runs', async () => {
-        let respond: (value: { results: never[] }) => void = () => {}
+        let respond: () => void = () => {}
         jest.mocked(eventDefinitionsList).mockImplementationOnce(
-            () => new Promise((resolve) => (respond = resolve)) as ReturnType<typeof eventDefinitionsList>
+            () =>
+                new Promise((resolve) => {
+                    respond = () =>
+                        resolve({ results: [] } as unknown as Awaited<ReturnType<typeof eventDefinitionsList>>)
+                })
         )
 
         productSetupPreloadLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], {})
-        respond({ results: [] })
+        respond()
         await jest.runOnlyPendingTimersAsync()
 
         expect(eventDefinitionsList).toHaveBeenCalledTimes(1)

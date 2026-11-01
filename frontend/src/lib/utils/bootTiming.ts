@@ -103,33 +103,26 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
     }
     Object.assign(context, phaseContext)
     if (phase === 'scene_rendered') {
-        sceneRenderedWaiters.forEach((wake) => wake())
+        sceneRenderedListeners.forEach((listener) => listener())
+        sceneRenderedListeners.clear()
         void sendBootTiming().catch(() => {})
     }
 }
 
-// Longer than the 99th percentile time from `app_ready` to `scene_rendered`.
-const SCENE_RENDERED_MAX_WAIT_MS = 10000
-const sceneRenderedWaiters = new Set<() => void>()
+const sceneRenderedListeners = new Set<() => void>()
 
 /**
- * Resolves when the first scene of the page load has rendered, so that a request the first paint does not need
- * does not compete with the scene's own requests. Resolves at once when the scene has already rendered or when
- * boot timing does not run. Resolves after `maxWaitMs` if the scene errors or never renders.
+ * Calls `listener` once, when the first scene of the page load renders. Calls it at once when that has already
+ * happened or when boot timing does not run. Returns a function that removes the listener.
+ * App code uses `sceneRenderedLogic`, which also covers a page that never renders a scene.
  */
-export function afterSceneRendered(maxWaitMs: number = SCENE_RENDERED_MAX_WAIT_MS): Promise<void> {
+export function onFirstSceneRendered(listener: () => void): () => void {
     if (phaseTimes.entry === undefined || phaseTimes.scene_rendered !== undefined) {
-        return Promise.resolve()
+        listener()
+        return () => {}
     }
-    return new Promise((resolve) => {
-        const wake = (): void => {
-            clearTimeout(timer)
-            sceneRenderedWaiters.delete(wake)
-            resolve()
-        }
-        const timer = setTimeout(wake, maxWaitMs)
-        sceneRenderedWaiters.add(wake)
-    })
+    sceneRenderedListeners.add(listener)
+    return () => sceneRenderedListeners.delete(listener)
 }
 
 export interface SceneRenderedMark {

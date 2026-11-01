@@ -1,9 +1,9 @@
 import type posthogType from 'posthog-js'
 
 import type {
-    afterSceneRendered as afterSceneRenderedType,
     createSceneRenderedMark as createSceneRenderedMarkType,
     markBootPhase as markBootPhaseType,
+    onFirstSceneRendered as onFirstSceneRenderedType,
 } from './bootTiming'
 
 describe('bootTiming', () => {
@@ -13,7 +13,7 @@ describe('bootTiming', () => {
 
     let markBootPhase: typeof markBootPhaseType
     let createSceneRenderedMark: typeof createSceneRenderedMarkType
-    let afterSceneRendered: typeof afterSceneRenderedType
+    let onFirstSceneRendered: typeof onFirstSceneRenderedType
     let capture: jest.SpyInstance
     let getDistinctId: jest.SpyInstance
     let now: number
@@ -24,7 +24,7 @@ describe('bootTiming', () => {
         jest.resetModules()
         now = 0
         nowSpy = jest.spyOn(performance, 'now').mockImplementation(() => now)
-        ;({ markBootPhase, createSceneRenderedMark, afterSceneRendered } = require('./bootTiming'))
+        ;({ markBootPhase, createSceneRenderedMark, onFirstSceneRendered } = require('./bootTiming'))
         const posthog: typeof posthogType = require('posthog-js').default
         capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         getDistinctId = jest.spyOn(posthog, 'get_distinct_id').mockReturnValue(IN_SAMPLE_ID)
@@ -279,36 +279,25 @@ describe('bootTiming', () => {
     })
 
     it.each([
-        { name: 'resolves at once when the scene has already rendered', events: ['entry', 'render', 'wait'] },
-        { name: 'waits for the first scene render', events: ['entry', 'wait', 'render'] },
-        { name: 'resolves after the maximum wait when no scene renders', events: ['entry', 'wait', 'timeout'] },
-        { name: 'resolves at once when boot timing does not run', events: ['wait'] },
-    ])('afterSceneRendered $name', async ({ events }) => {
-        jest.useFakeTimers()
-        try {
-            let resolved = false
-            for (const event of events) {
-                expect(resolved).toBe(false)
-                if (event === 'entry') {
-                    markAt(50, 'entry')
-                } else if (event === 'render') {
-                    markAt(900, 'scene_rendered')
-                } else if (event === 'wait') {
-                    void afterSceneRendered(1000).then(() => {
-                        resolved = true
-                    })
-                } else {
-                    jest.advanceTimersByTime(999)
-                    await Promise.resolve()
-                    expect(resolved).toBe(false)
-                    jest.advanceTimersByTime(1)
-                }
-                await Promise.resolve()
+        { name: 'at once when the scene has already rendered', events: ['entry', 'render', 'listen'], calls: 1 },
+        { name: 'on the first scene render', events: ['entry', 'listen', 'render', 'render'], calls: 1 },
+        { name: 'at once when boot timing does not run', events: ['listen'], calls: 1 },
+        { name: 'never after the listener is removed', events: ['entry', 'listen', 'remove', 'render'], calls: 0 },
+    ])('onFirstSceneRendered calls the listener $name', ({ events, calls }) => {
+        const listener = jest.fn()
+        let remove = (): void => {}
+        for (const event of events) {
+            if (event === 'entry') {
+                markAt(50, 'entry')
+            } else if (event === 'render') {
+                markAt(900, 'scene_rendered')
+            } else if (event === 'listen') {
+                remove = onFirstSceneRendered(listener)
+            } else {
+                remove()
             }
-            expect(resolved).toBe(true)
-        } finally {
-            jest.useRealTimers()
         }
+        expect(listener).toHaveBeenCalledTimes(calls)
     })
 
     it.each([
