@@ -72,6 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    OUTBOUND_PAYMENT_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYMENT_METHOD_HISTORY_MAPPING_KEY,
@@ -86,6 +87,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_ENDIVE,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -112,6 +114,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeNestedResource,
     StripeResource,
     StripeTransientError,
+    StripeUnsupportedVersionError,
     StripeValidationError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
@@ -263,6 +266,83 @@ def _stripe_list_api(objects: list[dict[str, Any]], field: str) -> Callable[[Rec
         return ScriptedResponse(json={"object": "list", "url": "/v1/list", "data": page, "has_more": has_more})
 
     return respond
+
+
+def _v2_list_api(pages: dict[str | None, dict[str, Any]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        return ScriptedResponse(json=pages[request.param("page")])
+
+    return respond
+
+
+class TestStripeApiVersionDispatch:
+    def _driver(self) -> SourceDriver:
+        return SourceDriver(
+            StripeSource(),
+            StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")),
+        )
+
+    @parameterized.expand(
+        [
+            ("acacia_pin", STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_ACACIA),
+            ("endive_pin", STRIPE_API_VERSION_ENDIVE, STRIPE_API_VERSION_ENDIVE),
+            ("unpinned_takes_default", None, STRIPE_API_VERSION_ENDIVE),
+        ]
+    )
+    def test_v1_list_sends_the_resolved_version(self, _name, pin, expected_header):
+        result = self._driver().run(
+            CHARGE_RESOURCE_NAME, _stripe_list_api([{"id": "ch_1", "created": NOW}], "created"), api_version=pin
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/charges"]
+        assert {request.headers["stripe-version"] for request in result.requests} == {expected_header}
+
+    def test_v2_list_follows_next_page_url_under_endive(self):
+        path = "/v2/money_management/outbound_payments"
+        pages: dict[str | None, dict[str, Any]] = {
+            None: {
+                "data": [{"id": "obp_2", "created": "2026-10-29T10:00:00.000Z"}],
+                "next_page_url": f"{path}?page=tok_2",
+                "previous_page_url": None,
+            },
+            "tok_2": {
+                "data": [{"id": "obp_1", "created": "2026-10-28T10:00:00.000Z"}],
+                "next_page_url": None,
+                "previous_page_url": f"{path}?page=tok_1",
+            },
+        }
+
+        result = self._driver().run(
+            OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api(pages), api_version=STRIPE_API_VERSION_ENDIVE
+        )
+
+        assert result.raised is None
+        assert [row["id"] for table in result.rows for row in table.to_pylist()] == ["obp_2", "obp_1"]
+        assert result.paths == [path, path]
+        assert {request.headers["stripe-version"] for request in result.requests} == {STRIPE_API_VERSION_ENDIVE}
+
+    def test_v2_table_under_acacia_pin_fails_without_a_request(self):
+        result = self._driver().run(
+            OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api({}), api_version=STRIPE_API_VERSION_ACACIA
+        )
+
+        assert isinstance(result.raised, StripeUnsupportedVersionError)
+        assert result.requests == []
+
+    @parameterized.expand(
+        [
+            ("acacia", STRIPE_API_VERSION_ACACIA, False),
+            ("endive", STRIPE_API_VERSION_ENDIVE, True),
+            ("unpinned", None, True),
+        ]
+    )
+    def test_discovery_lists_v2_tables_only_where_the_pin_serves_them(self, _name, pin, listed):
+        config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk"))
+        names = {schema.name for schema in StripeSource().get_schemas(config, team_id=1, api_version=pin)}
+
+        assert (OUTBOUND_PAYMENT_RESOURCE_NAME in names) is listed
+        assert CHARGE_RESOURCE_NAME in names
 
 
 class TestStripeLatestObjectsOldestFirst:
