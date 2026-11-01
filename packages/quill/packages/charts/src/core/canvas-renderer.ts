@@ -22,27 +22,46 @@ export interface DrawContext {
     /** Smooth the line/area with monotone-cubic interpolation instead of straight segments. */
     smooth?: boolean
     /** Largest drawable y (px) for line/area strokes. Charts drawing an x-axis line pass the
-     *  baseline minus half their stroke width, so a baseline-hugging stroke rests exactly on the
-     *  axis line instead of straddling it. Pure draw-time clamp — scales and ticks are untouched. */
+     *  baseline minus half the default stroke width, and `drawLineSeriesLayer` raises it per series
+     *  for a wider stroke, so a baseline-hugging stroke rests exactly on the axis line instead of
+     *  straddling it. Pure draw-time clamp — scales and ticks are untouched. */
     yFloor?: number
+    /** Whether the line runs on from drawable point `from` to the next drawable point `to`. Defaults
+     *  to only neighbors, so a missing (non-finite) value breaks the line and the area. */
+    connects?: (from: number, to: number) => boolean
 }
 
-/** Stroke width of series lines. Half of it is the stroke's overhang past a point, which the
+const connectsNeighbors = (from: number, to: number): boolean => to === from + 1
+
+/** Default stroke width of series lines. Half of it is the stroke's overhang past a point, which the
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
+
+/** The series' stroke width: the default when unset, 0 (no line) for a NaN or negative width. */
+function lineStrokeWidth(series: ResolvedSeries): number {
+    return Math.max(0, series.stroke?.width ?? LINE_STROKE_WIDTH) || 0
+}
+
+/** The incomplete-period dash: `stroke.partial.pattern`, else 10px dashes with an 8px visible gap.
+ *  A round cap adds half the width to each end of a dash, so the gap grows with the width to stay
+ *  open on a wide line. At the default width this is `[10, 10]`. */
+function partialDashPattern(series: ResolvedSeries): number[] {
+    return series.stroke?.partial?.pattern ?? [10, lineStrokeWidth(series) + 8]
+}
 
 /** Dot radius for a point with no line through it, e.g. a series with one value. */
 const ISOLATED_POINT_RADIUS = 3
 
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
-    if (data.length === 0) {
+    const width = lineStrokeWidth(series)
+    if (data.length === 0 || width === 0) {
         return
     }
 
     const { ctx } = drawCtx
     ctx.strokeStyle = series.color
-    ctx.lineWidth = LINE_STROKE_WIDTH
+    ctx.lineWidth = width
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
 
@@ -75,7 +94,9 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
     const rawY0 = yScale(data[last - 1])
     const x1 = xScale(labels[last])
     const rawY1 = yScale(data[last])
-    if (x0 == null || x1 == null || !isFinite(rawY0) || !isFinite(rawY1)) {
+    // The final segment must exist and be connected, or there is nothing to split.
+    const connects = drawCtx.connects ?? connectsNeighbors
+    if (x0 == null || x1 == null || !isFinite(rawY0) || !isFinite(rawY1) || !connects(last - 1, last)) {
         return false
     }
     const y0 = yFloor != null ? Math.min(rawY0, yFloor) : rawY0
@@ -100,7 +121,7 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
 
     // Dashed: the split pixel out to the final point.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(splitX, splitY)
     ctx.lineTo(x1, y1)
     ctx.stroke()
@@ -182,7 +203,7 @@ function drawSmoothFractionalTail(drawCtx: DrawContext, series: ResolvedSeries, 
 
     // Dashed: the split point out to the final point, along the same curve.
     ctx.beginPath()
-    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.setLineDash(partialDashPattern(series))
     ctx.moveTo(split.x, split.y)
     const end = tail[tail.length - 1]
     ctx.bezierCurveTo(split.secondCp1x, split.secondCp1y, split.secondCp2x, split.secondCp2y, end.x, end.y)
@@ -203,7 +224,7 @@ interface Stroke {
  */
 function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
     const basePattern = series.stroke?.pattern ?? []
-    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
+    const partialPattern = partialDashPattern(series)
     const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
     const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
 
@@ -240,27 +261,35 @@ function planLineStrokes(series: ResolvedSeries, length: number): Stroke[] {
  *  separate subpaths. Caller owns beginPath/stroke. */
 function tracePath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
     const { ctx, xScale, yScale, labels, smooth, yFloor } = drawCtx
+    const connects = drawCtx.connects ?? connectsNeighbors
+    const drawable = (i: number): boolean => xScale(labels[i]) != null && isFinite(yScale(data[i]))
+    // A stroke range that starts on a missing value picks up the line from the last drawn point,
+    // when `connects` bridges the gap, so a partial dash boundary in a gap doesn't drop the segment.
+    let from = start
+    if (drawCtx.connects) {
+        while (from > 0 && !drawable(from)) {
+            from--
+        }
+    }
     if (smooth) {
-        traceSmoothPath(drawCtx, data, start, end)
+        traceSmoothPath(drawCtx, data, from, end)
         return
     }
-    let started = false
-    for (let i = start; i <= end; i++) {
+    let last = -1
+    for (let i = from; i <= end; i++) {
         const x = xScale(labels[i])
         const rawY = yScale(data[i])
         if (x == null || !isFinite(rawY)) {
-            // Reset so the next valid point starts a fresh subpath rather than
-            // connecting straight across the NaN gap.
-            started = false
             continue
         }
         const y = yFloor != null ? Math.min(rawY, yFloor) : rawY
-        if (!started) {
-            ctx.moveTo(x, y)
-            started = true
-        } else {
+        // A point the line doesn't connect to (across a NaN gap by default) starts a fresh subpath.
+        if (last >= 0 && connects(last, i)) {
             ctx.lineTo(x, y)
+        } else {
+            ctx.moveTo(x, y)
         }
+        last = i
     }
 }
 
@@ -273,19 +302,22 @@ interface Point {
  *  every NaN/out-of-domain point, so each run is a contiguous subpath. `yFloor` clamps each point. */
 function collectSmoothRuns(drawCtx: DrawContext, data: number[], start: number, end: number): Point[][] {
     const { xScale, yScale, labels, yFloor } = drawCtx
+    const connects = drawCtx.connects ?? connectsNeighbors
     const runs: Point[][] = []
     let run: Point[] = []
+    let last = -1
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
-            if (run.length > 0) {
-                runs.push(run)
-                run = []
-            }
             continue
         }
+        if (run.length > 0 && !connects(last, i)) {
+            runs.push(run)
+            run = []
+        }
         run.push({ x, y: yFloor != null ? Math.min(y, yFloor) : y })
+        last = i
     }
     if (run.length > 0) {
         runs.push(run)
@@ -475,11 +507,12 @@ export function drawArea(
             currentBottom = []
         }
     }
+    const connects = drawCtx.connects ?? connectsNeighbors
+    let last = -1
     for (let i = 0; i < data.length; i++) {
         const x = xScale(labels[i])
         const rawTop = yScale(data[i])
         if (x == null || !isFinite(rawTop)) {
-            breakSegment()
             continue
         }
         // Clamped like the line stroke so the area's top edge stays under it; the bottom edge
@@ -489,12 +522,19 @@ export function drawArea(
             const rawBottom = bottomValues[i]
             const yBot = rawBottom == null ? NaN : yScale(rawBottom)
             if (!isFinite(yBot)) {
-                breakSegment()
                 continue
             }
+            if (last >= 0 && !connects(last, i)) {
+                breakSegment()
+            }
+            last = i
             currentTop.push({ x, y: yTop, dataIndex: i })
             currentBottom.push({ x, y: yBot, dataIndex: i })
         } else {
+            if (last >= 0 && !connects(last, i)) {
+                breakSegment()
+            }
+            last = i
             currentTop.push({ x, y: yTop, dataIndex: i })
             currentBottom.push({ x, y: baseline, dataIndex: i })
         }
@@ -592,19 +632,25 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
     const radius = series.points?.radius
-    const isDrawable = (i: number): boolean =>
-        i >= 0 && i < data.length && xScale(labels[i]) != null && isFinite(yScale(data[i]))
+    const connects = drawCtx.connects ?? connectsNeighbors
+    const drawable: number[] = []
+    for (let i = 0; i < data.length; i++) {
+        if (xScale(labels[i]) != null && isFinite(yScale(data[i]))) {
+            drawable.push(i)
+        }
+    }
 
     ctx.fillStyle = series.color
 
-    for (let i = 0; i < data.length; i++) {
-        const x = xScale(labels[i])
+    for (let k = 0; k < drawable.length; k++) {
+        const i = drawable[k]
+        const x = xScale(labels[i]) as number
         const y = yScale(data[i])
-        if (x == null || !isFinite(y)) {
-            continue
-        }
-        // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
-        const r = radius ?? (!isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0)
+        // No line passes through a point connected to neither drawable neighbor, so it needs a dot
+        // to be visible.
+        const isolated =
+            !(k > 0 && connects(drawable[k - 1], i)) && !(k + 1 < drawable.length && connects(i, drawable[k + 1]))
+        const r = radius ?? (isolated ? ISOLATED_POINT_RADIUS : 0)
         if (r <= 0) {
             continue
         }
@@ -1035,25 +1081,30 @@ export interface LineSeriesLayerOptions {
      *  past it. Pass the chart's `showAxisLines` — without an axis line the overhang is invisible
      *  and edge line caps are left whole. */
     clipLeftEdge?: boolean
+    /** See {@link DrawContext.connects}. */
+    connects?: (from: number, to: number) => boolean
 }
 
 /** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
  *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
  *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
 export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
-    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge } = options
+    const { ctx, dimensions, labels, series, xScale, resolveYScale, smooth, yFloor, clipLeftEdge, connects } = options
     const yValuesFor = options.yValuesFor ?? (() => undefined)
     const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
     const zOrder = options.zOrder ?? 'per-series'
     const visible = series.filter((s) => !s.visibility?.excluded)
+    // `yFloor` is set for the default stroke; a wider stroke rests higher so it still sits on the axis.
+    const floorFor = (s: ResolvedSeries): number | undefined =>
+        yFloor == null ? undefined : yFloor - (lineStrokeWidth(s) - LINE_STROKE_WIDTH) / 2
 
     const paintArea = (s: ResolvedSeries): void => {
         if (!shouldFill(s)) {
             return
         }
         drawArea(
-            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor },
+            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor: floorFor(s), connects },
             s,
             yValuesFor(s),
             bottomFor(s)
@@ -1063,7 +1114,16 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
         if (s.fill?.lowerData) {
             return
         }
-        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor }
+        const drawCtx: DrawContext = {
+            ctx,
+            dimensions,
+            labels,
+            xScale,
+            yScale: resolveYScale(s),
+            smooth,
+            yFloor: floorFor(s),
+            connects,
+        }
         drawLine(drawCtx, s, yValuesFor(s))
         drawPoints(drawCtx, s, yValuesFor(s))
     }

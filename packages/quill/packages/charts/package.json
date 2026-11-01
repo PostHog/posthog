@@ -35,7 +35,8 @@
         "access": "public"
     },
     "scripts": {
-        "build": "vite build"
+        "build": "vite build && pnpm check:node-import",
+        "check:node-import": "node --input-type=module -e \"await import('./dist/index.js'); await import('./dist/testing.js')\" && node -e \"require('./dist/index.cjs'); require('./dist/testing.cjs')\""
     },
     "dependencies": {
         "@floating-ui/react": "^0.27.19",

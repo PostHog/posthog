@@ -7,7 +7,7 @@ import { waitForChartTooltip } from './tooltip'
  *  corresponding to the given label index. */
 export function hoverAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): void {
     act(() => {
-        fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
+        fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels, wrapper))
     })
 }
 
@@ -40,8 +40,8 @@ export async function clickAtIndex(
 
 // Fires mouseup on window (the chart's drag handler listens globally).
 export function dragSelection(wrapper: HTMLElement, fromIndex: number, toIndex: number, totalLabels: number): void {
-    const from = clientForIndex(fromIndex, totalLabels)
-    const to = clientForIndex(toIndex, totalLabels)
+    const from = clientForIndex(fromIndex, totalLabels, wrapper)
+    const to = clientForIndex(toIndex, totalLabels, wrapper)
     act(() => {
         fireEvent.mouseDown(wrapper, { button: 0, ...from })
         fireEvent.mouseMove(wrapper, to)

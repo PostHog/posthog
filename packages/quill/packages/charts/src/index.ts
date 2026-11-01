@@ -120,6 +120,9 @@ export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
 
 // Bar list
+export { Gauge } from './charts/Gauge/Gauge'
+export type { GaugeItem, GaugeProps } from './charts/Gauge/Gauge'
+export type { GaugeThreshold } from './charts/Gauge/gauge-geometry'
 export { BarList } from './charts/BarList/BarList'
 export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
 export { StackedBarList } from './charts/BarList/StackedBarList'
@@ -231,8 +234,11 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { ChartHoverSync } from './core/hover-sync'
 export { HighlightedRange } from './overlays/HighlightedRange'
 export type { HighlightedRangeProps } from './overlays/HighlightedRange'
+export { ValueBand } from './overlays/ValueBand'
+export type { ValueBandProps } from './overlays/ValueBand'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'
@@ -262,7 +268,7 @@ export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/st
 
 // Generic UI primitives (no canvas) — composed alongside charts by adapters
 export { Legend } from './components/Legend/Legend'
-export type { LegendItem, LegendItemClickModifiers, LegendProps } from './components/Legend/Legend'
+export type { LegendItem, LegendItemClickModifiers, LegendProps, LegendValue } from './components/Legend/Legend'
 export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'

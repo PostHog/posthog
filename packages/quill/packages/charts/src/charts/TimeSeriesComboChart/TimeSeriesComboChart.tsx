@@ -20,7 +20,7 @@ import { mergeValueDomains, type GoalLineConfig } from '../../utils/goal-lines'
 import { useTimeSeriesTooltipConfig, type XAxisConfig, type YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
-import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import { useGoalLines, useTimeSeries, useValueBounds } from '../utils/use-time-series'
 import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
@@ -47,6 +47,8 @@ export interface TimeSeriesComboChartConfig {
     bandPadding?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Defaults to true. */
+    syncHover?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
@@ -106,6 +108,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barCornerRadius,
         bandPadding,
         showCrosshair,
+        syncHover = true,
         showGrid,
         showAxisLines,
         showTickMarks,
@@ -124,7 +127,13 @@ export function TimeSeriesComboChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, {
+        xAxis,
+        yAxis,
+        valueLabels,
+        legend,
+        isPercent: barLayout === 'percent',
+    })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, chartSeries)
@@ -134,6 +143,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     )
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
+    const valueBounds = useValueBounds(primaryYAxis)
 
     const comboChartConfig: ComboChartConfig = {
         margins,
@@ -150,6 +160,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         showTickMarks,
         curve,
         showCrosshair,
+        syncHover,
         defaultSeriesType,
         barLayout,
         divergingStack,
@@ -157,6 +168,8 @@ export function TimeSeriesComboChart<Meta = unknown>({
         bandPadding,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
+        valueBounds,
+        floatBaseline: primaryYAxis?.startAtZero === false && primaryYAxis?.scale !== 'log',
         yAxes,
     }
 
