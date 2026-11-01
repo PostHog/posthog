@@ -1,8 +1,9 @@
-from dataclasses import dataclass
 from typing import Literal
 
+from posthog.dataclasses import frozen
 
-@dataclass
+
+@frozen
 class AttioEndpointConfig:
     name: str
     path: str
