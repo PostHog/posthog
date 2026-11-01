@@ -582,6 +582,7 @@
         "summary": "Create an event definition.",
         "title": "Create event definition",
         "required_scopes": ["event_definition:write"],
+        "api_operations": ["POST /api/projects/{project_id}/event_definitions/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -610,6 +611,7 @@
         "summary": "Update an event definition's metadata.",
         "title": "Update event definition",
         "required_scopes": ["event_definition:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/event_definitions/{id}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

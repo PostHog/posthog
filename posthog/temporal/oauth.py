@@ -265,6 +265,15 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          rollout. The extra scopes in `dangerously_get_required_scopes` still
 #                          apply, so the grant alone cannot disable a flag on archive or set the
 #                          team default repository. It can also create an exposure cohort.
+#   event_definition:write Tags on every event definition in the scout's project, and nothing
+#                          else. The scope object also covers creating, describing, verifying,
+#                          hiding, and deleting a definition, its owner and schema enforcement, and
+#                          the property groups and media previews attached to it. Delete is
+#                          PERMANENT and a schema can make ingestion reject events, so
+#                          `posthog/taxonomy/scout_writes.py` refuses all of that for scouts. An
+#                          update may carry `tags` alone, and it replaces the whole list, so a scout
+#                          reads the current tags first. A bulk tag change may add or remove, but
+#                          not set. Every change is in the definition's activity history.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -295,6 +304,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "ticket:write",
         "canvas:write",
         "experiment:write",
+        "event_definition:write",
     }
 )
 

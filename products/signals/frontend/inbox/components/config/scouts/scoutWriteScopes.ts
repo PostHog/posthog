@@ -17,6 +17,7 @@ export interface ScoutWriteScopeRow {
         | 'Support'
         | 'Canvases'
         | 'Experiments'
+        | 'Data management'
     label: string
     description: string
     /** Flag the product is still released behind. Its MCP tools share it, so a grant without it is inert. */
@@ -129,6 +130,13 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         label: 'Experiments',
         description:
             'Create and edit any experiment in the project, and launch, pause, resume, and end it. Launching and pausing change what your users see. Scouts cannot delete experiments, copy them to another project, ship a variant, or change the rollout once an experiment has launched',
+    },
+    {
+        scope: 'event_definition:write',
+        group: 'Data management',
+        label: 'Event tags',
+        description:
+            'Add and remove tags on any event definition in the project, including tags people added. Scouts cannot change descriptions, owners, verified or hidden state, or schemas, and cannot create or delete events',
     },
 ]
 
