@@ -338,6 +338,18 @@ describe('integrationsLogic', () => {
         })
     })
 
+    describe('warehouse source credentials rows', () => {
+        it('keeps them in the full list but out of the lists that pick a connection by kind', async () => {
+            const sourceRow = githubIntegration({ id: 43, config: { warehouse_source_type: 'Github' } })
+            integrationsPayload = [githubIntegration(), sourceRow]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
+
+            expect(logic.values.integrations?.map((integration) => integration.id)).toEqual([42, 43])
+            expect(logic.values.githubIntegrations.map((integration) => integration.id)).toEqual([42])
+            expect(logic.values.getIntegrationsByKind(['github']).map((integration) => integration.id)).toEqual([42])
+        })
+    })
+
     describe('polling', () => {
         it('polls integrations only while at least one surface is subscribed', async () => {
             jest.useFakeTimers()

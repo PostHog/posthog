@@ -19,6 +19,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -202,7 +203,7 @@ def classify_job_input_key(source_type: ExternalDataSourceType, key: str, value:
     """Kind of a stored key. Pass the stored value to classify a select that has reference options."""
     if is_runtime_key(SourceRegistry.get_source(source_type), key):
         return JobInputKind.RUNTIME
-    if _is_reference_value(source_type, key, value):
+    if key == CREDENTIALS_REFERENCE_KEY or _is_reference_value(source_type, key, value):
         return JobInputKind.REFERENCE
     return stored_field_kinds(source_type).get(key, JobInputKind.CONNECTION)
 

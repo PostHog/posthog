@@ -54,15 +54,19 @@ from posthog.credentials_service.errors import (
 )
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
+    ANY as ANY_AUTH_TYPE,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     STRIPE_POSTHOG_SECRET_NAMES,
+    WAREHOUSE_SOURCE_TYPE_CONFIG_KEY,
     Assignee,
     AssigneeLookupFailed,
+    AuthTypeSelector,
     EmailIntegration,
     GitHubInstallationAccess,
     GitHubIntegration,
@@ -98,6 +102,8 @@ from products.batch_exports.backend.facade.enums import BatchExportDestinationTy
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -3300,10 +3306,10 @@ class TestIntegrationAPIKeyAccess:
         assert repos.status_code == status.HTTP_404_NOT_FOUND
         # Only the App row of the list heals its account name. The token row has no installation.
         assert heal.call_count == 1
-        # Actions other than list and retrieve do not reach the warehouse source row.
-        deleted = client.delete(f"{base_url}/{source_row.id}/")
-        assert deleted.status_code == status.HTTP_404_NOT_FOUND
-        assert Integration._base_manager.filter(id=source_row.id).exists()
+        # Actions other than list, retrieve and destroy do not reach the warehouse source row.
+        # `test_destroy_of_a_source_credentials_row` covers destroy.
+        source_repos = client.get(f"{base_url}/{source_row.id}/github_repos/")
+        assert source_repos.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)
@@ -5415,6 +5421,29 @@ class TestStripeIntegration:
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=integration.id).exists()
 
+    @patch("posthog.api.integration.OauthIntegration")
+    @patch("posthog.api.integration.StripeIntegration")
+    def test_destroy_typed_in_row_skips_provider_teardown(
+        self, MockStripeIntegration, MockOauthIntegration, client: HttpClient
+    ):
+        integration = Integration.objects._with_auth(ANY_AUTH_TYPE).create(
+            team=self.team,
+            kind="stripe",
+            integration_id="typed-in",
+            config={"auth_type": "token"},
+            sensitive_config={"api_key": "sk_test_not_a_real_key"},
+            created_by=self.user,
+        )
+        MockOauthIntegration.supported_kinds = ["stripe"]
+
+        client.force_login(self.user)
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        MockStripeIntegration.assert_not_called()
+        MockOauthIntegration.assert_not_called()
+        assert not Integration.objects._with_auth(ANY_AUTH_TYPE).filter(id=integration.id).exists()
+
     def test_destroy_non_stripe_does_not_call_clear_secrets(self, client: HttpClient):
         integration = Integration.objects.create(
             team=self.team,
@@ -7018,6 +7047,13 @@ class TestSlackPostHogCodeKindDeprecated:
         serializer.is_valid()
         assert "kind" not in serializer.errors
 
+    def test_validate_kind_rejects_whitespace_padded_kind(self):
+        # PersonalConnectionRecentAuthPermission compares the raw kind, so a trimmed kind would bypass it.
+        serializer = IntegrationSerializer(data={"kind": "posthog ", "config": {}})
+
+        assert not serializer.is_valid()
+        assert "kind" in serializer.errors
+
 
 class TestGitHubIntegrationListStatusFields:
     @pytest.fixture(autouse=True)
@@ -8201,3 +8237,150 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/integrations/github/link_existing/", payload)
         assert response.status_code == 200
         assert link.call_args.kwargs["installation_id_param"] is None
+
+
+class TestWarehouseSourceIntegrationKind(APIBaseTest):
+    def _credentials_row(self, kind: str, auth_type: str = "credentials") -> IntegrationRecord:
+        rows = IntegrationManager.source(kind)
+        return (rows.token if auth_type == "token" else rows.credentials).create(
+            self.team.id,
+            external_id=str(uuid4()),
+            config={WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres", "display_name": "Postgres (prod)"},
+            sensitive_config={"fields": {"password": "fake-password"}},
+        )
+
+    def _source_pointing_at(
+        self, integration: IntegrationRecord, team=None, deleted: bool = False, key: str = "linear_integration_id"
+    ) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=team or self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status="Completed",
+            source_type=ExternalDataSourceType.LINEAR,
+            job_inputs={key: integration.id},
+            deleted=deleted,
+        )
+
+    @patch("posthog.api.integration.AnthropicIntegration")
+    def test_detail_actions_do_not_reach_a_source_row_of_a_default_auth_type(self, anthropic: MagicMock) -> None:
+        # `token` is the default auth type of `anthropic`, so only the source marker keeps the row out.
+        row = self._credentials_row("anthropic", "token")
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/integrations/{row.id}/anthropic_managed_agents/")
+
+        assert response.status_code == 404
+        anthropic.assert_not_called()
+
+    def test_typed_in_rows_are_listed_with_their_kind_and_auth_type(self) -> None:
+        postgres = self._credentials_row("postgresql")
+        stripe = self._credentials_row("stripe", "token")
+        generated = self._credentials_row("ably", "token")
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/integrations/").json()["results"]
+
+        by_id = {row["id"]: row for row in listed}
+        assert {key: by_id[postgres.id][key] for key in ("kind", "auth_type", "display_name")} == {
+            "kind": "postgresql",
+            "auth_type": "credentials",
+            "display_name": "Postgres (prod)",
+        }
+        assert (by_id[stripe.id]["kind"], by_id[stripe.id]["auth_type"]) == ("stripe", "token")
+        assert (by_id[generated.id]["kind"], by_id[generated.id]["auth_type"]) == ("ably", "token")
+        assert "fake-password" not in json.dumps(listed)
+        assert self.client.get(f"/api/projects/{self.team.id}/integrations/{stripe.id}/").status_code == 200
+
+    @parameterized.expand([("generated_kind", "ably"), ("unknown_kind", "not-a-kind")])
+    def test_a_kind_outside_the_public_enum_cannot_be_created_or_filtered(self, _name: str, kind: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/integrations/", {"kind": kind, "config": {}}, format="json"
+        )
+
+        assert response.status_code == 400
+        assert not Integration.objects._with_auth(AuthTypeSelector.ANY).filter(kind=kind).exists()
+        assert self.client.get(f"/api/projects/{self.team.id}/integrations/?kind={kind}").status_code == 400
+
+    @parameterized.expand(
+        [
+            ("referenced", "postgresql", "credentials", True, 400),
+            ("unreferenced", "postgresql", "credentials", False, 204),
+            # A typed-in row of an OAuth kind is deleted without the provider teardown.
+            ("non_default_auth_type", "stripe", "token", False, 204),
+        ]
+    )
+    def test_destroy_of_a_source_credentials_row(
+        self, _name: str, kind: str, auth_type: str, referenced: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        row = self._credentials_row(kind, auth_type)
+        if referenced:
+            source = self._source_pointing_at(row, key="credentials_integration_id")
+            source.prefix = "private_source_prefix"
+            source.save(update_fields=["prefix"])
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
+
+        assert response.status_code == expected_status
+        assert IntegrationManager.any.with_source_rows().exists(self.team.id, external_id=row.integration_id) == (
+            expected_status != 204
+        )
+        if referenced:
+            detail = json.dumps(response.json())
+            assert "data warehouse sources: 1" in detail
+            assert "private_source_prefix" not in detail
+            assert str(source.source_type) not in detail
+            assert str(source.id) not in detail
+
+    @parameterized.expand([("before_the_usage_check", "usages"), ("during_the_teardown", "delete")])
+    def test_destroy_of_a_row_that_a_concurrent_request_deleted(self, _name: str, gone_at: str) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        row = self._credentials_row("postgresql")
+
+        with (
+            patch.object(IntegrationReader, "usages", return_value=[]),
+            patch.object(IntegrationReader, gone_at, side_effect=IntegrationNotFound()),
+        ):
+            response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
+
+        assert response.status_code == 204
+
+    def test_destroy_checks_the_usages_once(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        row = self._credentials_row("postgresql")
+
+        with patch("posthog.integrations.accessors.integration_usages", return_value=[]) as usages:
+            response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
+
+        assert response.status_code == 204
+        assert usages.call_count == 1
+        assert not IntegrationManager.any.with_source_rows().exists(self.team.id, external_id=row.integration_id)
+
+    @parameterized.expand(
+        [
+            ("referenced", False, False, 400),
+            ("referenced_by_deleted_source", True, False, 204),
+            ("referenced_by_other_team", False, True, 204),
+            ("unreferenced", None, False, 204),
+        ]
+    )
+    def test_destroy_is_blocked_by_a_source_pointer(
+        self, _name: str, source_deleted: bool | None, other_team: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = Integration.objects.create(team=self.team, kind="linear", integration_id="L1")
+        if source_deleted is not None:
+            source_team = Team.objects.create(organization=self.organization, name="Other") if other_team else self.team
+            self._source_pointing_at(integration, team=source_team, deleted=source_deleted)
+
+        with patch("posthog.api.integration.OauthIntegration") as oauth:
+            oauth.supported_kinds = []
+            response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{integration.id}/")
+
+        assert response.status_code == expected_status
+        assert IntegrationManager.any.exists(self.team.id, external_id="L1") == (expected_status == 400)
+        if expected_status == 400:
+            assert "data warehouse sources" in json.dumps(response.json())
