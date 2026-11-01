@@ -42,6 +42,30 @@ _COMMON_STATS_COLUMNS = {
 }
 
 
+# Video watch-depth columns. The plain stats tables and the country and platform breakdown tables
+# carry them.
+_VIDEO_WATCH_DEPTH_COLUMNS = {
+    "video_30_sec_watched_actions": "Number of times the video played for at least 30 seconds, or nearly to the end for shorter videos, reported by action type.",
+    "video_p25_watched_actions": "Number of times the video played to 25% of its length, including plays that skipped to that point, reported by action type.",
+    "video_p50_watched_actions": "Number of times the video played to 50% of its length, including plays that skipped to that point, reported by action type.",
+    "video_p75_watched_actions": "Number of times the video played to 75% of its length, including plays that skipped to that point, reported by action type.",
+    "video_p95_watched_actions": "Number of times the video played to 95% of its length, including plays that skipped to that point, reported by action type.",
+    "video_p100_watched_actions": "Number of times the video played to its end, including plays that skipped to that point, reported by action type.",
+    "video_avg_time_watched_actions": "Average time the video played per impression, including replays, reported by action type.",
+}
+
+# The video columns of the plain stats tables, beyond those in `_COMMON_STATS_COLUMNS`.
+_PLAIN_STATS_VIDEO_COLUMNS = {
+    **_VIDEO_WATCH_DEPTH_COLUMNS,
+    "video_continuous_2_sec_watched_actions": "Number of times the video played for at least 2 continuous seconds, reported by action type.",
+    "video_play_curve_actions": (
+        "Video retention curve: the percentage of plays still watching at each point, as an array by action type. "
+        "Entries 0 to 14 are seconds 0 to 14, entries 15 to 17 are 5-second ranges up to 30 seconds, "
+        "entries 18 to 20 are 10-second ranges up to 60 seconds, and entry 21 is past 60 seconds."
+    ),
+}
+
+
 def _stats_columns(**overrides: str) -> dict[str, str]:
     return {**_COMMON_STATS_COLUMNS, **overrides}
 
@@ -148,6 +172,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.facebook.com/docs/marketing-api/insights/",
         "columns": _stats_columns(
             campaign_id="The ID of the campaign the metrics belong to.",
+            **_PLAIN_STATS_VIDEO_COLUMNS,
         ),
     },
     MetaAdsResource.AdsetStats: {
@@ -156,6 +181,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": _stats_columns(
             adset_id="The ID of the ad set the metrics belong to.",
             campaign_id="The ID of the campaign the ad set belongs to.",
+            **_PLAIN_STATS_VIDEO_COLUMNS,
         ),
     },
     MetaAdsResource.AdStats: {
@@ -165,12 +191,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             ad_id="The ID of the ad the metrics belong to.",
             adset_id="The ID of the ad set the ad belongs to.",
             campaign_id="The ID of the campaign the ad belongs to.",
-            video_30_sec_watched_actions="The number of times the video was watched for at least 30 seconds.",
-            video_p25_watched_actions="The number of times the video was watched to 25% of its length.",
-            video_p50_watched_actions="The number of times the video was watched to 50% of its length.",
-            video_p75_watched_actions="The number of times the video was watched to 75% of its length.",
-            video_p95_watched_actions="The number of times the video was watched to 95% of its length.",
-            video_p100_watched_actions="The number of times the video was watched to 100% of its length.",
+            **_PLAIN_STATS_VIDEO_COLUMNS,
         ),
     },
     MetaAdsResource.AdAccount: {
@@ -305,6 +326,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": _INSIGHTS_BREAKDOWNS_DOCS_URL,
         "columns": _campaign_breakdown_columns(
             country="Two-letter country code the metrics were delivered in.",
+            **_VIDEO_WATCH_DEPTH_COLUMNS,
         ),
     },
     MetaAdsResource.CampaignStatsByRegion: {
@@ -321,6 +343,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             publisher_platform="The platform the ads ran on (facebook, instagram, audience_network, messenger).",
             platform_position="The placement within the platform (e.g. feed, story, reels).",
             impression_device="The device the impression was served on (e.g. iphone, android_smartphone, desktop).",
+            **_VIDEO_WATCH_DEPTH_COLUMNS,
         ),
     },
     MetaAdsResource.CampaignStatsHourly: {

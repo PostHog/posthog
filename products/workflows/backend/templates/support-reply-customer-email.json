@@ -1,0 +1,151 @@
+{
+    "id": "a638999a-bf53-4fde-af36-c85ad9827076",
+    "name": "Support reply notification",
+    "description": "Email the customer when your support team replies to their ticket, so they never miss an answer.",
+    "version": 1,
+    "created_at": "2026-10-27T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-27T00:00:00Z",
+    "trigger": {
+        "type": "internal-event",
+        "filters": {
+            "source": "internal-events",
+            "events": [
+                {
+                    "id": "$conversation_message_sent",
+                    "name": "Ticket message sent",
+                    "type": "events"
+                }
+            ],
+            "properties": [
+                {
+                    "key": "customer_email_verified",
+                    "value": ["true"],
+                    "operator": "exact",
+                    "type": "event"
+                },
+                {
+                    "key": "channel_source",
+                    "value": ["email"],
+                    "operator": "is_not",
+                    "type": "event"
+                }
+            ]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_function_email_6254cf7c-c5de-42ba-b54e-3782bd102208",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_6254cf7c-c5de-42ba-b54e-3782bd102208",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Support team replies on a ticket",
+            "description": "A teammate has replied to a customer on a support ticket. Runs only when the customer's email is verified, and skips email tickets because those replies already go out by email.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [
+                        {
+                            "id": "$conversation_message_sent",
+                            "name": "Ticket message sent",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "customer_email_verified",
+                            "value": ["true"],
+                            "operator": "exact",
+                            "type": "event"
+                        },
+                        {
+                            "key": "channel_source",
+                            "value": ["email"],
+                            "operator": "is_not",
+                            "type": "event"
+                        }
+                    ]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_6254cf7c-c5de-42ba-b54e-3782bd102208",
+            "name": "Email the customer",
+            "description": "Write the email that tells the customer your support team replied to their ticket.",
+            "on_error": null,
+            "created_at": 1793059200000,
+            "updated_at": 1793059200000,
+            "filters": null,
+            "type": "function_email",
+            "output_variable": null,
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "{{ event.properties.customer_name }}",
+                                "email": "{{ event.properties.customer_email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "",
+                            "text": "",
+                            "design": null,
+                            "replyTo": "",
+                            "subject": "",
+                            "preheader": ""
+                        },
+                        "templating": "liquid"
+                    }
+                },
+                "message_category_type": "transactional"
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function_email"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
+    "tags": ["email", "support ticket", "support"],
+    "scope": "global"
+}

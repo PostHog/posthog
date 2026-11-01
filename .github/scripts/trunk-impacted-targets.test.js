@@ -623,7 +623,7 @@ test('a single-language workflow claims that language rather than everything', (
 test('a full-stack suite claims both language families and no rust crate', () => {
     for (const file of [
         '.github/workflows/ci-e2e-playwright.yml',
-        '.github/workflows/ci-hog.yml',
+        '.github/workflows/ci-hoglang.yml',
         '.github/workflows/container-images-ci.yml',
         '.github/workflows/cd-sandbox-base-image.yml',
         '.github/workflows/ci-recording-rasterizer-container.yml',
@@ -824,6 +824,12 @@ test('the proto workflow claims every proto tree rather than everything', () => 
 test('the cli workflow and the reusable release plan share the cli lane', () => {
     for (const file of ['.github/workflows/ci-cli.yml', '.github/workflows/release.yml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['cli/src/main.rs'], CONTEXT), file)
+    }
+})
+
+test('the hogbox preview workflows keep the hogbox tooling lane', () => {
+    for (const file of ['.github/workflows/hogbox-preview-env.yml', '.github/workflows/hogbox-preview-cleanup.yml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['tools:hogbox-preview'], file)
     }
 })
 
@@ -1330,6 +1336,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.github/workflows/ci-hobby.yml',
         '.github/workflows/ci-oauth-proxy.yml',
         '.github/workflows/ci-agent-skills.yml',
+        '.github/workflows/hogbox-preview-env.yml',
         '.github/workflows/ci-cli.yml',
         'bin/hobby-ci.py',
         'Dockerfile.llm-analytics',
@@ -2327,3 +2334,29 @@ test('playwright changes overlap the frontend domain', () => {
         true
     )
 })
+
+for (const writable of [true, false]) {
+    test(`the CLI preserves targets when the telemetry output is ${writable ? 'writable' : 'unwritable'}`, () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lane-telemetry-'))
+        try {
+            const telemetryFile = path.join(root, writable ? 'properties.json' : 'missing/properties.json')
+            const output = execFileSync(process.execPath, [path.join(__dirname, 'trunk-impacted-targets.js')], {
+                input: 'README.md\n',
+                env: { ...process.env, PATH: '', LANE_TELEMETRY_FILE: telemetryFile },
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'pipe'],
+            })
+            assert.deepEqual(JSON.parse(output), ['prose'])
+            if (writable) {
+                const properties = JSON.parse(fs.readFileSync(telemetryFile, 'utf8'))
+                assert.equal(properties.is_prose, true)
+                assert.equal(properties.changed_file_count, 1)
+                assert.equal(properties.cross_lane, false)
+            } else {
+                assert.equal(fs.existsSync(telemetryFile), false)
+            }
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true })
+        }
+    })
+}

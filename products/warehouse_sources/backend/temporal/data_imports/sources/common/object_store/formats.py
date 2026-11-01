@@ -9,6 +9,7 @@ from typing import IO, Any, Literal, cast
 
 import pyarrow as pa
 import pyarrow.csv as pa_csv
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 
@@ -23,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     FileFormat,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
+    JSON_CAST_KINDS,
+    CsvColumnType,
     cast_csv_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import is_compressed
@@ -244,12 +247,46 @@ def _as_rows(value: Any) -> Iterator[dict[str, Any]]:
         yield {"value": value}
 
 
+def _typed_jsonl(table: pa.Table, column_types: tuple[CsvColumnType, ...], nulled_values: dict[str, int]) -> pa.Table:
+    # Only the date and time columns are cast. A JSON number or boolean already has its type.
+    casts = tuple(column_type for column_type in column_types if column_type.kind in JSON_CAST_KINDS)
+    for column_type in casts:
+        if column_type.name not in table.column_names:
+            continue
+        index = table.schema.get_field_index(column_type.name)
+        if not pa.types.is_string(table.schema.field(index).type):
+            table = table.set_column(index, column_type.name, pc.cast(table.column(index), pa.string(), safe=False))
+    result = cast_csv_columns(table, casts)
+    for column, count in result.nulled_values.items():
+        nulled_values[column] = nulled_values.get(column, 0) + count
+    return result.table
+
+
 def iter_jsonl_tables(
     stream: IO[bytes],
     file_path: str = "",
     max_rows: int = JSONL_CHUNK_ROWS,
     max_bytes: int = JSONL_CHUNK_BYTES,
+    column_types: tuple[CsvColumnType, ...] = (),
+    logger: FilteringBoundLogger | None = None,
 ) -> Iterator[pa.Table]:
+    """Stream a JSON Lines file as tables, casting the date and time columns in `column_types`.
+
+    A JSON file holds a date as text. A table moved from a self-managed table keeps the date types
+    ClickHouse read, so those columns are cast like CSV columns, and a value that is not a date is null.
+    """
+    nulled_values: dict[str, int] = {}
+    for table in _iter_untyped_jsonl_tables(stream, file_path, max_rows, max_bytes):
+        yield _typed_jsonl(table, column_types, nulled_values) if column_types else table
+    if nulled_values and logger is not None:
+        logger.warning(
+            "Read JSON values that don't match their column type as null",
+            file=file_path,
+            nulled_values=nulled_values,
+        )
+
+
+def _iter_untyped_jsonl_tables(stream: IO[bytes], file_path: str, max_rows: int, max_bytes: int) -> Iterator[pa.Table]:
     rows: list[dict[str, Any]] = []
     pending_bytes = 0
     line_number = 0
@@ -362,7 +399,7 @@ def iter_file_tables(
             delimiter = csv_options.delimiter or ("\t" if stored.path.lower().endswith(TSV_SUFFIXES) else ",")
             tables = iter_csv_tables(binary, csv_options, delimiter, stored.path, logger)
         else:
-            tables = iter_jsonl_tables(binary, stored.path)
+            tables = iter_jsonl_tables(binary, stored.path, column_types=csv_options.column_types, logger=logger)
     rows_read = 0
     try:
         for table in tables:

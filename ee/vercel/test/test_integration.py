@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.contrib.auth import SESSION_KEY
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -30,7 +31,13 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
-from ee.vercel.integration import RequiresExistingUserLogin, SSOParams, VercelIntegration, _safe_vercel_sync
+from ee.vercel.integration import (
+    RequiresExistingUserLogin,
+    SSOParams,
+    VercelIntegration,
+    _safe_vercel_sync,
+    get_or_create_connectable_resource,
+)
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
@@ -1595,3 +1602,51 @@ class TestPushSecretsToVercel(TestCase):
         VercelIntegration.push_secrets_to_vercel(self.team)
 
         mock_capture.assert_called_once()
+
+
+class TestGetOrCreateConnectableResource(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Connectable Org")
+        self.team = Team.objects.create(organization=self.organization, name="Connectable Team")
+
+    def _vercel_row(self, config: dict[str, Any]) -> Integration:
+        return Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.VERCEL, integration_id=str(self.team.pk), config=config
+        )
+
+    def test_creates_a_connectable_resource_when_the_team_has_none(self):
+        resource, created = get_or_create_connectable_resource(self.team)
+
+        assert created
+        assert (resource.team_id, resource.integration_id, resource.config) == (
+            self.team.pk,
+            str(self.team.pk),
+            {"type": "connectable"},
+        )
+
+    @parameterized.expand([("found_on_first_read", False), ("created_by_a_concurrent_request", True)])
+    def test_returns_the_existing_resource(self, _name: str, hidden_from_first_read: bool):
+        existing = self._vercel_row({"type": "connectable"})
+        real_find = IntegrationReader.find
+        calls = 0
+
+        def find(reader, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            # A concurrent request inserts the row after this request's first read.
+            if hidden_from_first_read and calls == 1:
+                return None
+            return real_find(reader, *args, **kwargs)
+
+        with transaction.atomic(), patch.object(IntegrationReader, "find", autospec=True, side_effect=find):
+            resource, created = get_or_create_connectable_resource(self.team)
+            # The failed insert must leave the caller's transaction usable.
+            assert Integration.objects.filter(pk=existing.pk).exists()
+
+        assert (resource.id, created) == (existing.id, False)
+
+    def test_a_conflicting_row_outside_the_accessor_scope_raises(self):
+        self._vercel_row({"type": "connectable", "warehouse_source_type": "Vercel"})
+
+        with pytest.raises(IntegrationConflict):
+            get_or_create_connectable_resource(self.team)

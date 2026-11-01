@@ -104,9 +104,9 @@ ExtractErrors = {
     "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from Parquet format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
-    "Cannot extract table structure from JSONEachRow format file, because there are no files with provided path in S3 or all files are empty": "The provided file doesn't exist in the bucket",
+    "The specified blob does not exist": "The file in your files URL doesn't exist in the container. Check the container name and file path, then try again.",
+    # ClickHouse names the format in this message (CSV, CSVWithNames, Parquet, ...), so match the shared tail.
+    "there are no files with provided path in S3 or all files are empty": "No files match your Files URL pattern, or all the matching files are empty. Check the folder path and wildcards, then try again.",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
@@ -188,13 +188,20 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
-# Capture bookkeeping that a history table carries next to `valid_from`, `valid_to` and `_ph_deleted`,
+# Capture and layout bookkeeping that a history table carries next to its validity columns and `_ph_deleted`,
 # which already tell a reader when a version held and whether it is a delete. The names mirror the
 # constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
-HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"})
+HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset(
+    {"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at", "_ph_history_partition"}
+)
 # Set in `options` when the sync registers a table as a schema's history table. Column names cannot
 # tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
 HISTORY_TABLE_OPTION = "history_table"
+# Set in `options` when the sync creates a history table named `<table>_history` with the validity
+# columns `_ph_valid_from` / `_ph_valid_to`. A history table without it is older and keeps `_cdc`,
+# `valid_from` and `valid_to`.
+HISTORY_NAMING_OPTION = "history_naming"
+PH_HISTORY_NAMING = "ph_validity"
 
 
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
@@ -617,8 +624,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def is_history_table(self) -> bool:
         return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
 
-    def mark_as_history_table(self) -> None:
-        self.options = {**(self.options or {}), HISTORY_TABLE_OPTION: True}
+    def mark_as_history_table(self, *, ph_naming: bool = False) -> None:
+        self.options = {
+            **(self.options or {}),
+            HISTORY_TABLE_OPTION: True,
+            **({HISTORY_NAMING_OPTION: PH_HISTORY_NAMING} if ph_naming else {}),
+        }
+
+    @property
+    def has_ph_history_naming(self) -> bool:
+        return (self.options or {}).get(HISTORY_NAMING_OPTION) == PH_HISTORY_NAMING
 
     def hidden_columns(self) -> frozenset[str]:
         """The plumbing columns to keep out of the catalog for this table."""
@@ -1087,6 +1102,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_TRINO_SCHEMA_OPTION,
             DIRECT_TRINO_TABLE_OPTION,
         )
+        from products.warehouse_sources.backend.logic.source_inputs import (  # noqa: PLC0415 - the store imports this model package
+            SourceInputsStore,
+        )
 
         columns = self.columns or {}
 
@@ -1111,7 +1129,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             postgres_schema = (
                 self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
-                else (self.external_data_source.job_inputs or {}).get("schema", "public")
+                else SourceInputsStore.load_settings(self.external_data_source).get("schema", "public")
             )
             postgres_table_name = (
                 self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
@@ -1130,7 +1148,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_mysql:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             mysql_schema = (
                 self.options.get(DIRECT_MYSQL_SCHEMA_OPTION)
                 if isinstance(self.options.get(DIRECT_MYSQL_SCHEMA_OPTION), str)
@@ -1151,7 +1169,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             )
 
         if self.external_data_source and self.external_data_source.is_direct_snowflake:
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             snowflake_catalog = (
                 self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_SNOWFLAKE_CATALOG_OPTION), str)
@@ -1180,7 +1198,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if self.external_data_source and self.external_data_source.is_direct_redshift:
             # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
             # double-quoted table-reference rendering (see DirectRedshiftTable).
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             redshift_catalog = (
                 self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
@@ -1213,7 +1231,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "motherduck"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             motherduck_database = (
                 self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_MOTHERDUCK_CATALOG_OPTION), str)
@@ -1245,7 +1263,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and (self.external_data_source.direct_engine == "trino" or is_managed_trino_table)
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             trino_catalog = (
                 self.options.get(DIRECT_TRINO_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_TRINO_CATALOG_OPTION), str)
@@ -1281,7 +1299,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             and self.external_data_source.is_direct_query
             and self.external_data_source.direct_engine == "clickhouse"
         ):
-            job_inputs = self.external_data_source.job_inputs or {}
+            job_inputs = SourceInputsStore.load(self.external_data_source)
             # Every direct-ClickHouse table is discovered from the source's single configured
             # database, so the live source config is authoritative. Prefer it over the per-table
             # option, which can be stale — e.g. stored as "default" when the source was first synced
@@ -1343,6 +1361,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            is_history_table=self.is_history_table,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.

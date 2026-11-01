@@ -744,8 +744,7 @@ export function taxonomicFilterTypeToPropertyFilterType(
  * Recover a property definition's id. Pinned/default taxonomic items are stored as
  * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
  * (keyed by name + type) instead of building a link with an `undefined` id. Returns
- * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
- * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ * `undefined` when the id can't be resolved so callers can hide the link.
  */
 export function resolvePropertyDefinitionId(
     definition: Pick<PropertyDefinition, 'id' | 'name'>,

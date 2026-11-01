@@ -74,7 +74,7 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
                         label="Region",
                         required=True,
                         defaultValue=DEFAULT_REGION,
-                        caption="Your Awin account's primary region. Used to sync the advertiser performance report.",
+                        caption="Your Awin account's primary region. Used to sync the performance reports.",
                         options=[
                             SourceFieldSelectConfigOption(label=label, value=value) for value, label in REGION_OPTIONS
                         ],
@@ -114,7 +114,13 @@ Create a personal OAuth2 token from the [Awin API settings](https://ui.awin.com/
                 return "Full refresh only. Needs an advertiser account"
             if endpoint in ("commission_groups", "programme_details"):
                 return "Full refresh only. Takes one request per joined programme, so it syncs slowly if your publisher accounts are in many programmes"
-            if endpoint == "transactions":
+            if endpoint in ("publisher_campaign_reports", "publisher_creative_reports"):
+                return "Full refresh only. A rolling snapshot of the last 30 days of performance for your publisher accounts"
+            if endpoint in ("advertiser_campaign_reports", "advertiser_creative_reports"):
+                return "Full refresh only. A rolling snapshot of the last 30 days of performance. Needs an advertiser account"
+            if endpoint == "offers":
+                return "Full refresh only. Active offers and voucher codes from the programmes your publisher accounts have joined"
+            if endpoint in ("transactions", "transaction_queries"):
                 return "Only syncs the last 365 days on initial sync"
             return None
 

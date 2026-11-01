@@ -8,8 +8,8 @@ from uuid import UUID
 from products.warehouse_sources.backend.facade.api import source_locations_for_tables
 from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
 
-from ..logic import accept, suggestions
-from ..logic.access import SubjectAccess, readable_table_ids, visible_suggestions
+from ..logic import accept, assignment, suggestions
+from ..logic.access import CATALOG_KINDS, SubjectAccess, readable_table_ids, visible_suggestions
 from ..logic.analytics import SuggestionOutcome, report_outcomes
 from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.payloads import payload_from_json, payload_view, source_table_ids
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "accept_suggestion",
+    "assign_suggestion",
     "dismiss_suggestion",
     "get_suggestion",
     "is_warehouse_suggestions_enabled",
@@ -51,8 +52,6 @@ __all__ = [
     "suggestion_status",
     "upsert_suggestions",
 ]
-
-CATALOG_KINDS = frozenset({WarehouseSuggestionKind.CERTIFY, WarehouseSuggestionKind.DEPRECATE})
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
@@ -66,12 +65,19 @@ def list_suggestions(
     kind: WarehouseSuggestionKind | None,
     status: WarehouseSuggestionStatus | None,
     subject_id: UUID | None,
+    assignee_id: int | None = None,
     subject_kinds: SubjectKinds,
     limit: int,
     offset: int,
 ) -> SuggestionPage:
     visible, access = visible_suggestions(
-        team_id, user_access_control, kind=kind, status=status, subject_id=subject_id, subject_kinds=subject_kinds
+        team_id,
+        user_access_control,
+        kind=kind,
+        status=status,
+        subject_id=subject_id,
+        assignee_id=assignee_id,
+        subject_kinds=subject_kinds,
     )
     page = list(visible[offset : offset + limit])
     return SuggestionPage(count=visible.count(), results=_to_contracts(team_id, user_access_control, page, access))
@@ -138,6 +144,28 @@ def resume_suggestion(
     )
     report_outcomes(SuggestionOutcome.RESUMED, [resumed], team=team, user=user)
     return _single_contract(team.pk, user_access_control, resumed, access)
+
+
+def assign_suggestion(
+    team: "Team",
+    user_access_control: "UserAccessControl",
+    suggestion_id: UUID,
+    *,
+    user: "User",
+    assignee_id: int | None,
+    subject_kinds: SubjectKinds,
+) -> Suggestion:
+    row, access = _actionable_suggestion(team.pk, user_access_control, suggestion_id, subject_kinds)
+    result = assignment.assign(team, row.id, assignee_id, assigned_by=user)
+    if result.changed:
+        report_outcomes(
+            SuggestionOutcome.ASSIGNED,
+            [result.suggestion],
+            team=team,
+            user=user,
+            properties={"unassigned": assignee_id is None, "self_assigned": assignee_id == user.id},
+        )
+    return _single_contract(team.pk, user_access_control, result.suggestion, access)
 
 
 def accept_suggestion(
@@ -245,7 +273,7 @@ def _to_contract(
         last_seen_at=row.last_seen_at,
         status=WarehouseSuggestionStatus(row.status),
         surfaced_at=row.surfaced_at,
-        reviewed_by=_to_reviewer(row),
+        reviewed_by=_to_user(row.reviewed_by),
         reviewed_at=row.reviewed_at,
         dismissal_reason=WarehouseSuggestionDismissalReason(row.dismissal_reason) if row.dismissal_reason else None,
         dismissal_note=row.dismissal_note,
@@ -256,10 +284,11 @@ def _to_contract(
         can_act=access.can_act_on(row),
         subject_source_id=location.source_id if location else None,
         subject_schema_id=location.schema_id if location else None,
+        assignee=_to_user(row.assignee),
     )
 
 
-def _to_reviewer(row: WarehouseSuggestion) -> SuggestionReviewer | None:
-    if row.reviewed_by is None:
+def _to_user(user: "User | None") -> SuggestionReviewer | None:
+    if user is None:
         return None
-    return SuggestionReviewer(id=row.reviewed_by.id, first_name=row.reviewed_by.first_name, email=row.reviewed_by.email)
+    return SuggestionReviewer(id=user.id, first_name=user.first_name, email=user.email)

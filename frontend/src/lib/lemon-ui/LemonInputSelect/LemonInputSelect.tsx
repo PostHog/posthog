@@ -12,9 +12,9 @@ import { IconCheck, IconPencil, IconX } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils/arrays'
@@ -160,6 +160,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     onBlur?: () => void
     onFocus?: () => void
     onInputChange?: (newValue: string) => void
+    /** Set on the inner input, so that a label with a matching `htmlFor` names it. */
+    id?: string
     'data-attr'?: string
     className?: string
     popoverClassName?: string
@@ -201,6 +203,7 @@ export function LemonInputSelect<T = string>({
     autoFocus = false,
     className,
     popoverClassName,
+    id,
     'data-attr': dataAttr,
     size = 'medium',
     transparentBackground,
@@ -1058,6 +1061,7 @@ export function LemonInputSelect<T = string>({
             }
         >
             <LemonInput
+                id={id}
                 inputRef={inputRef}
                 placeholder={
                     displayMode === 'count'

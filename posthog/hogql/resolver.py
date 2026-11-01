@@ -9,6 +9,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
+from posthog.hogql.compilation import MAX_VIEW_DEPTH, CompilationBudget, bounded_compilation, compilation_budget
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -30,7 +31,13 @@ from posthog.hogql.database.schema.log_entries import (
 )
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    UNRESOLVED_FIELD_MESSAGE,
+    ImpossibleASTError,
+    NotImplementedError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -53,6 +60,7 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.functions.with_icon import with_icon
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
+from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     available_fields_suffix,
@@ -63,6 +71,7 @@ from posthog.hogql.resolver_utils import (
     suggest_field_names,
     suggested_field_fix,
 )
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
     resolve_internal_trino_logical_table,
@@ -276,18 +285,41 @@ def _mark_view_body(query: ast.SelectQuery | ast.SelectSetQuery, view_name: str)
         _mark_view_body(branch, view_name)
 
 
+@bounded_compilation
 def resolve_types(
     node: _T_AST,
     context: HogQLContext,
     dialect: HogQLDialect,
     scopes: Optional[list[ast.SelectQueryType]] = None,
     resolver_factory: ResolverFactory | None = None,
+    join_sources: JoinSources | None = None,
 ) -> _T_AST:
+    """`node` with every type resolved. With `join_sources`, this records the `JoinExpr` that each resolved
+    `JoinExpr` came from, and which joins the resolver added itself, such as one in a saved view's body or an inline
+    cohort."""
     if resolver_factory is None:
         resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
     else:
         resolver = resolver_factory(context, dialect, scopes)
+    resolver.join_sources = join_sources
     return resolver.visit(node)
+
+
+def swapping_flag_calls_in_views(resolver_factory: ResolverFactory | None) -> ResolverFactory:
+    """A factory whose resolvers run `swap_flag_calls` on the body of each saved view they
+    inline. Each resolver is otherwise the one `resolver_factory` builds."""
+
+    def factory(
+        context: HogQLContext, dialect: HogQLDialect, scopes: Optional[list[ast.SelectQueryType]]
+    ) -> "Resolver":
+        if resolver_factory is None:
+            resolver = Resolver(scopes=scopes, context=context, dialect=dialect)
+        else:
+            resolver = resolver_factory(context, dialect, scopes)
+        resolver.swap_flag_calls_in_views = True
+        return resolver
+
+    return factory
 
 
 def _select_type_columns(
@@ -436,8 +468,19 @@ class Resolver(CloningVisitor):
         self.scopes: list[ast.SelectQueryType] = scopes or []
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
+        self._compilation_budget = compilation_budget.get() or CompilationBudget()
+        self._resolving_saved_views: set[str] = set()
+        self._pending_saved_view: str | None = None
+        self.swap_flag_calls_in_views = False
+        # The unresolved body that the flag call swap chose for each view, by the CTEs in scope where it was read. A
+        # CTE's body can change the swap's decision, so the key holds each CTE's text. The text stays the same when
+        # the resolver visits the same CTE again and builds a new node for it.
+        self._flag_call_view_bodies: dict[
+            tuple[str, frozenset[tuple[str, str]]], ast.SelectQuery | ast.SelectSetQuery
+        ] = {}
         self.context = context
         self.dialect = dialect
+        self.join_sources: JoinSources | None = None
         self.database = context.database
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
@@ -457,11 +500,15 @@ class Resolver(CloningVisitor):
         return self._scope_table_column_aliases.setdefault(id(scope), {})
 
     def visit(self, node: ast.AST | None):
+        self._compilation_budget.check_time()
         if isinstance(node, ast.Expr) and node.type is not None:
             raise ResolutionError(
                 f"Type already resolved for {type(node).__name__} ({type(node.type).__name__}). Can't run again."
             )
-        return super().visit(node)
+        resolved = super().visit(node)
+        if self.join_sources is not None and isinstance(node, ast.JoinExpr):
+            self.join_sources.record(resolved, node)
+        return resolved
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         parent_ctes = self.ctes
@@ -581,7 +628,7 @@ class Resolver(CloningVisitor):
         if self.dialect not in _PIVOT_DIALECTS and self.dialect != "trino":
             raise QueryError(f"UNPIVOT is not allowed in {self.dialect} dialect")
 
-        node = cast(ast.UnpivotExpr, clone_expr(node))
+        node = self._copy(node)
 
         # Resolve the source table in an isolated scope so we can use its columns.
         temp_scope = ast.SelectQueryType()
@@ -616,8 +663,8 @@ class Resolver(CloningVisitor):
                 resolved_values = [resolve_unpivot_value(val) for val in col.unpivot_values]
                 resolved_columns.append(
                     ast.UnpivotColumn(
-                        value_columns=clone_expr(col.value_columns),
-                        name_columns=clone_expr(col.name_columns),
+                        value_columns=self._copy(col.value_columns),
+                        name_columns=self._copy(col.name_columns),
                         unpivot_values=resolved_values,
                     )
                 )
@@ -768,7 +815,7 @@ class Resolver(CloningVisitor):
         if self.dialect not in _PIVOT_DIALECTS and self.dialect != "trino":
             raise QueryError(f"PIVOT is not allowed in {self.dialect} dialect")
 
-        node = cast(ast.PivotExpr, clone_expr(node))
+        node = self._copy(node)
 
         # Resolve the source table in an isolated scope so we can use its columns.
         temp_scope = ast.SelectQueryType()
@@ -848,12 +895,12 @@ class Resolver(CloningVisitor):
     def visit_cte(self, node: ast.CTE):
         self.cte_counter += 1
 
-        cte_expr = clone_expr(node.expr)
+        cte_expr = self._copy(node.expr)
 
         if node.recursive and isinstance(cte_expr, ast.SelectSetQuery):
             # For recursive CTEs, resolve the base case first to determine column types,
             # then register the CTE so the recursive branch can self-reference it.
-            base_select = clone_expr(cte_expr.initial_select_query)
+            base_select = self._copy(cte_expr.initial_select_query)
             base_select = self.visit(base_select)
 
             placeholder = ast.CTE(
@@ -1008,6 +1055,7 @@ class Resolver(CloningVisitor):
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()
         array_join_aliases = []
+        array_join_placeholders: dict[str, ast.FieldAliasType] = {}
         if node.array_join_list:
             for expr in node.array_join_list:
                 ac.visit(expr)
@@ -1015,7 +1063,8 @@ class Resolver(CloningVisitor):
             for key in array_join_aliases:
                 if key in node_type.aliases:
                     raise QueryError(f"Cannot redefine an alias with the name: {key}")
-                node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                array_join_placeholders[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+                node_type.aliases[key] = array_join_placeholders[key]
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -1113,6 +1162,17 @@ class Resolver(CloningVisitor):
                     # delete the keys we added in the first pass to avoid "can't redefine" errors
                     del node_type.aliases[key]
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
+            for array_join_expr in new_node.array_join_list:
+                if isinstance(array_join_expr, ast.Alias) and isinstance(array_join_expr.type, ast.FieldAliasType):
+                    array_join_expr.type = ast.ArrayJoinAliasType(
+                        alias=array_join_expr.alias, type=array_join_expr.type.type
+                    )
+                    if not array_join_expr.hidden:
+                        node_type.aliases[array_join_expr.alias] = array_join_expr.type
+                    # SELECT columns resolved against the pass 1 placeholder, so give it the item type.
+                    placeholder = array_join_placeholders.get(array_join_expr.alias)
+                    if placeholder is not None:
+                        placeholder.type = array_join_expr.type.resolve_constant_type(self.context)
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
         new_node.where = self.visit(node.where)
@@ -1306,7 +1366,7 @@ class Resolver(CloningVisitor):
                 for tbl_alias, tbl_field in table_fields:
                     field_name = str(tbl_field.chain[-1]) if isinstance(tbl_field, ast.Field) else None
                     if field_name is not None and field_name in node.replace:
-                        replacement = clone_expr(node.replace[field_name])
+                        replacement = self._copy(node.replace[field_name])
                         replace_match_counts[field_name] += 1
                         replaced_fields.append((tbl_alias, ast.Alias(expr=replacement, alias=field_name)))
                     else:
@@ -1371,6 +1431,61 @@ class Resolver(CloningVisitor):
 
         return aliased_fields
 
+    def _copy(self, node: _T_AST, clear_types: bool = False) -> _T_AST:
+        # :TRICKY: Copy input subtrees with this, not clone_expr. A join copied without it has no source in
+        # join_sources, and the flag call transform then refuses the query on mode 2.
+        copy = clone_expr(node, clear_types=clear_types)
+        if self.join_sources is not None:
+            self.join_sources.record_copied_tree(copy, node)
+        return copy
+
+    def _swap_flag_calls_in_view_body(
+        self, body: ast.SelectQuery | ast.SelectSetQuery, view_name: str
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        """`body`, unresolved, with each `events` scan of flag calls that the swap accepts reading
+        `posthog.flag_evaluations`. The swap checks the body as a query of its own."""
+        # The enclosing query's CTEs are in scope in the body. The swap reads `FROM events` as the table.
+        if not self.swap_flag_calls_in_views or "events" in self.ctes or not swaps_flag_calls(body, self.context):
+            return body
+        # Each resolve below visits the views that this body reads. Without the cache, each of those views would rerun
+        # its own swap. A chain of views would then cost twice as much at each level.
+        key = (view_name, frozenset((name, cte.expr.to_hogql()) for name, cte in self.ctes.items()))
+        cached = self._flag_call_view_bodies.get(key)
+        if cached is not None:
+            return clone_expr(cached)
+
+        def resolve(
+            query: ast.SelectQuery | ast.SelectSetQuery, *, join_sources: JoinSources | None = None
+        ) -> ast.SelectQuery | ast.SelectSetQuery:
+            # The swap catches a resolution error and keeps the original body. A visit that raises leaves its scope
+            # and CTEs on this resolver, so this function restores them.
+            scopes, ctes, view_depth, cte_counter, outer_join_sources = (
+                list(self.scopes),
+                self.ctes,
+                self.current_view_depth,
+                self.cte_counter,
+                self.join_sources,
+            )
+            # This visit skips the join that marks the view as being resolved, so it marks the view itself. Without
+            # the mark, a view that reads itself would start a new swap of its own body at each level.
+            self._resolving_saved_views.add(view_name)
+            self.current_view_depth += 1
+            # The swap's check reads `join_sources` for the joins of this body. A trial tree is not part of the
+            # enclosing query, so the enclosing query's record does not get its joins.
+            self.join_sources = join_sources
+            try:
+                resolved = self.visit(self._copy(query))
+            finally:
+                self._resolving_saved_views.remove(view_name)
+                self.scopes[:] = scopes
+                self.ctes, self.current_view_depth, self.cte_counter = ctes, view_depth, cte_counter
+                self.join_sources = outer_join_sources
+            return resolved
+
+        chosen_body = swap_flag_calls(body, self.context, resolve, view_name=view_name).source
+        self._flag_call_view_bodies[key] = chosen_body
+        return clone_expr(chosen_body)
+
     def visit_join_expr(self, node: ast.JoinExpr):
         """Visit each FROM and JOIN table or subquery."""
 
@@ -1412,7 +1527,7 @@ class Resolver(CloningVisitor):
                     # Use CTETableAliasType for aliased CTEs (e.g., FROM my_cte AS alias)
                     node_type = ast.CTETableAliasType(alias=table_alias, cte_table_type=cte_table_type)
 
-                node = cast(ast.JoinExpr, clone_expr(node))
+                node = self._copy(node)
                 if node.constraint and node.constraint.constraint_type == "USING":
                     # visit USING constraint before adding the table to avoid ambiguous names
                     node.constraint = self.visit_join_constraint(node.constraint)
@@ -1458,22 +1573,32 @@ class Resolver(CloningVisitor):
                         raise
                     database_table = opaque_table
 
-            self._record_read(database_table)
+            self._record_read(database_table, ".".join(table_name_chain))
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
-                self.current_view_depth += 1
-
-                node.table = parse_select(str(database_table.query))
-                _mark_view_body(node.table, database_table.name)
-
+                if database_table.name in self._resolving_saved_views:
+                    raise QueryError(f"Circular dependency detected in view '{database_table.name}'")
+                if self.current_view_depth >= MAX_VIEW_DEPTH:
+                    raise QueryError(
+                        f"Query exceeds the limit of {MAX_VIEW_DEPTH} nested saved views. Reduce the view nesting depth."
+                    )
+                view_query = str(database_table.query)
+                self._compilation_budget.expand_view(view_query)
+                view_body = parse_select(view_query)
+                _mark_view_body(view_body, database_table.name)
+                node.table = self._swap_flag_calls_in_view_body(view_body, database_table.name)
+                if self.join_sources is not None:
+                    self.join_sources.record_added(node.table)
                 node.alias = table_alias or database_table.name
-                node = self.visit(node)
-
-                self.current_view_depth -= 1
-                return node
+                previous_pending = self._pending_saved_view
+                self._pending_saved_view = database_table.name
+                try:
+                    return self.visit(node)
+                finally:
+                    self._pending_saved_view = previous_pending
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
@@ -1521,7 +1646,7 @@ class Resolver(CloningVisitor):
             else:
                 node_type = node_table_type
 
-            node = cast(ast.JoinExpr, clone_expr(node))
+            node = self._copy(node)
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -1587,7 +1712,9 @@ class Resolver(CloningVisitor):
             return node
 
         elif isinstance(node.table, ast.SelectQuery) or isinstance(node.table, ast.SelectSetQuery):
-            node = cast(ast.JoinExpr, clone_expr(node))
+            view_name = self._pending_saved_view
+            self._pending_saved_view = None
+            node = self._copy(node)
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -1597,7 +1724,16 @@ class Resolver(CloningVisitor):
                 elif node.join_type is not None:
                     node.alias = self._synthesize_join_alias(scope, node)
 
-            node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
+            # Only the body is on the dependency path; next_join contains sibling views.
+            if view_name is not None:
+                self._resolving_saved_views.add(view_name)
+                self.current_view_depth += 1
+            try:
+                node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
+            finally:
+                if view_name is not None:
+                    self.current_view_depth -= 1
+                    self._resolving_saved_views.remove(view_name)
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:
@@ -1687,7 +1823,7 @@ class Resolver(CloningVisitor):
             return node
 
         elif isinstance(node.table, ast.ValuesQuery):
-            node = cast(ast.JoinExpr, clone_expr(node))
+            node = self._copy(node)
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
@@ -1733,7 +1869,7 @@ class Resolver(CloningVisitor):
             return node
 
         elif isinstance(node.table, ast.UnpivotExpr):
-            node = cast(ast.JoinExpr, clone_expr(node))
+            node = self._copy(node)
             if node.constraint and node.constraint.constraint_type == "USING":
                 node.constraint = self.visit_join_constraint(node.constraint)
             if node.alias is None and self._join_chain_has_using(node):
@@ -1760,7 +1896,7 @@ class Resolver(CloningVisitor):
 
             return node
         elif isinstance(node.table, ast.PivotExpr):
-            node = cast(ast.JoinExpr, clone_expr(node))
+            node = self._copy(node)
             if node.constraint and node.constraint.constraint_type == "USING":
                 node.constraint = self.visit_join_constraint(node.constraint)
             if node.alias is None and self._join_chain_has_using(node):
@@ -2024,7 +2160,7 @@ class Resolver(CloningVisitor):
 
         if is_decision_call(node.name):
             spec = PromptJevCall.parse(node)
-            node = clone_expr(node, clear_types=True)
+            node = self._copy(node, clear_types=True)
             node.args[0] = self.visit(spec.input)
             node.type = ast.CallType(
                 name=node.name.lower(),
@@ -2034,7 +2170,7 @@ class Resolver(CloningVisitor):
             return node
 
         if self.dialect == "trino" and node.name.lower() == "date":
-            node = clone_expr(node, clear_types=False)
+            node = self._copy(node)
             node.name = "toDate"
 
         # Expand *COLUMNS(...) in function arguments
@@ -2297,7 +2433,7 @@ class Resolver(CloningVisitor):
 
         self.scopes.append(node_type)
 
-        new_node = cast(ast.Lambda, clone_expr(node))
+        new_node = self._copy(node)
         new_node.type = node_type
         new_node.expr = self.visit(new_node.expr)
 
@@ -2322,7 +2458,7 @@ class Resolver(CloningVisitor):
 
         self.scopes.append(node_type)
 
-        new_node = cast(ast.Lambda, clone_expr(node))
+        new_node = self._copy(node)
         new_node.type = node_type
         new_node.expr = self.visit(new_node.expr)
 
@@ -2348,13 +2484,13 @@ class Resolver(CloningVisitor):
     def visit_try_cast(self, node: ast.TryCast):
         if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             raise QueryError(f"TRY_CAST is not allowed in {self.dialect} dialect")
-        node = cast(ast.TryCast, clone_expr(node))
+        node = self._copy(node)
         node.expr = self.visit(node.expr)
         node.type = infer_try_cast_constant_type(node.type_name, self.dialect)
         return node
 
     def visit_type_cast(self, node: ast.TypeCast):
-        node = cast(ast.TypeCast, clone_expr(node))
+        node = self._copy(node)
         node.expr = self.visit(node.expr)
         input_type = (node.expr.type or ast.UnknownType()).resolve_constant_type(self.context)
         node.type = infer_cast_constant_type(node.type_name, input_type, self.dialect)
@@ -2363,14 +2499,14 @@ class Resolver(CloningVisitor):
     def visit_positional_ref(self, node: ast.PositionalRef):
         if self.dialect not in _POSTGRES_FAMILY and self.dialect != "trino":
             raise QueryError(f"Positional references are not allowed in {self.dialect} dialect")
-        node = cast(ast.PositionalRef, clone_expr(node))
+        node = self._copy(node)
         node.type = ast.UnknownType()
         return node
 
     def visit_array_slice(self, node: ast.ArraySlice):
         if self.dialect not in _POSTGRES_FAMILY and self.dialect not in {"clickhouse", "trino"}:
             raise QueryError(f"Array slices are not allowed in {self.dialect} dialect")
-        node = cast(ast.ArraySlice, clone_expr(node))
+        node = self._copy(node)
         node.array = self.visit(node.array)
         if node.start_expr is not None:
             node.start_expr = self.visit(node.start_expr)
@@ -2543,7 +2679,7 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}", node=node, fix=fix)
+                raise QueryError(f"{UNRESOLVED_FIELD_MESSAGE}: {name}{suggestion_suffix}", node=node, fix=fix)
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
@@ -2600,6 +2736,8 @@ class Resolver(CloningVisitor):
             # the expression so its child fields resolve before the target printer sees them.
             if self.dialect != "hogql":
                 new_expr = clone_expr(node.type.expr)
+                if self.join_sources is not None:
+                    self.join_sources.record_added(new_expr)
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
                 if node.type.isolate_scope:
@@ -2752,6 +2890,12 @@ class Resolver(CloningVisitor):
         )
         return node
 
+    def _cohort_query(self, cohort: ast.Expr) -> ast.Expr:
+        query = cohort_query_node(cohort, context=self.context)
+        if self.join_sources is not None:
+            self.join_sources.record_added(query)
+        return query
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         if self.context.modifiers.inCohortVia == "subquery":
             if node.op == ast.CompareOperationOp.InCohort:
@@ -2759,7 +2903,7 @@ class Resolver(CloningVisitor):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
                         left=node.left,
-                        right=cohort_query_node(node.right, context=self.context),
+                        right=self._cohort_query(node.right),
                     )
                 )
             elif node.op == ast.CompareOperationOp.NotInCohort:
@@ -2767,7 +2911,7 @@ class Resolver(CloningVisitor):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.NotIn,
                         left=node.left,
-                        right=cohort_query_node(node.right, context=self.context),
+                        right=self._cohort_query(node.right),
                     )
                 )
 
@@ -2974,7 +3118,7 @@ class Resolver(CloningVisitor):
 
         return False
 
-    def _record_read(self, database_table: Table) -> None:
+    def _record_read(self, database_table: Table, table_name: str) -> None:
         if isinstance(database_table, SavedQuery):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
@@ -2982,6 +3126,8 @@ class Resolver(CloningVisitor):
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)
+        else:
+            self._record_direct_read(table_name)
 
     def _record_saved_query_read(self, saved_query_id: str, *, is_user_view: bool) -> None:
         self.context.referenced_saved_query_ids.add(saved_query_id)

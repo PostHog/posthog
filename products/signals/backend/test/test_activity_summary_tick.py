@@ -50,6 +50,7 @@ from products.signals.backend.activity_summary.queue import (
     is_team_enrolled_for_read,
     max_input_chars,
     max_update_cost_usd,
+    mcp_buffer_team_ids,
     organization_rollout_bucket,
     seed_queue,
     select_pairs,
@@ -96,6 +97,7 @@ ANSWER = json.dumps(
         "recent_shift": None,
     }
 )
+EMPTY_PROFILE_ANSWER = json.dumps({**json.loads(ANSWER), "profile": "", "themes": [], "modes": []})
 
 
 _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
@@ -128,8 +130,12 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_score": 0,
             "view_update_interval_hours": -5,
             "cold_start_min_active_days": 2.5,
+            "mcp_buffer_enabled": "yes",
+            "mcp_render_enabled": 1,
+            "mcp_calls_per_day": 0,
+            "mcp_buffer_days": 10_000,
         },
-        ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
+        ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,), mcp_buffer_days=30),
     ),
     (
         "a boolean percentage falls back to the default",
@@ -156,6 +162,11 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_score": 4.5,
             "view_update_interval_hours": 72,
             "cold_start_min_active_days": 5,
+            "mcp_buffer_enabled": True,
+            "mcp_buffer_organization_ids": ["org-a"],
+            "mcp_calls_per_day": 20,
+            "mcp_buffer_days": 14,
+            "mcp_render_enabled": True,
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -175,6 +186,11 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             min_score=4.5,
             view_update_interval_hours=72.0,
             cold_start_min_active_days=5,
+            mcp_buffer_enabled=True,
+            mcp_buffer_organization_ids=("org-a",),
+            mcp_calls_per_day=20,
+            mcp_buffer_days=14,
+            mcp_render_enabled=True,
         ),
     ),
     (
@@ -405,6 +421,30 @@ class TestActivitySummaryQueue(BaseTest):
         config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True, skip_team_ids=(skipped.id,))
 
         assert sorted(self._select(config)) == sorted([(self.team.id, user.id), (approved.id, user.id)])
+
+    @parameterized.expand(
+        [
+            ("every_enrolled_team", "none", True, {"own", "other"}),
+            ("listed_organizations", "own", True, {"own"}),
+            ("listed_but_not_enrolled", "own", False, set()),
+            ("invalid_listed_id", "invalid", True, set()),
+        ]
+    )
+    def test_mcp_buffer_team_ids(self, _name: str, listed: str, approved: bool, expected: set[str]) -> None:
+        other = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        listed_ids = {"none": (), "own": (str(self.organization.id),), "invalid": ("not-a-uuid",)}[listed]
+        config = ActivitySummaryConfig(
+            enabled=True,
+            enroll_all_approved=True,
+            mcp_buffer_enabled=True,
+            mcp_buffer_organization_ids=listed_ids,
+        )
+        team_ids = {"own": self.team.id, "other": other.id}
+
+        assert mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_enabled=False)) == []
+        assert set(mcp_buffer_team_ids(config)) == {team_ids[name] for name in expected}
 
     def test_selects_nothing_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -644,6 +684,14 @@ class TestActivitySummaryQueue(BaseTest):
                 False,
             ),
             ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
+            (
+                "an empty first profile",
+                3,
+                {"return_value": FakeLLM([EMPTY_PROFILE_ANSWER])},
+                False,
+                "skipped_empty_profile",
+                True,
+            ),
         ]
     )
     def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
@@ -889,6 +937,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
         "due_by_trigger": {"activity": 1, "views": pairs - 1},
         "stop_reason": None,
+        "mcp_buffer_days": 10,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
 
@@ -947,6 +996,7 @@ async def _run_tick(
         (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY, (2, 2)),
         # The breaker waits for a sample of 10 model calls, which is five waves.
         (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE, (0, 0)),
+        (_plan(20), 0.01, "skipped_empty_profile", 20, None, (0, 0)),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
@@ -960,7 +1010,9 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     result, peak, captured, pair_inputs = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
-    assert {(pair.trigger, pair.view_update_interval_hours) for pair in pair_inputs} == {("views", 168.0)}
+    assert {(pair.trigger, pair.view_update_interval_hours, pair.mcp_buffer_days) for pair in pair_inputs} == {
+        ("views", 168.0, 10)
+    }
     assert result.due_by_trigger == plan.due_by_trigger
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers

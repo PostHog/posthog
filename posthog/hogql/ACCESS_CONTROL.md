@@ -201,6 +201,8 @@ Native event JSON stores a flat dotted key such as `customer.ssn` under the path
 Native reads of a parent containing restricted children use the masked JSON document instead of a raw subcolumn. This also covers multi-key `JSONHas` calls with computed keys. Unrestricted siblings remain readable.
 A JSON function whose first key is computed per row reads the masked `properties` document, and the masked `temporary_properties` document on rows where the key names a moved property, so a restricted property stays unreadable through a computed key.
 
+Person property restrictions also apply inside event `$set` and `$set_once` containers, including native `%2E` key spellings. Restricted values read as `NULL` and are removed from blob reads; unrestricted siblings stay readable.
+
 The restriction set is loaded once per query in `prepare_ast_for_printing()` and cached per `(team_id, user_id)` for the request lifetime.
 
 ### Coverage is per table, not per column name
@@ -228,7 +230,7 @@ Several catalog tables expose such columns because reading them scans far less d
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
 `flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
-The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask.
+The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask. The hidden `goe_N.key` on `flag_evaluations` reads the stored `$group_N` column through an expression field, and it masks too.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The same rule applies when a filter or an aggregate reads the column.
@@ -243,12 +245,18 @@ There is the asymmetry with the warehouse access control, which bypasses entirel
 
 ### AI previews and summaries
 
-AI evaluation and tagger previews read event properties with the requesting user's permissions, including properties available to Hog scripts.
-Background trace and session evaluations skip with `property_access_restricted` when project-default rules deny any event property.
-They skip before reading content or running a Hog or LLM judge, because grading masked data can change the verdict.
-Hog scripts can read arbitrary event properties, so this check covers all event-property denials, not only input and output.
-Person/group restrictions and member-only rules do not trigger this skip.
-Generation evaluations keep using the original Kafka event payload.
+Interactive AI reads retain the requesting user's property permissions. Online trace and session evaluations read full events
+as project workflows, using an explicit property-access bypass and separate query cache keys. Generation evaluations keep
+using the original Kafka event payload. Report result queries also run as project workflows.
+
+Evaluation editors are trusted to configure project workflows with full inputs, even when their own property rules hide
+some of those inputs. Evaluation RBAC controls authoring and access to stored reports; it is separate from AI Observability
+RBAC. Source-property restrictions do not propagate to generated outputs. Configure separate property rules for evaluation
+reasoning, report event content, and any sensitive outcomes. Event queries apply those rules to the generated properties,
+while background report result queries explicitly bypass them. Stored report narratives and report delivery do not inherit
+event-property rules, so configure report access, recipients, and channels for the intended audience. Inbox report summaries
+are suppressed when the project has an event-property denial or a denial of access to the evaluation, including member and role rules.
+See [evaluation access configuration](../../docs/internal/ai-observability-judge-inputs.md#run-history-and-reports).
 
 Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
 When the caller has event-property restrictions, summaries generated from client-supplied data refetch the source with the caller's permissions.

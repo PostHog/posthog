@@ -6,6 +6,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -20,7 +22,6 @@ import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistr
 import { extractQueryResult } from '../components/tool/widgets/extractors'
 import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
-import type { AttachedContextItem } from '../types/contextTypes'
 import type { ThreadItem } from '../types/streamTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
@@ -28,7 +29,6 @@ import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContext
 import { resolveToolCall } from '../utils/toolResolver'
 import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { computeTurnTrailers } from '../utils/turnTrailers'
-import { attachedContextLogic } from './attachedContextLogic'
 import {
     appendToRunLog,
     emptyRunLog,
@@ -2943,11 +2943,21 @@ describe('runStreamLogic', () => {
             expect(logic.values.isThinking).toEqual(true)
         })
 
-        it('stays off after turn_complete on an update that does not mean the agent is generating', () => {
+        it.each([
+            ['a mode change', { sessionUpdate: 'current_mode_update', currentModeId: 'auto' }],
+            [
+                'an empty message chunk',
+                { sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: '' } },
+            ],
+            [
+                'an empty thought chunk',
+                { sessionUpdate: 'agent_thought_chunk', messageId: 't1', content: { type: 'text', text: '' } },
+            ],
+        ])('stays off after turn_complete on %s, which does not mean the agent is generating', (_case, update) => {
             logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
 
-            logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+            logic.actions.ingestAcpFrame(sessionUpdate(update))
             expect(logic.values.isThinking).toEqual(false)
         })
 

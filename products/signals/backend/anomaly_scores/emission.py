@@ -59,6 +59,12 @@ def _event(
             "$anomaly_details": json.dumps(point.details, sort_keys=True),
             **({"$anomaly_run": scores.run.value} if scores.run else {}),
             **({"$anomaly_model_id": scores.model_id} if scores.model_id else {}),
+            # Tells a score from a model past its retrain age apart from a score from a fresh model.
+            **(
+                {"$anomaly_trained_at": scores.state.trained_at.astimezone(datetime.UTC).isoformat()}
+                if scores.state
+                else {}
+            ),
         },
     }
 

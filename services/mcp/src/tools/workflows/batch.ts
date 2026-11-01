@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import type { Context, ToolBase } from '@/tools/types'
 
 type BlastRadius = { affected: number; total: number; limit: number; confirm_token: string }
@@ -7,6 +9,8 @@ type BlastRadius = { affected: number; total: number; limit: number; confirm_tok
 type WorkflowTrigger = { type?: string; filters?: unknown }
 
 type WorkflowAction = { type?: string; config?: { template_id?: string } }
+
+const SENDING_TIER_REQUESTS_FLAG = 'workflows-sending-tier-requests'
 
 async function fetchWorkflow(
     context: Context,
@@ -48,13 +52,30 @@ async function sizeAudience(
     })
 }
 
+// Evaluate with the same workspace groups tool discovery uses, so a flag that targets projects or
+// organizations agrees with whether workflows-reputation-get is listed.
+async function sendingTierRequestsEnabled(context: Context): Promise<boolean> {
+    const analyticsContext = await context.stateManager.getAnalyticsContext().catch(() => undefined)
+    return await isFeatureFlagEnabled(
+        SENDING_TIER_REQUESTS_FLAG,
+        await context.getDistinctId(),
+        analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : undefined
+    )
+}
+
 /**
  * Echo-back guard: the caller must have sized the audience with workflows-blast-radius and surfaced the
  * number to the user. We recompute it here and reject on drift or over-cap before any fan-out. The cap is
  * the per-team `limit` the blast-radius endpoint returns (HOGFLOW_BATCH_TRIGGER_LIMIT), which the batch
  * consumer also enforces — so the run is rejected here rather than silently truncated downstream.
  */
-function assertAcknowledged(affected: number, acknowledged: number, limit: number): void {
+async function assertAcknowledged(
+    context: Context,
+    affected: number,
+    acknowledged: number,
+    limit: number,
+    sendsEmail: boolean
+): Promise<void> {
     if (affected !== acknowledged) {
         throw new Error(
             `Audience size is now ${affected} users (you acknowledged ${acknowledged}). Re-check with ` +
@@ -62,9 +83,17 @@ function assertAcknowledged(affected: number, acknowledged: number, limit: numbe
         )
     }
     if (affected > limit) {
+        // The flag is read only here, so runs within the cap never wait on flag evaluation.
+        const pointAtTier = sendsEmail && (await sendingTierRequestsEnabled(context))
         throw new Error(
             `Audience of ${affected} users exceeds the ${limit}-user cap for this project. Narrow the ` +
-                `workflow's batch trigger filters to reduce the audience, then try again.`
+                `workflow's batch trigger filters to reduce the audience, then try again.` +
+                (pointAtTier
+                    ? ` If workflows-reputation-get shows sending_allowance.enforced with this max_batch_audience, ` +
+                      `the cap comes from the project's email sending tier, which grows with a clean sending ` +
+                      `record. If the user needs a higher cap, tell them they can request one from Workflows > ` +
+                      `Messaging > Reputation with "Request a higher allowance".`
+                    : '')
         )
     }
 }
@@ -129,7 +158,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
 
         const filters = triggerFilters(trigger)
         const { affected, limit } = await sizeAudience(context, projectId, filters, sendsEmail)
-        assertAcknowledged(affected, params.acknowledged_affected_count, limit)
+        await assertAcknowledged(context, affected, params.acknowledged_affected_count, limit, sendsEmail)
 
         return await context.api.request({
             method: 'POST',
@@ -210,7 +239,7 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
                 )
             }
             const { affected, limit } = await sizeAudience(context, projectId, triggerFilters(trigger), sendsEmail)
-            assertAcknowledged(affected, params.acknowledged_affected_count, limit)
+            await assertAcknowledged(context, affected, params.acknowledged_affected_count, limit, sendsEmail)
             confirmToken = params.confirm_token
         }
 

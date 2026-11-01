@@ -2,9 +2,8 @@ import clsx from 'clsx'
 
 import { TimeSeriesComboChart, type PointClickData } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
 import { SqlChartTooltip } from './SqlChartTooltip'

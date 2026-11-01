@@ -41,7 +41,9 @@ impl ClickTracker {
             self.run = 1;
             return ClickKind::Plain;
         };
-        if ts - last_ts < RUN_WINDOW_MS && (x - last_x).hypot(y - last_y) < RUN_DISTANCE_PX {
+        let (dx, dy) = (x - last_x, y - last_y);
+        // `Math.sqrt(dx * dx + dy * dy)`, which can round differently from `hypot`.
+        if ts - last_ts < RUN_WINDOW_MS && (dx * dx + dy * dy).sqrt() < RUN_DISTANCE_PX {
             self.run += 1;
             return if self.run >= RAGE_RUN_LENGTH {
                 ClickKind::Rage

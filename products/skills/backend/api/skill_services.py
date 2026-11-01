@@ -448,8 +448,8 @@ def _carry_forward(payload_value: Any, current_value: Any) -> Any:
 HARNESS_OWNED_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
 
 
-def _resolve_published_metadata(payload_value: dict[str, Any] | None, current_value: dict | None) -> dict[str, Any]:
-    """Caller metadata for a new version, with the harness-owned provenance pinned to the current row."""
+def resolve_skill_metadata(payload_value: dict[str, Any] | None, current_value: dict | None) -> dict[str, Any]:
+    """Server-owned provenance comes only from the current persisted row."""
     current = dict(current_value or {})
     if payload_value is None:
         return current
@@ -549,7 +549,7 @@ def publish_skill_version(
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
-            metadata=_resolve_published_metadata(metadata, current_latest.metadata),
+            metadata=resolve_skill_metadata(metadata, current_latest.metadata),
             # Categorization is a property of the skill, not the version — carry it forward so editing
             # a scout (or any categorized skill) doesn't drop it out of its tab.
             category=current_latest.category,
@@ -676,7 +676,7 @@ def create_skill(
                 license=license or "",
                 compatibility=compatibility or "",
                 allowed_tools=allowed_tools or [],
-                metadata=metadata or {},
+                metadata=resolve_skill_metadata(metadata, None),
                 version=1,
                 is_latest=True,
                 created_by=user,

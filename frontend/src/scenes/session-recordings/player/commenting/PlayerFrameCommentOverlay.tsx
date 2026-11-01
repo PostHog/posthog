@@ -3,8 +3,8 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { LemonRichContentEditor } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
