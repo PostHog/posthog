@@ -202,6 +202,7 @@ def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | N
         "tasks": rendered.n_tasks,
         "activity_lines": rendered.n_activity_lines,
         "view_lines": rendered.n_view_lines,
+        "page_units": rendered.n_page_units,
         "input_chars": rendered.input_chars,
         "intent_lines": rendered.intent_lines,
         "intent_chars": rendered.intent_chars,

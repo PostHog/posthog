@@ -13,7 +13,13 @@ from typing import Any
 from django.db import models
 
 from products.signals.backend.activity_summary.computed import MIN_WATCHED_OPEN_DAYS
-from products.signals.backend.activity_summary.render import PRODUCT_LABELS, PROFILE_MAX_CHARS, Product, cap_line
+from products.signals.backend.activity_summary.render import (
+    PRODUCT_LABELS,
+    PROFILE_MAX_CHARS,
+    Product,
+    cap_line,
+    days_text,
+)
 
 PROMPT_VERSION = 8
 
@@ -29,6 +35,8 @@ MAX_HEADLINE_CHARS = 600
 # The computed block sits outside the render budget, so it has its own caps. `max_update_cost_usd` counts them.
 COMPUTED_LINE_CHARS = 200
 COMPUTED_MAX_CHARS = 8000
+# A product page opened on fewer days than this is a visit, and its line says nothing.
+MIN_PAGE_OPEN_DAYS = 2
 STRENGTHS = ("high", "medium", "low")
 DEFAULT_STRENGTH = "low"
 # Strings a model writes in place of a JSON null.
@@ -51,11 +59,11 @@ MODES = tuple(str(mode) for mode in ActivitySummaryMode)
 _SYSTEM_PROMPT = """You write an activity summary: what one person works on and cares about in one PostHog project, built only from the input below. Other features read it to rank inbox reports, to pick reviewers and to route work. Write for a reader who needs facts they can act on.
 
 The input has these parts:
-- Objects and pages: a list that code computed from the last weeks of activity. Each line starts with a ref. An "o" ref is an object. An object they edited shows the number of days with edits, and "created" when they made it. An object they only opened shows the number of days they opened it, and "not theirs" when someone else made it. A "p" ref is the pages of one product. The list ends with the products they work in and the products they only visit.
+- Objects and pages: a list that code computed from the last weeks of activity. Each line starts with a ref. An "o" ref is an object. An object they edited shows the number of days with edits, and "created" when they made it. An object they only opened shows the number of days they opened it, and "not theirs" when someone else made it. An object they edited and opened shows both counts. A "p" ref is the pages of one product. The list ends with the products they work in and the products they only visit.
 - Tasks: work the person gave to PostHog AI or the Slack agent. Each line starts with a "t" ref, then has the day, the tags in brackets and the goal. "(xN)" is the number of runs.
 - Things they created or changed in PostHog: each line has the day, the action, the type and the name of the object. "(xN)" is the number of changes. "agent" is the reason their coding agent gave for the change.
 - What their AI agent looked into over MCP: one line per agent session. Each line starts with an "m" ref, then has the day, the number of calls and the intents the agent stated, in order. The agent looked these up for the person, and changed nothing. Treat them as the person's interests and open questions. Never write that the person built or changed something because of them.
-- Things they opened in PostHog: one line per object, or per product for its pages, with the number of days they opened it and the last day.
+- Things they opened in PostHog: one line per object, with the number of days they opened it and the last day.
 - The previous summary, when there is one.
 
 The tasks and the lines of changes, MCP sessions and opens cover only the time since the previous summary. Keep what the previous summary says unless the new activity changes it.
@@ -182,31 +190,43 @@ def _product_label(key: str) -> str:
 def computed_lines(computed: Mapping[str, Any] | None) -> str:
     """The computed lists of `computed.py` with their refs, at most `COMPUTED_MAX_CHARS` long.
 
-    The products come first, then one line per object or product page, so a cut drops the least used ones."""
+    The products come first, then one line per object or product page, so a cut drops the least used ones.
+    An object that is both owned and watched gets one line. A product page opened on fewer than
+    `MIN_PAGE_OPEN_DAYS` days gets no line, but its ref stays valid."""
     if not computed:
         return "None"
-    lines: list[str] = []
     products = computed.get("products", {})
+    product_lines: list[str] = []
     for title, key in (("Products they work in", "works_in"), ("Products they only visit", "visits")):
         if names := [_product_label(product) for product in products.get(key, [])]:
-            lines.append(f"{title}: {', '.join(names)}")
+            product_lines.append(f"{title}: {', '.join(names)}")
+    watched = {item["ref"]: item for item in computed.get("watched", [])}
+    lines: list[str] = []
     for item in computed.get("owned", []):
-        created = ", created" if item["created"] else ""
-        lines.append(
-            f'- {item["ref"]} {item["type"]} "{item["name"]}": edited on {item["edit_days"]} days, last {item["last_at"]}{created}'
-        )
-    for item in computed.get("watched", []):
+        facts = [f"edited on {days_text(item['edit_days'])}"]
+        last_at = item["last_at"]
+        if (opened := watched.pop(item["ref"], None)) is not None:
+            facts.append(f"opened on {days_text(opened['open_days'])}")
+            last_at = max(last_at, opened["last_at"])
+        facts.append(f"last {last_at}")
+        if item["created"]:
+            facts.append("created")
+        lines.append(f'- {item["ref"]} {item["type"]} "{item["name"]}": {", ".join(facts)}')
+    for item in watched.values():
         not_theirs = ", not theirs" if item["not_theirs"] else ""
         lines.append(
-            f'- {item["ref"]} {item["type"]} "{item["name"]}": opened on {item["open_days"]} days, last {item["last_at"]}{not_theirs}'
+            f'- {item["ref"]} {item["type"]} "{item["name"]}": opened on {days_text(item["open_days"])}, last {item["last_at"]}{not_theirs}'
         )
     for item in computed.get("pages", []):
+        if item["open_days"] < MIN_PAGE_OPEN_DAYS:
+            continue
         lines.append(
-            f"- {item['ref']} {_product_label(item['product'])} pages: opened on {item['open_days']} days, last {item['last_at']}"
+            f"- {item['ref']} {_product_label(item['product'])} pages: opened on {days_text(item['open_days'])}, last {item['last_at']}"
         )
+    # The product lines have a bounded length, so they are not cut.
     kept: list[str] = []
     chars = 0
-    for line in (cap_line(line, COMPUTED_LINE_CHARS) for line in lines):
+    for line in product_lines + [cap_line(line, COMPUTED_LINE_CHARS) for line in lines]:
         if chars + len(line) + 1 > COMPUTED_MAX_CHARS:
             break
         kept.append(line)

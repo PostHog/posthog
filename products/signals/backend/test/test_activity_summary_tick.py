@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import redis
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
@@ -24,6 +25,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.file_system.file_system_view_log import log_file_system_view
 
 from products.signals.backend.activity_summary import (
+    mcp_buffer,
     schedule as tick_schedule,
     tick,
 )
@@ -134,6 +136,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "mcp_render_enabled": 1,
             "mcp_calls_per_day": 0,
             "mcp_buffer_days": 10_000,
+            "mcp_buffer_percentage": 101,
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,), mcp_buffer_days=30),
     ),
@@ -164,6 +167,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "cold_start_min_active_days": 5,
             "mcp_buffer_enabled": True,
             "mcp_buffer_organization_ids": ["org-a"],
+            "mcp_buffer_percentage": 5,
             "mcp_calls_per_day": 20,
             "mcp_buffer_days": 14,
             "mcp_render_enabled": True,
@@ -188,6 +192,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             cold_start_min_active_days=5,
             mcp_buffer_enabled=True,
             mcp_buffer_organization_ids=("org-a",),
+            mcp_buffer_percentage=5.0,
             mcp_calls_per_day=20,
             mcp_buffer_days=14,
             mcp_render_enabled=True,
@@ -260,13 +265,22 @@ class TestActivitySummaryQueue(BaseTest):
     def _user(self, email: str) -> User:
         return User.objects.create_and_join(self.organization, email, None)
 
-    def _changes(self, user: User, count: int, *, days_ago: float = 1, team: Team | None = None, **fields: Any):
+    def _changes(
+        self,
+        user: User,
+        count: int,
+        *,
+        days_ago: float = 1,
+        team: Team | None = None,
+        scope: str = "Insight",
+        **fields: Any,
+    ):
         for index in range(count):
             ActivityLog.objects.create(
                 team_id=(team or self.team).id,
                 organization_id=self.organization.id,
                 user=user,
-                scope="Insight",
+                scope=scope,
                 activity="created",
                 item_id=str(index),
                 detail={"name": f"Funnel {index}"},
@@ -392,13 +406,14 @@ class TestActivitySummaryQueue(BaseTest):
         ]
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
-        waiting, scout_only, impersonated, skipped_team = (
-            self._user(f"{name}@example.com") for name in ("waiting", "scout", "impersonated", "skipped")
+        waiting, scout_only, setup_only, impersonated, skipped_team = (
+            self._user(f"{name}@example.com") for name in ("waiting", "scout", "setup", "impersonated", "skipped")
         )
         due = self._user("due@example.com")
         self._summary(waiting, next_eligible_at=NOW + datetime.timedelta(hours=1))
         self._changes(waiting, 3)
         self._changes(scout_only, 3, client="scout:product-analytics")
+        self._changes(setup_only, 3, scope="Integration")
         self._changes(impersonated, 3, was_impersonated=True)
         other_team = Team.objects.create(organization=self.organization, name="Skipped")
         self._changes(skipped_team, 3, team=other_team)
@@ -424,27 +439,102 @@ class TestActivitySummaryQueue(BaseTest):
 
     @parameterized.expand(
         [
-            ("every_enrolled_team", "none", True, {"own", "other"}),
-            ("listed_organizations", "own", True, {"own"}),
-            ("listed_but_not_enrolled", "own", False, set()),
-            ("invalid_listed_id", "invalid", True, set()),
+            ("nothing_at_zero_without_a_list", (), 0.0, {}, set()),
+            ("a_listed_organization_at_zero", ("own",), 0.0, {}, {"own"}),
+            ("an_invalid_listed_id", ("invalid",), 0.0, {}, set()),
+            ("every_enrolled_team_at_100", (), 100.0, {}, {"own", "other"}),
+            ("a_denied_organization_at_100", (), 100.0, {"deny": "other"}, {"own"}),
+            ("a_listed_organization_without_approval", ("own",), 100.0, {"unapproved": "own"}, {"other"}),
         ]
     )
-    def test_mcp_buffer_team_ids(self, _name: str, listed: str, approved: bool, expected: set[str]) -> None:
+    def test_mcp_buffer_team_ids(
+        self, _name: str, listed: tuple[str, ...], percentage: float, overrides: dict[str, str], expected: set[str]
+    ) -> None:
         other = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
-        self.organization.is_ai_data_processing_approved = approved
-        self.organization.save()
-        listed_ids = {"none": (), "own": (str(self.organization.id),), "invalid": ("not-a-uuid",)}[listed]
+        teams = {"own": self.team, "other": other}
+        if "unapproved" in overrides:
+            organization = teams[overrides["unapproved"]].organization
+            organization.is_ai_data_processing_approved = False
+            organization.save()
+        organization_ids = {name: str(team.organization_id) for name, team in teams.items()} | {"invalid": "not-a-uuid"}
         config = ActivitySummaryConfig(
             enabled=True,
             enroll_all_approved=True,
+            deny_organization_ids=tuple(organization_ids[name] for name in [overrides.get("deny")] if name),
             mcp_buffer_enabled=True,
-            mcp_buffer_organization_ids=listed_ids,
+            mcp_buffer_organization_ids=tuple(organization_ids[name] for name in listed),
+            mcp_buffer_percentage=percentage,
         )
-        team_ids = {"own": self.team.id, "other": other.id}
+        enrolled = enrollment(config)
 
-        assert mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_enabled=False)) == []
-        assert set(mcp_buffer_team_ids(config)) == {team_ids[name] for name in expected}
+        assert mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_enabled=False), enrolled) == []
+        assert set(mcp_buffer_team_ids(config, enrolled)) == {teams[name].id for name in expected}
+
+    def test_a_higher_mcp_buffer_percentage_keeps_the_teams_of_a_lower_one(self) -> None:
+        # These ids have rollout buckets on both sides of every percentage below.
+        teams = [
+            Team.objects.create(
+                organization=Organization.objects.create(id=uuid.UUID(int=index), name=f"Org {index}"),
+                name=f"Team {index}",
+            )
+            for index in range(1, 9)
+        ]
+        lowest = min(teams, key=lambda team: organization_rollout_bucket(team.organization_id))
+        config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True, mcp_buffer_enabled=True)
+        enrolled = enrollment(config)
+        lowest_percentage = (organization_rollout_bucket(lowest.organization_id) + 1) / 100
+
+        selected = [
+            set(mcp_buffer_team_ids(dataclasses.replace(config, mcp_buffer_percentage=percentage), enrolled))
+            for percentage in (lowest_percentage, 25.0, 50.0, 75.0)
+        ]
+
+        assert lowest.id in selected[0]
+        assert all(lower <= higher for lower, higher in zip(selected, selected[1:]))
+        assert len(selected[-1]) < len(enrolled.team_ids)
+
+    @parameterized.expand(
+        [
+            ("published", {"mcp_buffer_enabled": True, "mcp_buffer_percentage": 100.0}, "own"),
+            ("deleted_when_the_buffer_is_off", {"mcp_buffer_percentage": 100.0}, None),
+            ("deleted_when_activity_summary_is_off", {"enabled": False, "mcp_buffer_enabled": True}, None),
+        ]
+    )
+    def test_plan_publishes_the_mcp_buffer_teams(
+        self, _name: str, overrides: dict[str, Any], published: str | None
+    ) -> None:
+        not_enrolled = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        client = mcp_buffer._teams_redis_client()
+        client.set(mcp_buffer.TEAMS_KEY, f"{not_enrolled.id}")
+
+        with (
+            patch.object(tick, "read_config", return_value=dataclasses.replace(self._config(), **overrides)),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        stored = client.get(mcp_buffer.TEAMS_KEY)
+        if published:
+            assert mcp_buffer.parse_team_ids(stored) == {self.team.id}
+            assert 0 < client.ttl(mcp_buffer.TEAMS_KEY) <= mcp_buffer.TEAMS_TTL_SECONDS
+            assert plan.enrollment.mcp_buffer_teams == 1
+        else:
+            assert stored is None
+
+    def test_a_failed_publish_does_not_fail_the_plan(self) -> None:
+        self._changes(self._user("a@example.com"), 3)
+        self._seed()
+        broken = MagicMock(side_effect=redis.ConnectionError("unreachable"))
+
+        with (
+            patch.object(tick, "read_config", return_value=self._config(mcp_buffer_enabled=True)),
+            patch.object(mcp_buffer, "_teams_redis_client", broken),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        broken.assert_called_once()
+        assert plan.candidates == 1
 
     def test_selects_nothing_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False

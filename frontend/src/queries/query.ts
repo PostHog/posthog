@@ -4,6 +4,7 @@ import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { HogQLQueryString } from 'lib/utils/hogql'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
@@ -22,7 +23,6 @@ import { OnlineExportContext, QueryExportContext } from '~/types'
 
 import {
     dataWarehouseSourcesFromResponse,
-    HogQLQueryString,
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,

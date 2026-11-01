@@ -37,6 +37,7 @@ import {
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
@@ -49,7 +50,6 @@ import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'

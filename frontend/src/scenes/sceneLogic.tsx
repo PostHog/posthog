@@ -56,6 +56,7 @@ import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { loadCoreFilterDefinitions } from '~/taxonomy/loadCoreFilterDefinitions'
 import { AccessControlLevel, UserType } from '~/types'
 
 import { handleLoginRedirect } from './authentication/auth/loginLogic'
@@ -73,6 +74,15 @@ interface MountedSceneLogic {
     sceneId: string
     sceneKey?: string
     unmount: () => void
+}
+
+// A failed load must fail the scene, because code that builds queries from an empty taxonomy returns wrong results.
+function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
+    const sceneConfig = sceneConfigurations[sceneId]
+    if (sceneConfig?.onlyUnauthenticated || (sceneConfig?.allowUnauthenticated && !loggedIn)) {
+        return Promise.resolve()
+    }
+    return retryImport(loadCoreFilterDefinitions)
 }
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
@@ -1088,7 +1098,10 @@ export const sceneLogic = kea<sceneLogicType>([
                     // Capture the importer in the narrowed scope; the early guard above ensures it's
                     // defined, but that narrowing wouldn't flow into the retryImport closure.
                     const importScene = props.scenes[sceneId]
-                    importedScene = await retryImport(() => importScene())
+                    ;[importedScene] = await Promise.all([
+                        retryImport(() => importScene()),
+                        loadCoreFilterDefinitionsFor(sceneId, !!userLogic.values.user),
+                    ])
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error

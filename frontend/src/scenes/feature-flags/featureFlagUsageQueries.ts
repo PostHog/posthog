@@ -8,6 +8,7 @@
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the saved dashboards' fixed "day".
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
@@ -22,7 +23,7 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { escapeHogQLString, setLatestVersionsOnQuery } from '~/queries/utils'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,

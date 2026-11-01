@@ -1,9 +1,9 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import {
     FunnelsQuery,

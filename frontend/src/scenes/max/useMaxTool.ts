@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -21,7 +21,7 @@ import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
-import { ToolDefinition, ToolRegistration, getToolDefinition } from './max-constants'
+import type { ToolDefinition, ToolRegistration } from './max-constants'
 
 export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'description'> {
     /** Whether MaxTool functionality is active. When false, tool is not registered. */
@@ -35,7 +35,7 @@ export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'desc
 }
 
 export interface UseMaxToolReturn {
-    /** Tool definition - null if the tool is inactive (i.e. `active` is false or Max is not available) */
+    /** Tool definition - null if the tool is inactive (i.e. `active` is false or Max is not available), or while the tool table loads */
     definition: ToolDefinition | null
     /** Whether the Max side panel is currently open */
     isMaxOpen: boolean
@@ -46,6 +46,37 @@ export interface UseMaxToolReturn {
 
 // The chat logics stay out of the shell chunk. The shell loads them on the first open.
 const loadMaxToolOpener = (): Promise<typeof import('./maxToolOpener')> => retryImport(() => import('./maxToolOpener'))
+
+// The tool table stays out of the shell chunk, and loads once a page turns a tool on.
+type ToolDefinitionsModule = typeof import('./max-constants')
+let loadedToolDefinitions: ToolDefinitionsModule | null = null
+async function loadToolDefinitions(): Promise<ToolDefinitionsModule> {
+    loadedToolDefinitions ??= await retryImport(() => import('./max-constants'))
+    return loadedToolDefinitions
+}
+
+function useToolDefinitions(active: boolean): ToolDefinitionsModule | null {
+    const [toolDefinitions, setToolDefinitions] = useState(loadedToolDefinitions)
+    useEffect(() => {
+        if (!active || toolDefinitions) {
+            return
+        }
+        let cancelled = false
+        loadToolDefinitions().then(
+            (module) => {
+                if (!cancelled) {
+                    setToolDefinitions(module)
+                }
+            },
+            // A failed load only hides the tool name. A click on openMax tells the person to reload.
+            () => {}
+        )
+        return (): void => {
+            cancelled = true
+        }
+    }, [active, toolDefinitions])
+    return toolDefinitions
+}
 
 const MAX_TOOL_CONTEXT_LENGTH = 4096
 const TOOL_PAGE_CONTEXT_PROVIDER_ID = 'max-tool-page'
@@ -92,7 +123,7 @@ export function useMaxTool({
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
     const openChat = activeCreation ? (activeCreation.taskId ? 'task' : 'draft') : null
 
-    const definition = getToolDefinition(identifier)
+    const definition = useToolDefinitions(active)?.getToolDefinition(identifier) ?? null
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
     const activeIdentifierRef = useRef<string | null>(null)
     const hookIdRef = useRef<string>(uuid())
@@ -102,8 +133,9 @@ export function useMaxTool({
     latestRef.current = { context, active }
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
+    // Register before the tool table loads, so a message sent at once still carries the tool context.
     useEffect(() => {
-        if (!active || !definition) {
+        if (!active) {
             if (activeIdentifierRef.current) {
                 deregisterTool(activeIdentifierRef.current)
                 activeIdentifierRef.current = null
@@ -118,8 +150,8 @@ export function useMaxTool({
         activeIdentifierRef.current = identifier
         registerTool({
             identifier,
-            name: definition.name,
-            description: definition.description,
+            name: definition?.name,
+            description: definition?.description,
             context,
             contextDescription,
             introOverride,
@@ -185,8 +217,9 @@ export function useMaxTool({
             ? null
             : async (): Promise<void> => {
                   let opener: Awaited<ReturnType<typeof loadMaxToolOpener>>
+                  let toolDefinitions: ToolDefinitionsModule
                   try {
-                      opener = await loadMaxToolOpener()
+                      ;[opener, toolDefinitions] = await Promise.all([loadMaxToolOpener(), loadToolDefinitions()])
                   } catch (error) {
                       // Click handlers drop a rejected promise, and no error boundary sees it.
                       lemonToast.error("Couldn't open PostHog AI. Reload the page to try again.", {
@@ -208,8 +241,9 @@ export function useMaxTool({
                       registerContext(TOOL_PAGE_CONTEXT_PROVIDER_ID, items)
                   }
                   // Show the suggestions from this specific tool
-                  if (definition && suggestions && suggestions.length > 0) {
-                      showToolSuggestions(definition.name, suggestions)
+                  const toolDefinition = toolDefinitions.getToolDefinition(identifier)
+                  if (toolDefinition && suggestions && suggestions.length > 0) {
+                      showToolSuggestions(toolDefinition.name, suggestions)
                   }
                   openSidePanel(SidePanelTab.Max, initialMaxPrompt)
                   onMaxOpen?.()
