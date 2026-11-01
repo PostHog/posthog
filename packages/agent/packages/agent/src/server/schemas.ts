@@ -76,6 +76,7 @@ export const permissionResponseParamsSchema = z.object({
   optionId: z.string().min(1, "optionId is required"),
   customInput: z.string().optional(),
   answers: z.record(z.string(), z.string()).optional(),
+  confirmPersistentApproval: z.boolean().optional(),
 });
 
 export const setConfigOptionParamsSchema = z.object({

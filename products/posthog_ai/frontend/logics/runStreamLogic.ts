@@ -1064,6 +1064,7 @@ export function parsePermissionRequestFrame(
         title: toolCall.title as string | undefined,
         description: toolCall.description as string | undefined,
         ...(questions.length > 0 ? { questions } : {}),
+        ...(metaRecord.persistsApproval === true ? { persistsApproval: true } : {}),
         rawToolCall: {
             toolCallId,
             rawServerName,
@@ -5324,11 +5325,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     return
                 }
                 // Replayed history is a read-only restore — never auto-approve (the run may be terminal).
-                // Full-auto covers the task's selected project. Questions, plan approvals, and calls into
-                // connected projects still surface because the task did not authorize them.
+                // Full-auto covers the task's selected project for this run. Questions, plan approvals,
+                // calls into connected projects, and approvals saved beyond the run still surface.
                 const fullAuto =
                     isFullAutoMode(values.currentMode) &&
                     !record.questions?.length &&
+                    !record.persistsApproval &&
                     !isPlanPermissionRequest(record) &&
                     !isConnectedProjectTool(record)
                 const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
@@ -5432,6 +5434,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         optionId,
                         customInput,
                         answers: answers ? { ...answers } : undefined,
+                        ...(!automatic &&
+                        record.persistsApproval &&
+                        record.options.find((option) => option.optionId === optionId)?.kind.startsWith('allow')
+                            ? { confirmPersistentApproval: true }
+                            : {}),
                     },
                 }
                 try {
