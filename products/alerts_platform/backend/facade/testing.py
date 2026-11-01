@@ -13,7 +13,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     DeliveryPath,
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
@@ -68,6 +70,11 @@ def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     """Move a configuration's due time, so a test can run two checks against one schedule."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(next_check_at=due_at)
+
+
+def deliver(request: AlertDeliveryRequest) -> int:
+    """Send a recorded evaluation's delivery as the delivery activity does. Returns how many destinations took it."""
+    return deliver_evaluation(request).sent
 
 
 def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
@@ -142,6 +149,7 @@ def record_check(
     value: float | None = None,
     condition: dict[str, Any] | None = None,
     query_duration_ms: int | None = None,
+    source_detail: dict[str, Any] | None = None,
 ) -> None:
     """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
     insert_events(
@@ -168,6 +176,7 @@ def record_check(
                 consecutive_failures=0,
                 muted_notification="",
                 occurred_at=at,
+                source_detail=source_detail or {},
             )
         ],
     )

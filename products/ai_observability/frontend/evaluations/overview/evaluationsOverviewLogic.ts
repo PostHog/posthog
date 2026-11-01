@@ -22,7 +22,7 @@ import type {
     EvaluationsOverviewApi,
     EvaluationsOverviewRetrieveParams,
 } from '../../generated/api.schemas'
-import { buildEvaluationPassRateTrendsQuery } from '../evaluationMetricsLogic'
+import { buildEvaluationPassRateTrendsQuery } from '../evaluationPassRateTrendsQuery'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import type { EvaluationDirectoryEditor } from '../llmEvaluationsLogic'
 import type { EvaluationConfig } from '../types'
@@ -49,8 +49,8 @@ const SCOPE_CHANGE_DEBOUNCE_MS = 300
 
 /** At or below this many evaluations, the page keeps a way to create another in view. */
 const FEW_EVALUATIONS_MAX = 3
-/** The backend rejects a longer period. */
-const OVERVIEW_MAX_DAYS = 90
+/** The longest period people can pick. The backend accepts one day more, for the extra day the runs table counts. */
+export const OVERVIEW_MAX_DAYS = 90
 /** How many evaluations the chart picks on its first render. People can pick more. */
 const DEFAULT_COMPARED = 3
 
@@ -88,12 +88,17 @@ export function markEvaluationsOverviewStale(): void {
     evaluationsOverviewLogic.findMounted()?.actions.reloadOverview()
 }
 
+/** Records that a read for this request skipped the cache, so later reads for it may use the cache again. */
+export function markRefreshedAfterChange(requestKey: string): void {
+    refreshedSinceChange.add(requestKey)
+}
+
 export function resetEvaluationsOverviewStale(): void {
     lastChangeAt = null
     refreshedSinceChange.clear()
 }
 
-function needsRefreshAfterChange(requestKey: string): boolean {
+export function needsRefreshAfterChange(requestKey: string): boolean {
     if (lastChangeAt === null || Date.now() - lastChangeAt > BACKEND_CACHE_MS) {
         return false
     }
@@ -516,7 +521,8 @@ export interface evaluationsOverviewLogicMeta {
             evaluations: EvaluationConfig[],
             scopedIds: string[] | null,
             request: OverviewRequest,
-            interval: BucketInterval
+            interval: BucketInterval,
+            rowsById: Map<string, EvaluationResultApi>
         ) => string | null
         evaluationListFailed: (
             evaluationsLoadFailed: boolean,
@@ -868,7 +874,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             (rows: EvaluationResultApi[], nothingGraded: boolean): EvaluationResultApi[] => {
                 const listed = nothingGraded
                     ? rows
-                    : rows.filter((row) => row.attentionReasons.length > 0 || (row.enabled && row.gradedCount > 0))
+                    : rows.filter((row) => row.attentionReasons.length > 0 || row.gradedCount > 0)
                 // Rows with a line to draw come first, so evaluations that never ran do not push them down.
                 return [
                     ...attentionFirst(listed.filter(isChartable)),
@@ -970,19 +976,23 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.evaluations, s.scopedIds, s.request, s.interval],
+            (s) => [s.evaluations, s.scopedIds, s.request, s.interval, s.rowsById],
             (
                 evaluations: EvaluationConfig[],
                 scopedIds: string[] | null,
                 request: OverviewRequest,
-                interval: BucketInterval
+                interval: BucketInterval,
+                rowsById: Map<string, EvaluationResultApi>
             ): string | null => {
                 if (!request.ready) {
                     return null
                 }
-                const scoped = scopedIds
-                    ? evaluations.filter((evaluation) => scopedIds.includes(evaluation.id))
-                    : evaluations
+                // Paused evaluations with results in the period count, as they do on the overview chart.
+                const scoped = evaluations.filter(
+                    (evaluation) =>
+                        (!scopedIds || scopedIds.includes(evaluation.id)) &&
+                        (evaluation.enabled || (rowsById.get(evaluation.id)?.gradedCount ?? 0) > 0)
+                )
                 const { date_from = null, date_to = null } = request.params
                 // Trends reads a date-only end as that day's midnight when it buckets by hour, so the day gets an end.
                 const dateTo =

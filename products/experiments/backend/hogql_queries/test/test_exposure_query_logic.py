@@ -2,22 +2,37 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria, MultipleVariantHandling
+from posthog.schema import (
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    ExperimentWarehouseNativeExposureConfig,
+    MultipleVariantHandling,
+)
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.team import Team
 
+from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
+    has_positive_test_account_filter,
     normalize_to_exposure_criteria,
 )
 
 
 def _event_config(event):
     return {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": event, "properties": []}}
+
+
+_WAREHOUSE_NATIVE_EXPOSURE = ExperimentWarehouseNativeExposureConfig(
+    connection_id="00000000-0000-0000-0000-000000000000",
+    query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+)
 
 
 class TestGetExposureEventAndProperty:
@@ -122,6 +137,27 @@ class TestNormalizeToExposureCriteria:
         # Should return the exact same object, not a copy
         assert result is typed_criteria
 
+    def test_stored_warehouse_native_exposure_config_matches_the_typed_object(self):
+        # Stored criteria are a dict. A dict read as an event config would slip past the
+        # warehouse-native guards and fail later with an unrelated error.
+        from_dict = normalize_to_exposure_criteria(
+            {"exposure_config": _WAREHOUSE_NATIVE_EXPOSURE.model_dump(mode="json")}
+        )
+
+        assert from_dict == ExperimentExposureCriteria(exposure_config=_WAREHOUSE_NATIVE_EXPOSURE)
+
+
+class TestGetExposureConfigParamsForBuilder:
+    @parameterized.expand(
+        [
+            ("stored_dict", {"exposure_config": _WAREHOUSE_NATIVE_EXPOSURE.model_dump(mode="json")}),
+            ("typed", ExperimentExposureCriteria(exposure_config=_WAREHOUSE_NATIVE_EXPOSURE)),
+        ]
+    )
+    def test_refuses_warehouse_native_exposure_as_a_query_error(self, _name, exposure_criteria):
+        with pytest.raises(ExposedHogQLError, match="cannot be calculated yet"):
+            get_exposure_config_params_for_builder(exposure_criteria, Team(id=1, project_id=1), None)
+
 
 class TestGetTestAccountsFilter:
     _team_filter = {"key": "$host", "type": "event", "value": "localhost", "operator": "not_icontains"}
@@ -136,6 +172,30 @@ class TestGetTestAccountsFilter:
     def test_opting_out_skips_team_filters(self):
         team = Team(id=1, project_id=1, test_account_filters=[self._team_filter])
         assert get_test_accounts_filter(team, {"filterTestAccounts": False}) == []
+
+
+class TestHasPositiveTestAccountFilter:
+    @parameterized.expand(
+        [
+            ("positive_operator", [{"key": "$ip", "type": "event", "operator": "exact", "value": "203.0.113.1"}], True),
+            ("missing_operator_means_exact", [{"key": "$ip", "type": "event", "value": "203.0.113.1"}], True),
+            ("positive_cohort", [{"key": "id", "type": "cohort", "operator": "in", "value": 1}], True),
+            (
+                "one_positive_among_negative",
+                [
+                    {"key": "$host", "type": "event", "operator": "is_not", "value": ["localhost"]},
+                    {"key": "$ip", "type": "event", "operator": "exact", "value": "203.0.113.1"},
+                ],
+                True,
+            ),
+            ("negative_cohort", [{"key": "id", "type": "cohort", "operator": "not_in", "value": 1}], False),
+            ("hogql_only", [{"key": "properties.a = 1", "type": "hogql"}], False),
+            ("no_filters", [], False),
+            ("not_a_list", {}, False),
+        ]
+    )
+    def test_reads_the_operator_of_each_filter(self, _name, filters, expected):
+        assert has_positive_test_account_filter(Team(test_account_filters=filters)) is expected
 
 
 class TestGetMultipleVariantHandling:

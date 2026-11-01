@@ -56,5 +56,12 @@ class TestPublicDocsCatalog:
 class TestSchemaDefaults:
     def test_fan_out_tables_are_off_by_default(self) -> None:
         schemas = {schema.name: schema for schema in VantageSource().get_schemas(MagicMock(), team_id=1)}
-        off_by_default = {"costs", "resources", "tag_values"}
+        off_by_default = {
+            "costs",
+            "resources",
+            "tag_values",
+            "unit_costs",
+            "business_metric_values",
+            "network_flow_logs",
+        }
         assert {name for name, schema in schemas.items() if not schema.should_sync_default} == off_by_default

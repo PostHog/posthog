@@ -4,10 +4,20 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Replay',
+    globalModals: {
+        SessionPlayerModal: () =>
+            import('scenes/session-recordings/player/modal/SessionPlayerModalHost').then(
+                (module) => module.SessionPlayerModalHost
+            ),
+    },
+    activityDescribers: {
+        [ActivityScope.REPLAY]: () =>
+            import('scenes/session-recordings/activityDescription').then((module) => module.replayActivityDescriber),
+    },
     urls: {
         replay: (
             tab?: ReplayTabs,

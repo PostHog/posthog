@@ -21,7 +21,6 @@ import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { retryWithBackoff } from 'lib/utils/async'
@@ -81,6 +80,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: stri
     error_tracking: (id) => urls.errorTrackingIssue(id),
     customer_analytics: null,
     ticket: (id) => urls.supportTicketDetail(id),
+    replay_observation: (id) => urls.replayVisionObservation(id),
 }
 
 export interface NotificationGroup {
@@ -1219,7 +1219,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                         email: changelogNotification.email || 'joe@posthog.com',
                                         name: changelogNotification.name || 'Joe',
                                         isSystem: true,
-                                        description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
+                                        description: null,
+                                        markdownDescription: changelogNotification.markdown,
                                         created_at: changelogNotification.notificationDate,
                                         unread: lastRead?.isSameOrBefore(changelogNotification.notificationDate),
                                     }) as HumanizedActivityLogItem

@@ -1,7 +1,7 @@
 import os
 
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import get_list, get_set
+from posthog.settings.utils import get_from_env, get_list, get_set, str_to_bool
 
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE = os.getenv("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", "false").lower() == "true"
 
@@ -56,3 +56,11 @@ def _parse_team_ids(raw: str) -> set[int]:
 SIGNALS_LIGHTHOUSE_TEAM_IDS: set[int] = _parse_team_ids(
     os.getenv("SIGNALS_LIGHTHOUSE_TEAM_IDS", _DEFAULT_LIGHTHOUSE_TEAM_IDS)
 )
+
+# Turns on the buffer of MCP intents for activity summaries. The `activity-summary` flag payload
+# picks the teams and limits; this switch turns the request hook off without a deploy of new code.
+ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED: bool = get_from_env(
+    "ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED", False, type_cast=str_to_bool
+)
+# The buffer needs a TTL-aware eviction policy (`volatile-ttl` or `noeviction`). Unset uses `REDIS_URL`.
+ACTIVITY_SUMMARY_MCP_BUFFER_REDIS_URL: str = os.getenv("ACTIVITY_SUMMARY_MCP_BUFFER_REDIS_URL", "")

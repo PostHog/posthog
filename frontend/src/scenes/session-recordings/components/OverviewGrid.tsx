@@ -79,7 +79,7 @@ export function OverviewGridItem({
 
     return (
         <div className="group flex flex-1 w-full justify-between items-center deprecated-space-x-4">
-            <div className={clsx('text-sm', fadeLabel && 'font-light')}>
+            <div className={clsx('text-sm shrink-0 truncate max-w-[60%]', fadeLabel && 'font-light')}>
                 <Tooltip title={itemKeyTooltip}>
                     {icon} {label}
                 </Tooltip>

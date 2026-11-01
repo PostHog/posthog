@@ -5,8 +5,8 @@ import { useRef } from 'react'
 import { IconArrowLeft, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import {

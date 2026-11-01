@@ -1,24 +1,19 @@
-import { useValues } from 'kea'
 import { ReactNode, useId, useRef, useState } from 'react'
 
 import { capturePersonsModalForClick, CapturedPersonsModal } from 'lib/components/ResultMenu/personsModalCapture'
-import { ResultMenu } from 'lib/components/ResultMenu/ResultMenu'
-import { objectsEqual } from 'lib/utils/objects'
-import { getPersonsRecordingFilters } from 'scenes/trends/persons-modal/getPersonsRecordingFilters'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import {
+    getResultMenuPoint,
+    isResultMenuContextMenu,
+    replayAsClick,
+    ResultMenuPoint,
+} from 'lib/components/ResultMenu/resultMenuTrigger'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import {
-    isActorsQuery,
-    isBIVisualizationNode,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-} from '~/queries/utils'
-import { ChartDisplayType, InsightModel, ReplayTabs } from '~/types'
+import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { ChartDisplayType, InsightModel } from '~/types'
 
-import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
+import { DashboardInsightResultMenuPopover } from './DashboardInsightResultMenuPopover'
 
 export function DashboardInsightResultMenu({
     insight,
@@ -27,10 +22,19 @@ export function DashboardInsightResultMenu({
     insight: InsightModel
     children: ReactNode
 }): JSX.Element {
-    const [position, setPosition] = useState<{ x: number; y: number; timestamp: number } | null>(null)
+    const [position, setPosition] = useState<ResultMenuPoint | null>(null)
     const [actors, setActors] = useState<CapturedPersonsModal | null>(null)
+    // Each opened menu loads its result again, so selecting the same point again retries a failed load.
+    const [selection, setSelection] = useState(0)
+    const menuId = useId()
     const triggerRef = useRef<HTMLDivElement>(null)
     const captured = useRef(false)
+    const replaying = useRef(false)
+    const open = (point: ResultMenuPoint, request: CapturedPersonsModal | null): void => {
+        setActors(request)
+        setPosition(point)
+        setSelection((current) => current + 1)
+    }
     const close = (): void => {
         setPosition(null)
         setActors(null)
@@ -77,20 +81,6 @@ export function DashboardInsightResultMenu({
                 query: isDataTableNode(sqlQuery) ? sqlQuery : { ...sqlQuery, display: ChartDisplayType.ActionsTable },
             })
           : undefined
-    const { selectedResult: resolvedResult, resultLoading } = useValues(
-        dashboardInsightResultMenuLogic({
-            key: useId(),
-            query: position && rowsQuery && isActorsQuery(rowsQuery.source) ? rowsQuery.source : null,
-        })
-    )
-    const sqlUrl = resolvedResult?.sql
-        ? urls.sqlEditor({ query: resolvedResult.sql })
-        : sqlQuery
-          ? urls.sqlEditor({ query: sqlQuery })
-          : undefined
-    const resultUnavailableReason = resultLoading
-        ? 'Loading the selected result…'
-        : 'Could not load the selected result. Select the data point again to retry.'
     const selectedResult = actors?.title
         ? typeof actors.title === 'function'
             ? actors.title('Results')
@@ -101,122 +91,54 @@ export function DashboardInsightResultMenu({
             ref={triggerRef}
             className="flex flex-1 flex-col min-h-0 h-full"
             onClickCapture={(event) => {
-                if (
-                    !event.currentTarget.contains(event.target as Node) ||
-                    (event.target as Element).closest('a, input, select') ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.altKey ||
-                    event.shiftKey
-                ) {
+                if (position && !replaying.current && event.currentTarget.contains(event.target as Node)) {
+                    close()
+                }
+            }}
+            onContextMenuCapture={(event) => {
+                if (!isResultMenuContextMenu(event)) {
                     return
                 }
                 captured.current = false
-                const rect = (event.target as Element).getBoundingClientRect()
-                const point = {
-                    x: event.detail ? event.clientX : rect.x + rect.width / 2,
-                    y: event.detail ? event.clientY : rect.y + rect.height / 2,
-                    timestamp: event.timeStamp,
-                }
+                const point = getResultMenuPoint(event)
                 capturePersonsModalForClick((request) => {
                     captured.current = true
-                    if (
-                        position &&
-                        actors &&
-                        objectsEqual(actors.query, request.query) &&
-                        objectsEqual(actors.rowsQuery, request.rowsQuery) &&
-                        actors.url === request.url &&
-                        actors.urlsIndex === request.urlsIndex &&
-                        objectsEqual(actors.urls, request.urls)
-                    ) {
-                        close()
-                        return
-                    }
-                    setActors(request)
-                    setPosition(point)
+                    open(point, request)
                 })
             }}
-            onClick={(event) => {
-                if (
-                    !event.currentTarget.contains(event.target as Node) ||
-                    captured.current ||
-                    (event.target as Element).closest('a, button, input, select, [role="button"]') ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.altKey ||
-                    event.shiftKey
-                ) {
+            onContextMenu={(event) => {
+                if (!isResultMenuContextMenu(event)) {
                     return
                 }
-                if (position) {
-                    close()
-                    return
+                event.preventDefault()
+                // A chart with `onPointContextMenu` captures its result before this handler runs.
+                if (!captured.current) {
+                    replaying.current = true
+                    try {
+                        replayAsClick(event)
+                    } finally {
+                        replaying.current = false
+                    }
                 }
-                setActors(null)
-                setPosition({ x: event.clientX, y: event.clientY, timestamp: event.timeStamp })
+                if (!captured.current) {
+                    open(getResultMenuPoint(event), null)
+                }
             }}
         >
             {children}
             {position && (
-                <ResultMenu
+                <DashboardInsightResultMenuPopover
+                    logicKey={`${menuId}-${selection}`}
                     triggerRef={triggerRef}
+                    position={position}
                     selectedResult={selectedResult}
                     caption={actors ? insight.name || 'Insight result' : 'Dashboard insight'}
-                    interaction={position}
+                    actors={actors}
+                    canViewRecordings={canViewRecordings}
+                    sqlQuery={sqlQuery}
+                    rowsQuery={rowsQuery}
+                    rowsUrl={rowsUrl}
                     close={close}
-                    actions={[
-                        {
-                            name: sqlQuery ? 'View underlying rows' : 'View people',
-                            className: 'ResultMenu__rows',
-                            to: rowsUrl,
-                            inPlace: !!actors,
-                            disabledReason:
-                                !actors && !sqlQuery
-                                    ? 'Select a data point to view the users or groups behind it.'
-                                    : undefined,
-                            onClick: () => {
-                                const request = actors
-                                close()
-                                if (request) {
-                                    request.open ? request.open() : openPersonsModal(request)
-                                }
-                            },
-                        },
-                        ...(canViewRecordings && recordingQuery
-                            ? [
-                                  {
-                                      name: 'View recordings',
-                                      className: 'ResultMenu__recordings',
-                                      to: resolvedResult?.sessionIds.length
-                                          ? urls.replay(
-                                                ReplayTabs.Home,
-                                                getPersonsRecordingFilters(
-                                                    { kind: NodeKind.ActorsQuery, source: recordingQuery },
-                                                    resolvedResult.sessionIds
-                                                )
-                                            )
-                                          : undefined,
-                                      disabledReason: resolvedResult?.sessionIds.length
-                                          ? undefined
-                                          : resolvedResult
-                                            ? 'No recordings found for this result.'
-                                            : resultUnavailableReason,
-                                      onClick: close,
-                                  },
-                              ]
-                            : []),
-                        {
-                            name: 'Open in SQL editor',
-                            className: 'ResultMenu__sql',
-                            to: sqlUrl,
-                            disabledReason: sqlUrl
-                                ? undefined
-                                : actors
-                                  ? resultUnavailableReason
-                                  : 'Select a data point to edit its underlying query.',
-                            onClick: close,
-                        },
-                    ]}
                 />
             )}
         </div>

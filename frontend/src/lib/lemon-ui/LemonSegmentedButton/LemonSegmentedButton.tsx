@@ -21,6 +21,10 @@ export type LemonSegmentedButtonOption<T extends React.Key> = { value: T } & (
 export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T, e: React.MouseEvent) => void
+    /** Called with the option under the pointer, and with `null` when the pointer leaves the control. */
+    onOptionHover?: (value: T | null) => void
+    /** Called with the option that has keyboard focus, and with `null` when focus leaves the control. */
+    onOptionFocus?: (value: T | null) => void
     options: LemonSegmentedButtonOption<T>[]
     disabledReason?: string
     size?: LemonButtonProps['size']
@@ -37,6 +41,8 @@ interface LemonSegmentedButtonCSSProperties extends React.CSSProperties {
 export function LemonSegmentedButton<T extends React.Key>({
     value,
     onChange,
+    onOptionHover,
+    onOptionFocus,
     options,
     disabledReason,
     size,
@@ -77,7 +83,18 @@ export function LemonSegmentedButton<T extends React.Key>({
                     )}
                 />
             )}
-            <ul>
+            <ul
+                onMouseLeave={onOptionHover ? () => onOptionHover(null) : undefined}
+                onBlur={
+                    onOptionFocus
+                        ? (e) => {
+                              if (!e.currentTarget.contains(e.relatedTarget)) {
+                                  onOptionFocus(null)
+                              }
+                          }
+                        : undefined
+                }
+            >
                 {options.map((option) => {
                     const optionDisabledReason = option.disabledReason ?? disabledReason
 
@@ -90,6 +107,8 @@ export function LemonSegmentedButton<T extends React.Key>({
                                 option.value === value && 'LemonSegmentedButton__option--selected'
                             )}
                             ref={option.value === value ? selectionRef : undefined}
+                            onMouseEnter={onOptionHover ? () => onOptionHover(option.value) : undefined}
+                            onFocus={onOptionFocus ? () => onOptionFocus(option.value) : undefined}
                         >
                             <LemonButton
                                 type={option.value === value ? 'primary' : 'secondary'}

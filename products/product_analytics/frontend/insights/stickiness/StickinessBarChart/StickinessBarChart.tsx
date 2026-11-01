@@ -4,6 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,7 +25,6 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
-import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
     buildTrendsSeriesMeta,
@@ -64,6 +64,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         trendsFilter,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         showValuesOnSeries,
         isSingleSeriesDefinition,
@@ -74,8 +75,8 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const seriesIdentification = useMemo(
@@ -87,6 +88,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -95,6 +97,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             }),
         [
             querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -132,12 +135,12 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 yAxisScaleType,
                 isGrouped,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
-                tooltip: { ...tooltipConfig, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: tooltipConfig,
             }),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [context?.dashboardResultMenu, yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig, tooltipConfig]
+        [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig, tooltipConfig]
     )
 
     // Close over the primitives so the click memos don't invalidate when unrelated
@@ -223,6 +226,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={hasClickHandler ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && hasClickHandler ? onPointClick : undefined}
             className="BarGraph"
             dataAttr="stickiness-bar-graph"
             onError={handleChartError}

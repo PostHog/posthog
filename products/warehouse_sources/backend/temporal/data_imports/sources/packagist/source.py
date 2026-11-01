@@ -69,6 +69,7 @@ Download statistics sync incrementally per day; the other tables sync as a full 
                 [
                     SourceFieldInputConfig(
                         name="packages",
+                        sync_setting=True,
                         label="Packages",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

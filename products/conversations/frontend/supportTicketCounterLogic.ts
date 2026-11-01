@@ -7,7 +7,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '../../../frontend/src/types'
 import { browserNotificationLogic } from './browserNotificationLogic'
-import { supportTicketsSceneLogic } from './scenes/tickets/supportTicketsSceneLogic'
 
 const POLL_INTERVAL = 5 * 1000 // 5 seconds - backend is cached so frequent polling is cheap
 
@@ -203,13 +202,9 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
                 actions.loadUnreadCount()
             }
         },
-        // Notify tickets scene when unread count changes
         unreadCount: (unreadCount, oldUnreadCount) => {
             if (oldUnreadCount === undefined) {
                 return
-            }
-            if (unreadCount !== oldUnreadCount) {
-                supportTicketsSceneLogic.findMounted()?.actions.loadTickets()
             }
             if (unreadCount > oldUnreadCount && values.canShowNotifications) {
                 actions.showNotification(unreadCount)

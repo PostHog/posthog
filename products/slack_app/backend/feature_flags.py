@@ -37,7 +37,8 @@ from __future__ import annotations
 import structlog
 import posthoganalytics
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationRecord
+from posthog.models.team import Team
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, has_scopes
@@ -46,13 +47,8 @@ logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
-SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
-SLACK_APP_FEATURE_TIPS_FLAG = "slack-app-feature-tips"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
-SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
-SLACK_APP_INTERVIEW_RECRUITMENT_FLAG = "slack-app-interview-recruitment"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -70,9 +66,13 @@ def _region_properties() -> dict[str, str]:
     return {"region": get_instance_region() or "dev"}
 
 
+def _organization_id(integration: IntegrationRecord) -> str:
+    return str(Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id))
+
+
 def _workspace_flag_enabled(
     flag: str,
-    integration: Integration,
+    integration: IntegrationRecord,
     *,
     failure_log_key: str,
     distinct_id: str | None = None,
@@ -85,7 +85,7 @@ def _workspace_flag_enabled(
 
     ``distinct_id`` identifies the PostHog user the check is being made for, and becomes
     the identity the flag resolves against. It is a distinct ID rather than a user id so
-    a caller can pass what it already holds, and so deciding a gate costs no query here.
+    a caller can pass what it already holds.
     Without one the gate falls back to the Slack workspace, which no person rule can
     match.
     """
@@ -94,7 +94,7 @@ def _workspace_flag_enabled(
             posthoganalytics.feature_enabled(
                 flag,
                 distinct_id or f"slack_workspace:{integration.integration_id}",
-                groups={"organization": str(integration.team.organization_id)},
+                groups={"organization": _organization_id(integration)},
                 person_properties=_region_properties(),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -105,7 +105,7 @@ def _workspace_flag_enabled(
         return False
 
 
-def is_slack_app_oauth_enabled(integration: Integration) -> bool:
+def is_slack_app_oauth_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the Slack user-identity OAuth link feature, covering both backend
     (offering the invite button, accepting the link callback, listing/starting
     from settings) and frontend (rendering the Slack card in Personal
@@ -114,7 +114,7 @@ def is_slack_app_oauth_enabled(integration: Integration) -> bool:
     return has_scopes(integration, OAUTH_REQUIRED_SCOPES)
 
 
-def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
+def is_slack_app_agent_design_enabled(integration: IntegrationRecord, distinct_id: str | None = None) -> bool:
     """Gate for the agent-design plan-block streaming surface on Slack task runs.
     Posts through the ``chat:write`` the mention flow already requires, so this is the
     flag alone.
@@ -131,47 +131,9 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
-    """Gate for charts as insight links: a Slack task run shares a PostHog insight link
-    instead of rendering a chart image, and the link unfurl draws the chart. Resolved once,
-    when the run starts, and stored on the run for the unfurl webhook to read."""
-    return _workspace_flag_enabled(
-        SLACK_APP_CHART_LINKS_FLAG,
-        integration,
-        failure_log_key="slack_app_chart_links_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_feature_tips_enabled(integration: Integration, distinct_id: str) -> bool:
-    """Gate for the one-line feature tip under an answer.
-
-    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
-    PostHog user is linked. A tip is a per-person decision, so a percentage rollout splits
-    people and a holdout group can measure what tips change.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_FEATURE_TIPS_FLAG,
-        integration,
-        failure_log_key="slack_app_feature_tips_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_multiplayer_approvals_enabled(integration: Integration, distinct_id: str | None) -> bool:
-    """Gate for the thread creator's choice of who may join their threads.
-
-    ``distinct_id`` is the thread creator's PostHog user. With the gate closed, anyone with
-    project access can join, and the Home tab hides the setting.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_MULTIPLAYER_APPROVALS_FLAG,
-        integration,
-        failure_log_key="slack_app_multiplayer_approvals_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
+def is_slack_app_byos_enabled(
+    integration: IntegrationRecord, distinct_id: str | None, *, adapter: str = "codex"
+) -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
     Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
@@ -181,7 +143,7 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
 
     if not tasks_facade.own_subscription_cloud_enabled(
-        adapter, distinct_id=distinct_id, organization_id=str(integration.team.organization_id)
+        adapter, distinct_id=distinct_id, organization_id=_organization_id(integration)
     ):
         return False
     return _workspace_flag_enabled(
@@ -192,41 +154,14 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
     )
 
 
-def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
-    """Gate for answering top-level channel messages nobody tagged the app in.
-
-    Keyed on the workspace, not the author, because the webhook checks it before it resolves
-    who wrote the message. Roll it out with an organization condition.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
-        integration,
-        failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_interview_recruitment_enabled(integration: Integration, distinct_id: str) -> bool:
-    """Gate for the interview invitations on the Home tab and after a frustration signal.
-
-    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
-    PostHog user is linked. A rule on email or a cohort only matches a linked reader.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_INTERVIEW_RECRUITMENT_FLAG,
-        integration,
-        failure_log_key="slack_app_interview_recruitment_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_assistant_enabled(integration: Integration) -> bool:
+def is_slack_app_assistant_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the DM assistant: the install must hold the scopes the DM surface
     calls — ``im:history`` in particular, without which the assistant would answer
     once and then go deaf to follow-ups."""
     return has_scopes(integration, ASSISTANT_REQUIRED_SCOPES)
 
 
-def is_slack_app_forking_enabled(integration: Integration) -> bool:
+def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the "Fork to DM" menu under a reply.
 
     A fork lands in a DM and is answered there, so it inherits the assistant

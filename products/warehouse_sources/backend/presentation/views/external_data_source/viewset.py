@@ -9,6 +9,7 @@ from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from rest_framework import filters, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -18,7 +19,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
-from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission, is_service_auth
 from posthog.rate_limit import (
     CustomSourceAIBuilderBurstThrottle,
     CustomSourceAIBuilderDailyThrottle,
@@ -41,6 +42,10 @@ from .oauth_accounts import ExternalDataSourceOAuthAccountsMixin
 from .schema_operations import ExternalDataSourceSchemaOperationsMixin
 from .source_setup import ExternalDataSourceSetupMixin
 from .webhook_setup import ExternalDataSourceWebhookSetupMixin
+
+
+class ExternalDataSourceExistsSerializer(serializers.Serializer):
+    exists = serializers.BooleanField(help_text="Whether the project has any accessible external data sources.")
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
@@ -99,6 +104,7 @@ class ExternalDataSourceViewSet(
         "draft_custom_manifest",
     ]
     scope_object_read_actions = [
+        "exists",
         "list",
         "retrieve",
         "jobs",
@@ -117,6 +123,14 @@ class ExternalDataSourceViewSet(
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
+
+    @extend_schema(responses=ExternalDataSourceExistsSerializer)
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def exists(self, request: Request, **kwargs: object) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        return Response(ExternalDataSourceExistsSerializer({"exists": queryset.exists()}).data)
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         super().check_object_permissions(request, obj)

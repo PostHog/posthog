@@ -437,17 +437,23 @@ def _render_tree(
     prefix: str = "",
     is_last: bool = True,
     depth: int = 0,
+    owners: list[str | None] | None = None,
 ) -> list[str]:
     """Render tree structure with ASCII art.
 
     Creates expandable nodes using:
     - <<<GEN_EXPANDABLE|eventId|displayText|encodedContent>>> for include_markers=True
     - Plain text [+] indicators for include_markers=False
+
+    When `owners` is given, one entry per returned line is appended to it: the id of the event whose node
+    rendered that line, or None for the max depth marker.
     """
     lines = FormatterLines(options)
 
     if depth > MAX_TREE_DEPTH:
         lines.append(f"{prefix}  [... max depth reached]")
+        if owners is not None:
+            owners.append(None)
         return lines
 
     options = options or {}
@@ -468,14 +474,29 @@ def _render_tree(
             event, summary, prefix, current_prefix, child_prefix, options, collapsed, include_markers
         )
         lines.extend(node_lines)
+        if owners is not None:
+            owners.extend([event.get("id")] * len(node_lines))
 
         if children:
             child_lines = _render_tree(
-                children, options=options, prefix=prefix + child_prefix, is_last=is_last_node, depth=depth + 1
+                children,
+                options=options,
+                prefix=prefix + child_prefix,
+                is_last=is_last_node,
+                depth=depth + 1,
+                owners=owners,
             )
             lines.extend(child_lines)
 
     return lines
+
+
+@frozen
+class TraceTextRepr:
+    text: str
+    was_sampled: bool
+    # `line_owners[n - 1]` is the id of the event whose node rendered line `n`, or None for a trace-level line.
+    line_owners: tuple[str | None, ...]
 
 
 def format_trace_text_repr(
@@ -501,6 +522,15 @@ def format_trace_text_repr(
     Returns:
         Tuple of (formatted_text, was_sampled) - the text representation and whether uniform sampling was applied
     """
+    rendered = format_trace_text_repr_with_line_owners(trace, hierarchy, options)
+    return rendered.text, rendered.was_sampled
+
+
+def format_trace_text_repr_with_line_owners(
+    trace: dict[str, Any], hierarchy: list[dict[str, Any]], options: FormatterOptions | None = None
+) -> TraceTextRepr:
+    """`format_trace_text_repr`, plus the event that owns each line. With `include_line_numbers`, sampling keeps
+    the original line numbers, so the owners stay valid for a sampled text."""
     lines = FormatterLines(options)
     props = trace.get("properties", {})
 
@@ -522,6 +552,7 @@ def format_trace_text_repr(
         else:
             lines.append(json.dumps(error, indent=2))
 
+    tree_owners: list[str | None] = []
     # Only show trace-level input/output if there are NO events in hierarchy
     # When events exist, the hierarchy tells the full story
     if not hierarchy:
@@ -547,8 +578,13 @@ def format_trace_text_repr(
         lines.append("")
         lines.append("TRACE HIERARCHY:")
         lines.append("")
-        lines.extend(_render_tree(hierarchy, options=options))
+        lines.extend(_render_tree(hierarchy, options=options, owners=tree_owners))
 
+    # The tree renders last, so every entry before it is a trace-level line.
+    trace_level_owners: list[str | None] = [None] * (len(lines) - len(tree_owners))
+    entry_owners = trace_level_owners + tree_owners
+    # An entry can hold several lines, such as an error rendered as indented JSON.
+    line_owners = tuple(owner for entry, owner in zip(lines, entry_owners) for _ in range(entry.count("\n") + 1))
     formatted_text = "\n".join(lines)
 
     # Add line numbers if requested
@@ -564,4 +600,4 @@ def format_trace_text_repr(
     if max_length and len(formatted_text) > max_length:
         formatted_text, was_sampled = reduce_by_uniform_sampling(formatted_text, max_length)
 
-    return sanitize_surrogates(formatted_text), was_sampled
+    return TraceTextRepr(text=sanitize_surrogates(formatted_text), was_sampled=was_sampled, line_owners=line_owners)

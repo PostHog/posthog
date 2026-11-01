@@ -218,12 +218,14 @@ export function AIObservabilityReviews(): JSX.Element {
             </div>
 
             <LemonTable
+                id="review"
                 loading={reviewsLoading}
                 columns={columns}
                 dataSource={reviews.results}
                 pagination={pagination}
                 noSortingCancellation
                 sorting={sorting}
+                useURLForSorting={false}
                 onSort={(newSorting) =>
                     setFilters({
                         order_by: newSorting

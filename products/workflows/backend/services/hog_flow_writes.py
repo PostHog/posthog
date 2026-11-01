@@ -7,7 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from posthog.api.tagged_item import cleanup_orphan_tags, current_tag_names, set_tags_on_object
+from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models.tag import tagify
 
 from products.workflows.backend.facade.contracts import (
@@ -443,8 +443,7 @@ def update_workflow(
                 _append_revisions(team_id, user_id, instance, before_update)
 
         if tags_changed:
-            set_tags_on_object(tags, instance)
-            cleanup_orphan_tags(team_id)
+            replace_tags_on_object(tags, instance)
 
     paused = 0
     if not route_to_draft:

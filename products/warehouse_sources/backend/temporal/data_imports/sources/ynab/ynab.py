@@ -1,5 +1,4 @@
-from datetime import date
-from typing import Any
+from typing import Any, cast
 
 from requests.exceptions import HTTPError
 
@@ -16,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -25,6 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ynab.setti
 
 AUTH_ERROR = "Your YNAB personal access token is invalid or expired. Create a new token and reconnect."
 PERMISSION_ERROR = "Your YNAB token cannot access this resource. Check its permissions and reconnect."
+RATE_LIMIT_ERROR = (
+    "YNAB's request limit for your personal access token ran out before this sync finished. "
+    "YNAB allows 200 requests per hour for each token, shared by every table in this source and any other app "
+    "that uses the token. Set these tables to sync less often, such as every 6 hours, or turn off tables you don't need."
+)
 
 
 @frozen
@@ -32,18 +37,10 @@ class YnabResumeConfig:
     completed: list[str]
 
 
-def _plan_months(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    if not plan.get("first_month") or not plan.get("last_month"):
-        return []
-    month = date.fromisoformat(plan["first_month"]).replace(day=1)
-    last_month = date.fromisoformat(plan["last_month"]).replace(day=1)
-    months: list[dict[str, Any]] = []
-    while month <= last_month:
-        months.append({"id": plan["id"], "month": month.isoformat()})
-        month = (
-            month.replace(year=month.year + 1, month=1) if month.month == 12 else month.replace(month=month.month + 1)
-        )
-    return months
+def _month_category_rows(month: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {**category, "plan_id": month["plan_id"], "month": month["month"]} for category in month.get("categories") or []
+    ]
 
 
 def validate_credentials(api_key: str, api_version: str, schema_name: str | None) -> tuple[bool, str | None]:
@@ -104,15 +101,11 @@ def ynab_source(
                 # Wildcard selectors have no matches when every category group is empty.
                 "data_selector_required": endpoint != "categories",
             },
-            child_params_extra=(
-                {"month": {"type": "resolve", "resource": "plans", "field": "month"}}
-                if endpoint_config.per_month
-                else None
-            ),
-            parent_data_map=_plan_months if endpoint_config.per_month else None,
             resume_hook=save_checkpoint,
             initial_paginator_state={"completed": resume.completed} if resume else None,
         )
+        if endpoint_config.categories_by_month:
+            resource = cast(Resource, resource).add_map(_month_category_rows)
     else:
         config: RESTAPIConfig = {
             "client": client_config,

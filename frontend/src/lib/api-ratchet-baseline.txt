@@ -179,7 +179,6 @@ logsQuery projects/{}/logs/query
 logsSparkline projects/{}/logs/sparkline
 media projects/{}/uploaded_media
 messagingCategories projects/{}/messaging_categories
-messagingCategoriesImportFromCustomerIO projects/{}/messaging_categories/import_from_customerio
 messagingCategoriesOptOutSyncConfig projects/{}/messaging_categories/optout_sync_config
 messagingCategoriesRemoveCustomerIOAppConfig projects/{}/messaging_categories/remove_customerio_app_config
 messagingCategoriesRemoveTrackConfig projects/{}/messaging_categories/remove_track_config

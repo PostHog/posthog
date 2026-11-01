@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -14,7 +15,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -32,6 +32,7 @@ import type {
 import {
     isActionsNode,
     isEventsNode,
+    isFunnelsQuery,
     isGroupNode,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -500,7 +501,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     return null
                 }
                 const source = query.source
-                if (!isInsightQueryWithSeries(source) || !source.series.length || !source.series.every(readsEvents)) {
+                // A funnel with one step runs no query, and the server rejects it.
+                const minSeries = isFunnelsQuery(source) ? 2 : 1
+                if (
+                    !isInsightQueryWithSeries(source) ||
+                    source.series.length < minSeries ||
+                    !source.series.every(readsEvents)
+                ) {
                     return null
                 }
                 return { kind: NodeKind.InsightVizNode, source }

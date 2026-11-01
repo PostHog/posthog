@@ -14,9 +14,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { getExperimentVariants } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -118,6 +118,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationDateTo,
         observationBackfillFilter,
         observationVariantFilter,
+        observationWatchGroupFilter,
         experimentContext,
         hasActiveObservationFilters,
         observationDetailLinkParams,
@@ -143,6 +144,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationDateRange,
         setObservationBackfillFilter,
         setObservationVariantFilter,
+        setObservationWatchGroupFilter,
         clearObservationFilters,
         copyAllObservations,
     } = useActions(logic)
@@ -424,6 +426,21 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     data-attr="vision-observations-backfill-filter"
                                 >
                                     Backfill {shortBackfillId(observationBackfillFilter)}
+                                </LemonButton>
+                            )}
+                            {observationWatchGroupFilter && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Sessions the Highlights feed groups as near duplicates"
+                                    sideAction={{
+                                        icon: <IconX />,
+                                        onClick: () => setObservationWatchGroupFilter(null),
+                                        tooltip: 'Clear similar sessions filter',
+                                    }}
+                                    data-attr="vision-observations-watch-group-chip"
+                                >
+                                    Similar sessions
                                 </LemonButton>
                             )}
                             {scannerType === 'experiment' ? (

@@ -43,6 +43,9 @@ from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
+    CachedLifecycleQueryResponse,
+    CachedStickinessQueryResponse,
+    CachedTrendsQueryResponse,
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
@@ -66,7 +69,9 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    LifecycleQueryResponse,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
@@ -105,12 +110,14 @@ from posthog.schema import (
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
+    StickinessQueryResponse,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
     TraceNeighborsQuery,
     TraceQuery,
     TracesQuery,
     TrendsQuery,
+    TrendsQueryResponse,
     UsageMetricsQuery,
     VectorSearchQuery,
     WebAgentAnalyticsQuery,
@@ -125,7 +132,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -186,6 +192,7 @@ from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_sing
 from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.utils.properties import has_any_property_filters
+from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -195,8 +202,6 @@ from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
     events_route_scope,
-    get_new_events_cluster_host,
-    new_events_cluster_host_scope,
     strip_events_route_modifiers,
     use_new_events_schema,
     with_pinned_events_route,
@@ -662,6 +667,7 @@ RunnableQueryNode = Union[
     WebNotableChangesQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
@@ -1276,7 +1282,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentQuery":
-        from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+        from products.experiments.backend.facade.queries import ExperimentQueryRunner
 
         return ExperimentQueryRunner(
             query=query,
@@ -1288,9 +1294,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
-            ExperimentExposuresQueryRunner,
-        )
+        from products.experiments.backend.facade.queries import ExperimentExposuresQueryRunner
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),
@@ -1653,6 +1657,15 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
             user=user,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
+            MarketingAnalyticsRecommendationsQueryRunner,
+        )
+
+        return MarketingAnalyticsRecommendationsQueryRunner(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
         )
 
     if kind == NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY:
@@ -2144,7 +2157,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def calculate(self) -> R:
         self.validate()
-        return self._calculate()
+        response = self._calculate()
+        self._fill_action_names(response)
+        return response
 
     def validate(self) -> None:
         run_validation_rules(self.validators(), self.validation_context)
@@ -2297,6 +2312,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if isinstance(cached_response, CachedResponse):
             self._fill_cached_result_order(cached_response)
+            self._fill_action_names(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
             cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
@@ -2472,7 +2488,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
             return query_result, query_duration_ms
 
-    @new_events_cluster_host_scope()
     @_pin_events_route
     def run(
         self,
@@ -2484,12 +2499,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
-        if self.modifiers.useNewEventsCluster:
-            if not isinstance(self.query, HogQLQuery):
-                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
-
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
         # __init__; let them refresh it now that we know the real user. Only on an
@@ -3228,8 +3237,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
-        if self.modifiers.useNewEventsCluster:
-            payload["native_events_host"] = get_new_events_cluster_host()
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.
@@ -3238,7 +3245,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["restricted_properties"] = restricted
             # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
             # so restricted results cached before that change are invalidated.
-            payload["property_access_control_version"] = 1
+            payload["property_access_control_version"] = 2
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
@@ -3347,6 +3354,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             action = result.get("action")
             if isinstance(action, dict) and isinstance(action.get("order"), int):
                 result["order"] = action["order"]
+
+    def _fill_action_names(self, response: object) -> None:
+        """Set `action_names` on a trends, stickiness or lifecycle response that lacks it.
+
+        This runs on a fresh calculation and on a cache hit. A response cached before the runners returned
+        `action_names` carries the names only on each row's `action`, which readers no longer use.
+        """
+        if not isinstance(
+            response,
+            TrendsQueryResponse
+            | StickinessQueryResponse
+            | LifecycleQueryResponse
+            | CachedTrendsQueryResponse
+            | CachedStickinessQueryResponse
+            | CachedLifecycleQueryResponse,
+        ):
+            return
+        if response.action_names is None:
+            response.action_names = get_response_action_names(self.team, self.query.model_dump(mode="json"))
 
     def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
         """Apply custom_name values to TrendsQuery results (nested under action)."""

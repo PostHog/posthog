@@ -138,19 +138,31 @@ describe('bootTiming', () => {
     })
 
     it.each([
-        { distinctId: IN_SAMPLE_ID, sends: true },
-        { distinctId: OUT_OF_SAMPLE_ID, sends: false },
+        { distinctId: IN_SAMPLE_ID, variant: undefined, sampleRate: 0.05 },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: undefined, sampleRate: null },
         // An empty ID hashes to bucket 0, so without a guard every such page load would land in the sample.
-        { distinctId: '', sends: false },
-        { distinctId: undefined, sends: false },
-    ])('samples on distinct ID $distinctId (sends: $sends)', async ({ distinctId, sends }) => {
-        getDistinctId.mockReturnValue(distinctId)
-        markAt(50, 'entry')
-        markAt(900, 'scene_rendered')
-        await flushSend()
+        { distinctId: '', variant: undefined, sampleRate: null },
+        { distinctId: undefined, variant: undefined, sampleRate: null },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: 'control', sampleRate: 1 },
+        { distinctId: OUT_OF_SAMPLE_ID, variant: 'test', sampleRate: 1 },
+    ])(
+        'samples on distinct ID $distinctId in variant $variant (sample rate: $sampleRate)',
+        async ({ distinctId, variant, sampleRate }) => {
+            getDistinctId.mockReturnValue(distinctId)
+            markAt(50, 'entry', { deferred_app_context_variant: variant })
+            markAt(900, 'scene_rendered')
+            await flushSend()
 
-        expect(capture).toHaveBeenCalledTimes(sends ? 1 : 0)
-    })
+            if (sampleRate === null) {
+                expect(capture).not.toHaveBeenCalled()
+            } else {
+                expect(capture).toHaveBeenCalledWith(
+                    'app boot timing',
+                    expect.objectContaining({ sample_rate: sampleRate })
+                )
+            }
+        }
+    )
 
     it.each([
         {

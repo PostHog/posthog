@@ -1,3 +1,5 @@
+import type { _SpanEventApi } from './generated/api.schemas'
+
 export interface Span {
     uuid: string
     trace_id: string
@@ -16,6 +18,8 @@ export interface Span {
     attributes: Record<string, string>
     // OTel resource attributes (who/what emitted the span: service.version, host, k8s, ...).
     resource_attributes: Record<string, string>
+    // OTel span events, earliest first. Only the single-trace endpoint returns them.
+    events?: _SpanEventApi[]
     trace_start?: string
     trace_duration?: number
     // Set on a span shown in place of a root span that was not found.

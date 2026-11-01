@@ -211,6 +211,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
 
+    def test_scheduler_lag_counts_the_wait_after_the_tick_that_took_the_check(self) -> None:
+        configuration = self._configuration(next_check_at=self.cutoff)
+
+        with (
+            time_machine.travel(self.cutoff + timedelta(seconds=7), tick=False),
+            patch(f"{_MODULE}.record_scheduler_lag") as record_lag,
+        ):
+            self._run(configuration)
+
+        record_lag.assert_called_once_with(SourceKind.LOGS.value, 7000)
+
     def test_checks_that_can_share_a_query_carry_one_schedule_group(self) -> None:
         same_a = self._configuration(name="A")
         same_b = self._configuration(name="B")

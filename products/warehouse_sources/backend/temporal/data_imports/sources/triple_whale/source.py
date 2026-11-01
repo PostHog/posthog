@@ -162,6 +162,7 @@ class TripleWhaleSource(ResumableSource[TripleWhaleSourceConfig, TripleWhaleResu
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Import start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

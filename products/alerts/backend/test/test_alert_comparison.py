@@ -209,6 +209,23 @@ class TestInsightCorrespondence(BaseTest):
                 datetime(2026, 10, 3, 16, 5, tzinfo=UTC),
                 SourceCoverage.BEHIND,
             ),
+            (
+                "a_real_time_check_of_the_slot",
+                AlertCalculationInterval.REAL_TIME,
+                "UTC",
+                datetime(2026, 3, 4, 9, 52, tzinfo=UTC),
+                datetime(2026, 3, 4, 9, 53, 50, tzinfo=UTC),
+                SourceCoverage.EVALUATED,
+            ),
+            # Due at the same instant on both stacks, so a check before the slot belonged to the one before.
+            (
+                "a_real_time_check_of_the_previous_slot",
+                AlertCalculationInterval.REAL_TIME,
+                "UTC",
+                datetime(2026, 3, 4, 9, 52, tzinfo=UTC),
+                datetime(2026, 3, 4, 9, 51, 40, tzinfo=UTC),
+                SourceCoverage.BEHIND,
+            ),
         ]
     )
     def test_a_check_pairs_within_the_local_calendar_period_of_its_slot(

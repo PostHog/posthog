@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { pluralize } from 'lib/utils/strings'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { baseObjectType } from 'scenes/library/libraryUtils'
 import { todayNumber } from 'scenes/project-homepage/today/todayNumbers'
 

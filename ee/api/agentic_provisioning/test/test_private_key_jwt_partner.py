@@ -1,6 +1,5 @@
 import json
 import time
-from contextlib import nullcontext
 
 from unittest.mock import MagicMock, patch
 
@@ -15,12 +14,7 @@ from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER,
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.test.base import (
-    TEST_PARTNER_SCOPES,
-    ProvisioningTestBase,
-    provisioning_config,
-    signing_required,
-)
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 TOKEN_URL = "/api/agentic/oauth/token"
@@ -97,30 +91,27 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            # The client_id is public, so presenting it alone must not authenticate a key-based partner,
-            # even while partners that have not switched yet are still in grace.
-            ("during_grace", {}, False, 401),
-            ("after_grace", {}, True, 401),
-            ("cannot_create_accounts_or_pay", {"can_create_accounts": False}, False, 401),
+            # The client_id is public, so presenting it alone must not authenticate a key-based partner.
+            ("creates_accounts", {}, 401),
+            ("cannot_create_accounts_or_pay", {"can_create_accounts": False}, 401),
         ]
     )
     def test_account_request_without_an_assertion(
-        self, _name: str, capabilities: dict[str, bool], grace_ended: bool, expected_status: int
+        self, _name: str, capabilities: dict[str, bool], expected_status: int
     ) -> None:
         if capabilities:
             self.jwt_partner.update_provisioning(**capabilities)
 
-        with signing_required() if grace_ended else nullcontext():
-            res = self._post_api(
-                ACCOUNT_REQUESTS_URL,
-                {
-                    "id": "req_jwt_bare",
-                    "email": "jwt-bare@example.com",
-                    "client_id": PARTNER_CLIENT_ID,
-                    "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-                    "code_challenge_method": "S256",
-                },
-            )
+        res = self._post_api(
+            ACCOUNT_REQUESTS_URL,
+            {
+                "id": "req_jwt_bare",
+                "email": "jwt-bare@example.com",
+                "client_id": PARTNER_CLIENT_ID,
+                "code_challenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+                "code_challenge_method": "S256",
+            },
+        )
 
         assert res.status_code == expected_status, res.json()
         if not capabilities:
@@ -153,14 +144,13 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("unsigned_during_grace", False, None, 401),
-            ("unsigned_after_grace", True, None, 401),
-            ("signed_by_another_key_during_grace", False, CLIENT_ASSERTION_TYPE_JWT_BEARER, 401),
-            ("signed_by_another_key_without_a_type_during_grace", False, "", 401),
+            ("unsigned", None, 401),
+            ("signed_by_another_key", CLIENT_ASSERTION_TYPE_JWT_BEARER, 401),
+            ("signed_by_another_key_without_a_type", "", 401),
         ]
     )
     def test_token_exchange_assertion(
-        self, _name: str, grace_ended: bool, forged_assertion_type: str | None, expected_status: int
+        self, _name: str, forged_assertion_type: str | None, expected_status: int
     ) -> None:
         code, verifier = self._mint_auth_code(partner=self.jwt_partner)
         body = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
@@ -170,8 +160,7 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
                 client_assertion_type=forged_assertion_type,
             )
 
-        with signing_required() if grace_ended else nullcontext():
-            res = self._post(TOKEN_URL, body)
+        res = self._post(TOKEN_URL, body)
 
         assert res.status_code == expected_status, res.json()
         if expected_status == 200:
@@ -189,10 +178,7 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
         )
         assert retry.status_code == 200, retry.json()
 
-    @parameterized.expand([("during_grace", False, 401, "refused"), ("after_grace", True, 401, "refused")])
-    def test_unsigned_refresh_at_the_oauth_token_endpoint(
-        self, _name: str, grace_ended: bool, expected_status: int, expected_signing: str
-    ) -> None:
+    def test_unsigned_refresh_at_the_oauth_token_endpoint(self) -> None:
         code, verifier = self._mint_auth_code(partner=self.jwt_partner)
         tokens = self._post(
             TOKEN_URL,
@@ -200,7 +186,7 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
         )
         assert tokens.status_code == 200, tokens.json()
 
-        with signing_required() if grace_ended else nullcontext(), patch("posthoganalytics.capture") as capture:
+        with patch("posthoganalytics.capture") as capture:
             res = self._post_api(
                 OAUTH_TOKEN_URL,
                 {
@@ -210,9 +196,9 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
                 },
             )
 
-        assert res.status_code == expected_status, res.json()
+        assert res.status_code == 401, res.json()
         signing = {call.kwargs.get("properties", {}).get("provisioning_signing") for call in capture.call_args_list}
-        assert expected_signing in signing
+        assert "refused" in signing
 
     @parameterized.expand([("non_paying", False), ("paying", True)])
     @patch("posthoganalytics.capture")

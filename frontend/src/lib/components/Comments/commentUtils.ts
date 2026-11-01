@@ -1,8 +1,8 @@
 import { generateText } from '@tiptap/core'
 
+import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
 import { dayjs } from 'lib/dayjs'
-import { DEFAULT_EXTENSIONS, serializationOptions } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
@@ -32,6 +32,13 @@ export function getRecordingLinkInfo(comment: RecordingCommentTarget): Recording
         unixTimestampMillis,
         url,
     }
+}
+
+/** Scopes whose discussions never mirror to Slack, because a Slack channel cannot apply their access checks. */
+const SCOPES_WITHOUT_SLACK_SYNC: ReadonlySet<string> = new Set([ActivityScope.REPLAY_OBSERVATION])
+
+export function scopeSyncsToSlack(scope: string): boolean {
+    return !SCOPES_WITHOUT_SLACK_SYNC.has(scope)
 }
 
 export function getCommentText(comment: { content?: string | null; rich_content?: JSONContent | null }): string {

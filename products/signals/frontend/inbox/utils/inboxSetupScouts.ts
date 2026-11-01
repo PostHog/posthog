@@ -5,7 +5,7 @@ import type { InboxSetupSource } from './inboxSetup'
 
 interface StarterScout {
     name: string
-    source: AgentRosterSource | 'session_replay' | 'data_warehouse' | 'general'
+    source: AgentRosterSource | 'session_replay' | 'general'
     title: string
     description: string
 }
@@ -55,12 +55,6 @@ const STARTER_SCOUTS: StarterScout[] = [
         description: 'Look for slow first responses, growing backlogs, and missed support targets.',
     },
     {
-        name: 'signals-scout-data-warehouse',
-        source: 'data_warehouse',
-        title: 'Monitor connected data sources',
-        description: 'Watch warehouse imports for failed syncs, stale tables, and unexpected drops in data volume.',
-    },
-    {
         name: 'signals-scout-health-checks',
         source: 'health_checks',
         title: 'Investigate setup health issues',
@@ -90,16 +84,14 @@ export function inboxSetupDefaultScouts(
                   ? hasEvents
                   : starter.source === 'session_replay'
                     ? statuses.replay_vision?.enabled === true
-                    : starter.source === 'data_warehouse'
-                      ? sources.some((source) => source.warehouseSource && source.available)
-                      : sources.some(
-                            (source) =>
-                                source.definition.source === starter.source &&
-                                (source.available ||
-                                    (starter.source !== 'replay_vision' &&
-                                        statuses[starter.source]?.enabled === true &&
-                                        statuses[starter.source]?.enablement != null))
-                        )
+                    : sources.some(
+                          (source) =>
+                              source.definition.source === starter.source &&
+                              (source.available ||
+                                  (starter.source !== 'replay_vision' &&
+                                      statuses[starter.source]?.enabled === true &&
+                                      statuses[starter.source]?.enablement != null))
+                      )
         if (!config || !hasData) {
             return []
         }

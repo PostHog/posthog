@@ -195,6 +195,13 @@ A task link appears only when the token has a server-set task binding, so intent
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
+An MCP read writes no activity row, so its intent never reaches the audit log.
+When `ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED` is on, `ActivityLoggingMiddleware` also hands the intent of a successful MCP request to a best-effort Redis buffer for the activity summary (`products/signals/backend/activity_summary/mcp_buffer.py`).
+It does this only for a personal API key or an OAuth token without a sandbox task binding or impersonation, and only for a team that the `activity-summary` flag payload enrolls with `mcp_buffer_enabled`.
+The request thread only appends to an in-process queue; a background thread writes to Redis, so the buffer can drop records but cannot slow down or fail the request.
+When the payload also sets `mcp_render_enabled`, the activity summary build reads the buffer and renders one line per MCP session in the summary input.
+A failed read gives an empty section and sets `mcp_read_error` in the build's `inputs_used`; it never fails the build.
+
 ### Client IP
 
 `ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.
@@ -318,6 +325,7 @@ Test the behavior the receiver adds, through a public interface, at the cheapest
 
 - One test that a write through the API or the facade creates a row with the expected `activity` and `changes`.
 - One test per bulk-write site that its explicit logging produces the expected rows.
+- Batch object access-rule writes preserve the same changes and actor details as individual writes through `bulk_log_activity`.
 - A `changes_between` test only when the scope adds exclusions or masks.
 - For a separate-database product, one test that a rolled-back product write leaves no row (`override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)` plus `captureOnCommitCallbacks(using=<writer alias>, execute=True)`).
 

@@ -44,11 +44,14 @@ jobs:
         # every other job needs this one, and the gates treat skipped as success.
         # The merge queue's trunk-merge/** run is the gate, so skipping a draft
         # never weakens what protects master.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: >-
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
             || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+            )
         name: Determine need to run MCP checks
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
@@ -258,7 +261,7 @@ jobs:
 
     unit-tests:
         name: Unit Tests
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
         needs: changes
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
@@ -339,8 +342,9 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests (depot-ubuntu-24.04-4)
-        runs-on: depot-ubuntu-24.04-4
+        name: Integration Tests
+        # GitHub's ref-isolated cache keeps the hourly lane on master-produced dumps.
+        runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         needs: changes
         # Sized for a schema-cache miss (full migrate from scratch), not just a hit.
         timeout-minutes: 45
@@ -521,16 +525,22 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'schedule'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
                   # The fetch-depth:1000 checkout + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+                      # Only restore an exact migration/routing match on the hourly lane.
+                      # A rerun can use an older checkout than the latest master dump.
+                      MERGE_BASE=$(git rev-parse HEAD)
+                  else
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  fi
                   if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -557,7 +567,7 @@ jobs:
                   # and the migrate top-ups only apply forward, so they cannot repair a
                   # dump that is newer than the code.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                  if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
@@ -576,7 +586,7 @@ jobs:
                   fi
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && steps.schema-key.outputs.key != '' }}
+              if: ${{ steps.schema-key.outputs.key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -594,7 +604,7 @@ jobs:
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.
               # MCP integration tests hit the live posthog DB, not test_posthog — that's
               # the only deviation from ci-backend.yml's equivalent step.
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ steps.schema-key.outputs.key != '' }}
               env:
                   TARGET_DB: posthog
               run: |
@@ -627,18 +637,18 @@ jobs:
                         -c "DELETE FROM django_migrations WHERE app IN ($APPS);"
                   fi
 
-            - name: Run migrations
+            - name: Run persons migrations
               run: |
-                  # Create persons database and run sqlx migrations first
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx database create
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
-                  # Then run Django migrations. When the schema cache primed the DB above,
-                  # this only applies migrations added by the PR (the django_migrations
-                  # table from the dump tells Django which ones are already applied).
-                  python manage.py migrate --noinput
-                  python manage.py migrate_clickhouse
+
+            - name: Run Django migrations
+              run: python manage.py migrate --noinput
+
+            - name: Run ClickHouse migrations
+              run: python manage.py migrate_clickhouse
 
             - name: Start Rust flags service
               working-directory: rust
@@ -804,21 +814,6 @@ jobs:
             contents: write
             pull-requests: write
         steps:
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
-            - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  token: ${{ steps.app-token.outputs.token }}
-                  fetch-depth: 1
-
             - name: Download snapshot patches
               id: download-patches
               continue-on-error: true
@@ -845,6 +840,23 @@ jobs:
                     echo "has-patches=false" >> $GITHUB_OUTPUT
                     echo "Patch files empty or missing - no snapshot changes"
                   fi
+
+            - name: Get app token
+              if: steps.check-patches.outputs.has-patches == 'true'
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Checkout
+              if: steps.check-patches.outputs.has-patches == 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  token: ${{ steps.app-token.outputs.token }}
+                  fetch-depth: 1
 
             - name: Commit snapshots
               if: steps.check-patches.outputs.has-patches == 'true'

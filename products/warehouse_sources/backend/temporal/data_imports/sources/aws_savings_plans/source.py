@@ -162,6 +162,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

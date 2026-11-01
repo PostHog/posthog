@@ -24,11 +24,6 @@ SHADOW_FAILURES = Counter("usage_counter_shadow_failures_total", "Usage counter 
 SHADOW_MISSING_ORGS = Gauge(
     "usage_counter_shadow_missing_organizations", "Organizations with shadow usage but no report", ["caller"]
 )
-REALTIME_BLOCKED = Counter(
-    "usage_counter_realtime_blocked_total",
-    "Realtime mode requests resolved to both for a producer discrepancy",
-    ["counter"],
-)
 
 
 class UsageCounter(StrEnum):
@@ -38,6 +33,7 @@ class UsageCounter(StrEnum):
     MOBILE_RECORDINGS = "teams_with_mobile_recording_count_in_period"
     MOBILE_BILLABLE_RECORDINGS = "teams_with_mobile_billable_recording_count_in_period"
     SURVEY_RESPONSES = "teams_with_survey_responses_count_in_period"
+    # Ingested AIO events only. Offline usage is composed after organization attribution.
     AI_EVENTS = "teams_with_ai_event_count_in_period"
     EXCEPTIONS = "teams_with_exceptions_captured_in_period"
     CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
@@ -144,48 +140,6 @@ COUNTER_FLAG_NAMES = {
     UsageCounter.WORKFLOW_SMS: "workflow-sms",
     UsageCounter.WORKFLOW_INVOCATIONS: "workflow-invocations",
 }
-_REPLAY_UNDERCOUNT = (
-    "The replay pipeline marks a session as seen before it parses the first message. "
-    "When that message fails, the session writes no usage record, even when later messages record."
-)
-_WORKFLOW_PUSH_UNDERCOUNT = (
-    "The legacy count bills fetch and push dispatches as workflow invocations. "
-    "Push dispatches write `workflow_push_sent` records, so `workflow_billable_invocations` holds only fetches."
-)
-_EVENT_DATE_ATTRIBUTION = (
-    "Event usage records use capture time; legacy queries use source event time. "
-    "A cutover must prevent counting the same event under both dates or omitting it from both."
-)
-_FLAG_REQUEST_DATE_ATTRIBUTION = (
-    "Flag usage records use Rust flush time; legacy billing events use the later Celery export time. "
-    "A cutover must reconcile these dates to avoid missing or double-counting requests."
-)
-_CDP_DATE_ATTRIBUTION = (
-    "CDP and workflow usage records and legacy app metrics use independent flush-time clocks. "
-    "A cutover must reconcile dispatches across those dates to avoid missing or double-counting them."
-)
-_LOCAL_EVALUATION_UNDERCOUNT = (
-    "Django's feature-flag list endpoint counts older SDK requests in Redis but emits no usage records. "
-    "Only the Rust definitions endpoint contributes to the record total."
-)
-# Keep legacy totals authoritative until producer discrepancies are resolved or confirmed as intended billing behavior.
-RECORD_REALTIME_BLOCKERS = {
-    UsageCounter.EVENTS: _EVENT_DATE_ATTRIBUTION,
-    UsageCounter.ENHANCED_PERSON_EVENTS: _EVENT_DATE_ATTRIBUTION,
-    UsageCounter.EXCEPTIONS: _EVENT_DATE_ATTRIBUTION,
-    UsageCounter.CDP_INVOCATIONS: _CDP_DATE_ATTRIBUTION,
-    UsageCounter.RECORDINGS: _REPLAY_UNDERCOUNT,
-    UsageCounter.MOBILE_RECORDINGS: _REPLAY_UNDERCOUNT,
-    UsageCounter.MOBILE_BILLABLE_RECORDINGS: _REPLAY_UNDERCOUNT,
-    UsageCounter.WORKFLOW_EMAILS: _CDP_DATE_ATTRIBUTION,
-    UsageCounter.WORKFLOW_PUSH: _CDP_DATE_ATTRIBUTION,
-    UsageCounter.WORKFLOW_SMS: _CDP_DATE_ATTRIBUTION,
-    UsageCounter.WORKFLOW_INVOCATIONS: f"{_WORKFLOW_PUSH_UNDERCOUNT} {_CDP_DATE_ATTRIBUTION}",
-    UsageCounter.FEATURE_FLAG_REQUESTS: _FLAG_REQUEST_DATE_ATTRIBUTION,
-    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: _LOCAL_EVALUATION_UNDERCOUNT,
-    UsageCounter.SURVEY_RESPONSES: "Survey usage records include product-tour responses that legacy billing exempts.",
-    UsageCounter.AI_EVENTS: "AI usage records omit the legacy exemptions for wallet-billed gateway and sponsored relay events.",
-}
 
 
 def validate_usage_record_window(period: DayRange) -> None:
@@ -219,12 +173,7 @@ class UsageCounterPlan:
         return [
             counter
             for counter, mode in self.modes.items()
-            if mode != UsageCounterMode.REALTIME
-            or self.complete
-            or (
-                counter in LEGACY_QUERY_NAMES
-                and not (counter == UsageCounter.EXCEPTIONS and self.caller == "quota_limiting")
-            )
+            if mode != UsageCounterMode.REALTIME or self.complete or counter in LEGACY_QUERY_NAMES
         ]
 
 
@@ -254,42 +203,13 @@ def record_shadow_failure(caller: UsageCounterCaller, stage: str) -> None:
         logger.exception("usage_counter_shadow_metric_failed", caller=caller, stage=stage)
 
 
-def log_usage_counter_comparisons(report: UsageCounterReport, *, caller: UsageCounterCaller, date: str) -> None:
-    if report.usage_sources is None:
-        return
-    try:
-        logger.info("usage_counter_sources", caller=caller, date=date, usage_sources=report.usage_sources)
-        for counter, rows in (report.counter_comparisons or {}).items():
-            realtime = {team: sum(orgs.values()) for team, orgs in rows.realtime_by_team.items()}
-            differing_teams = 0
-            absolute_difference = 0
-            for team in rows.legacy_by_team.keys() | realtime.keys():
-                difference = abs(rows.legacy_by_team.get(team, 0) - realtime.get(team, 0))
-                differing_teams += int(difference != 0)
-                absolute_difference += difference
-            logger.info(
-                "usage_counter_comparison",
-                caller=caller,
-                date=date,
-                counter=counter,
-                source=report.usage_sources[counter],
-                legacy=sum(rows.legacy_by_team.values()),
-                realtime=sum(realtime.values()),
-                differing_teams=differing_teams,
-                absolute_difference=absolute_difference,
-            )
-    except Exception:
-        logger.exception("usage_counter_comparison_logging_failed", caller=caller, date=date)
-        record_shadow_failure(caller, "diagnostics")
-
-
 _mode_cache: TTLCache[tuple[UsageCounter, str], UsageCounterMode] = TTLCache(
     maxsize=128, ttl=60, timer=lambda: time.monotonic()
 )
 
 
-@cached(_mode_cache, key=lambda counter, overrides, caller: (counter, overrides), lock=RLock())
-def _resolve_counter_mode(counter: UsageCounter, overrides: str, caller: UsageCounterCaller) -> UsageCounterMode:
+@cached(_mode_cache, key=lambda counter, overrides: (counter, overrides), lock=RLock())
+def _resolve_counter_mode(counter: UsageCounter, overrides: str) -> UsageCounterMode:
     flag_name = COUNTER_FLAG_NAMES.get(counter)
     if flag_name is None:
         return UsageCounterMode.LEGACY
@@ -302,26 +222,18 @@ def _resolve_counter_mode(counter: UsageCounter, overrides: str, caller: UsageCo
             mode = posthoganalytics.get_feature_flag(f"usage-counter-realtime-{flag_name}", "internal_billing_events")
         except Exception:
             logger.exception("usage_counter_flag_resolution_failed", counter=counter)
-            record_shadow_failure(caller, "flags")
+            record_shadow_failure("usage_reports_v2", "flags")
             return UsageCounterMode.LEGACY
     if not isinstance(mode, str):
         return UsageCounterMode.LEGACY
     try:
-        resolved = UsageCounterMode(mode)
+        return UsageCounterMode(mode)
     except ValueError:
         return UsageCounterMode.LEGACY
-    if resolved == UsageCounterMode.REALTIME and counter in RECORD_REALTIME_BLOCKERS:
-        logger.warning("usage_counter_realtime_blocked", counter=counter, reason=RECORD_REALTIME_BLOCKERS[counter])
-        REALTIME_BLOCKED.labels(counter=counter.value).inc()
-        return UsageCounterMode.BOTH
-    return resolved
 
 
-def resolve_modes(caller: UsageCounterCaller) -> dict[UsageCounter, UsageCounterMode]:
-    return {
-        counter: _resolve_counter_mode(counter, settings.USAGE_COUNTER_REALTIME_MODES, caller)
-        for counter in UsageCounter
-    }
+def resolve_modes() -> dict[UsageCounter, UsageCounterMode]:
+    return {counter: _resolve_counter_mode(counter, settings.USAGE_COUNTER_REALTIME_MODES) for counter in UsageCounter}
 
 
 class UsageCounterService:
@@ -397,14 +309,14 @@ class UsageCounterService:
         self,
         period: DayRange,
         *,
-        caller: UsageCounterCaller,
         complete: bool,
         counters: Collection[UsageCounter] | None = None,
     ) -> UsageCounterPlan:
-        modes = resolve_modes(caller)
+        # Only usage reports v2 reads the flags. The daily report and quota limiting always use legacy queries.
+        modes = resolve_modes()
         return UsageCounterPlan(
             period=period,
-            caller=caller,
+            caller="usage_reports_v2",
             modes={counter: mode for counter, mode in modes.items() if counters is None or counter in counters},
             complete=complete,
         )
@@ -448,9 +360,7 @@ class UsageCounterService:
         counts: UsageCounterCounts = {}
         for counter in plan.legacy_counters:
             mode = plan.modes[counter]
-            requires_breakdown = counter in LEGACY_QUERY_NAMES and not (
-                counter == UsageCounter.EXCEPTIONS and plan.caller == "quota_limiting"
-            )
+            requires_breakdown = counter in LEGACY_QUERY_NAMES
             self._check_cancelled()
             try:
                 with self._record_query(LEGACY_QUERY_NAMES.get(counter, counter.value)):

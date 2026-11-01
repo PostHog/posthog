@@ -32,6 +32,34 @@ export type DetailsLoad =
     | { status: 'ready'; details: EvaluationDetails }
     | { status: 'error'; failure: OverviewFailure }
 
+/** Reads the failed runs and the score spread a row's cards show. Each endpoint rejects an evaluation it does not
+ * apply to, so the row decides which ones to read. */
+export async function fetchEvaluationDetails(
+    projectId: string,
+    row: EvaluationResultApi,
+    params: { date_from?: string; date_to?: string; refresh?: boolean },
+    { recentFailures = true }: { recentFailures?: boolean } = {}
+): Promise<DetailsLoad> {
+    const { summary } = row
+    const scale = 'score' in summary ? summary.score?.scale : null
+    return await Promise.all([
+        recentFailures && summary.kind === 'pass_rate'
+            ? evaluationsRunsRetrieve(projectId, row.id, {
+                  ...params,
+                  outcome: 'failed',
+                  limit: RECENT_FAILURES_LIMIT,
+              }).then((runs) => runs.results)
+            : null,
+        scale && scale.min < scale.max ? evaluationsScoreDistributionRetrieve(projectId, row.id, params) : null,
+    ]).then(
+        ([recentFailures, scoreDistribution]): DetailsLoad => ({
+            status: 'ready',
+            details: { recentFailures, scoreDistribution },
+        }),
+        (error: unknown): DetailsLoad => ({ status: 'error', failure: failureOf(error) })
+    )
+}
+
 function detailsKey(evaluationId: string, request: OverviewRequest): string {
     return `${evaluationId}/${request.params.date_from}/${request.params.date_to}`
 }
@@ -240,29 +268,14 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
             const { date_from, date_to } = values.request.params
             const refresh = cache.refreshKeys?.has(key) === true
             const generation = cache.generation ?? 0
-            const projectId = String(values.currentTeamId)
-            const params = { date_from, date_to, ...(refresh ? { refresh: true } : {}) }
-            // Each endpoint rejects an evaluation it does not apply to, so the row decides which ones to read.
-            const summary = values.rowsById.get(evaluationId)?.summary
-            const scale = summary && 'score' in summary ? summary.score?.scale : null
-            const load = await Promise.all([
-                summary?.kind === 'pass_rate'
-                    ? evaluationsRunsRetrieve(projectId, evaluationId, {
-                          ...params,
-                          outcome: 'failed',
-                          limit: RECENT_FAILURES_LIMIT,
-                      }).then((runs) => runs.results)
-                    : null,
-                scale && scale.min < scale.max
-                    ? evaluationsScoreDistributionRetrieve(projectId, evaluationId, params)
-                    : null,
-            ]).then(
-                ([recentFailures, scoreDistribution]): DetailsLoad => ({
-                    status: 'ready',
-                    details: { recentFailures, scoreDistribution },
-                }),
-                (error: unknown): DetailsLoad => ({ status: 'error', failure: failureOf(error) })
-            )
+            const row = values.rowsById.get(evaluationId)
+            const load: DetailsLoad = row
+                ? await fetchEvaluationDetails(String(values.currentTeamId), row, {
+                      date_from,
+                      date_to,
+                      ...(refresh ? { refresh: true } : {}),
+                  })
+                : { status: 'ready', details: { recentFailures: null, scoreDistribution: null } }
             if (cache.prefetchingKey === key) {
                 cache.prefetchingKey = null
             }
