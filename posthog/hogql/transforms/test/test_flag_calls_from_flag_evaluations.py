@@ -3,18 +3,25 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import time_machine
+from posthog.test.base import BaseTest
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
+from posthog.hogql.database.models import StringDatabaseField, Table, TableNode
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     FLAG_EVALUATIONS_COMPLETE_DAYS,
     EventsScan,
     can_read_flag_evaluations,
     filter_conjuncts,
+    swap_flag_calls,
 )
 
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
@@ -95,11 +102,16 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         timezone: str = "UTC",
         *,
         only_in_flag_evaluations: bool = False,
+        database: Database | None = None,
     ) -> bool:
         select = parse_select(query, placeholders=placeholders)
         assert isinstance(select, ast.SelectQuery)
         return can_read_flag_evaluations(
-            select, datetime.now(UTC), ZoneInfo(timezone), only_in_flag_evaluations=only_in_flag_evaluations
+            select,
+            datetime.now(UTC),
+            ZoneInfo(timezone),
+            only_in_flag_evaluations=only_in_flag_evaluations,
+            database=database,
         )
 
     @parameterized.expand(
@@ -522,6 +534,42 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("regular_table_spelled_in_another_case", "Properties", "Properties", False, True),
+            ("regular_table_spelled_the_same", "properties", "properties", False, False),
+            ("case_folding_table_spelled_in_another_case", "properties", "Properties", True, False),
+            (
+                "case_folding_table_with_an_alias_that_respells_it",
+                "properties",
+                "properties AS Properties",
+                True,
+                False,
+            ),
+            ("case_folding_table_with_another_alias", "orders", "orders AS Properties", True, True),
+        ]
+    )
+    def test_joined_table_shadows_a_column_in_another_case_only_when_it_folds_case(
+        self, _name: str, registered: str, spelled: str, folds_case: bool, expected: bool
+    ):
+        fields = {"distinct_id": StringDatabaseField(name="distinct_id")}
+        table: Table = (
+            DirectTrinoTable(
+                name=registered,
+                fields=fields,
+                external_data_source_id="source-id",
+                trino_catalog="c",
+                trino_schema="s",
+                trino_table_name=registered,
+            )
+            if folds_case
+            else Table(fields=fields)
+        )
+        database = Database(include_posthog_tables=False)
+        database.tables.add_child(TableNode(name=registered, table=table, case_insensitive=folds_case))
+        query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled.split()[-1]}.distinct_id")
+        assert self._can_read(query, database=database) is expected
+
+    @parameterized.expand(
+        [
             ("no_lower_bound", _where(FLAG_CALLED, FLAG_KEY), True),
             ("bound_before_coverage", _bounded_by("now() - INTERVAL 180 DAY"), True),
             ("no_flag_key", _where(FLAG_CALLED, BOUND), True),
@@ -601,3 +649,44 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     ):
         with time_machine.travel(now, tick=False):
             assert self._can_read(_bounded_by(bound), timezone=timezone) is False
+
+
+class TestSwapFlagCallsBesideJoinedTable(BaseTest):
+    @parameterized.expand(
+        [
+            ("regular_table_spelled_in_another_case", "Properties", "Properties", False, True),
+            ("case_folding_table_spelled_in_another_case", "properties", "Properties", True, False),
+        ]
+    )
+    def test_swaps_the_scan_unless_a_folding_table_shadows_the_flag_key(
+        self, _name: str, registered: str, spelled: str, folds_case: bool, expected: bool
+    ):
+        fields = {
+            "distinct_id": StringDatabaseField(name="distinct_id"),
+            "$feature_flag": StringDatabaseField(name="$feature_flag"),
+        }
+        table: Table = (
+            DirectTrinoTable(
+                name=registered,
+                fields=fields,
+                external_data_source_id="source-id",
+                trino_catalog="c",
+                trino_schema="s",
+                trino_table_name=registered,
+            )
+            if folds_case
+            else Table(fields=fields)
+        )
+        database = Database.create_for(team=self.team, include_flag_evaluations_table=True)
+        database._read_flag_calls_from_flag_evaluations = True
+        database.tables.add_child(TableNode(name=registered, table=table, case_insensitive=folds_case))
+        context = HogQLContext(team_id=self.team.pk, database=database, enable_select_queries=True)
+        query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled}.distinct_id")
+
+        swap = swap_flag_calls(
+            parse_select(query),
+            context,
+            lambda node, **kwargs: resolve_types(node, context, "clickhouse", **kwargs),
+        )
+
+        assert ("flag_evaluations" in swap.source.to_hogql()) is expected
