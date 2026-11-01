@@ -1296,6 +1296,7 @@ class ClickHousePrinter(BasePrinter):
             and (
                 table.retention_field is not None
                 or table.postgres_pushdown_values
+                or table.push_team_guard_with_predicates
                 or not table.get_predicates(self.context)
             )
             and self.context.team_id is not None
