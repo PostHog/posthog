@@ -5,19 +5,18 @@ their scripts and lifecycle hooks execute in CI and on dev machines. The
 reviewer prompt guards that — this module is the deterministic first line,
 so a scripts edit hard-denies instead of resting solely on LLM judgment.
 
-Parseable manifests are compared structurally (base vs head risky subtrees)
-rather than by diff-line matching: editing an existing script's command
-produces a changed line keyed by the script's own name, which a line scan
-keyed on "scripts"/lifecycle names misses entirely. Line scanning remains
-only where key and value share a line (cargo build scripts, go.mod replace
-directives). Parse failures fail closed.
+Every manifest is compared structurally (base vs head risky subtrees), never
+by diff-line matching: editing an existing script's command produces a changed
+line keyed by the script's own name, and two diff algorithms can mark different
+lines as changed for the same edit, so a line scan answers differently on the
+worker and in the checkout. Parse failures fail closed.
 """
 
 import re
 import json
 import tomllib
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import NamedTuple
 
@@ -27,15 +26,6 @@ import yaml
 # code, and setup.cfg's declarative surface (entry_points, cmdclass) doesn't
 # justify a parser for how rarely it changes.
 _ANY_CHANGE_RISKY = frozenset({"setup.py", "setup.cfg", "gemfile"})
-
-# Key-and-value share a line in go.mod, so a line scan can't be bypassed by
-# editing a value without its key appearing in the diff. Only `replace` is
-# risky there: a `require` bump without go.sum fails CI deterministically
-# (Go defaults to -mod=readonly), so no silent fetch is possible.
-_RISKY_LINE_PATTERNS: dict[str, re.Pattern[str]] = {
-    "go.mod": re.compile(r"^\s*replace[\s(]"),
-}
-_TSCONFIG_LINE_PATTERN = re.compile(r'"(?:plugins|extends)"\s*:')
 
 
 def _json_object(text: str, label: str) -> dict[str, object]:
@@ -98,9 +88,136 @@ def _cargo_risky_subtree(text: str) -> object:
     return _collect_risky_keys(data, _CARGO_RISKY_KEYS)
 
 
+_JS_LINE_TERMINATOR = re.compile("[\n\r  ]")
+
+
+def _without_jsonc_comments(text: str) -> str:
+    kept: list[str] = []
+    index, in_string = 0, False
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            kept.append(text[index : index + 2] if char == "\\" else char)
+            index += 2 if char == "\\" else 1
+            in_string = char != '"'
+            continue
+        if text.startswith("//", index):
+            line_end = _JS_LINE_TERMINATOR.search(text, index)
+            index = len(text) if line_end is None else line_end.start()
+            continue
+        if text.startswith("/*", index):
+            comment_end = text.find("*/", index + 2)
+            if comment_end == -1:
+                raise ValueError("tsconfig has an unterminated block comment")
+            kept.append(" ")
+            index = comment_end + 2
+            continue
+        in_string = char == '"'
+        kept.append(char)
+        index += 1
+    return "".join(kept)
+
+
+_WHITESPACE_THEN_CLOSE = re.compile(r"[ \t\r\n]*[}\]]")
+
+
+def _without_trailing_commas(text: str) -> str:
+    kept: list[str] = []
+    index, in_string = 0, False
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            kept.append(text[index : index + 2] if char == "\\" else char)
+            index += 2 if char == "\\" else 1
+            in_string = char != '"'
+            continue
+        if char == "," and _WHITESPACE_THEN_CLOSE.match(text, index + 1):
+            index += 1
+            continue
+        in_string = char == '"'
+        kept.append(char)
+        index += 1
+    return "".join(kept)
+
+
 def _tsconfig_risky_subtree(text: str) -> object:
-    data = _json_object(text, "tsconfig")
-    return (data.get("extends"), (data.get("compilerOptions") or {}).get("plugins"))
+    data = _json_object(_without_trailing_commas(_without_jsonc_comments(text)), "tsconfig")
+    compiler_options = data.get("compilerOptions")
+    plugins = compiler_options.get("plugins") if isinstance(compiler_options, dict) else compiler_options
+    return (data.get("extends"), plugins)
+
+
+_GO_MOD_DIRECTIVES = frozenset(
+    {"module", "go", "toolchain", "godebug", "require", "exclude", "replace", "retract", "tool", "ignore"}
+)
+_GO_MOD_PUNCTUATION = ("(", ")", "=>")
+
+
+def _go_mod_line_tokens(line: str) -> list[str]:
+    """One go.mod line as Go's lexer splits it, with quoted strings kept exactly as written.
+
+    Go reads a CR as a space and ends a line only at LF, so a lone CR neither ends a comment nor
+    starts a directive.
+    Anything this reader can't place raises, so the caller fails closed rather than guessing.
+    """
+    tokens: list[str] = []
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char in " \t\r":
+            index += 1
+        elif line.startswith("//", index):
+            break
+        elif char in ('"', "`"):
+            end = index + 1
+            while end < len(line) and line[end] != char:
+                end += 2 if char == '"' and line[end] == "\\" else 1
+            if end >= len(line):
+                raise ValueError("go.mod has an unterminated string")
+            tokens.append(line[index : end + 1])
+            index = end + 1
+        elif punctuation := next((p for p in _GO_MOD_PUNCTUATION if line.startswith(p, index)), None):
+            tokens.append(punctuation)
+            index += len(punctuation)
+        else:
+            end = index
+            while end < len(line) and line[end] not in ' \t\r"`()' and not line.startswith("=>", end):
+                if line.startswith("//", end):
+                    raise ValueError("go.mod has a comment marker inside a token")
+                end += 1
+            tokens.append(line[index:end])
+            index = end
+    return tokens
+
+
+# Only `replace` is risky in go.mod: a `require` bump without go.sum fails CI deterministically
+# (Go defaults to -mod=readonly), so no silent fetch is possible.
+def _go_mod_replaces(text: str) -> list[tuple[str, ...]]:
+    replaces: list[tuple[str, ...]] = []
+    block: str | None = None
+    for line in text.split("\n"):
+        tokens = _go_mod_line_tokens(line)
+        if not tokens:
+            continue
+        if block is not None:
+            if tokens == [")"]:
+                block = None
+            elif "(" in tokens or ")" in tokens:
+                raise ValueError("go.mod has a paren inside a block")
+            elif block == "replace":
+                replaces.append(tuple(tokens))
+            continue
+        if tokens[0] not in _GO_MOD_DIRECTIVES:
+            raise ValueError(f"go.mod has an unknown directive {tokens[0]!r}")
+        if tokens[1:] == ["("]:
+            block = tokens[0]
+        elif "(" in tokens or ")" in tokens:
+            raise ValueError("go.mod has a paren outside a block opener")
+        elif tokens[0] == "replace":
+            replaces.append(tuple(tokens[1:]))
+    if block is not None:
+        raise ValueError("go.mod has an unclosed block")
+    return sorted(replaces)
 
 
 # Manifests compared by parsing base/head into a "risky subtree" and diffing
@@ -119,39 +236,28 @@ _STRUCTURAL_RISK_CHECKS: dict[str, StructuralCheck] = {
     "pipfile": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
     "cargo.toml": StructuralCheck(_cargo_risky_subtree, (tomllib.TOMLDecodeError,)),
     "composer.json": StructuralCheck(_composer_json_risky_subtree, (ValueError,)),
+    "go.mod": StructuralCheck(_go_mod_replaces, (ValueError,)),
 }
+# tsconfig is JSONC, so its parse strips comments and trailing commas first. A file that still does
+# not parse fails closed like the other formats.
+_TSCONFIG_CHECK = StructuralCheck(_tsconfig_risky_subtree, (ValueError,))
 
 
-def manifest_change_is_risky(path: str, base_text: str, head_text: str, diff_text: str) -> bool:
+def manifest_change_is_risky(path: str, base_text: str, head_text: str) -> bool:
     """True when the manifest change adds/edits/removes execution-bearing config."""
     name = Path(path).name.lower()
     if name in _ANY_CHANGE_RISKY:
         return base_text != head_text
-    if name in _STRUCTURAL_RISK_CHECKS:
-        check = _STRUCTURAL_RISK_CHECKS[name]
-        try:
-            return check.extract(base_text) != check.extract(head_text)
-        except check.fails_closed_on:
-            return True
     if name.startswith("tsconfig") and name.endswith(".json"):
-        # tsconfig is often JSONC (comments, trailing commas); a strict-JSON
-        # parse failure falls back to line scanning rather than failing
-        # closed, or every commented tsconfig edit would hard-deny.
-        try:
-            return _tsconfig_risky_subtree(base_text) != _tsconfig_risky_subtree(head_text)
-        except ValueError:
-            return _scan_changed_lines(diff_text, _TSCONFIG_LINE_PATTERN)
-    if name in _RISKY_LINE_PATTERNS:
-        return _scan_changed_lines(diff_text, _RISKY_LINE_PATTERNS[name])
-    return False
-
-
-def _scan_changed_lines(diff_text: str, pattern: re.Pattern[str]) -> bool:
-    return any(
-        pattern.search(line[1:])
-        for line in diff_text.splitlines()
-        if line[:1] in "+-" and not line.startswith(("+++", "---"))
-    )
+        check = _TSCONFIG_CHECK
+    elif name in _STRUCTURAL_RISK_CHECKS:
+        check = _STRUCTURAL_RISK_CHECKS[name]
+    else:
+        return False
+    try:
+        return check.extract(base_text) != check.extract(head_text)
+    except check.fails_closed_on:
+        return True
 
 
 def _git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
@@ -163,7 +269,7 @@ def manifest_script_changes(
 ) -> list[str]:
     """Manifests whose change touches scripts/hooks/build config.
 
-    Both the structural compare and the diff are anchored at the merge base,
+    The structural compare is anchored at the merge base,
     matching the merge-base→head semantics of every other diff in this tool:
     comparing against the base branch *tip* would count base-side drift
     (someone else's scripts change landing on the base) as this PR's doing.
@@ -184,14 +290,35 @@ def manifest_script_changes(
 
     risky = []
     for path in manifest_paths:
-        base_show = _git(["show", f"{base}:{path}"], repo_root)
-        head_show = _git(["show", f"{head_sha}:{path}"], repo_root)
-        diff = _git(["diff", f"{base}..{head_sha}", "--", path], repo_root)
-        if manifest_change_is_risky(
-            path,
-            base_show.stdout if base_show.returncode == 0 else "",
-            head_show.stdout if head_show.returncode == 0 else "",
-            diff.stdout if diff.returncode == 0 else "",
-        ):
+        if manifest_change_is_risky(path, _blob_text(base, path, repo_root), _blob_text(head_sha, path, repo_root)):
+            risky.append(path)
+    return risky
+
+
+def _blob_text(sha: str, path: str, repo_root: Path) -> str:
+    # Text mode would turn a lone CR into LF, which changes how go.mod and JSONC parse. The worker
+    # reads the same blob raw, so this read keeps CR too, or one path attests what the other denies.
+    show = subprocess.run(["git", "show", f"{sha}:{path}"], capture_output=True, timeout=30, cwd=repo_root)
+    return show.stdout.decode("utf-8", errors="replace") if show.returncode == 0 else ""
+
+
+def manifest_script_changes_from_contents(
+    manifest_paths: list[str], contents: Mapping[str, Mapping[str, str]]
+) -> list[str]:
+    """``manifest_script_changes`` over texts that a caller read at the merge base and at the head.
+
+    The server's gate check has no checkout, so it reads each manifest from GitHub and passes the
+    texts in. A manifest without both texts counts as risky, the same fail-closed answer that the
+    checkout scan gives for an unreadable repo state.
+    """
+    risky = []
+    for path in manifest_paths:
+        entry = contents.get(path)
+        base_text = entry.get("base") if isinstance(entry, Mapping) else None
+        head_text = entry.get("head") if isinstance(entry, Mapping) else None
+        if not isinstance(base_text, str) or not isinstance(head_text, str):
+            risky.append(path)
+            continue
+        if manifest_change_is_risky(path, base_text, head_text):
             risky.append(path)
     return risky

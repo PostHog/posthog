@@ -767,6 +767,141 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
 
 
 @pytest.mark.parametrize(
+    "context, expected_reason",
+    [
+        pytest.param(_pregate_context([_api_file("src/app.py")], folder_policies_known=True), "", id="clean-t1"),
+        pytest.param(
+            _pregate_context([_api_file("terraform/main.tf")], folder_policies_known=True),
+            "gate_failed",
+            id="deny-list",
+        ),
+        pytest.param(
+            _pregate_context(
+                [
+                    {
+                        **_api_file("products/workflows/backend/hog_flow.py", status="renamed"),
+                        "previous_filename": "products/workflows/backend/models/hog_flow.py",
+                    }
+                ],
+                folder_policies_known=True,
+            ),
+            "gate_failed",
+            id="owner-only-path-renamed-out",
+        ),
+        pytest.param(
+            _pregate_context([_api_file("src/app.py")], user_type="Bot", folder_policies_known=True),
+            "bot_author",
+            id="bot-author",
+        ),
+        pytest.param(_pregate_context([_api_file("src/app.py")]), "folder_policies_unknown", id="folder-files-unread"),
+        pytest.param(
+            _pregate_context([_api_file("frontend/package.json")], folder_policies_known=True),
+            "dependency_manifest",
+            id="manifest-texts-missing",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("frontend/package.json")], folder_policies_known=True),
+                "manifest_contents": {
+                    "frontend/package.json": {
+                        "base": '{"version": "1.0.0", "scripts": {"build": "vite build"}}',
+                        "head": '{"version": "1.0.1", "scripts": {"build": "vite build"}}',
+                    }
+                },
+            },
+            "",
+            id="manifest-version-bump",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("frontend/package.json")], folder_policies_known=True),
+                "manifest_contents": {
+                    "frontend/package.json": {
+                        "base": '{"scripts": {"build": "vite build"}}',
+                        "head": '{"scripts": {"build": "vite build && node post.js"}}',
+                    }
+                },
+            },
+            "gate_failed",
+            id="manifest-script-edit",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("go.mod")], folder_policies_known=True),
+                "manifest_contents": {
+                    "go.mod": {
+                        "base": "module example.com/app\n\n// placeholder",
+                        "head": "module example.com/app\n\nreplace example.com/lib => example.org/lib v1.0.0",
+                    }
+                },
+            },
+            "gate_failed",
+            id="go-mod-replace-after-an-unterminated-line",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("go.mod")], folder_policies_known=True),
+                "manifest_contents": {
+                    "go.mod": {
+                        "base": "module example.com/app\n\n// note\vreplace example.com/lib => example.org/lib v1.0.0\n",
+                        "head": "module example.com/app\n\n// note\nreplace example.com/lib => example.org/lib v1.0.0\n",
+                    }
+                },
+            },
+            "gate_failed",
+            id="go-mod-replace-uncommented-by-a-vertical-tab-swap",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("tsconfig.json")], folder_policies_known=True),
+                "manifest_contents": {
+                    "tsconfig.json": {
+                        "base": '{\n  // comment\n  "compilerOptions": {"strict": true}\n}\n',
+                        "head": '{\n  // comment\n  "compilerOptions": {"strict": true,\n\v"plugins": [{"name": "evil"}]}\n}\n',
+                    }
+                },
+            },
+            "gate_failed",
+            id="tsconfig-plugins-behind-a-vertical-tab",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("tsconfig.json")], folder_policies_known=True),
+                "manifest_contents": {
+                    "tsconfig.json": {
+                        "base": '{\n  "compilerOptions": {\n    /* off\n    "plugins": [{"name": "evil"}],\n    */\n  },\n}\n',
+                        "head": '{\n  "compilerOptions": {\n    /* off */\n    "plugins": [{"name": "evil"}],\n  },\n}\n',
+                    }
+                },
+            },
+            "gate_failed",
+            id="tsconfig-plugins-activated-by-moving-a-comment-terminator",
+        ),
+    ],
+)
+def test_attest_confirms_only_what_the_full_review_would_approve(
+    monkeypatch, context: dict, expected_reason: str
+) -> None:
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    outcome = review_local.attest(context)
+
+    assert (outcome["attested"], outcome["reason"]) == (not expected_reason, expected_reason)
+    if expected_reason == "dependency_manifest":
+        assert outcome["manifests"] == ["frontend/package.json"]
+    # The full review reads manifests from a checkout, which this test does not have.
+    if expected_reason in ("folder_policies_unknown", "dependency_manifest") or "manifest_contents" in context:
+        return
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
+    assert (review_local.run(context)["final_verdict"] == "APPROVED") is outcome["attested"]
+
+
+@pytest.mark.parametrize(
     "files, safe_migrations, expected_tier, expected_verdict",
     [
         pytest.param(["apps/billing/values.yaml"], [], "T1-agent", "REFUSED", id="billing-config-not-t0"),
