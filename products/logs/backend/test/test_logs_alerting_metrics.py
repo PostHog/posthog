@@ -3,7 +3,11 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.logs.backend.temporal.metrics import ExecutionTimeRecorder, record_checkpoint_lag
+from products.logs.backend.temporal.metrics import (
+    ExecutionTimeRecorder,
+    increment_busy_cohort_outcome,
+    record_checkpoint_lag,
+)
 
 
 class TestRecordCheckpointLag:
@@ -74,3 +78,11 @@ class TestExecutionTimeRecorder:
 
         call_args = mock_get_meter.call_args[0][0]
         assert call_args["status"] == "FAILED"
+
+
+@pytest.mark.parametrize("attempt, label", [(1, "1"), (2, "2"), (3, "3+"), (100, "3+")])
+@patch("products.logs.backend.temporal.metrics.get_metric_meter")
+def test_busy_cohort_attempt_labels_are_bounded(mock_get_meter: MagicMock, attempt: int, label: str) -> None:
+    increment_busy_cohort_outcome("busy", attempt)
+    mock_get_meter.assert_called_once_with({"outcome": "busy", "attempt": label})
+    mock_get_meter.return_value.create_counter.return_value.add.assert_called_once_with(1)

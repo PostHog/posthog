@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import dataclasses
 from itertools import batched
 
 import temporalio
@@ -18,6 +19,7 @@ with workflow.unsafe.imports_passed_through():
     from products.logs.backend.temporal.activities import (
         CheckAlertsInput,
         CheckAlertsOutput,
+        CohortManifest,
         DiscoverCohortsInput,
         DiscoverCohortsOutput,
         EmitAlertSignalsInput,
@@ -28,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
         emit_alert_signals_activity,
         evaluate_cohort_batch_activity,
     )
+    from products.logs.backend.temporal.metrics import record_workflow_duration
 
 from products.logs.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
@@ -36,6 +39,8 @@ from products.logs.backend.temporal.constants import (
     WORKFLOW_NAME,
 )
 
+RETRY_BUSY_COHORTS_PATCH = "logs-alert-check-retry-busy-cohorts"
+BUSY_COHORT_BACKOFF_PATCH = "logs-alert-check-busy-cohort-backoff"
 _PATCH_BOUNDED_BATCH_FANOUT = "logs-alerting-bounded-batch-fanout"
 
 
@@ -56,6 +61,16 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, input: CheckAlertsInput) -> CheckAlertsOutput:
+        started_at = workflow.now()
+        try:
+            return await self._run(input)
+        finally:
+            try:
+                record_workflow_duration(int((workflow.now() - started_at).total_seconds() * 1000))
+            except Exception:
+                workflow.logger.warning("Failed to record logs alert workflow duration", exc_info=True)
+
+    async def _run(self, input: CheckAlertsInput) -> CheckAlertsOutput:
         discovery: DiscoverCohortsOutput = await workflow.execute_activity(
             discover_cohorts_activity,
             DiscoverCohortsInput(),
@@ -88,36 +103,66 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
 
-        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
-        # batch's `ActivityError` doesn't abort the cycle.
-        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
-            *(run_batch(batch) for batch in batches),
-            return_exceptions=True,
-        )
+        # ClickHouse rejects the top-of-minute burst as busy, and the queries succeed a few
+        # seconds later. So each round retries the cohorts the previous one deferred, for the
+        # same window, and only the last round saves a busy rejection as a skipped check.
+        attempts = max(1, discovery.busy_cohort_attempts) if workflow.patched(RETRY_BUSY_COHORTS_PATCH) else 1
 
         alerts_checked = 0
         alerts_fired = 0
         alerts_resolved = 0
         alerts_errored = 0
         notified: list[NotifiedAlert] = []
-        for batch, result in zip(batches, results):
-            if isinstance(result, ActivityError):
-                # Batch's retries exhausted — count its alerts as errored, keep going.
-                workflow.logger.warning(
-                    "Cohort batch activity failed; counting batch alerts as errored",
-                    extra={"cohort_count": len(batch.manifests)},
-                )
-                alerts_errored += sum(len(m.alert_ids) for m in batch.manifests)
-            elif isinstance(result, BaseException):
-                # Unexpected exception type — re-raise so the workflow fails loudly
-                # rather than silently masking a bug.
-                raise result
-            else:
-                alerts_checked += result.alerts_checked
-                alerts_fired += result.alerts_fired
-                alerts_resolved += result.alerts_resolved
-                alerts_errored += result.alerts_errored
-                notified.extend(result.notified)
+        for attempt in range(attempts):
+            defer_busy_cohorts = attempt < attempts - 1
+            # `return_exceptions=True` isolates per-batch retry-exhaustion: one
+            # batch's `ActivityError` doesn't abort the cycle.
+            results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
+                *(
+                    run_batch(
+                        dataclasses.replace(
+                            batch, defer_busy_cohorts=defer_busy_cohorts, busy_cohort_attempt=attempt + 1
+                        )
+                    )
+                    for batch in batches
+                ),
+                return_exceptions=True,
+            )
+
+            busy_cohorts: list[CohortManifest] = []
+            for batch, result in zip(batches, results):
+                if isinstance(result, ActivityError):
+                    # Batch's retries exhausted — count its alerts as errored, keep going.
+                    workflow.logger.warning(
+                        "Cohort batch activity failed; counting batch alerts as errored",
+                        extra={"cohort_count": len(batch.manifests)},
+                    )
+                    alerts_errored += sum(len(m.alert_ids) for m in batch.manifests)
+                elif isinstance(result, BaseException):
+                    # Unexpected exception type — re-raise so the workflow fails loudly
+                    # rather than silently masking a bug.
+                    raise result
+                else:
+                    alerts_checked += result.alerts_checked
+                    alerts_fired += result.alerts_fired
+                    alerts_resolved += result.alerts_resolved
+                    alerts_errored += result.alerts_errored
+                    notified.extend(result.notified)
+                    busy_cohorts.extend(result.busy_cohorts)
+
+            if not busy_cohorts:
+                break
+            workflow.logger.info(
+                "Retrying cohorts ClickHouse rejected as busy",
+                extra={"cohort_count": len(busy_cohorts), "attempt": attempt + 2},
+            )
+            # Histories from the retry-only workflow have no timer between rounds.
+            if workflow.patched(BUSY_COHORT_BACKOFF_PATCH):
+                await workflow.sleep(5 if attempt == 0 else 15)
+            batches = [
+                EvaluateCohortBatchInput(manifests=list(chunk))
+                for chunk in batched(busy_cohorts, discovery.batch_size, strict=False)
+            ]
 
         # Off the eval critical path. Best-effort: signal emission must never fail
         # the alert cycle, so retry-exhaustion is swallowed. Chunked because the
