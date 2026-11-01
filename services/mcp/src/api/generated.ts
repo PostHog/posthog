@@ -70435,7 +70435,7 @@ export namespace Schemas {
       readonly calls_with_intent: number;
       /** Tool calls flagged as errors ($mcp_is_error) in the window. */
       readonly error_calls: number;
-      /** $mcp_missing_capability events captured in the window. */
+      /** Missing-capability reports captured in the window: $mcp_missing_capability events and $mcp_feedback events of type missing_capability. */
       readonly missing_capability_reports: number;
     }
 

@@ -23,8 +23,11 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         distinct_id: str = "d1",
         timestamp: datetime | None = None,
         event_uuid: UUID | None = None,
+        feedback_type: str | None = None,
     ) -> None:
         properties: dict[str, Any] = {"$session_id": session_id, "$mcp_intent": intent}
+        if feedback_type is not None:
+            properties["$mcp_feedback_type"] = feedback_type
         if client_name is not None:
             properties["$mcp_client_name"] = client_name
         _create_event(
@@ -50,7 +53,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         now = datetime.now(tz=UTC)
         self._emit(intent="older ask", timestamp=now - timedelta(hours=2))
         self._emit(intent="newer ask", timestamp=now - timedelta(hours=1))
-        # Only $mcp_missing_capability is the unmet-demand signal; a tool call carrying an
+        # Only missing-capability reports are the unmet-demand signal; a tool call carrying an
         # intent is what the agent *did*, not what it couldn't do.
         self._emit(intent="a tool call intent", event="$mcp_tool_call")
         flush_persons_and_events()
@@ -61,6 +64,26 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         assert rows[0].session_id == "s1"
         assert rows[0].distinct_id == "d1"
         assert rows[0].harness == "Claude.ai"
+
+    @parameterized.expand(
+        [
+            ("get_more_tools_report", "$mcp_missing_capability", None, True),
+            ("send_feedback_missing_capability", "$mcp_feedback", "missing_capability", True),
+            ("send_feedback_issue", "$mcp_feedback", "issue", False),
+            ("send_feedback_praise", "$mcp_feedback", "praise", False),
+            ("tool_call_typed_like_a_report", "$mcp_tool_call", "missing_capability", False),
+        ]
+    )
+    def test_lists_missing_capability_reports_from_either_sdk_tool(
+        self, _name: str, event: str, feedback_type: str | None, listed: bool
+    ) -> None:
+        report = 'No tool to export a dashboard as a PDF.\n\nThe user asked for "Weekly signups" as a PDF.'
+        self._emit(intent=report, event=event, feedback_type=feedback_type)
+        flush_persons_and_events()
+
+        rows = self._run(search="dashboard")
+
+        assert [(row.intent, row.harness) for row in rows] == ([(report, "Claude.ai")] if listed else [])
 
     def test_date_range_excludes_older_reports(self) -> None:
         now = datetime.now(tz=UTC)
