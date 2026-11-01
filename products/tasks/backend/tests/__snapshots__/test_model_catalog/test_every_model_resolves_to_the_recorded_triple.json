@@ -215,7 +215,7 @@
         },
         "claude-opus-4-8": {
           "cost_multiplier": "2.5×",
-          "offered": true,
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",

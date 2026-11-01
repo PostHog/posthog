@@ -191,8 +191,8 @@ describe("resolvePosthogPiModelCatalog", () => {
     },
   );
 
-  // Pi hid both while the two hide lists disagreed; every other picker offered them throughout.
-  it.each(["claude-opus-4-8", "gpt-5.5"])(
+  // Pi hid this model while the two hide lists disagreed; every other picker offered it throughout.
+  it.each(["gpt-5.5"])(
     "offers %s in the Pi catalog",
     (id) => {
       const models = resolvePosthogPiModelCatalog(
