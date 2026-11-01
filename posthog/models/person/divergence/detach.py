@@ -149,7 +149,7 @@ def _release_drained_owners(
     live = _live_distinct_ids(team_id, sorted(owner_ids), limit=1)
     uuids = {mapping.person_id: mapping.person_uuid for key in by_key if (mapping := reported[key]).person_uuid}
     released = sorted(uuid for owner in owner_ids if not live.get(owner) and (uuid := uuids[owner]) is not None)
-    cleanup_queue.set_blocked(team_id, released, blocked=False)
+    cleanup_queue.clear_blocked(team_id, released)
 
 
 def _live_distinct_ids(team_id: int, person_ids: list[int], *, limit: int) -> dict[int, list[str]]:
