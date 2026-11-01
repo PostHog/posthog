@@ -13,7 +13,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory, type Experiment } from '~/types'
 
+import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import {
     EXPERIMENT_EXPOSURE_EVENT,
@@ -52,26 +54,34 @@ function InclusionActionFilter({
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <SeriesActionFilter
-            bordered
-            series={exposureConfigToSeries(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
-            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-            onChange={(series) => {
-                const exposureConfig = seriesToExposureConfig(series)
-                if (exposureConfig) {
-                    onChange({ exposure_config: exposureConfig })
-                }
-            }}
-            typeKey="experiment-exposure-config"
-            buttonCopy="Add exposure event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            {...commonActionFilterProps}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-        />
+        <div>
+            <SeriesActionFilter
+                bordered
+                series={exposureConfigToSeries(
+                    experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG
+                )}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                onChange={(series) => {
+                    const exposureConfig = seriesToExposureConfig(series)
+                    if (exposureConfig) {
+                        onChange({ exposure_config: exposureConfig })
+                    }
+                }}
+                typeKey="experiment-exposure-config"
+                buttonCopy="Add exposure event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                {...commonActionFilterProps}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+            <NegatedEventFilterNote
+                config={experiment.exposure_criteria?.exposure_config}
+                launched={isLaunched(experiment)}
+            />
+        </div>
     )
 }
 
@@ -83,28 +93,34 @@ function ActivationActionFilter({
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <SeriesActionFilter
-            bordered
-            series={exposureConfigToSeries(
-                experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
-            )}
-            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-            onChange={(series) => {
-                const activationConfig = seriesToExposureConfig(series)
-                if (activationConfig) {
-                    onChange({ activation_config: activationConfig })
-                }
-            }}
-            typeKey="experiment-activation-config"
-            buttonCopy="Add activation event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            {...commonActionFilterProps}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-        />
+        <div>
+            <SeriesActionFilter
+                bordered
+                series={exposureConfigToSeries(
+                    experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
+                )}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                onChange={(series) => {
+                    const activationConfig = seriesToExposureConfig(series)
+                    if (activationConfig) {
+                        onChange({ activation_config: activationConfig })
+                    }
+                }}
+                typeKey="experiment-activation-config"
+                buttonCopy="Add activation event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                {...commonActionFilterProps}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+            <NegatedEventFilterNote
+                config={experiment.exposure_criteria?.activation_config}
+                launched={isLaunched(experiment)}
+            />
+        </div>
     )
 }
 
@@ -169,7 +185,7 @@ function ExposureCriteriaFields({
                     description={
                         <>
                             Select a custom event to signal that users reached the part of your app where the experiment
-                            runs. You can also filter out users you would like to exclude.
+                            runs. You can also filter which events count as exposure.
                         </>
                     }
                     selected={isCustom}
