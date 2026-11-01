@@ -69,7 +69,7 @@ function useToolDefinitions(active: boolean): ToolDefinitionsModule | null {
                     setToolDefinitions(module)
                 }
             },
-            // A failed load leaves the tool unregistered. openMax tells the person to reload.
+            // A failed load leaves only the tool name and tooltip missing. A click on openMax tells the person to reload.
             () => {}
         )
         return (): void => {
@@ -134,8 +134,10 @@ export function useMaxTool({
     latestRef.current = { context, active }
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
+    // The tool registers before the tool table loads, so a message sent at once still carries its context.
+    // The name and description arrive with the table.
     useEffect(() => {
-        if (!active || !definition) {
+        if (!active) {
             if (activeIdentifierRef.current) {
                 deregisterTool(activeIdentifierRef.current)
                 activeIdentifierRef.current = null
@@ -150,8 +152,8 @@ export function useMaxTool({
         activeIdentifierRef.current = identifier
         registerTool({
             identifier,
-            name: definition.name,
-            description: definition.description,
+            name: definition?.name,
+            description: definition?.description,
             context,
             contextDescription,
             introOverride,

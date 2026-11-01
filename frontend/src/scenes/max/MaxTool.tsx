@@ -48,15 +48,14 @@ export function MaxTool({
         onMaxOpen,
     })
 
-    let content: JSX.Element
-    if (!definition) {
-        content = <>{typeof Children === 'function' ? <Children toolAvailable={false} /> : Children}</>
-    } else {
-        content = (
-            <>
+    // The button shows while the tool table loads, so a failed load still reaches the reload toast in openMax.
+    // The children keep their position in the tree, so React does not remount them when the button appears.
+    const content = (
+        <>
+            {openMax && (
                 <Tooltip
                     title={
-                        !isMaxOpen ? (
+                        !definition ? null : !isMaxOpen ? (
                             <>
                                 <IconSparkles className="mr-1.5" />
                                 {definition.name} with PostHog AI
@@ -85,15 +84,15 @@ export function MaxTool({
                             'border-ai bg-ai/08 dark:bg-ai/20 hover:scale-110'
                         )}
                         type="button"
-                        onClick={openMax || undefined}
+                        onClick={openMax}
                     >
                         <IconPlusSmall className="relative size-full text-ai dark:text-white p-0.5" />
                     </button>
                 </Tooltip>
-                {typeof Children === 'function' ? <Children toolAvailable={true} /> : Children}
-            </>
-        )
-    }
+            )}
+            {typeof Children === 'function' ? <Children toolAvailable={!!openMax} /> : Children}
+        </>
+    )
     return (
         <div
             className={clsx(
