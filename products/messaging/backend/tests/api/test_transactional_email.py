@@ -570,7 +570,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "without_engagement_capture",
                 {"capture_engagement": False},
                 "transactional_email/send",
-                {"tracking": {"captureEngagement": False}},
+                {"tracking": {"captureEngagement": False}, "hogFlowVersion": 1},
             ),
         ]
     )

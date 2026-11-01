@@ -1656,7 +1656,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 raise NotFound()
             self.check_object_permissions(request, template)
         return self._queue_transactional_email(
-            request, template, route="send_email", options=_template_send_options(request.data, request.validated_data)
+            request, template, route="send_email", options=_id_send_options(request.validated_data)
         )
 
     def _send_template_by_key(self, request: Any) -> Response:
@@ -1744,6 +1744,10 @@ TEMPLATE_OUTDATED_DETAIL = (
     "PostHog doesn't hold the content `template.hash` describes, so nothing was sent. Upload the template, then send "
     "again."
 )
+
+
+def _id_send_options(data: Mapping[str, Any]) -> TemplateSendOptions | None:
+    return _template_send_options(data) if "capture_engagement" in data else None
 
 
 def _template_send_options(data: Mapping[str, Any]) -> TemplateSendOptions:
