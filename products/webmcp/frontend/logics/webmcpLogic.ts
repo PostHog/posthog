@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path } fro
 import posthog from 'posthog-js'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { afterSceneRendered } from 'lib/utils/bootTiming'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -107,6 +108,11 @@ export const webmcpLogic = kea<webmcpLogicType>([
             const teamId = values.currentTeamId
 
             const register = async (signal: AbortSignal): Promise<void> => {
+                // No part of the first paint uses the tool, so its request waits for the scene's own requests.
+                await afterSceneRendered()
+                if (signal.aborted) {
+                    return
+                }
                 const tool = await webmcpToolRetrieve(String(teamId), { signal })
                 if (signal.aborted) {
                     return

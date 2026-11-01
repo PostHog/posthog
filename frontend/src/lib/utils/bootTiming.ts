@@ -103,8 +103,33 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
     }
     Object.assign(context, phaseContext)
     if (phase === 'scene_rendered') {
+        sceneRenderedWaiters.forEach((wake) => wake())
         void sendBootTiming().catch(() => {})
     }
+}
+
+// Longer than the 99th percentile time from `app_ready` to `scene_rendered`.
+const SCENE_RENDERED_MAX_WAIT_MS = 10000
+const sceneRenderedWaiters = new Set<() => void>()
+
+/**
+ * Resolves when the first scene of the page load has rendered, so that a request the first paint does not need
+ * does not compete with the scene's own requests. Resolves at once when the scene has already rendered or when
+ * boot timing does not run. Resolves after `maxWaitMs` if the scene errors or never renders.
+ */
+export function afterSceneRendered(maxWaitMs: number = SCENE_RENDERED_MAX_WAIT_MS): Promise<void> {
+    if (phaseTimes.entry === undefined || phaseTimes.scene_rendered !== undefined) {
+        return Promise.resolve()
+    }
+    return new Promise((resolve) => {
+        const wake = (): void => {
+            clearTimeout(timer)
+            sceneRenderedWaiters.delete(wake)
+            resolve()
+        }
+        const timer = setTimeout(wake, maxWaitMs)
+        sceneRenderedWaiters.add(wake)
+    })
 }
 
 export interface SceneRenderedMark {

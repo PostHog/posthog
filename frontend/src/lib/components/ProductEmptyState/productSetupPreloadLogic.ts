@@ -23,6 +23,9 @@ export interface productSetupPreloadLogicActions {
     preloadStatuses: () => {
         value: true
     }
+    preloadAgainIfAsked: () => {
+        value: true
+    }
 }
 
 export type productSetupPreloadLogicType = MakeLogicType<
@@ -52,6 +55,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
     })),
     actions({
         preloadStatuses: true,
+        preloadAgainIfAsked: true,
     }),
     listeners(({ actions, values, cache }) => ({
         preloadStatuses: async (_, breakpoint) => {
@@ -89,6 +93,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
                 }
                 // Nothing was marked seeded, so the next trigger retries; until then the
                 // in-scene detection logic answers on its own.
+                actions.preloadAgainIfAsked()
                 return
             } finally {
                 cache.requestsInFlight -= 1
@@ -102,6 +107,13 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
                 seeded.add(`${teamId}:${probe.productKey}`)
                 seedProbeStatus(probe, existingDefinitions, cache)
             }
+            actions.preloadAgainIfAsked()
+        },
+        preloadAgainIfAsked: () => {
+            if (cache.preloadAgain) {
+                cache.preloadAgain = false
+                actions.preloadStatuses()
+            }
         },
         // Covers login and project switches that happen after mount.
         [teamLogic.actionTypes.loadCurrentTeamSuccess]: ({ currentTeam }) => {
@@ -113,7 +125,12 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
         // the boot triggers have already run - re-check so flag-gated probes aren't
         // silently skipped for the whole session.
         [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
-            actions.preloadStatuses()
+            // A second run would send the same request and cancel the one in flight, so it waits for that one.
+            if (cache.requestsInFlight) {
+                cache.preloadAgain = true
+            } else {
+                actions.preloadStatuses()
+            }
         },
     })),
     afterMount(({ actions, cache }) => {

@@ -1,3 +1,5 @@
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
@@ -37,5 +39,19 @@ describe('productSetupPreloadLogic', () => {
         await jest.runOnlyPendingTimersAsync()
 
         expect(eventDefinitionsList).toHaveBeenCalledTimes(calls)
+    })
+
+    it('sends one request when the flags arrive while the mount request runs', async () => {
+        let respond: (value: { results: never[] }) => void = () => {}
+        jest.mocked(eventDefinitionsList).mockImplementationOnce(
+            () => new Promise((resolve) => (respond = resolve)) as ReturnType<typeof eventDefinitionsList>
+        )
+
+        productSetupPreloadLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        respond({ results: [] })
+        await jest.runOnlyPendingTimersAsync()
+
+        expect(eventDefinitionsList).toHaveBeenCalledTimes(1)
     })
 })

@@ -57,6 +57,52 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
     })
 
+    it.each([
+        { name: 'nothing when both lists show it', shortcut: true, rootFolder: true, reloads: [] },
+        {
+            name: 'the shortcuts when its shortcut is missing',
+            shortcut: false,
+            rootFolder: true,
+            reloads: ['shortcuts'],
+        },
+        { name: 'the root folder when its parent is missing', shortcut: true, rootFolder: false, reloads: ['root'] },
+        {
+            name: 'both lists for a new home folder',
+            shortcut: false,
+            rootFolder: false,
+            reloads: ['shortcuts', 'root'],
+        },
+    ])('after the home folder loads, reloads $name', async ({ shortcut, rootFolder, reloads }) => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadShortcutsSuccess(
+            shortcut ? [{ id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' }] : []
+        )
+        logic.actions.loadFolderSuccess(
+            '',
+            rootFolder ? [{ id: 'users', path: 'Users', type: 'folder' }] : [],
+            false,
+            rootFolder ? 1 : 0
+        )
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(reloads.includes('shortcuts') ? 1 : 0)
+        expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads.includes('root') ? 1 : 0)
+    })
+
+    it('waits for the boot loads before it checks the home folder', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadFolderStart('')
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+
+        logic.actions.loadFolderSuccess('', [{ id: 'users', path: 'Users', type: 'folder' }], false, 1)
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
+    })
+
     it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
         'renders a starred nested folder with %s contents',
         (state) => {

@@ -436,6 +436,9 @@ export interface projectTreeDataLogicActions {
     loadShortcuts: () => {
         value: true
     }
+    reloadIfHomeFolderMissing: () => {
+        value: true
+    }
     loadShortcutsFailure: (
         error: string,
         errorObject?: any
@@ -762,6 +765,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         addShortcutItem: (item: FileSystemEntry, successMessage?: string) => ({ item, successMessage }),
         deleteShortcut: (id: FileSystemEntry['id'], successMessage?: string) => ({ id, successMessage }),
         loadShortcuts: true,
+        reloadIfHomeFolderMissing: true,
         reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
         // Resolves a sibling drag ('before' / 'after' a target row) into a new ordered list and
         // dispatches `reorderShortcuts`. Lives here so the component stays free of business logic.
@@ -1793,8 +1797,39 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.loadShortcuts()
         },
         loadHomeFolderSuccess: () => {
-            actions.loadShortcuts()
-            actions.loadFolder('', true)
+            cache.homeFolderCheckPending = true
+            actions.reloadIfHomeFolderMissing()
+        },
+        loadShortcutsSuccess: () => actions.reloadIfHomeFolderMissing(),
+        loadShortcutsFailure: () => actions.reloadIfHomeFolderMissing(),
+        loadFolderSuccess: ({ folder }) => {
+            if (folder === '') {
+                actions.reloadIfHomeFolderMissing()
+            }
+        },
+        loadFolderFailure: ({ folder }) => {
+            if (folder === '') {
+                actions.reloadIfHomeFolderMissing()
+            }
+        },
+        // The first home folder request creates the folder and its shortcut. The boot loads of the root folder
+        // and the shortcuts run at the same time, so reload only a list that does not show the folder yet.
+        reloadIfHomeFolderMissing: () => {
+            if (!cache.homeFolderCheckPending || values.shortcutDataLoading || values.folderStates[''] === 'loading') {
+                return
+            }
+            cache.homeFolderCheckPending = false
+            const path = values.homeFolder?.path
+            if (!path) {
+                return
+            }
+            if (!values.shortcutData.some((shortcut) => shortcut.type === 'folder' && shortcut.ref === path)) {
+                actions.loadShortcuts()
+            }
+            const topFolder = splitPath(path)[0]
+            if (!(values.folders[''] ?? []).some((entry) => entry.type === 'folder' && entry.path === topFolder)) {
+                actions.loadFolder('', true)
+            }
         },
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap

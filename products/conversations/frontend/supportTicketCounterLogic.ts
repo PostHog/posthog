@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { afterSceneRendered } from 'lib/utils/bootTiming'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '../../../frontend/src/types'
@@ -211,9 +212,11 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.isSupportEnabled) {
-            actions.loadUnreadCount()
+    afterMount(async (logic) => {
+        // The count shows only as a badge, so its first request waits for the scene's own requests.
+        await afterSceneRendered()
+        if (logic.isMounted() && logic.values.isSupportEnabled) {
+            logic.actions.loadUnreadCount()
         }
     }),
 ])

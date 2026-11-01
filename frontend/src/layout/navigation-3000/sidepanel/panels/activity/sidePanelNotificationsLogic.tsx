@@ -24,6 +24,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { retryWithBackoff } from 'lib/utils/async'
+import { afterSceneRendered } from 'lib/utils/bootTiming'
 import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -666,6 +667,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             null as ChangesResponse | null,
             {
                 loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
+                    // With real-time notifications, the panel and the unread badge read the in-app list instead.
+                    if (values.realTimeNotificationsEnabled) {
+                        return values.importantChanges
+                    }
                     await breakpoint(1)
 
                     try {
@@ -1322,6 +1327,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
             void (async () => {
+                // Notifications show in a badge and a side panel, not in the scene, so the scene's requests go first.
+                await afterSceneRendered()
                 try {
                     const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
                         limit: NOTIFICATION_PAGE_SIZE,

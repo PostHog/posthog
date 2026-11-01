@@ -18,6 +18,7 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { afterSceneRendered } from 'lib/utils/bootTiming'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -1655,7 +1656,8 @@ export const billingLogic = kea<billingLogicType>([
             if (payload) {
                 return
             }
-            actions.loadCreditOverview()
+            // Only billing views show credits, so this request waits for the scene's own requests.
+            void afterSceneRendered().then(() => actions.loadCreditOverview())
 
             // If the activation is successful, we reload the user/organization to get the updated available features
             // activation can be triggered from the billing page or onboarding
