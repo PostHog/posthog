@@ -225,6 +225,25 @@ class TestRailway:
             ("c4", "p2", "d3")
         ]
 
+    def test_deployment_events_resume_pages_forward_to_a_saved_deployment_pushed_off_the_first_page(self):
+        result = _run(
+            "deployment_events",
+            [
+                _projects_page(["p1"]),
+                # New deployments now fill the first page, and d1 and d2 were already read.
+                _connection(("deployments",), [{"id": "d9"}, {"id": "d1"}, {"id": "d2"}], end_cursor="c1"),
+                _connection(("deployments",), [{"id": "d3"}]),
+                _connection(("deploymentEvents",), [{"id": "ev3"}]),
+            ],
+            resume_state=RailwayResumeConfig(project_id="p1", parent_id="d3"),
+        )
+
+        assert result.raised is None
+        assert _request_variables(result, 2)["after"] == "c1"
+        assert _request_variables(result, 3)["deploymentId"] == "d3"
+        assert _batch_ids(result) == [["ev3"]]
+        assert len(result.requests) == 4
+
     @time_machine.travel("2024-07-03T12:00:00Z", tick=False)
     def test_usage_reads_one_day_window_per_workspace_from_the_watermark_day(self):
         result = _run(
@@ -294,6 +313,26 @@ class TestRailway:
             "2024-07-10T01:30:00+00:00",
         )
         assert _batch_ids(result) == [[f"p1:s1:e1:CPU_USAGE:{window_end - 1800}"]]
+
+    @time_machine.travel("2024-07-10T15:00:00Z", tick=False)
+    def test_metrics_retry_keeps_the_saved_window_end_for_the_remaining_projects(self):
+        result = _run(
+            "metrics",
+            [_projects_page(["p1", "p2"]), {"data": {"metrics": []}}],
+            # p1 finished the 07-10 window, which ended at noon, before the earlier attempt stopped.
+            resume_state=RailwayResumeConfig(
+                window_start="2024-07-10T00:00:00+00:00", window_end="2024-07-10T12:00:00+00:00", parent_id="p2"
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 2
+        variables = _request_variables(result, 1)
+        assert (variables["projectId"], variables["startDate"], variables["endDate"]) == (
+            "p2",
+            "2024-07-10T00:00:00+00:00",
+            "2024-07-10T12:00:00+00:00",
+        )
 
     def test_not_authorized_error_matches_non_retryable_catalog(self):
         result = _run("projects", [{"errors": [{"message": "Not Authorized"}], "data": None}])
