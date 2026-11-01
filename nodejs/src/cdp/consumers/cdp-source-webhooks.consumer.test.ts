@@ -19,6 +19,7 @@ import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import * as posthogUtils from '~/common/utils/posthog'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -206,6 +207,7 @@ describe('SourceWebhooksConsumer', () => {
 
         describe('hog function processing', () => {
             it('should 404 if the hog function does not exist', async () => {
+                const captureSpy = jest.spyOn(posthogUtils, 'captureException')
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-function-id',
                 })
@@ -213,6 +215,8 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     error: 'Not found',
                 })
+                expect(captureSpy).not.toHaveBeenCalled()
+                captureSpy.mockRestore()
             })
 
             it('should 404 if the hog function is deleted', async () => {
