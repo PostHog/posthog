@@ -68,8 +68,11 @@ class TestHogFlow(TestCase):
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(hog_flow.id)])
 
     @parameterized.expand([("save",), ("delete",)])
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.capture_exception")
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_a_failed_reload_publish_still_runs_the_callbacks_after_it(self, change, mock_reload):
+    def test_a_failed_reload_publish_is_retried_reported_and_runs_the_callbacks_after_it(
+        self, change, mock_reload, mock_capture_exception
+    ):
         hog_flow = HogFlow.objects.create(name="Test Flow", team=self.team)
         hog_flow_id = str(hog_flow.id)
         mock_reload.side_effect = RedisError("Redis is down")
@@ -83,7 +86,9 @@ class TestHogFlow(TestCase):
                 hog_flow.delete()
             transaction.on_commit(callback_after_the_reload)
 
-        mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[hog_flow_id])
+        assert mock_reload.call_count == 2
+        mock_reload.assert_called_with(team_id=self.team.id, hog_flow_ids=[hog_flow_id])
+        mock_capture_exception.assert_called_once()
         callback_after_the_reload.assert_called_once()
 
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")
