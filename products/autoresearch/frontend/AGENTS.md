@@ -18,7 +18,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | `newModel/`                     | Create-form parts: template chips, definition sentence, Advanced section, readiness checklist, "What happens next".                          |
 | `autoresearchPipelineLogic.ts`  | Detail logic. Also maps the old `?tab=` keys to the four tabs, so saved links still open.                                                    |
 | `pipelineLifecycle.ts`          | The five lifecycle steps (question set to checked against reality) and which one is current.                                                 |
-| `trainingScheduleLogic.ts`      | Setup tab training settings: research interval, experiments per run, research model and thinking effort, their save, and the status line.    |
+| 	rainingScheduleLogic.ts      | Setup tab training settings: research interval, experiments per run, project limits & daily cap, and model settings. |
 | `agentSearch.ts`                | The agent's search across training runs: chart points, best score so far, change per experiment within a run, log groups and status brief.   |
 | `onlinePerformance.ts`          | Accuracy tab helpers over the `online_performance` endpoint: the stat tiles, the per-metric accuracy trend, predicted against actual.        |
 | `predictionCoverage.ts`         | Predictions tab coverage from the runs list: the measured summary and the coverage and score age per day.                                    |

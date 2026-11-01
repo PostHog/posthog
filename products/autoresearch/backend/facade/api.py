@@ -90,6 +90,9 @@ from .contracts import (
     ArtifactList,
     ArtifactNotFound,
     ArtifactStorageUnavailable,
+    AutoresearchLimitsReport,
+    DailyTrainingCapExceeded,
+    LivePipelineCapExceeded,
     AutoresearchConflict,
     CalibrationBin,
     ConfusionByCutoff,
@@ -669,12 +672,18 @@ def pipeline_writes_person_property(team_id: int, pipeline_id: str | UUID) -> bo
 
 
 def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) -> Pipeline:
-    row = AutoresearchPipeline.objects.create(
-        team_id=team_id,
-        created_by=created_by,
-        iteration_budget_remaining=fields.get("iteration_budget", 50),
-        **fields,
-    )
+    from ..limits import LIVE_PIPELINE_STATUSES, enforce_live_pipelines_cap  # noqa: PLC0415
+
+    target_status = fields.get("status", AutoresearchPipeline.Status.DRAFT)
+    with transaction.atomic():
+        if target_status in LIVE_PIPELINE_STATUSES:
+            enforce_live_pipelines_cap(team_id)
+        row = AutoresearchPipeline.objects.create(
+            team_id=team_id,
+            created_by=created_by,
+            iteration_budget_remaining=fields.get("iteration_budget", 50),
+            **fields,
+        )
     return _pipeline_with_champion(row)
 
 
@@ -818,6 +827,10 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str, u
         if status == AutoresearchPipeline.Status.ARCHIVED and _has_live_training_run(team_id, row):
             # Archival would leave the sandbox writing to, and promoting on, a pipeline nobody sees.
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before archiving.")
+        from ..limits import LIVE_PIPELINE_STATUSES, enforce_live_pipelines_cap  # noqa: PLC0415
+
+        if status in LIVE_PIPELINE_STATUSES and row.status not in LIVE_PIPELINE_STATUSES:
+            enforce_live_pipelines_cap(team_id)
         row.status = status
         row.save(update_fields=["status", "updated_at"])
         if status == AutoresearchPipeline.Status.ARCHIVED and row.write_person_property:
@@ -1485,6 +1498,7 @@ def start_training(
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
+    from ..limits import DailyTrainingCapExceeded, enforce_team_training_daily_cap  # noqa: PLC0415
     from ..training.runner import run_training  # noqa: PLC0415
     from ..training.stale import fail_stale_training_runs  # noqa: PLC0415
 
@@ -1493,6 +1507,9 @@ def start_training(
         fail_stale_training_runs(team_id=team_id, pipeline_id=pipeline_uuid)
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
+        if pipeline.status == AutoresearchPipeline.Status.DRAFT:
+            enforce_live_pipelines_cap(team_id)
+        enforce_team_training_daily_cap(team_id, raise_error=True)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")
         budget = iteration_budget or pipeline.iterations_per_run
@@ -2147,3 +2164,10 @@ BASE_RATE_SOURCE_CHOICES = BaseRateSource.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices
 FEATURE_DIRECTION_CHOICES = _FeatureDirection.choices
 MAX_TOP_FEATURES = _MAX_TOP_FEATURES
+
+
+def get_team_limits(team_id: int) -> AutoresearchLimitsReport:
+    """Get project autoresearch limits, current usage, and next training slot time."""
+    from ..limits import get_team_limits_report  # noqa: PLC0415
+
+    return get_team_limits_report(team_id)

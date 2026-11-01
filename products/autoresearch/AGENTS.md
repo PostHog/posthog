@@ -46,6 +46,8 @@ The daily sweep starts research runs on scoring days until a run fails to promot
 Each run takes `iterations_per_run` iterations, and records why it started in `kickoff_reason`.
 Each run also records the runtime adapter, model and reasoning effort it was dispatched with (see `backend/training/AGENTS.md`).
 `iteration_budget` and `iteration_budget_remaining` are deprecated: nothing scheduled reads them.
+Training runs are capped per team per 24-hour rolling window across all pipelines (default 3 runs per day, configured via `autoresearch_limits` flag). When reached, scheduled runs skip with `team_daily_cap` and manual runs return HTTP 429 (`daily_cap_exceeded`). Iteration budgets are clamped to `max_iterations_per_run` (default 10).
+Live pipelines are capped per project (default 3 active models with status `bootstrapping`, `running`, or `converged`). `draft`, `paused`, and `archived` do not count. Creating a live pipeline, resuming a paused pipeline, or starting training on a draft pipeline at the cap returns HTTP 400. Project limits and current usage are exposed via the `limits` endpoint and displayed in `SetupTab`.
 
 ## Invariants that cross package boundaries
 

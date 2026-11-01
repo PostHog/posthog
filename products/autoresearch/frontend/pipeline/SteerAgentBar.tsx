@@ -8,7 +8,7 @@ import { SuggestionList } from './SuggestionList'
 
 /** A collapsed bar to suggest ideas for the next run, next to the button that starts one. */
 export function SteerAgentBar(): JSX.Element {
-    const { pipeline, startTrainingResultLoading, hasLiveTrainingRun, queuedSuggestionCount } =
+    const { pipeline, startTrainingResultLoading, hasLiveTrainingRun, queuedSuggestionCount, isDailyCapExceeded, limits } =
         useValues(autoresearchPipelineLogic)
     const { startTraining, steerOpened } = useActions(autoresearchPipelineLogic)
     const trainDisabledReason = startTrainingResultLoading
@@ -17,7 +17,9 @@ export function SteerAgentBar(): JSX.Element {
           ? 'Resume the model to train it'
           : hasLiveTrainingRun
             ? 'A training run is already in progress'
-            : undefined
+            : isDailyCapExceeded
+              ? `Daily training run limit reached for this project (${limits?.training_runs_used_today ?? 0}/${limits?.max_training_runs_per_day ?? 3})`
+              : undefined
     return (
         <div className="flex flex-col @md:flex-row @md:items-start gap-2">
             <LemonCollapse

@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AgentModelOptionsApi,
+    AutoresearchLimitsReportApi,
     ArtifactContentApi,
     ArtifactDeleteResultApi,
     ArtifactListApi,
@@ -961,5 +962,24 @@ export const autoresearchValidateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(validatePipelineRequestApi),
+    })
+}
+
+
+export const getAutoresearchLimitsRetrieveUrl = (projectId: string) => {
+    return /api/projects//autoresearch_pipelines/limits/
+}
+
+/**
+ * Get project autoresearch limits, current usage, and next training slot time.
+ * @summary Get project autoresearch limits
+ */
+export const autoresearchLimitsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AutoresearchLimitsReportApi> => {
+    return apiMutator<AutoresearchLimitsReportApi>(getAutoresearchLimitsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
