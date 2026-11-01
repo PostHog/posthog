@@ -5845,7 +5845,7 @@ class TestClusterViewSets(_VisionAPITestCase):
                 team=self.team,
                 scanner=scanner,
                 vector_sum=b"",
-                name="coupon rejected" if cluster == self.big else "",
+                name={self.big: "coupon rejected", self.growing: "checkout stalls"}.get(cluster, ""),
                 last_member_at=now,
             )
             ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
@@ -5935,9 +5935,12 @@ class TestClusterViewSets(_VisionAPITestCase):
         self.assertEqual([names[row["id"]] for row in results], expected_order)
         big = next(row for row in results if row["id"] == str(ids["big"]))
         self.assertEqual((big["observation_count"], big["people_count"], big["previous_observation_count"]), (3, 2, 1))
-        self.assertEqual((big["name"], big["status"]), ("coupon rejected" if kind == "themes" else None, "active"))
+        # The big theme has a member scanned for an experiment the caller can't open, and naming reads every member.
+        self.assertEqual((big["name"], big["status"]), (None, "active"))
         growing = next(row for row in results if row["id"] == str(ids["growing"]))
-        self.assertEqual(growing["status"], "emerging")
+        self.assertEqual(
+            (growing["name"], growing["status"]), ("checkout stalls" if kind == "themes" else None, "emerging")
+        )
         self.assertEqual(len(big["example_observation_ids"]), 3)
         self.assertNotIn(str(self.session_row("big-restricted")), big["example_observation_ids"])
 
