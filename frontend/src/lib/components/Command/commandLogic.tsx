@@ -19,6 +19,9 @@ export interface commandLogicActions {
     bufferKey: (key: string) => {
         key: string
     }
+    bufferPaste: (text: string) => {
+        text: string
+    }
     closeCommand: () => {
         value: true
     }
@@ -47,6 +50,7 @@ export const commandLogic = kea<commandLogicType>([
         toggleCommand: (source: CommandOpenSource) => ({ source }),
         commandInputReady: true,
         bufferKey: (key: string) => ({ key }),
+        bufferPaste: (text: string) => ({ text }),
     }),
     reducers({
         isCommandOpen: [
@@ -74,6 +78,7 @@ export const commandLogic = kea<commandLogicType>([
             '',
             {
                 bufferKey: (state, { key }) => (key === 'Backspace' ? state.slice(0, -1) : state + key),
+                bufferPaste: (state, { text }) => state + text,
                 closeCommand: () => '',
             },
         ],
@@ -88,6 +93,7 @@ export const commandLogic = kea<commandLogicType>([
         const stopBuffering = (): void => {
             if (cache.bufferKeys) {
                 window.removeEventListener('keydown', cache.bufferKeys, true)
+                window.removeEventListener('paste', cache.bufferPaste, true)
                 cache.bufferKeys = null
             }
         }
@@ -112,7 +118,13 @@ export const commandLogic = kea<commandLogicType>([
                             actions.bufferKey(event.key)
                         }
                     }
+                    cache.bufferPaste = (event: ClipboardEvent): void => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        actions.bufferPaste(event.clipboardData?.getData('text/plain') ?? '')
+                    }
                     window.addEventListener('keydown', cache.bufferKeys, true)
+                    window.addEventListener('paste', cache.bufferPaste, true)
                 }
             },
             commandInputReady: stopBuffering,
@@ -122,6 +134,7 @@ export const commandLogic = kea<commandLogicType>([
     beforeUnmount(({ cache }) => {
         if (cache.bufferKeys) {
             window.removeEventListener('keydown', cache.bufferKeys, true)
+            window.removeEventListener('paste', cache.bufferPaste, true)
         }
     }),
 ])

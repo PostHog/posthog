@@ -34,9 +34,14 @@ describe('commandLogic', () => {
         for (const key of ['d', 'a', 's', 'x', 'Backspace', 'h']) {
             pageInput.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
         }
+        const paste = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
+        Object.defineProperty(paste, 'clipboardData', { value: { getData: () => 'board' } })
+        pageInput.dispatchEvent(paste)
+        expect(paste.defaultPrevented).toBe(true)
+
         logic.actions.commandInputReady()
         pageInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', bubbles: true, cancelable: true }))
-        expect(logic.values.pendingText).toBe('dash')
+        expect(logic.values.pendingText).toBe('dashboard')
 
         logic.actions.closeCommand()
         expect(logic.values.pendingText).toBe('')
