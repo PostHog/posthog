@@ -212,4 +212,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "window_days": "Length of the trailing window in days.",
         },
     },
+    "session_costs": {
+        "description": "Median USD spend per session for each published agent harness, model, and session turn-count range. Covers every OpenRouter account, aggregated from a weekly refreshed sample of sessions.",
+        "docs_url": "https://openrouter.ai/docs/api/api-reference/datasets/cost-per-session-by-harness-and-model",
+        "columns": {
+            "app_name": "Display label of the published harness.",
+            "app_slug": "Stable public slug of the harness, e.g. 'hermes-agent'.",
+            "model_permaslug": "Exact model permaslug, e.g. 'anthropic/claude-4.8-opus'.",
+            "turn_range": "Inclusive session turn-count range: '1-turn', '2-9-turns', '10-49-turns', or '50-plus-turns'.",
+            "median_session_cost_usd": "Median USD spend per sampled session.",
+            "as_of": "ISO-8601 timestamp when the response was generated.",
+            "version": "Dataset version.",
+            "window_days": "Number of days in the weekly session sample window, or null when no snapshot is published.",
+            "window_end_date": "UTC date of the final day in the session sample window, or null when no snapshot is published.",
+        },
+    },
 }

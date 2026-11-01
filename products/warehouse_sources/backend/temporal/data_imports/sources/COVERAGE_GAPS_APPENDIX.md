@@ -8842,6 +8842,7 @@ Diffed against: <https://openrouter.ai/docs/llms.txt>
 - [ ] `workspace budgets` — per-workspace spend limits, needed to compare spend against budget (low)
 - [x] `/end-users` — registered end-user tracking IDs, the lookup for the `user` field on inference requests and API keys (medium)
 - [x] `/batches` — asynchronous batch inference jobs with status, request counts, usage and cost (medium)
+- [x] `/datasets/session-cost` — weekly median cost per session by harness, model and turn-count range, in the same public datasets family as app and daily rankings (medium)
 
 Note: No public OpenAPI JSON is reachable (openrouter.ai/docs/openapi.json 404s); the operation inventory was read from the official Go SDK reference pages linked from llms.txt. Generations endpoints were excluded because they require a known generation ID and cannot be bulk-listed. Guardrails, presets, BYOK, files and observability destinations excluded as config.
 

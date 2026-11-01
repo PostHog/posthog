@@ -48,6 +48,10 @@ class OpenRouterEndpointConfig:
     parent_id_column: Optional[str] = None
     # /classifications/task wraps its rows with the snapshot date and window. See openrouter.py.
     task_classifications: bool = False
+    # Top-level response object with snapshot metadata copied onto each row (e.g. /datasets/session-cost `meta`).
+    snapshot_key: Optional[str] = None
+    # Largest `offset` the endpoint accepts. A full page at this offset fails the sync, since rows past it can't be read.
+    max_offset: Optional[int] = None
     should_sync_default: bool = True
 
 
@@ -154,6 +158,17 @@ OPENROUTER_ENDPOINTS: dict[str, OpenRouterEndpointConfig] = {
         # Only the trailing 7-day window exists today; pinned so a new default can't change the table.
         params={"window": "7d"},
         task_classifications=True,
+    ),
+    "session_costs": OpenRouterEndpointConfig(
+        name="session_costs",
+        path="/datasets/session-cost",
+        requires_management_key=False,
+        # One cell per harness, model and session turn-count bucket.
+        primary_keys=["app_slug", "model_permaslug", "turn_range"],
+        pagination="offset_limit",
+        page_size=500,
+        snapshot_key="meta",
+        max_offset=5000,
     ),
     "batches": OpenRouterEndpointConfig(
         name="batches",
