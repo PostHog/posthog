@@ -2171,7 +2171,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 self._validate_opt_out_of_messages_action(config.get("inputs") or {}, strict=strict)
             template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
-            already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
+            already_stored = (data.get("id"), template_id) in (
+                self.context.get("stored_gated_template_actions") or set()
+            )
             if template is not None and gating_flag is not None and not already_stored:
                 # Outside a request (internal re-saves, direct construction) there is no team to
                 # evaluate the flag against, and the flow was already allowed to hold this step.
@@ -3531,15 +3533,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
-        # Action ids already stored with a flag-gated template, so the gate only polices new
-        # adoption: a flow that was allowed to hold the step keeps validating after a flag
+        # Action ids already stored with their flag-gated template, so the gate only polices new
+        # adoption, including a different gated template swapped in under a stored id: a flow that was allowed to hold the step keeps validating after a flag
         # dial-down or eval blip (the gate fails closed), instead of becoming un-editable and
         # failing refresh_hog_flows. Only an active flow's steps count - active means the step
         # passed the gate at activation, whereas a draft can hold the step without ever passing
         # it (lenient web saves skip strict validation), so grandfathering a draft would let an
         # unflagged team activate the step.
-        self.context["stored_gated_template_action_ids"] = {
-            action["id"]
+        self.context["stored_gated_template_actions"] = {
+            (action["id"], (action.get("config") or {}).get("template_id"))
             for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
             if isinstance(action, dict)
             and action.get("id")
