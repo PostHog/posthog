@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from posthog.hogql.database.direct_trino_table import is_managed_trino_external_catalog
 from posthog.hogql.database.trino_locator import TrinoTableLocator
 
 from products.managed_warehouse.backend.common import (
@@ -14,6 +15,7 @@ from products.managed_warehouse.backend.common import (
     ducklake_data_modeling_schema,
     ducklake_data_modeling_table_name,
 )
+from products.managed_warehouse.backend.storage_location import delta_table_root
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,76 @@ def build_trino_table_locators(
             if database.has_table(logical_name):
                 locators[logical_name] = locator
 
+    for name, locator in _external_trino_locators_for_warehouse_tables(team_id).items():
+        if name not in locators and database.has_table(name):
+            locators[name] = locator
+
+    return locators
+
+
+def _external_trino_locators_for_warehouse_tables(team_id: int) -> dict[str, TrinoTableLocator]:
+    """Map self-managed Delta warehouse tables to the external Trino table that reads the same files.
+
+    A warehouse table keeps its name and its ClickHouse ``s3()`` read; only Trino reads it through the
+    tenant's catalog. A location that several external tables share is ambiguous and maps nothing.
+    """
+    from django.db.models import Q
+
+    from products.data_warehouse.backend.facade.sources import (
+        DIRECT_TRINO_CATALOG_OPTION,
+        DIRECT_TRINO_LOCATION_OPTION,
+        DIRECT_TRINO_SCHEMA_OPTION,
+        DIRECT_TRINO_TABLE_OPTION,
+        DIRECT_TRINO_URL_PATTERN,
+    )
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
+
+    tables = (
+        DataWarehouseTable.objects.queryable()
+        .filter(team_id=team_id)
+        .filter(
+            Q(external_data_source__isnull=True, format=DataWarehouseTableFormat.Delta)
+            | Q(
+                external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT,
+                url_pattern=DIRECT_TRINO_URL_PATTERN,
+                **{f"options__{DIRECT_TRINO_LOCATION_OPTION}__isnull": False},
+            )
+        )
+        .select_related("external_data_source")
+    )
+    external_by_location: dict[str, list[TrinoTableLocator]] = {}
+    warehouse_roots: dict[str, str] = {}
+    for table in tables:
+        source = table.external_data_source
+        if source is None:
+            root = delta_table_root(table.url_pattern or "")
+            if root is not None:
+                warehouse_roots[table.name] = root
+            continue
+        options = table.options if isinstance(table.options, dict) else {}
+        catalog = options.get(DIRECT_TRINO_CATALOG_OPTION)
+        schema = options.get(DIRECT_TRINO_SCHEMA_OPTION)
+        table_name = options.get(DIRECT_TRINO_TABLE_OPTION)
+        location = options.get(DIRECT_TRINO_LOCATION_OPTION)
+        if (
+            not source.is_dynamic_managed_warehouse
+            or not isinstance(catalog, str)
+            or not is_managed_trino_external_catalog(catalog)
+            or not isinstance(schema, str)
+            or not isinstance(table_name, str)
+            or not isinstance(location, str)
+        ):
+            continue
+        external_by_location.setdefault(location, []).append((catalog, schema, table_name))
+
+    locators: dict[str, TrinoTableLocator] = {}
+    for name, root in warehouse_roots.items():
+        candidates = external_by_location.get(root, [])
+        if len(candidates) == 1:
+            locators[name] = candidates[0]
+        elif candidates:
+            logger.warning("Warehouse table %s matches %d external Trino tables; mapping none", name, len(candidates))
     return locators
 
 

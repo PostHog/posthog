@@ -14,6 +14,9 @@ DIRECT_TRINO_URL_PATTERN = "direct://trino"
 DIRECT_TRINO_CATALOG_OPTION = "direct_trino_catalog"
 DIRECT_TRINO_SCHEMA_OPTION = "direct_trino_schema"
 DIRECT_TRINO_TABLE_OPTION = "direct_trino_table"
+# Normalized s3:// root of the files a managed Trino external table reads. Lets a warehouse table
+# that points at the same files compile to this table on Trino.
+DIRECT_TRINO_LOCATION_OPTION = "direct_trino_location"
 
 
 def get_direct_trino_table_options(
@@ -37,6 +40,7 @@ def upsert_direct_trino_table(
     source_catalog: str | None = None,
     source_schema: str,
     source_table_name: str,
+    source_location: str | None = None,
 ) -> DataWarehouseTable:
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -48,6 +52,10 @@ def upsert_direct_trino_table(
             source_table_name=source_table_name,
         ),
     }
+    # A location that discovery no longer reports must not keep mapping other tables to this one.
+    options.pop(DIRECT_TRINO_LOCATION_OPTION, None)
+    if source_location:
+        options[DIRECT_TRINO_LOCATION_OPTION] = source_location
 
     if existing_table is None:
         return create_datawarehousetable(
