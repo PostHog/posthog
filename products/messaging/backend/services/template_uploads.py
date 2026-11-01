@@ -12,6 +12,7 @@ from products.messaging.backend.facade.contracts import (
     TemplateSource,
     TemplateUpload,
     TemplateUploadResult,
+    TransactionalEmailPaused,
 )
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.models.message_template import KEY_CONSTRAINT
@@ -19,6 +20,7 @@ from products.messaging.backend.services.content_hash import email_content_hash,
 from products.messaging.backend.services.message_templates import record_content_hash
 from products.messaging.backend.services.template_saves import WorkflowEditorCheck, save_locked_template
 from products.messaging.backend.services.transactional_email import is_transactional, known_key, make_transactional
+from products.workflows.backend.facade.transactional_emails import code_sends_paused, transactional_email_workflow_email
 
 SOURCE_PARTS = ("repository", "path", "ref")
 
@@ -71,7 +73,7 @@ def _upload(
 ) -> Uploaded:
     template = locked_template_with_key(team_id, upload.key)
     if template is None or template.managed_by is None:
-        _require_editor_of_the_key_workflow(team_id, upload.key, require_workflow_editor)
+        _require_the_key_workflow_can_be_taken_over(team_id, upload.key, require_workflow_editor)
     if template is None:
         require_workflow_create()
         return Uploaded(result=TemplateUploadResult.CREATED, template=_create(team_id, upload, user_id=user_id))
@@ -95,10 +97,18 @@ def _upload(
     return Uploaded(result=TemplateUploadResult.UPDATED, template=template)
 
 
-def _require_editor_of_the_key_workflow(team_id: int, key: str, require_workflow_editor: WorkflowEditorCheck) -> None:
+def _require_the_key_workflow_can_be_taken_over(
+    team_id: int, key: str, require_workflow_editor: WorkflowEditorCheck
+) -> None:
     key_workflow = known_key(team_id, key)
-    if key_workflow is not None:
-        require_workflow_editor(key_workflow.hog_flow_id)
+    if key_workflow is None:
+        return
+    require_workflow_editor(key_workflow.hog_flow_id)
+    if code_sends_paused(team_id, key_workflow.hog_flow_id):
+        raise TransactionalEmailPaused(
+            "Code sends under this key are paused, so an upload can't take them over. Resume them in Workflows, "
+            "then upload again."
+        )
 
 
 def locked_template_with_key(team_id: int, key: str) -> MessageTemplate | None:
@@ -169,7 +179,14 @@ def _is_unchanged(template: MessageTemplate, upload: TemplateUpload) -> bool:
         and template.content_hash == uploaded_hash
         and template.managed_by == TemplateManagedBy.CODE
         and is_transactional(template)
+        and email_content_hash(_sent_email(template)) == uploaded_hash
     )
+
+
+def _sent_email(template: MessageTemplate) -> dict[str, Any]:
+    if template.transactional_hog_flow_id is None:
+        return {}
+    return transactional_email_workflow_email(template.team_id, template.transactional_hog_flow_id)
 
 
 def _is_superseded(template: MessageTemplate, upload: TemplateUpload) -> bool:

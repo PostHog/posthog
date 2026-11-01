@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -22,6 +24,7 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services import template_uploads
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
+from products.workflows.backend.models import HogFlow
 
 WELCOME: dict[str, Any] = {
     "name": "Welcome",
@@ -144,14 +147,32 @@ class TestTemplateUpload(APIBaseTest):
             edited.call_args.kwargs["updated_at"] == MessageTemplate.objects.get(id=first["id"]).updated_at.isoformat()
         )
 
-    def test_an_upload_repairs_a_stored_hash_that_does_not_describe_the_content(self, _post, _flag, _capture):
+    def _edit_the_workflow_outside_the_template(self, hog_flow_id: str) -> None:
+        workflow = HogFlow.objects.get(team=self.team, id=hog_flow_id)
+        workflow.actions[1]["config"]["inputs"]["email"]["value"]["html"] = "<p>Edited in the workflow</p>"
+        HogFlow.objects.filter(team=self.team, id=hog_flow_id).update(actions=workflow.actions)
+
+    @parameterized.expand(
+        [
+            (
+                "stored_hash",
+                lambda test, upload: MessageTemplate.objects.filter(id=upload["id"]).update(content_hash=GREETING_HASH),
+            ),
+            (
+                "workflow_edited_outside_the_template",
+                lambda test, upload: test._edit_the_workflow_outside_the_template(upload["transactional_hog_flow_id"]),
+            ),
+        ]
+    )
+    def test_an_upload_repairs_what_no_longer_matches_the_uploaded_content(self, _post, _flag, _capture, _name, drift):
         first = self._upload(WELCOME)
-        MessageTemplate.objects.filter(id=first["id"]).update(content_hash=GREETING_HASH)
+        drift(self, first)
 
         repaired = self._upload(WELCOME)
 
         assert (repaired["result"], repaired["content_hash"]) == ("updated", WELCOME_HASH)
         assert self._template(first["id"])["content_hash"] == WELCOME_HASH
+        assert self._sent_email(first["transactional_hog_flow_id"])["html"] == WELCOME["html"]
 
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
@@ -302,9 +323,7 @@ class TestTemplateUpload(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert not MessageTemplate.objects.exists()
 
-    def test_refuses_a_first_upload_under_a_key_whose_workflow_the_member_cannot_edit(
-        self, post: MagicMock, _flag, _capture
-    ):
+    def _code_send_under_the_key(self, post: MagicMock) -> str:
         post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
         code_send = {
             "to": "user@example.com",
@@ -315,7 +334,30 @@ class TestTemplateUpload(APIBaseTest):
         }
         sent = self.psak.post(f"/api/projects/{self.team.id}/messaging/send/email/", code_send, format="json")
         assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
-        key_workflow_id = post.call_args.args[0].split("/hog_flows/")[1].split("/")[0]
+        return post.call_args.args[0].split("/hog_flows/")[1].split("/")[0]
+
+    @parameterized.expand(
+        [
+            ("email_sending_paused", lambda: {"email_sending_paused_at": timezone.now()}),
+            ("not_active", lambda: {"status": "draft"}),
+        ]
+    )
+    def test_refuses_a_first_upload_under_a_key_whose_code_sends_are_paused(
+        self, post: MagicMock, _flag, _capture, _name, pause
+    ):
+        key_workflow_id = self._code_send_under_the_key(post)
+        HogFlow.objects.filter(team=self.team, id=key_workflow_id).update(**pause())
+
+        response = self.psak.put(self.url, WELCOME, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "transactional_email_paused"
+        assert not MessageTemplate.objects.exists()
+
+    def test_refuses_a_first_upload_under_a_key_whose_workflow_the_member_cannot_edit(
+        self, post: MagicMock, _flag, _capture
+    ):
+        key_workflow_id = self._code_send_under_the_key(post)
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
         ]
