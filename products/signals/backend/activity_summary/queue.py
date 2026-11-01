@@ -42,12 +42,16 @@ from django.db.models import (
 from django.db.models.expressions import Combinable
 from django.db.models.functions import Cast, Coalesce, Extract, Greatest, Ln, RowNumber
 
+import redis
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, FileSystemViewLog, Team
 
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights
-from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
+from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS, mcp_redis_client
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
+from products.signals.backend.activity_summary.mcp_buffer import DIRTY_KEY, parse_record, records_key, window_days
 from products.signals.backend.activity_summary.prompt import COMPUTED_MAX_CHARS, PROMPT_VERSION, system_prompt
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
@@ -58,7 +62,9 @@ from products.signals.backend.activity_summary.render import (
     SANDBOX_PROMPT_TITLE_PREFIX,
     SCENE_VIEW_TYPE,
     SCOUT_CLIENT_PREFIX,
+    McpItem,
     RenderLimits,
+    is_plumbing_route,
 )
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MAX_ATTEMPTS, MODEL_PRICES, cost_usd
 from products.signals.backend.models import (
@@ -67,6 +73,8 @@ from products.signals.backend.models import (
     UserActivitySummaryQueueState,
 )
 from products.tasks.backend.facade.user_task_summaries import list_user_task_times
+
+logger = structlog.get_logger(__name__)
 
 DAY = datetime.timedelta(days=1)
 # Fewer characters per token than the render estimate, so the bound is high, not low.
@@ -90,6 +98,9 @@ TIER_PAYING = "paying"
 TIER_FREE = "free"
 # A summary younger than this many target intervals counts as fresh on the tick event.
 _FRESH_STALENESS = 2
+# One tick drains at most this many members of the MCP dirty set. The other members wait for the next tick.
+MAX_MCP_FEED_PAIRS = 2_000
+_MCP_FEED_BATCH = 200
 
 # Why the queue picked a pair.
 TRIGGER_ACTIVITY = "activity"
@@ -98,7 +109,9 @@ TRIGGER_VIEWS = "views"
 # A pair with no summary and a pending score below `min_score`, due on its days with views.
 TRIGGER_COLD_START_VIEWS = "cold_start_views"
 TRIGGER_STALE = "stale"
-TRIGGERS = (TRIGGER_ACTIVITY, TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS, TRIGGER_STALE)
+# MCP sessions make up at least half of the weighted pending score.
+TRIGGER_MCP = "mcp"
+TRIGGERS = (TRIGGER_ACTIVITY, TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS, TRIGGER_STALE, TRIGGER_MCP)
 VIEW_TRIGGERS = frozenset({TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS})
 
 
@@ -577,6 +590,122 @@ def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: 
     return fed
 
 
+@frozen
+class McpFeed:
+    pairs: int = 0
+    sessions: int = 0
+    # Dirty members of teams that are not enrolled, or members that do not parse.
+    ignored: int = 0
+    error: bool = False
+
+
+def _mcp_pair(member: bytes | str, team_ids: set[int]) -> ActivitySummaryPair | None:
+    text = member.decode() if isinstance(member, bytes) else member
+    team_id, _, user_id = text.partition(":")
+    try:
+        pair = ActivitySummaryPair(team_id=int(team_id), user_id=int(user_id))
+    except ValueError:
+        return None
+    return pair if pair.team_id in team_ids else None
+
+
+def _mcp_sessions(records: Iterable[McpItem]) -> tuple[int, datetime.datetime | None]:
+    """The distinct sessions of the records without plumbing routes, and the time of the newest one.
+
+    A record with no session id counts as its own session."""
+    sessions: set[str] = set()
+    without_session = 0
+    last_at: datetime.datetime | None = None
+    for record in records:
+        if is_plumbing_route(record.route_name):
+            continue
+        if record.session_id:
+            sessions.add(record.session_id)
+        else:
+            without_session += 1
+        last_at = record.at if last_at is None else max(last_at, record.at)
+    return len(sessions) + without_session, last_at
+
+
+def _read_mcp(
+    client: redis.Redis,
+    pairs: list[ActivitySummaryPair],
+    watermarks: dict[ActivitySummaryPair, datetime.datetime | None],
+    config: ActivitySummaryConfig,
+    now: datetime.datetime,
+) -> dict[ActivitySummaryPair, list[McpItem]]:
+    """The buffered records of each pair after its watermark, from the newest `mcp_buffer_days` days, in one pipeline."""
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
+    starts: dict[ActivitySummaryPair, datetime.datetime] = {}
+    keys: list[tuple[ActivitySummaryPair, str]] = []
+    for pair in pairs:
+        watermark = watermarks.get(pair)
+        starts[pair] = window_start if watermark is None else max(window_start, watermark)
+        for day in window_days(starts[pair], now, config.mcp_buffer_days):
+            keys.append((pair, records_key(pair.team_id, pair.user_id, day)))
+    pipeline = client.pipeline(transaction=False)
+    for _, key in keys:
+        pipeline.lrange(key, 0, -1)
+    records: dict[ActivitySummaryPair, list[McpItem]] = {pair: [] for pair in pairs}
+    for (pair, _), values in zip(keys, pipeline.execute()):
+        for value in values:
+            record = parse_record(value)
+            if record is not None and record.at > starts[pair]:
+                records[pair].append(record)
+    return records
+
+
+def _set_mcp_score(pair: ActivitySummaryPair, score: float, last_at: datetime.datetime | None) -> None:
+    fields: dict[str, Any] = {
+        # Postgres reads the old `pending_mcp_score` on the right side of every assignment.
+        "pending_score": F("pending_score") - F("pending_mcp_score") + score,
+        "pending_mcp_score": score,
+    }
+    if last_at is not None:
+        fields["last_activity_at"] = Greatest("last_activity_at", last_at)
+    UserActivitySummaryQueueState.objects.for_team(pair.team_id).filter(user_id=pair.user_id).update(**fields)
+
+
+def feed_mcp_queue(
+    config: ActivitySummaryConfig,
+    now: datetime.datetime,
+    team_ids: list[int],
+    redis_client: Callable[[], redis.Redis] = mcp_redis_client,
+) -> McpFeed:
+    """Drain the MCP buffer's dirty set into the queue state of the enrolled pairs.
+
+    Each drained pair gets its MCP score again from the records after its watermark: the `mcp` weight
+    times its distinct sessions. The score replaces the earlier MCP part, so a record never counts twice.
+    The buffer is optional context, so this never raises. A member that left the set before an error
+    comes back with the user's next MCP call.
+    """
+    enrolled = set(team_ids)
+    pairs_fed = sessions_fed = ignored = 0
+    try:
+        client = redis_client()
+        drained = 0
+        while drained < MAX_MCP_FEED_PAIRS:
+            members = client.spop(DIRTY_KEY, min(_MCP_FEED_BATCH, MAX_MCP_FEED_PAIRS - drained))
+            if not members:
+                break
+            drained += len(members)
+            pairs = sorted({pair for member in members if (pair := _mcp_pair(member, enrolled)) is not None})
+            ignored += len(members) - len(pairs)
+            if not pairs:
+                continue
+            records = _read_mcp(client, pairs, _watermarks(sorted({pair.team_id for pair in pairs})), config, now)
+            counted = {pair: _mcp_sessions(records[pair]) for pair in pairs}
+            _create_missing_states([pair for pair, (sessions, _) in counted.items() if sessions])
+            for pair, (sessions, last_at) in counted.items():
+                _set_mcp_score(pair, sessions * config.source_weights.mcp, last_at)
+                pairs_fed += sessions > 0
+                sessions_fed += sessions
+    except Exception:
+        logger.warning("activity_summary.mcp_queue_feed_failed", exc_info=True)
+        return McpFeed(pairs=pairs_fed, sessions=sessions_fed, ignored=ignored, error=True)
+    return McpFeed(pairs=pairs_fed, sessions=sessions_fed, ignored=ignored)
+
+
 def seed_queue(config: ActivitySummaryConfig, team_ids: list[int], end: datetime.datetime) -> int:
     """Set the queue state of these teams from the rows in the window before `end`.
 
@@ -601,7 +730,7 @@ def seed_queue(config: ActivitySummaryConfig, team_ids: list[int], end: datetime
     with transaction.atomic():
         # nosemgrep: idor-lookup-without-team (operator backfill with no user input; filtered to the given teams)
         UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids).update(
-            pending_units=0, pending_score=0.0, pending_view_score=0.0, view_active_days=0
+            pending_units=0, pending_score=0.0, pending_view_score=0.0, pending_mcp_score=0.0, view_active_days=0
         )
         _add_pending(pending)
         _add_pending(viewed, views)
@@ -635,7 +764,12 @@ def sync_pair_state(team_id: int, user_id: int) -> None:
     watermark = stored["input_watermark"]
     cleared = {
         name: F(name) if watermark is None else Case(When(last_activity_at__lte=watermark, then=zero), default=F(name))
-        for name, zero in (("pending_units", 0), ("pending_score", 0.0), ("pending_view_score", 0.0))
+        for name, zero in (
+            ("pending_units", 0),
+            ("pending_score", 0.0),
+            ("pending_view_score", 0.0),
+            ("pending_mcp_score", 0.0),
+        )
     }
     UserActivitySummaryQueueState.objects.for_team(team_id).filter(user_id=user_id).update(
         **_state_fields(stored), **cleared
@@ -706,6 +840,7 @@ def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
             When(stale=True, then=Value(TRIGGER_STALE)),
             # A due pair below `min_score` that is not stale is due only on its days with views.
             When(weighted_score__lt=config.min_score, then=Value(TRIGGER_COLD_START_VIEWS)),
+            When(pending_mcp_score__gte=F("weighted_score") / 2, then=Value(TRIGGER_MCP)),
             When(write_score__lt=F("weighted_score") / 2, then=Value(TRIGGER_VIEWS)),
             default=Value(TRIGGER_ACTIVITY),
         )

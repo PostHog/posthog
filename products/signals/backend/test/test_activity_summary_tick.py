@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import fakeredis
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
@@ -29,6 +30,7 @@ from products.signals.backend.activity_summary import (
 )
 from products.signals.backend.activity_summary.computed import MAX_OWNED, MAX_WATCHED
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights, parse_config
+from products.signals.backend.activity_summary.mcp_buffer import DIRTY_KEY, build_record, records_key
 from products.signals.backend.activity_summary.prompt import (
     MAX_HEADLINE_CHARS,
     MAX_LABEL_CHARS,
@@ -45,6 +47,7 @@ from products.signals.backend.activity_summary.queue import (
     daily_usage,
     enrolled_team_ids,
     enrollment,
+    feed_mcp_queue,
     feed_queue,
     is_team_enrolled_for_generation,
     is_team_enrolled_for_read,
@@ -158,7 +161,6 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_org_share": 0.3,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
-            "source_weights": {"new_views": 1, "repeat_view_days": 0.25},
             "min_score": 4.5,
             "view_update_interval_hours": 72,
             "cold_start_min_active_days": 5,
@@ -167,6 +169,8 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "mcp_calls_per_day": 20,
             "mcp_buffer_days": 14,
             "mcp_render_enabled": True,
+            "mcp_queue_enabled": True,
+            "source_weights": {"new_views": 1, "repeat_view_days": 0.25, "mcp": 2},
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -182,7 +186,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             max_org_share=0.3,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
-            source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25),
+            source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25, mcp=2.0),
             min_score=4.5,
             view_update_interval_hours=72.0,
             cold_start_min_active_days=5,
@@ -191,6 +195,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             mcp_calls_per_day=20,
             mcp_buffer_days=14,
             mcp_render_enabled=True,
+            mcp_queue_enabled=True,
         ),
     ),
     (
@@ -804,7 +809,7 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
         assert selection.due_by_trigger == {
-            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale")
+            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale", "mcp")
         }
 
     def test_the_feed_counts_one_repeat_day_for_many_reopens_of_a_known_object_in_a_day(self) -> None:
@@ -862,6 +867,99 @@ class TestActivitySummaryQueue(BaseTest):
             self._changes(self.user, 3, days_ago=-0.1)
             feed_queue(config, later)
         assert self._select(seed=False, now=later) == [(self.team.id, self.user.id)]
+
+    def _mcp_calls(self, redis: fakeredis.FakeRedis, calls: list[tuple[str, str, float]], team: Team | None = None):
+        records = [
+            build_record(
+                team_id=(team or self.team).id,
+                user_id=self.user.id,
+                session_id=session_id,
+                route_name=route_name,
+                intent="Find why signups dropped",
+                at=NOW - datetime.timedelta(hours=hours_ago),
+            )
+            for session_id, route_name, hours_ago in calls
+        ]
+        for record in records:
+            redis.rpush(records_key(record.team_id, record.user_id, record.day), record.value)
+            redis.sadd(DIRTY_KEY, f"{record.team_id}:{record.user_id}")
+
+    @parameterized.expand(
+        [
+            ("three sessions", [("s1", "insights-list", 3), ("s2", "insights-list", 2), ("", "insights-list", 1)], 3),
+            (
+                "many calls in one session",
+                [("s1", "insights-list", 3), ("s1", "insights-detail", 2), ("s1", "query-create", 1)],
+                1,
+            ),
+            (
+                "plumbing routes and calls before the watermark",
+                [
+                    ("s1", "users-detail", 3),
+                    ("s2", "project_llm_skills-list", 2),
+                    ("s3", "insights-list", 30),
+                    ("s4", "insights-list", 1),
+                ],
+                1,
+            ),
+        ]
+    )
+    def test_the_mcp_feed_scores_sessions_and_counts_a_record_once(
+        self, _name: str, calls: list[tuple[str, str, float]], sessions: int
+    ) -> None:
+        watermark = NOW - datetime.timedelta(hours=24)
+        self._summary(self.user, generated_at=watermark, input_watermark=watermark)
+        redis = fakeredis.FakeRedis()
+        self._mcp_calls(redis, calls)
+        config = self._config()
+
+        feeds = [feed_mcp_queue(config, NOW, [self.team.id], redis_client=lambda: redis)]
+        redis.sadd(DIRTY_KEY, f"{self.team.id}:{self.user.id}")
+        feeds.append(feed_mcp_queue(config, NOW, [self.team.id], redis_client=lambda: redis))
+
+        assert [(feed.pairs, feed.sessions, feed.error) for feed in feeds] == [(1, sessions, False)] * 2
+        state = UserActivitySummaryQueueState.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert (state.pending_score, state.pending_mcp_score) == (float(sessions), float(sessions))
+        selection = select_pairs(config, NOW, 10)
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, "mcp")][: sessions >= 3]
+
+    def test_the_mcp_feed_ignores_teams_that_are_not_enrolled_and_survives_a_redis_error(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        redis = fakeredis.FakeRedis()
+        self._mcp_calls(redis, [("s1", "insights-list", 1)], team=other_team)
+
+        feed = feed_mcp_queue(self._config(), NOW, [self.team.id], redis_client=lambda: redis)
+        broken = feed_mcp_queue(
+            self._config(), NOW, [self.team.id], redis_client=MagicMock(side_effect=ConnectionError("unreachable"))
+        )
+
+        assert (feed.pairs, feed.ignored, feed.error) == (0, 1, False)
+        assert broken.error is True
+        assert not UserActivitySummaryQueueState.objects.for_team(other_team.id).exists()
+
+    @parameterized.expand([("queue off", False, True, 1), ("render off", True, False, 1), ("both on", True, True, 0)])
+    def test_the_tick_drains_the_mcp_dirty_set_only_when_both_switches_are_on(
+        self, _name: str, queue_enabled: bool, render_enabled: bool, members_left: int
+    ) -> None:
+        redis = fakeredis.FakeRedis()
+        self._mcp_calls(redis, [("s1", "insights-list", 1), ("s2", "insights-list", 1), ("s3", "insights-list", 1)])
+        config = self._config(mcp_queue_enabled=queue_enabled, mcp_render_enabled=render_enabled)
+
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch.object(tick, "read_config", return_value=config),
+            patch.object(
+                tick,
+                "feed_mcp_queue",
+                side_effect=lambda *args: feed_mcp_queue(*args, redis_client=lambda: redis),
+            ),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        assert redis.scard(DIRTY_KEY) == members_left
+        assert plan.mcp_feed.sessions == 3 * (1 - members_left)
+        assert [pair.trigger for pair in plan.pairs] == ["mcp"][: 1 - members_left]
 
     @parameterized.expand([("activity", 24), ("views", 168), ("cold_start_views", 168), (None, 24)])
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(

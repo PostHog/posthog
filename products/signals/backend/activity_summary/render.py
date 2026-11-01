@@ -1012,7 +1012,7 @@ def view_units(
     return sorted(units, key=lambda unit: (unit.at, unit.text))
 
 
-def _is_plumbing_route(route_name: str) -> bool:
+def is_plumbing_route(route_name: str) -> bool:
     return route_name in MCP_PLUMBING_ROUTES or route_name.startswith(MCP_PLUMBING_ROUTE_PREFIXES)
 
 
@@ -1031,7 +1031,7 @@ def _mcp_sessions(records: Iterable[McpItem], shown_intents: frozenset[str], dro
     A record without a session id is its own session. Consecutive equal intents collapse to one."""
     grouped: dict[tuple[str, int], list[McpItem]] = {}
     for index, record in enumerate(records):
-        if _is_plumbing_route(record.route_name):
+        if is_plumbing_route(record.route_name):
             drops[Drop.MCP_PLUMBING_ROUTE] += 1
             continue
         grouped.setdefault((record.session_id, -1) if record.session_id else ("", index), []).append(record)

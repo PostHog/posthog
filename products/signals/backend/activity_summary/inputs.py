@@ -164,7 +164,7 @@ class McpRead:
     read_error: bool = False
 
 
-def _mcp_redis_client() -> redis.Redis:
+def mcp_redis_client() -> redis.Redis:
     return get_client(
         settings.ACTIVITY_SUMMARY_MCP_BUFFER_REDIS_URL or None,
         socket_timeout=MCP_READ_TIMEOUT_SECONDS,
@@ -179,7 +179,7 @@ def user_mcp_records(
     end: datetime.datetime,
     *,
     max_days: int,
-    redis_client: Callable[[], redis.Redis] = _mcp_redis_client,
+    redis_client: Callable[[], redis.Redis] = mcp_redis_client,
 ) -> McpRead:
     """The user's buffered MCP calls in [start, end), from the newest `max_days` UTC days, in one pipeline.
 
