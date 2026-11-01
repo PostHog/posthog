@@ -924,7 +924,7 @@ PREVIOUS = {
     "modes": ["building"],
     "recent_shift": "Moved from flags to funnels.",
 }
-COMPUTED = {
+COMPUTED: dict[str, Any] = {
     "schema_version": 1,
     "owned": [
         {
