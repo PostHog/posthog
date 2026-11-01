@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import unittest
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, QueryMatchingTest, snapshot_clickhouse_queries
 
 from django.test import override_settings
@@ -797,14 +798,6 @@ GROUP BY date
         assert PREAGGREGATED_TABLE_NAME in query
         self.assertQueryMatchesSnapshot(query)
 
-    def test_integer_timezones(self):
-        assert is_integer_timezone("UTC")
-        assert is_integer_timezone("Europe/London")
-        assert is_integer_timezone("America/New_York")
-        assert not is_integer_timezone("Asia/Kathmandu")  # UTC+5:45
-        assert not is_integer_timezone("Asia/Kolkata")  # UTC+5:30
-        assert not is_integer_timezone("Australia/Adelaide")  # UTC+9:30
-
     def test_enable_for_integer_team_timezones(self):
         self.team.timezone = "Europe/London"
         self.team.save()
@@ -826,6 +819,31 @@ GROUP BY date
         original_query = "select count(), uniq(person_id) from events where event = '$pageview'"
         query = self._parse_and_transform(original_query)
         assert PREAGGREGATED_TABLE_NAME not in query
+
+
+class TestIsIntegerTimezone(unittest.TestCase):
+    def test_integer_timezones(self):
+        assert is_integer_timezone("UTC")
+        assert is_integer_timezone("Europe/London")
+        assert is_integer_timezone("America/New_York")
+        assert not is_integer_timezone("Asia/Kathmandu")  # UTC+5:45
+        assert not is_integer_timezone("Asia/Kolkata")  # UTC+5:30
+        assert not is_integer_timezone("Australia/Adelaide")  # UTC+9:30
+
+    @parameterized.expand(
+        [
+            ("new_york_ambiguous", "America/New_York", datetime(2026, 11, 1, 1, 30, tzinfo=UTC), True),
+            ("new_york_nonexistent", "America/New_York", datetime(2026, 3, 8, 2, 30, tzinfo=UTC), True),
+            ("london_ambiguous", "Europe/London", datetime(2026, 10, 25, 1, 30, tzinfo=UTC), True),
+            ("london_nonexistent", "Europe/London", datetime(2026, 3, 29, 1, 30, tzinfo=UTC), True),
+            ("sydney_ambiguous", "Australia/Sydney", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), True),
+            ("sydney_nonexistent", "Australia/Sydney", datetime(2026, 10, 4, 2, 30, tzinfo=UTC), True),
+            ("adelaide_ambiguous", "Australia/Adelaide", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), False),
+        ]
+    )
+    def test_integer_timezones_in_dst_transition_hour(self, _name, timezone, instant, expected):
+        with time_machine.travel(instant, tick=False):
+            assert is_integer_timezone(timezone) is expected
 
 
 @snapshot_clickhouse_queries
