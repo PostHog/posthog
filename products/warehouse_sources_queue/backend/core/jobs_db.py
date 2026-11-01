@@ -1256,6 +1256,7 @@ class PendingBatch:
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
             "external_destination_ids": self.metadata.get("external_destination_ids"),
+            "writes_warehouse": self.metadata.get("writes_warehouse"),
             "replace_scope": self.metadata.get("replace_scope"),
             "continued_job_ids": self.metadata.get("continued_job_ids"),
         }

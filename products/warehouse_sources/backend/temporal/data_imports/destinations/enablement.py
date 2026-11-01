@@ -7,11 +7,12 @@ in-flight run's remaining batches land, and cannot change what the run bills.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
@@ -19,11 +20,18 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataDestination,
     resolve_destinations,
 )
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 WAREHOUSE_MULTI_DESTINATION_FLAG = "warehouse-multi-destination"
+
+# Turns on the destinations-only run mode for a schema whose destination set has no PostHog warehouse.
+DESTINATIONS_ONLY_RUNS_FLAG = "warehouse-destinations-only-runs"
+
+# The `ExternalDataJob.schema_snapshot` key that marks a destinations-only run.
+DESTINATIONS_ONLY_SNAPSHOT_KEY = "destinations_only"
 
 NO_ACTIVE_DESTINATIONS_MESSAGE = (
     "Every destination this table syncs to is paused, so this sync did not run. "
@@ -88,6 +96,60 @@ def destination_ids_for_run(schema: ExternalDataSchema) -> list[str]:
     return sorted(str(destination.id) for destination in destinations)
 
 
+@frozen
+class RunDestinations:
+    """A run's destination set, split into the PostHog warehouse and the external destinations."""
+
+    external_ids: tuple[str, ...]
+    writes_warehouse: bool
+
+
+def run_destinations(team_id: int, destination_ids: Sequence[str]) -> RunDestinations:
+    """Split the run's destination set with one query.
+
+    `writes_warehouse` gives the same answer as the loader's `warehouse_is_a_destination`. An
+    empty set is the warehouse alone, and a deleted warehouse row does not count.
+    """
+    if not destination_ids:
+        return RunDestinations(external_ids=(), writes_warehouse=True)
+
+    destinations = list(ExternalDataDestination.objects.for_team(team_id).filter(id__in=list(destination_ids)))
+    return RunDestinations(
+        external_ids=tuple(
+            sorted(
+                str(destination.id)
+                for destination in destinations
+                if destination.type != ExternalDataDestination.Type.POSTHOG_WAREHOUSE
+            )
+        ),
+        writes_warehouse=any(
+            destination.is_posthog_warehouse and not destination.deleted for destination in destinations
+        ),
+    )
+
+
+def is_destinations_only_run(schema: ExternalDataSchema, destination_ids: Sequence[str]) -> bool:
+    """Whether a new run of this schema delivers to external destinations and never writes the warehouse.
+
+    Decided once, when the run's job is created, and recorded on the job's schema snapshot. A
+    destinations-only run skips all the work that needs a Delta table: the Delta write and its
+    maintenance, the repartition, the table registration and the post-import steps that read the
+    table. The flag is read only when the set has no warehouse, so every other run pays nothing.
+
+    A CDC schema never qualifies: its history lane writes a `_cdc` table to the warehouse.
+    """
+    if schema.is_cdc or not destination_ids:
+        return False
+    if run_destinations(schema.team_id, destination_ids).writes_warehouse:
+        return False
+    return is_schema_flag_enabled(schema, DESTINATIONS_ONLY_RUNS_FLAG)
+
+
+def is_destinations_only_snapshot(schema_snapshot: Mapping[str, Any] | None) -> bool:
+    """Whether a job's schema snapshot marks a destinations-only run."""
+    return schema_snapshot is not None and schema_snapshot.get(DESTINATIONS_ONLY_SNAPSHOT_KEY) is True
+
+
 def external_destination_ids_for(team_id: int, destination_ids: Sequence[str]) -> list[str]:
     """The subset of `destination_ids` a destination writer delivers, so without the warehouse.
 
@@ -95,11 +157,4 @@ def external_destination_ids_for(team_id: int, destination_ids: Sequence[str]) -
     while deciding what may share a write, and a query there would run for every batch in the
     fleet.
     """
-    if not destination_ids:
-        return []
-
-    return sorted(
-        str(destination.id)
-        for destination in ExternalDataDestination.objects.for_team(team_id).filter(id__in=list(destination_ids))
-        if destination.type != ExternalDataDestination.Type.POSTHOG_WAREHOUSE
-    )
+    return list(run_destinations(team_id, destination_ids).external_ids)

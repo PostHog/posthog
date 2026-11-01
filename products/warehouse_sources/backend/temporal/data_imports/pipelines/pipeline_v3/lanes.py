@@ -188,6 +188,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 # for coalescing when they have no destinations to deliver to.
                 "destination_ids": [],
                 "external_destination_ids": [],
+                "writes_warehouse": True,
             }
         )
         writer = _LaneWriter(lane, s3_batch_writer, producer, job=job)

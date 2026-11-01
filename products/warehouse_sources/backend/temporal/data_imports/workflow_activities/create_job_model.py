@@ -27,8 +27,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    DESTINATIONS_ONLY_SNAPSHOT_KEY,
     NoActiveDestinationsError,
     destination_ids_for_run,
+    is_destinations_only_run,
     is_multi_destination_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
@@ -409,6 +411,10 @@ def create_external_data_job_model_activity(
         if scheduled_full_refresh:
             schema_snapshot["scheduled_full_refresh"] = True
             logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")
+        destinations_only = is_destinations_only_run(schema, destination_ids)
+        if destinations_only:
+            schema_snapshot[DESTINATIONS_ONLY_SNAPSHOT_KEY] = True
+            logger.info("This sync writes only to external destinations. It does not write the PostHog warehouse.")
 
         try:
             job = _create_job(
@@ -475,6 +481,14 @@ def create_external_data_job_model_activity(
         # customer_analytics via external_product_hooks; not imported here).
         person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
 
+        if destinations_only:
+            # Each of these reads the warehouse table, and this run makes no table. The decision is
+            # made here and not in the workflow, so the workflow's commands stay the same.
+            emit_signals_enabled = False
+            enrichment_needed = False
+            statistics_needed = False
+            person_property_sync_enabled = False
+
         fast_return_eligible = not scheduled_full_refresh and _fast_return_eligible(
             schema=schema,
             team_id=inputs.team_id,
@@ -484,7 +498,7 @@ def create_external_data_job_model_activity(
 
         # The repartition activity re-checks this itself; deciding here lets the workflow skip
         # scheduling it at all, which for most syncs is its whole cost.
-        repartition_needed = repartition_activity_has_work(schema)
+        repartition_needed = not destinations_only and repartition_activity_has_work(schema)
 
         # Answered here, after the job row exists, in the order the separate activity ran it. A
         # transient app-DB failure is retried in place: this activity has one Temporal attempt.
@@ -495,10 +509,14 @@ def create_external_data_job_model_activity(
         # Read before this run's own outcome can move it, so it is not counted against itself.
         failed_runs_in_a_row = schema.failed_runs_in_a_row
 
-        source_templates_needed = source.source_type == ExternalDataSourceType.STRIPE and not (
-            ExternalDataJob.objects.filter(
-                team_id=inputs.team_id, pipeline_id=source.id, status=ExternalDataJob.Status.COMPLETED
-            ).exists()
+        source_templates_needed = (
+            not destinations_only
+            and source.source_type == ExternalDataSourceType.STRIPE
+            and not (
+                ExternalDataJob.objects.filter(
+                    team_id=inputs.team_id, pipeline_id=source.id, status=ExternalDataJob.Status.COMPLETED
+                ).exists()
+            )
         )
 
         return CreateExternalDataJobModelActivityOutputs(

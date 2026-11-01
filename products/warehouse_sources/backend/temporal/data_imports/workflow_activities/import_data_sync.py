@@ -51,6 +51,8 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     external_destination_ids_for,
+    is_destinations_only_snapshot,
+    run_destinations,
 )
 from products.warehouse_sources.backend.temporal.data_imports.import_attempt import (
     current_import_attempt,
@@ -602,7 +604,10 @@ async def _import_data_with_reporting(
         # finalizes as usual and the next sync picks the data up once the rewrite lands. The hold
         # lapses on its own if the rewrite stops advancing, so a stuck one costs freshness rather
         # than ingestion.
-        if await database_sync_to_async_pool(_import_held_for_repartition)(model.schema, logger):
+        # A destinations-only run never writes the table that a repartition rewrites.
+        if not is_destinations_only_snapshot(model.schema_snapshot) and await database_sync_to_async_pool(
+            _import_held_for_repartition
+        )(model.schema, logger):
             return PipelineResult(should_trigger_cdp_producer=False, consumer_manages_job_status=False)
 
         await logger.adebug("Running import_data_activity")
@@ -975,6 +980,11 @@ class ImportJobModels:
     # run's one async-safe ORM fetch: the pipeline is built inside an async activity, where
     # the same query raises `SynchronousOnlyOperation`.
     external_destination_ids: list[str] = dataclasses.field(default_factory=list)
+    # Whether the loader writes this run's batches to the PostHog warehouse. Carried on each batch,
+    # so the loader does not ask the database for every batch.
+    writes_warehouse: bool = True
+    # The job was created as a destinations-only run, so the extraction skips all its Delta work.
+    destinations_only: bool = False
 
 
 @database_sync_to_async_pool
@@ -993,14 +1003,22 @@ def _get_models(
     if source is None:
         raise Exception("No source attached to job")
 
+    destinations = run_destinations(job.team_id, list(job.destination_ids or []))
+    destinations_only = is_destinations_only_snapshot(job.schema_snapshot) and not destinations.writes_warehouse
+
     # The pipeline reads `schema.table` to decide if this run is a first sync, so an orphan is linked first.
-    table: DataWarehouseTable | None = relink_orphan_table(schema, source, LOGGER.bind(team_id=job.team_id))
+    # A destinations-only run reads no table, so it must not link one.
+    table: DataWarehouseTable | None = (
+        schema.table if destinations_only else relink_orphan_table(schema, source, LOGGER.bind(team_id=job.team_id))
+    )
     return ImportJobModels(
         job=job,
         schema=schema,
         source=source,
         table=table,
-        external_destination_ids=external_destination_ids_for(job.team_id, list(job.destination_ids or [])),
+        external_destination_ids=list(destinations.external_ids),
+        writes_warehouse=destinations.writes_warehouse,
+        destinations_only=destinations_only,
     )
 
 

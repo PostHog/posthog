@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     resolve_batch,
     verify_delete_enrichment,
 )
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    is_destinations_only_snapshot,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     PostLoadResult,
     run_post_load_operations,
@@ -73,6 +76,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.pos
     record_post_load_phases,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    finalize_sync_bookkeeping_without_table,
     validate_schema_and_update_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.coalescing import (
@@ -1322,6 +1326,9 @@ def _process_external_destinations_only(
 
     Same lifecycle as any other run, minus everything Delta-specific. The batch is done when
     every destination has taken it, and the final batch completes the job.
+
+    A job created as a destinations-only run also gets the sync bookkeeping and the post-import
+    workflow, which then runs only the steps that need no warehouse table.
     """
 
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
@@ -1339,7 +1346,13 @@ def _process_external_destinations_only(
         verify_ownership()
 
     report_phase("finalize")
+    job = _load_job(export_signal.job_id)
+    destinations_only = is_destinations_only_snapshot(job.schema_snapshot)
+    if destinations_only and job.schema is not None:
+        finalize_sync_bookkeeping_without_table(export_signal.job_id, job.schema, logger)
     _mark_job_completed(export_signal)
+    if destinations_only:
+        _trigger_post_import_workflow(export_signal)
 
 
 def _read_constituents(constituents: list[ExportSignalMessage]) -> pa.Table:
@@ -1403,6 +1416,18 @@ def _process_message_reported(
     )
 
     try:
+        # Resolved once per run by the producer. Only a batch queued before it did so asks here.
+        writes_warehouse = (
+            export_signal.writes_warehouse
+            if export_signal.writes_warehouse is not None
+            else warehouse_is_a_destination(export_signal)
+        )
+        if not writes_warehouse:
+            # The customer asked for their data elsewhere and not here, so there is no delta
+            # write, no table to register and no post-import step that reads a table.
+            _process_external_destinations_only(export_signal, verify_ownership)
+            return
+
         # Build the helper early so the idempotency check can use it as a
         # delta-history fallback when the Redis dedup flag is missing — the case
         # where the writer crashed between `DeltaWriter.write` committing and
@@ -1421,12 +1446,6 @@ def _process_message_reported(
             # Batch 0 of a first sync writes the table, so only that batch expects to find none.
             expect_missing=export_signal.is_first_ever_sync and export_signal.batch_index == 0,
         )
-
-        if not warehouse_is_a_destination(export_signal):
-            # The customer asked for their data elsewhere and not here, so there is no delta
-            # write, no table to register and no post-import to run.
-            _process_external_destinations_only(export_signal, verify_ownership)
-            return
 
         append_runs = (
             UnfinishedAppendRuns(schema, delta_table_ref)

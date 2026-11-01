@@ -212,23 +212,23 @@ class PipelineInputs:
     team_id: int
 
 
-async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
-    @database_sync_to_async_pool
-    @retry_on_operational_error
-    def _update():
-        job = ExternalDataJob.objects.get(pk=job_id)
-        # `last_full_run_at` rides along in the same locked write: only a run that reached
-        # post-load extracted anything, which is what bounds how long a schema can go on
-        # negative probes alone (see `_fast_return_eligible`). The helper's select_for_update
-        # also stops this save from clobbering a concurrent `sync_type_config` update.
-        update_sync_type_config_keys(
-            schema_id,
-            team_id,
-            updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
-            extra_model_fields={"last_synced_at": job.created_at},
-        )
+@retry_on_operational_error
+def _update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
+    job = ExternalDataJob.objects.get(pk=job_id)
+    # `last_full_run_at` rides along in the same locked write: only a run that reached
+    # post-load extracted anything, which is what bounds how long a schema can go on
+    # negative probes alone (see `_fast_return_eligible`). The helper's select_for_update
+    # also stops this save from clobbering a concurrent `sync_type_config` update.
+    update_sync_type_config_keys(
+        schema_id,
+        team_id,
+        updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
+        extra_model_fields={"last_synced_at": job.created_at},
+    )
 
-    await _update()
+
+async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
+    await database_sync_to_async_pool(_update_last_synced_at)(job_id, schema_id, team_id)
 
 
 def _purge_stale_buffer_then_mark_initial_sync_complete(
@@ -251,6 +251,21 @@ def _purge_stale_buffer_then_mark_initial_sync_complete(
         if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
             purge_buffer_before_handover(schema, logger)
         mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
+
+
+def finalize_sync_bookkeeping_without_table(
+    job_id: str, schema: ExternalDataSchema, logger: FilteringBoundLogger
+) -> None:
+    """The sync bookkeeping of a completed run that loads no Delta table, such as a destinations-only run.
+
+    Post-load does this for a run that loads a table. Without it, `last_synced_at` and
+    `initial_sync_complete` never advance, so the schema reads as never synced.
+    """
+    _update_last_synced_at(job_id, str(schema.id), schema.team_id)
+    if not schema.initial_sync_complete:
+        _purge_stale_buffer_then_mark_initial_sync_complete(
+            schema_id=str(schema.id), team_id=schema.team_id, logger=logger
+        )
 
 
 async def set_initial_sync_complete(schema_id: str, team_id: int, logger: FilteringBoundLogger) -> None:

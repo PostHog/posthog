@@ -81,6 +81,9 @@ class ExportSignalMessage:
     # None on a message queued before the producer recorded it, which readers treat as unknown
     # rather than as none. Resolved once per run, because the consumer reads it per batch.
     external_destination_ids: Optional[list[str]] = None
+    # Whether the loader writes this batch to the PostHog warehouse, resolved once per run. None for
+    # a batch queued before the producer recorded it, which the loader resolves from `destination_ids`.
+    writes_warehouse: Optional[bool] = None
     replace_scope: Optional[ReplaceScopeRef] = None
     # Jobs that worker restarts stopped and whose cursor this run continues. Their queued batches
     # hold the rows before that cursor, so this run must not complete while one of them is unloaded.
@@ -122,6 +125,7 @@ class ExportSignalMessage:
             cdc_table_mode=data.get("cdc_table_mode"),
             destination_ids=data.get("destination_ids") or [],
             external_destination_ids=data.get("external_destination_ids"),
+            writes_warehouse=data.get("writes_warehouse"),
             replace_scope=ReplaceScopeRef.from_dict(data.get("replace_scope")),
             continued_job_ids=list(data.get("continued_job_ids") or []),
         )

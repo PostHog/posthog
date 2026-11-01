@@ -39,6 +39,9 @@ from products.managed_warehouse.backend.facade.temporal import (
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    is_destinations_only_snapshot,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     DataQualitySuiteTriggerInputs,
     EmitSignalsActivityInputs,
@@ -146,6 +149,8 @@ class PostImportStep:
     key: str
     enabled: typing.Callable[[PostImportGateContext], bool]
     start: typing.Callable[[PostImportWorkflowInputs, PostImportContext], typing.Awaitable[None]]
+    # A destinations-only run makes no warehouse table, so it skips every step that reads one.
+    needs_warehouse_table: bool = True
 
 
 def _emit_signals_gate(gate: PostImportGateContext) -> bool:
@@ -352,7 +357,12 @@ POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=TABLE_SIZE_STEP, enabled=_table_size_gate, start=_start_table_size),
     PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
-    PostImportStep(key=SOURCE_CLEANUP_STEP, enabled=_source_cleanup_gate, start=_start_source_cleanup),
+    PostImportStep(
+        key=SOURCE_CLEANUP_STEP,
+        enabled=_source_cleanup_gate,
+        start=_start_source_cleanup,
+        needs_warehouse_table=False,
+    ),
 )
 
 _STEP_BY_KEY = {step.key: step for step in POST_IMPORT_STEPS}
@@ -427,7 +437,12 @@ def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> Po
         ai_data_processing_approved=ai_data_processing_approved,
         table_size_written=inputs.table_size_written,
     )
-    steps = [step.key for step in POST_IMPORT_STEPS if step.enabled(gate_ctx)]
+    destinations_only = is_destinations_only_snapshot(snapshot)
+    steps = [
+        step.key
+        for step in POST_IMPORT_STEPS
+        if not (destinations_only and step.needs_warehouse_table) and step.enabled(gate_ctx)
+    ]
 
     return PostImportContext(
         source_type=source_type,
