@@ -9,6 +9,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.direct_trino_table import DirectTrinoTable
+from posthog.hogql.database.models import StringDatabaseField, Table, TableNode
 from posthog.hogql.parser import parse_select
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     FLAG_EVALUATIONS_COMPLETE_DAYS,
@@ -95,11 +98,16 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         timezone: str = "UTC",
         *,
         only_in_flag_evaluations: bool = False,
+        database: Database | None = None,
     ) -> bool:
         select = parse_select(query, placeholders=placeholders)
         assert isinstance(select, ast.SelectQuery)
         return can_read_flag_evaluations(
-            select, datetime.now(UTC), ZoneInfo(timezone), only_in_flag_evaluations=only_in_flag_evaluations
+            select,
+            datetime.now(UTC),
+            ZoneInfo(timezone),
+            only_in_flag_evaluations=only_in_flag_evaluations,
+            database=database,
         )
 
     @parameterized.expand(
@@ -519,6 +527,34 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     @pytest.mark.timeout(5, func_only=True)
     def test_refuses_a_query_that_breaks_a_condition(self, _name: str, query: str):
         assert self._can_read(query) is False
+
+    @parameterized.expand(
+        [
+            ("regular_table_spelled_in_another_case", "Properties", "Properties", False, True),
+            ("regular_table_spelled_the_same", "properties", "properties", False, False),
+            ("case_folding_table_spelled_in_another_case", "properties", "Properties", True, False),
+        ]
+    )
+    def test_joined_table_shadows_a_column_in_another_case_only_when_it_folds_case(
+        self, _name: str, registered: str, spelled: str, folds_case: bool, expected: bool
+    ):
+        fields = {"distinct_id": StringDatabaseField(name="distinct_id")}
+        table: Table = (
+            DirectTrinoTable(
+                name=registered,
+                fields=fields,
+                external_data_source_id="source-id",
+                trino_catalog="c",
+                trino_schema="s",
+                trino_table_name=registered,
+            )
+            if folds_case
+            else Table(fields=fields)
+        )
+        database = Database(include_posthog_tables=False)
+        database.tables.add_child(TableNode(name=registered, table=table, case_insensitive=folds_case))
+        query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled}.distinct_id")
+        assert self._can_read(query, database=database) is expected
 
     @parameterized.expand(
         [
