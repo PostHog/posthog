@@ -189,6 +189,7 @@ def save_template_content(
 
 
 def check_template_write(template: MessageTemplateRow, intent: TemplateWriteIntent) -> None:
+    template_keys.check_key_kept(template, intent)
     template_ownership.check_write(template, intent)
 
 

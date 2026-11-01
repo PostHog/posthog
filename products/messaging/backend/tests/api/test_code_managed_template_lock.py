@@ -103,6 +103,15 @@ class TestCodeManagedTemplateLock(APIBaseTest):
         )
         assert self._workflow_version(uploaded["transactional_hog_flow_id"]) == 1
 
+    def test_a_new_key_for_a_code_managed_template_is_refused_as_a_key_change(self, _post, _flag, _capture):
+        uploaded = self._upload(WELCOME)
+
+        response = self.client.patch(self._url(uploaded["id"]), {"key": "other"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("key_already_set", "key")
+        assert self._template(uploaded["id"])["key"] == "welcome"
+
     def test_an_mcp_update_gets_the_same_refusal(self, _post, _flag, _capture):
         uploaded = self._upload(WELCOME)
         token = generate_random_token_personal()
