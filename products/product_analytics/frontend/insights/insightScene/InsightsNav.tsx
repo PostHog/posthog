@@ -22,6 +22,10 @@ export function InsightsNav(): JSX.Element {
             <LemonTabs
                 activeKey={activeView}
                 onChange={(newKey) => {
+                    // LemonTabs also fires onChange for the active tab, and some views (web analytics) have no default query
+                    if (newKey === activeView) {
+                        return
+                    }
                     posthog.capture('insight type tab clicked', { insight_type: newKey, previous_type: activeView })
                     setActiveView(newKey)
                 }}
