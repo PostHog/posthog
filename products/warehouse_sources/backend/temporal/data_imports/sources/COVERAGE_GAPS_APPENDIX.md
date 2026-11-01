@@ -9815,10 +9815,10 @@ Today (4): `clicks_blocked`, `clicks_permitted`, `messages_blocked`, `messages_d
 
 Diffed against: <https://help.proofpoint.com/Threat_Insight_Dashboard/API_Documentation>
 
-- [ ] `Threat summary (GET /v2/threat/summary/{threatId})` — resolve threat identifiers from existing SIEM events into threat details and classifications (high)
-- [ ] `Campaign IDs and details (GET /v2/campaign/ids; GET /v2/campaign/{campaignId})` — resolve campaign identifiers in SIEM events and analyze related threat activity (high)
-- [ ] `Very Attacked People (GET /v2/people/vap)` — measure the vendor attack index and identify highly targeted users (high)
-- [ ] `Top clickers (GET /v2/people/top-clickers)` — rank risky clicking behavior with user identity and threat family breakdowns (medium)
+- [x] `Threat summary (GET /v2/threat/summary/{threatId})` — resolve threat identifiers from existing SIEM events into threat details and classifications (high)
+- [x] `Campaign IDs and details (GET /v2/campaign/ids; GET /v2/campaign/{campaignId})` — resolve campaign identifiers in SIEM events and analyze related threat activity (high)
+- [x] `Very Attacked People (GET /v2/people/vap)` — measure the vendor attack index and identify highly targeted users (high)
+- [x] `Top clickers (GET /v2/people/top-clickers)` — rank risky clicking behavior with user identity and threat family breakdowns (medium)
 - [ ] `Forensics (GET /v2/forensics)` — analyze threat evidence and indicators of compromise linked to events (medium)
 
 Note: The official API index links the People, Campaign, Threat, and Forensics references, whose GET operations were inspected. Threat summaries and forensics need IDs from existing events; campaign details need an ID listing or event fan-out. People results use rolling windows and quotas. SIEM aggregate endpoints duplicate existing tables, and URL decoding is excluded.
