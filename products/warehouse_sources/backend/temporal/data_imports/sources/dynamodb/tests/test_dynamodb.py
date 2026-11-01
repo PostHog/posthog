@@ -2,6 +2,8 @@ from typing import Any
 
 import pytest
 
+from botocore.credentials import Credentials
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -24,19 +26,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     DynamoDBSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIATEST", "secret")
+
 
 def _client() -> DynamoDBClient:
-    return DynamoDBClient(access_key_id="AKIATEST", secret_access_key="secret", region="us-east-1")
+    return DynamoDBClient(credentials=CREDENTIALS, region="us-east-1")
 
 
 def _driver() -> SourceDriver:
     return SourceDriver(
         DynamoDBSource(),
-        DynamoDBSourceConfig(
-            aws_access_key_id="AKIATEST",
-            aws_secret_access_key="secret",
-            aws_region="us-east-1",
-            aws_session_token=None,
+        DynamoDBSourceConfig.from_dict(
+            {"aws_access_key_id": "AKIATEST", "aws_secret_access_key": "secret", "aws_region": "us-east-1"}
         ),
     )
 
@@ -115,7 +116,7 @@ class TestSigning:
     def test_invalid_region_is_rejected_before_any_request(self) -> None:
         with scripted_network([]) as network:
             with pytest.raises(ValueError):
-                DynamoDBClient(access_key_id="AKIA", secret_access_key="s", region="evil.com")
+                DynamoDBClient(credentials=CREDENTIALS, region="evil.com")
 
         assert network.requests_log == []
         assert network.session_options == []
@@ -265,7 +266,7 @@ class TestGetRows:
 class TestValidateCredentials:
     def test_valid_credentials_probe_list_tables(self) -> None:
         with scripted_network([ScriptedResponse(json={"TableNames": []})]) as network:
-            valid, message = validate_credentials("AKIA", "secret", "us-east-1")
+            valid, message = validate_credentials(CREDENTIALS, "us-east-1")
 
         assert (valid, message) == (True, None)
         assert network.requests_log[0].headers["x-amz-target"] == "DynamoDB_20120810.ListTables"
@@ -280,14 +281,14 @@ class TestValidateCredentials:
     )
     def test_known_failures_map_to_an_actionable_message(self, code: str, expected_fragment: str) -> None:
         with scripted_network([_error(code)]):
-            valid, message = validate_credentials("AKIA", "secret", "us-east-1")
+            valid, message = validate_credentials(CREDENTIALS, "us-east-1")
 
         assert valid is False
         assert message is not None and expected_fragment in message
 
     def test_bad_region_fails_without_a_request(self) -> None:
         with scripted_network([]) as network:
-            valid, message = validate_credentials("AKIA", "secret", "not a region")
+            valid, message = validate_credentials(CREDENTIALS, "not a region")
 
         assert valid is False
         assert message is not None and "valid AWS region" in message
@@ -296,7 +297,7 @@ class TestValidateCredentials:
 
     def test_network_failure_reports_a_connectivity_message(self) -> None:
         with scripted_network([ConnectionError("nope")]) as network:
-            valid, message = validate_credentials("AKIA", "secret", "us-east-1")
+            valid, message = validate_credentials(CREDENTIALS, "us-east-1")
 
         assert valid is False
         assert message is not None and "Could not reach DynamoDB" in message

@@ -49,7 +49,7 @@ NON_RETRYABLE_ERROR_MESSAGES: dict[str, str | None] = {
     "SignatureDoesNotMatch": "AWS could not verify the request signature. Check your secret access key, then reconnect.",
     "ExpiredTokenException": "Your AWS session token has expired. Enter a new one and reconnect.",
     "ExpiredToken": "Your AWS session token has expired. Enter a new one and reconnect.",
-    "AccessDeniedException": "This AWS key can't read DynamoDB. Grant it dynamodb:ListTables, dynamodb:DescribeTable and dynamodb:Scan, then try again.",
+    "AccessDeniedException": "These AWS credentials can't read DynamoDB. Grant dynamodb:ListTables, dynamodb:DescribeTable and dynamodb:Scan to the key or IAM role, then try again.",
     "ResourceNotFoundException": "This DynamoDB table no longer exists in the selected region. Check the table and region, then try again.",
     "ValidationException": "AWS rejected the request as invalid. Check that the region matches where your tables live.",
     "IncompleteSignature": "AWS could not verify the request signature. Check your access key ID and secret access key, then reconnect.",

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_clo
     VALIDATION_ERROR_MESSAGES,
     AmazonCloudWatchResumeConfig,
     parse_metric_queries,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_cloudwatch.source import (
     AmazonCloudWatchSource,
@@ -48,7 +47,7 @@ def config(**overrides: Any) -> AmazonCloudWatchSourceConfig:
         "start_date": "2024-03-08",
     }
     values.update(overrides)
-    return AmazonCloudWatchSourceConfig(**values)
+    return AmazonCloudWatchSourceConfig.from_dict(values)
 
 
 def driver(**overrides: Any) -> SourceDriver:
@@ -654,7 +653,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("overrides", "expected"),
         [
-            ({"aws_access_key_id": ""}, "AWS access key ID and secret access key are required"),
+            ({"aws_access_key_id": ""}, "Enter both an AWS access key ID and a secret access key."),
             ({"aws_region": "mars"}, "Enter an AWS region code, for example us-east-1."),
             (
                 {"metric_queries": "{"},
@@ -668,14 +667,7 @@ class TestValidateCredentials:
         c = config(**overrides)
 
         with scripted_network([]) as network:
-            assert validate_credentials(
-                c.aws_access_key_id,
-                c.aws_secret_access_key,
-                c.aws_session_token,
-                c.aws_region,
-                c.metric_queries,
-                c.start_date,
-            ) == (False, expected)
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == (False, expected)
 
         assert network.requests == 0
 
@@ -700,12 +692,7 @@ class TestValidateCredentials:
         c = config()
 
         with scripted_network([response]) as network:
-            assert (
-                validate_credentials(
-                    c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
-                )
-                == expected
-            )
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == expected
 
         # STS answers any valid key without an IAM permission, so a key scoped to one table connects.
         probe = network.requests_log[0]
@@ -716,9 +703,7 @@ class TestValidateCredentials:
         c = config(aws_region="cn-north-1")
 
         with scripted_network([CALLER_IDENTITY]) as network:
-            assert validate_credentials(
-                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
-            ) == (True, None)
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == (True, None)
 
         assert network.requests_log[0].origin == "https://sts.cn-north-1.amazonaws.com.cn"
 
@@ -736,8 +721,6 @@ class TestValidateCredentials:
         c = config()
 
         with scripted_network(lambda _request: response) as network:
-            assert validate_credentials(
-                c.aws_access_key_id, c.aws_secret_access_key, c.aws_session_token, c.aws_region, c.metric_queries
-            ) == (False, TRANSIENT_VALIDATION_ERROR)
+            assert AmazonCloudWatchSource().validate_credentials(c, team_id=1) == (False, TRANSIENT_VALIDATION_ERROR)
 
         assert 1 < network.requests <= MAX_ATTEMPTS
