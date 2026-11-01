@@ -117,22 +117,23 @@ def _series(key: str, starts: list[datetime]) -> ScoredSeries:
     )
 
 
+_MISSING_OR_MALFORMED_PAYLOADS: list[tuple[str, Any]] = [
+    ("missing", None),
+    ("not_an_object", "enabled"),
+    ("no_enabled", {"organization_ids": [ORGANIZATION_ID]}),
+    ("enabled_not_bool", {"enabled": "true", "organization_ids": [ORGANIZATION_ID]}),
+    ("disabled", {"enabled": False, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": [2]}),
+    ("allowlist_not_a_list", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": 2}),
+    ("allowlist_null", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": None}),
+    (
+        "allowlist_only_invalid_ids",
+        {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": ["2", True]},
+    ),
+]
+
+
 class TestTickConfig(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("missing", None),
-            ("not_an_object", "enabled"),
-            ("no_enabled", {"organization_ids": [ORGANIZATION_ID]}),
-            ("enabled_not_bool", {"enabled": "true", "organization_ids": [ORGANIZATION_ID]}),
-            ("disabled", {"enabled": False, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": [2]}),
-            ("allowlist_not_a_list", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": 2}),
-            ("allowlist_null", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": None}),
-            (
-                "allowlist_only_invalid_ids",
-                {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": ["2", True]},
-            ),
-        ]
-    )
+    @parameterized.expand(_MISSING_OR_MALFORMED_PAYLOADS)
     def test_a_missing_or_malformed_payload_does_no_work(self, _name: str, payload: Any) -> None:
         with (
             patch("products.signals.backend.anomaly_scores.config.read_flag_payload", return_value=payload),
