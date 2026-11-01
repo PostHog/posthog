@@ -3051,6 +3051,103 @@ export interface WorkflowSetupStatusApi {
     next_open_step: SetupStepKeyEnumApi | null
 }
 
+export interface T3CodeMachineApi {
+    /** The host of the T3 Code environment's MCP URL. Pass it as `machine`. */
+    host: string
+    /** The name the member gave the connection in MCP servers settings. */
+    name: string
+}
+
+export interface T3CodeMachinesApi {
+    /** The member's own T3 Code connections from MCP servers settings, and the team's shared ones. */
+    machines: T3CodeMachineApi[]
+}
+
+export interface T3CodeCallApi {
+    /**
+     * The host of one of the member's T3 Code machines.
+     * @maxLength 253
+     */
+    machine: string
+    /** The token from a `needs_approval` answer. Send it once the member allowed the call. */
+    approval_token?: string
+}
+
+/**
+ * * `ok` - OK
+ * * `needs_approval` - Needs approval
+ */
+export type T3CodeCallStatusEnumApi = (typeof T3CodeCallStatusEnumApi)[keyof typeof T3CodeCallStatusEnumApi]
+
+export const T3CodeCallStatusEnumApi = {
+    Ok: 'ok',
+    NeedsApproval: 'needs_approval',
+} as const
+
+export interface T3CodeProjectApi {
+    /** The T3 Code project id. */
+    id: string
+    /** The project's name in T3 Code. */
+    title: string
+    /** Whether the project has a default model. T3 Code creates tasks only in projects that have one. */
+    has_default_model: boolean
+}
+
+export interface T3CodeProjectsApi {
+    /** `needs_approval` when the member must allow this call first. Repeat it with `approval_token`.
+     *
+     * * `ok` - OK
+     * * `needs_approval` - Needs approval */
+    status: T3CodeCallStatusEnumApi
+    /**
+     * Set with `needs_approval`. Send it back to make the call once.
+     * @nullable
+     */
+    approval_token: string | null
+    /** Set with `ok`: the machine's projects. */
+    projects?: T3CodeProjectApi[]
+}
+
+export interface T3CodeErrorApi {
+    /** What went wrong and what to do about it. */
+    detail: string
+}
+
+export interface T3CodeWebhookTaskRequestApi {
+    /**
+     * The host of one of the member's T3 Code machines.
+     * @maxLength 253
+     */
+    machine: string
+    /** The token from a `needs_approval` answer. Send it once the member allowed the call. */
+    approval_token?: string
+    /**
+     * The T3 Code project the task starts threads in.
+     * @maxLength 200
+     */
+    project_id: string
+    /**
+     * The task's name in T3 Code.
+     * @maxLength 512
+     */
+    title: string
+}
+
+export interface T3CodeWebhookTaskApi {
+    /** `needs_approval` when the member must allow this call first. Repeat it with `approval_token`.
+     *
+     * * `ok` - OK
+     * * `needs_approval` - Needs approval */
+    status: T3CodeCallStatusEnumApi
+    /**
+     * Set with `needs_approval`. Send it back to make the call once.
+     * @nullable
+     */
+    approval_token: string | null
+    /** Set with `ok`: the task's webhook URL. Use it as the step's webhook URL. */
+    webhook_url?: string
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.

@@ -23,6 +23,7 @@ import {
     fetchErrorDetail,
     isFetchResponseRetriable,
 } from '../utils/cdp-fetch'
+import { resolveHmacSha256Secret, signHmacSha256Request } from '../utils/hmac-sha256-signature'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -487,6 +488,19 @@ export class HogExecutorAsyncService {
                 body: params.body ?? '',
                 headers: signedHeaders,
                 key: resolved.key,
+            })
+        }
+
+        if (params.hmac_sha256) {
+            const resolved = resolveHmacSha256Secret(params.hmac_sha256, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signHmacSha256Request({
+                webhookId: params.hmac_sha256.webhook_id,
+                body: params.body ?? '',
+                headers: signedHeaders,
+                secret: resolved.secret,
             })
         }
 
