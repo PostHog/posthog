@@ -1,5 +1,7 @@
 """Tests for AWS role/credential-based integrations."""
 
+from ipaddress import ip_address
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -99,7 +101,8 @@ class TestAWSS3IntegrationModel(BaseTest):
 
 
 class TestS3CompatibleIntegrationModel(BaseTest):
-    def test_integration_from_config_with_valid_config(self):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+    def test_integration_from_config_with_valid_config(self, _mock_resolve):
         integration = S3CompatibleIntegration.integration_from_config(
             team_id=self.team.pk,
             name="my-r2",
@@ -128,7 +131,8 @@ class TestS3CompatibleIntegrationModel(BaseTest):
                 aws_secret_access_key="secret",
             )
 
-    def test_integration_from_config_rejects_duplicate_name(self):
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+    def test_integration_from_config_rejects_duplicate_name(self, _mock_resolve):
         S3CompatibleIntegration.integration_from_config(
             team_id=self.team.pk,
             name="my-r2",
