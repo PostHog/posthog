@@ -24,7 +24,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 9
+RENDER_VERSION = 10
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -58,12 +58,16 @@ ACTIVITY_INTENT_CHARS = 160
 ACTIVITY_MAX_INTENTS = 2
 VIEW_LINE_CHARS = 160
 MCP_LINES = 10
-MCP_LINE_CHARS = 400
-MCP_CHAIN_MAX_INTENTS = 6
+MCP_LINE_CHARS = 480
+MCP_CHAIN_MAX_INTENTS = 4
 # The MCP intent buffer cuts an intent to this many characters.
 MCP_INTENT_CHARS = 200
 # An intent on a long chain keeps at least this many characters, even when the line cap then cuts the chain.
-MIN_MCP_INTENT_CHARS = 30
+MIN_MCP_INTENT_CHARS = 60
+# An agent can keep one MCP session open all day. A longer pause between two calls starts a new line.
+MCP_SESSION_IDLE_GAP = datetime.timedelta(minutes=30)
+# Intents that open with the same text keep it on the first intent only, if the shared text is at least this long.
+MIN_SHARED_OPENING_CHARS = 20
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
 MAX_COMPLETION_TOKENS = 4000
@@ -1025,10 +1029,44 @@ class _McpSession:
     chain: tuple[str, ...]
 
 
+def _split_on_idle(calls: list[McpItem]) -> list[list[McpItem]]:
+    """The calls in time order, in runs that no pause of more than `MCP_SESSION_IDLE_GAP` interrupts."""
+    calls = sorted(calls, key=lambda call: call.at)
+    runs = [calls[:1]]
+    for previous, call in zip(calls, calls[1:]):
+        if call.at - previous.at > MCP_SESSION_IDLE_GAP:
+            runs.append([])
+        runs[-1].append(call)
+    return runs
+
+
+def _shared_opening(first: str, other: str) -> int:
+    """The length of the whole words that open both texts, or 0 when they are shorter than `MIN_SHARED_OPENING_CHARS`."""
+    end = 0
+    while end < min(len(first), len(other)) and first[end].casefold() == other[end].casefold():
+        end += 1
+    if not ((end == len(first) or first[end] == " ") and (end == len(other) or other[end] == " ")):
+        end = max(first.rfind(" ", 0, end), 0)
+    return end if end >= MIN_SHARED_OPENING_CHARS else 0
+
+
+def _distinct_chain(intents: Iterable[str]) -> tuple[str, ...]:
+    """The intents without repeats, and without the opening that later intents share with the first one."""
+    chain: list[str] = []
+    seen: set[str] = set()
+    for intent in intents:
+        if chain:
+            intent = intent[_shared_opening(chain[0], intent) :].lstrip(" ,;:.-–—").strip()
+        if intent and intent.casefold() not in seen:
+            seen.add(intent.casefold())
+            chain.append(intent)
+    return tuple(chain)
+
+
 def _mcp_sessions(records: Iterable[McpItem], shown_intents: frozenset[str], drops: Counter[str]) -> list[_McpSession]:
     """The records grouped by session, without plumbing routes and the intents that `shown_intents` holds.
 
-    A record without a session id is its own session. Consecutive equal intents collapse to one."""
+    A record without a session id is its own session, and a long pause splits a session in two."""
     grouped: dict[tuple[str, int], list[McpItem]] = {}
     for index, record in enumerate(records):
         if _is_plumbing_route(record.route_name):
@@ -1036,34 +1074,59 @@ def _mcp_sessions(records: Iterable[McpItem], shown_intents: frozenset[str], dro
             continue
         grouped.setdefault((record.session_id, -1) if record.session_id else ("", index), []).append(record)
     sessions: list[_McpSession] = []
-    for calls in grouped.values():
-        calls.sort(key=lambda call: call.at)
-        chain: list[str] = []
-        for call in calls:
-            text = clean_text(call.intent, MCP_INTENT_CHARS)
+    for run in (run for calls in grouped.values() for run in _split_on_idle(calls)):
+        intents: list[str] = []
+        for call in run:
+            text = _SUMMARY_LABEL.sub("", clean_text(call.intent, MCP_INTENT_CHARS))
             if not text:
                 continue
             if intent_key(call.intent) in shown_intents:
                 drops[Drop.MCP_IN_ACTIVITY] += 1
                 continue
-            if not chain or chain[-1].casefold() != text.casefold():
-                chain.append(text)
+            intents.append(text)
+        chain = _distinct_chain(intents)
         if not chain:
             drops[Drop.MCP_THIN_SESSION] += 1
             continue
-        sessions.append(_McpSession(at=calls[-1].at, calls=len(calls), chain=tuple(chain)))
+        sessions.append(_McpSession(at=run[-1].at, calls=len(run), chain=chain))
     return sessions
 
 
+def _shorten_chain(chain: Sequence[str], max_intents: int) -> list[str]:
+    """The first and last intents and the longest ones between them, in order, with "…" where intents were left out."""
+    if len(chain) <= max_intents:
+        return list(chain)
+    middle = sorted(range(1, len(chain) - 1), key=lambda index: (-len(chain[index]), index))
+    kept = sorted([0, len(chain) - 1, *middle[: max(max_intents - 2, 0)]])
+    shortened = [chain[kept[0]]]
+    for previous, index in zip(kept, kept[1:]):
+        if index - previous > 1:
+            shortened.append("…")
+        shortened.append(chain[index])
+    return shortened
+
+
+def _intent_room(lengths: Sequence[int], budget: int) -> int:
+    """The longest an intent may be, so the intents fit the budget. Short intents leave their unused share to long ones."""
+    room = budget
+    for remaining, length in enumerate(sorted(lengths)):
+        share = budget // (len(lengths) - remaining)
+        if length > share:
+            room = share
+            break
+        budget -= length
+    return max(room, MIN_MCP_INTENT_CHARS)
+
+
 def _mcp_line(session: _McpSession, limits: RenderLimits) -> str:
-    """The session's intents in order. A long chain keeps its first intents and its last one, with "…" between."""
-    chain = list(session.chain)
-    if len(chain) > limits.mcp_chain_max_intents:
-        chain = [*chain[: limits.mcp_chain_max_intents - 1], "…", chain[-1]]
+    """The session's intents in order. A long chain keeps its first, its last and its longest intents."""
+    chain = _shorten_chain(session.chain, limits.mcp_chain_max_intents)
     calls = "1 call" if session.calls == 1 else f"{session.calls} calls"
     head = f"- {_day(session.at).isoformat()}, {calls}: "
-    # Each intent gets an equal share of the line, so a long first intent cannot push the last one out.
-    room = max((limits.mcp_line_chars - len(head)) // len(chain) - len(MCP_CHAIN_SEPARATOR), MIN_MCP_INTENT_CHARS)
+    intents = [intent for intent in chain if intent != "…"]
+    fixed = len(head) + len(MCP_CHAIN_SEPARATOR) * (len(chain) - 1) + len("…") * (len(chain) - len(intents))
+    # A cap on each intent, so a long first intent cannot push the last one out.
+    room = _intent_room([len(intent) for intent in intents], limits.mcp_line_chars - fixed)
     return cap_line(head + MCP_CHAIN_SEPARATOR.join(cap_line(intent, room) for intent in chain), limits.mcp_line_chars)
 
 
@@ -1073,7 +1136,7 @@ def mcp_units(
     drops: Counter[str],
     limits: RenderLimits = DEFAULT_LIMITS,
 ) -> list[Unit]:
-    """One line per MCP session of the person's agent, with the intents it stated in order.
+    """One line per MCP session of the person's agent, with the distinct intents it stated in order.
 
     An intent that an activity line already shows goes, so a write does not show twice. A chain that
     repeats in `MIN_REPEATED_MCP_CHAINS` or more sessions is a scheduled job, and all its sessions go."""
