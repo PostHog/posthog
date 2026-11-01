@@ -7,7 +7,7 @@ recognizable.
 import re
 import datetime as dt
 from dataclasses import asdict
-from typing import cast
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import models
@@ -48,6 +48,7 @@ from products.metrics.backend.facade.api import (
     list_metric_picker_names,
     list_metric_variable_options,
     run_metric_query,
+    run_promql_query,
     team_has_metrics,
 )
 from products.metrics.backend.facade.contracts import (
@@ -59,6 +60,7 @@ from products.metrics.backend.facade.contracts import (
     MetricGroupBy,
     MetricQueryClause,
     MetricQueryRequest,
+    MetricSeries,
 )
 from products.metrics.backend.facade.enums import (
     AttributeScope,
@@ -194,6 +196,7 @@ class MetricQueryInterval(models.TextChoices):
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
 _RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[hdwmy]$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
+_PROMQL_EXCLUDED_FIELDS = ("metricType", "aggregation", "rangeFunction", "quantile", "filters", "groupBy", "formula")
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -276,6 +279,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         max_length=512,
         help_text="Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.",
     )
+    promql = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=8192,
+        help_text="PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero.",
+    )
     dateFrom = _RelativeOrIsoDateTimeField(
         required=False,
         help_text="Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo.",
@@ -284,6 +293,17 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         required=False,
         help_text="Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted.",
     )
+
+    def to_internal_value(self, data: Any) -> dict:
+        attrs = super().to_internal_value(data)
+        # Read the raw input, because the default of 'aggregation' hides whether the caller set it.
+        if (attrs.get("promql") or "").strip():
+            if set_fields := [field for field in _PROMQL_EXCLUDED_FIELDS if data.get(field)]:
+                raise serializers.ValidationError(
+                    f"'promql' cannot be combined with {', '.join(repr(f) for f in set_fields)}. "
+                    "Put selectors, grouping and functions in the PromQL expression."
+                )
+        return attrs
 
     def validate(self, attrs: dict) -> dict:
         now = timezone.now()
@@ -298,8 +318,11 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         attrs["dateTo"] = date_to
         has_single = bool(attrs.get("metricName"))
         has_clauses = bool(attrs.get("clauses"))
-        if has_single == has_clauses:
-            raise serializers.ValidationError("Provide exactly one of 'metricName' or 'clauses'.")
+        has_promql = bool((attrs.get("promql") or "").strip())
+        if [has_single, has_clauses, has_promql].count(True) != 1:
+            raise serializers.ValidationError("Provide exactly one of 'metricName', 'clauses' or 'promql'.")
+        if has_promql:
+            return attrs
         if attrs.get("formula") and not has_clauses:
             raise serializers.ValidationError("'formula' requires 'clauses'.")
         if has_clauses and attrs.get("metricType"):
@@ -398,6 +421,13 @@ _NO_SERIES_HINT = (
     "name and type with metric-names-list, remove or loosen filters, or widen the time range. With a formula, "
     "check that the clauses group by the same labels: only series with matching labels combine."
 )
+
+
+def _series_response(series: list[MetricSeries]) -> Response:
+    response_data: dict = {"results": [asdict(s) for s in series]}
+    if not any(s.points for s in series):
+        response_data["hint"] = _NO_SERIES_HINT
+    return Response(response_data, status=status.HTTP_200_OK)
 
 
 class _MetricAnomalyBodySerializer(serializers.Serializer):
@@ -1161,16 +1191,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team_id=self.team.pk,
         ):
             raise PermissionDenied("PromQL variable queries are not enabled for this project.")
-        # API keys are budgeted as on /query, so SQL options debit the reads they make.
-        if get_query_tag_value("access_method") == "personal_api_key":
-            tag_queries(api_queries_budgeted=True)
-            if api_queries_budget_enforcement_enabled(self.team):
-                budget = get_api_queries_budget_status(self.team)
-                if budget is not None and budget.remaining_bytes <= 0:
-                    raise Throttled(
-                        wait=budget.retry_after_seconds,
-                        detail="ClickHouse query byte budget exhausted. Try again later.",
-                    )
+        self._enforce_api_queries_budget()
         variables = [
             MetricsDashboardVariable(
                 name=selection["name"],
@@ -1199,6 +1220,19 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         return Response({"results": results}, status=status.HTTP_200_OK)
 
+    def _enforce_api_queries_budget(self) -> None:
+        # API keys are budgeted as on /query, so these reads debit the budget and stop when it is spent.
+        if get_query_tag_value("access_method") != "personal_api_key":
+            return
+        tag_queries(api_queries_budgeted=True)
+        if api_queries_budget_enforcement_enabled(self.team):
+            budget = get_api_queries_budget_status(self.team)
+            if budget is not None and budget.remaining_bytes <= 0:
+                raise Throttled(
+                    wait=budget.retry_after_seconds,
+                    detail="ClickHouse query byte budget exhausted. Try again later.",
+                )
+
     @extend_schema(request=_MetricQueryRequestSerializer, responses={200: _MetricQueryResponseSerializer})
     @action(
         detail=False,
@@ -1214,6 +1248,8 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_data = body.validated_data["query"]
 
         date_to: dt.datetime = query_data.get("dateTo") or timezone.now()
+        if (query_data.get("promql") or "").strip():
+            return self._run_promql_query(request, query_data, date_to)
         try:
             if query_data.get("clauses"):
                 clauses = tuple(_build_clause(c, name=c["name"]) for c in query_data["clauses"])
@@ -1234,6 +1270,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request.user,
             "metrics query ran",
             {
+                "language": "builder",
                 "aggregations": sorted({c.aggregation.value for c in clauses}),
                 "clause_count": len(clauses),
                 "has_formula": metric_request.formula is not None,
@@ -1244,10 +1281,43 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
 
-        response_data: dict = {"results": [asdict(s) for s in series]}
-        if not any(s.points for s in series):
-            response_data["hint"] = _NO_SERIES_HINT
-        return Response(response_data, status=status.HTTP_200_OK)
+        return _series_response(series)
+
+    def _run_promql_query(self, request: Request, query_data: dict, date_to: dt.datetime) -> Response:
+        # PromQL goes to Snuffle, which has its own gate, as the PromQL insights and the Prometheus API do.
+        if not posthog_feature_flag_enabled(
+            SNUFFLE_API_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("PromQL queries are not enabled for this project.")
+        self._enforce_api_queries_budget()
+        try:
+            series = run_promql_query(
+                team=self.team,
+                expr=query_data["promql"],
+                date_from=query_data["dateFrom"],
+                date_to=date_to,
+                interval=query_data.get("interval"),
+            )
+        except ConcurrencyLimitExceeded as exc:
+            raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        report_user_action(
+            request.user,
+            "metrics query ran",
+            {
+                "language": "promql",
+                "series_count": len(series),
+                "result_count": sum(len(s.points) for s in series),
+            },
+            team=self.team,
+            request=request,
+        )
+        return _series_response(series)
 
     @extend_schema(request=_MetricSamplesRequestSerializer, responses={200: _MetricSamplesResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])

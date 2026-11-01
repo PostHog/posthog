@@ -3,14 +3,16 @@ export interface SearchableTool {
     name: string
     title: string
     description: string
+    /** Extra words for the tool's job that the other fields do not contain, such as a vendor name. */
+    searchKeywords?: readonly string[]
 }
 
-const SEARCH_FIELD_WEIGHT = { name: 3, title: 2, description: 1 } as const
+const SEARCH_FIELD_WEIGHT = { name: 3, title: 2, keywords: 2, description: 1 } as const
 export type SearchField = keyof typeof SEARCH_FIELD_WEIGHT
 
 /** A token counts once, at its highest-weight field, so a name hit does not
  *  also score for a description mention. */
-const ORDERED_FIELDS: readonly SearchField[] = ['name', 'title', 'description']
+const ORDERED_FIELDS: readonly SearchField[] = ['name', 'title', 'keywords', 'description']
 
 export interface RankedToolMatch {
     name: string
@@ -37,7 +39,11 @@ export function searchToolsRegex<T extends SearchableTool>(tools: readonly T[], 
     const regex = new RegExp(pattern, 'i')
     const matched: { tool: T; rank: number }[] = []
     for (const tool of tools) {
-        const rank = ORDERED_FIELDS.findIndex((field) => regex.test(tool[field]))
+        const rank = ORDERED_FIELDS.findIndex((field) =>
+            field === 'keywords'
+                ? (tool.searchKeywords ?? []).some((keyword) => regex.test(keyword))
+                : regex.test(tool[field])
+        )
         if (rank !== -1) {
             matched.push({ tool, rank })
         }
@@ -57,6 +63,7 @@ export function searchToolsRanked<T extends SearchableTool>(tools: readonly T[],
         const haystack: Record<SearchField, string> = {
             name: t.name.toLowerCase(),
             title: t.title.toLowerCase(),
+            keywords: (t.searchKeywords ?? []).join(' ').toLowerCase(),
             description: t.description.toLowerCase(),
         }
         let tokensMatched = 0

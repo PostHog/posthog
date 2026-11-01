@@ -32,6 +32,21 @@ describe('tool-search', () => {
         it('returns nothing when no token matches any field', () => {
             expect(searchToolsRanked(TOOLS, 'nonexistent-token')).toEqual([])
         })
+
+        it('matches search keywords above a tool that only mentions the word in its description', () => {
+            const tools: SearchableTool[] = [
+                { name: 'logs-query', title: 'Query logs', description: 'Query logs, also from a Prometheus exporter' },
+                {
+                    name: 'query-metrics',
+                    title: 'Query metrics',
+                    description: 'Query time series',
+                    searchKeywords: ['prometheus', 'promql', 'grafana'],
+                },
+            ]
+            expect(searchToolsRanked(tools, 'prometheus').map((r) => r.name)).toEqual(['query-metrics', 'logs-query'])
+            expect(searchToolsRanked(tools, 'grafana promql').map((r) => r.name)).toEqual(['query-metrics'])
+            expect(searchToolsRegex(tools, 'prom.?ql').map((t) => t.name)).toEqual(['query-metrics'])
+        })
     })
 
     describe('searchToolsRegex', () => {
