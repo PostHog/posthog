@@ -15,6 +15,8 @@ class ResendEndpointConfig:
     page_size: Optional[int] = None
     # Static query params sent on every request.
     params: dict[str, Any] = field(default_factory=dict)
+    # Path to the rows in the response body. `$` takes the whole body as one row.
+    data_selector: str = "data"
     # For fan-out endpoints like `contacts`, names the parent endpoint we iterate to
     # resolve the path parameter, and the path parameter the parent id fills.
     parent: Optional[str] = None
@@ -76,6 +78,14 @@ RESEND_ENDPOINTS: dict[str, ResendEndpointConfig] = {
         parent="broadcasts",
         resolve_param="broadcast_id",
         ignore_child_404=True,
+    ),
+    # A single snapshot of the account's current usage and plan limits. The body has no id, and
+    # `object` is always "usage", so it keys the one row.
+    "usage": ResendEndpointConfig(
+        name="usage",
+        path="/usage",
+        primary_keys=["object"],
+        data_selector="$",
     ),
 }
 
