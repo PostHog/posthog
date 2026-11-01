@@ -41,10 +41,20 @@ class TestBabysitJournal(SimpleTestCase):
         attention = journal.attention(make_snapshot(unresolved_threads=[THREAD]))
         assert (len(attention.threads) == 1) is expected_actionable
 
-    def test_thread_last_answered_by_the_pr_author_is_never_actionable(self):
-        thread = ReviewThreadItem(id="T1", last_comment_id="C2", author="posthog-bot")
+    @parameterized.expand(
+        [
+            ("agent_reply_as_pr_author", False, False),
+            ("human_pr_author_review_thread", True, True),
+        ]
+    )
+    def test_pr_author_thread_is_actionable_only_as_pr_author_feedback(
+        self, _name, pr_author_feedback, expected_actionable
+    ):
+        thread = ReviewThreadItem(
+            id="T1", last_comment_id="C2", author="posthog-bot", pr_author_feedback=pr_author_feedback
+        )
         attention = BabysitJournal(threads={"T1": "C1"}).attention(make_snapshot(unresolved_threads=[thread]))
-        assert attention.threads == []
+        assert (len(attention.threads) == 1) is expected_actionable
 
     @parameterized.expand(
         [
