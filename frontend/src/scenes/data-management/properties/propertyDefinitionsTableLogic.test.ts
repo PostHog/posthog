@@ -74,7 +74,7 @@ describe('propertyDefinitionsTableLogic', () => {
 
     describe('request timing', () => {
         const listRequests = (): unknown[][] =>
-            api.get.mock.calls.filter(([url]: [string]) => String(url).includes('/property_definitions'))
+            api.get.mock.calls.filter(([url]) => String(url).includes('/property_definitions'))
 
         beforeEach(() => {
             logic.unmount()

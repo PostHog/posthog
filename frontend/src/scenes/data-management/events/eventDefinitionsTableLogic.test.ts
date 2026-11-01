@@ -144,7 +144,7 @@ describe('eventDefinitionsTableLogic', () => {
 
     describe('request timing', () => {
         const listRequests = (): unknown[][] =>
-            api.get.mock.calls.filter(([url]: [string]) => String(url).includes('/event_definitions'))
+            api.get.mock.calls.filter(([url]) => String(url).includes('/event_definitions'))
 
         beforeEach(() => {
             logic.unmount()
