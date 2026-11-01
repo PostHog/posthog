@@ -19,7 +19,12 @@ from products.messaging.backend.models.message_template import KEY_CONSTRAINT
 from products.messaging.backend.services.content_hash import email_content_hash, sent_hash_state
 from products.messaging.backend.services.message_templates import record_content_hash
 from products.messaging.backend.services.template_saves import WorkflowEditorCheck, save_locked_template
-from products.messaging.backend.services.transactional_email import is_transactional, known_key, make_transactional
+from products.messaging.backend.services.transactional_email import (
+    is_transactional,
+    known_key,
+    make_transactional,
+    sent_email_hash,
+)
 from products.workflows.backend.facade.transactional_emails import code_sends_paused, transactional_email_workflow_email
 
 SOURCE_PARTS = ("repository", "path", "ref")
@@ -179,7 +184,7 @@ def _is_unchanged(template: MessageTemplate, upload: TemplateUpload) -> bool:
         and template.content_hash == uploaded_hash
         and template.managed_by == TemplateManagedBy.CODE
         and is_transactional(template)
-        and email_content_hash(_sent_email(template)) == uploaded_hash
+        and email_content_hash(_sent_email(template)) == sent_email_hash(template)
     )
 
 
