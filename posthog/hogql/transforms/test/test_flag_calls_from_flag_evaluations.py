@@ -533,6 +533,14 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ("regular_table_spelled_in_another_case", "Properties", "Properties", False, True),
             ("regular_table_spelled_the_same", "properties", "properties", False, False),
             ("case_folding_table_spelled_in_another_case", "properties", "Properties", True, False),
+            (
+                "case_folding_table_with_an_alias_that_respells_it",
+                "properties",
+                "properties AS Properties",
+                True,
+                False,
+            ),
+            ("case_folding_table_with_another_alias", "orders", "orders AS Properties", True, True),
         ]
     )
     def test_joined_table_shadows_a_column_in_another_case_only_when_it_folds_case(
@@ -553,7 +561,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
         )
         database = Database(include_posthog_tables=False)
         database.tables.add_child(TableNode(name=registered, table=table, case_insensitive=folds_case))
-        query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled}.distinct_id")
+        query = _beside(f"JOIN {spelled} ON e.distinct_id = {spelled.split()[-1]}.distinct_id")
         assert self._can_read(query, database=database) is expected
 
     @parameterized.expand(
