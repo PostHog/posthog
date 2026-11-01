@@ -88,6 +88,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
 )
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EVENTS_WITH_FLAG_CALLS_TABLE, EventsWithFlagCallsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
@@ -255,6 +256,8 @@ class HogQLDatabaseSources:
     read_flag_calls_from_flag_evaluations: bool
     # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
     flag_calls_only_in_flag_evaluations: bool
+    # Flag calls that a mixed query reads come from events and flag_evaluations together.
+    read_flag_calls_with_union: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -458,7 +461,9 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "hogql-flag-calls-from-flag-evaluations"})
+_CACHEABLE_TEAM_FLAGS = frozenset(
+    {"managed-viewsets", "hogql-flag-calls-from-flag-evaluations", "hogql-flag-calls-union"}
+)
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -476,16 +481,6 @@ def _evaluate_warehouse_access_control_flag(team: Team) -> bool:
             "organization": {"id": str(team.organization_id)},
             "project": {"id": str(team.id)},
         },
-        send_feature_flag_events=False,
-    )
-
-
-def _evaluate_flag_calls_rewrite_flag(team: Team) -> bool:
-    return feature_enabled_or_false(
-        "hogql-flag-calls-from-flag-evaluations",
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
 
@@ -522,6 +517,21 @@ def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -
                 _TEAM_FLAG_CACHE.clear()
         _TEAM_FLAG_CACHE[cache_key] = (now, value)
     return value
+
+
+def _cached_organization_flag(flag_key: str, team: Team) -> bool:
+    """`flag_key` for the team's organization, through the team flag cache."""
+    return _cached_team_flag(
+        flag_key,
+        team,
+        lambda: feature_enabled_or_false(
+            flag_key,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        ),
+    )
 
 
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
@@ -845,6 +855,7 @@ class Database(BaseModel):
     _connection_id: str | None = None
     _read_flag_calls_from_flag_evaluations: bool = False
     _flag_calls_only_in_flag_evaluations: bool = False
+    _read_flag_calls_with_union: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
@@ -908,6 +919,7 @@ class Database(BaseModel):
         self._connection_id = None
         self._read_flag_calls_from_flag_evaluations = False
         self._flag_calls_only_in_flag_evaluations = False
+        self._read_flag_calls_with_union = False
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
@@ -1286,6 +1298,10 @@ class Database(BaseModel):
     def flag_calls_only_in_flag_evaluations(self) -> bool:
         return self._flag_calls_only_in_flag_evaluations and self.read_flag_calls_from_flag_evaluations
 
+    @property
+    def read_flag_calls_with_union(self) -> bool:
+        return self._read_flag_calls_with_union and self.read_flag_calls_from_flag_evaluations
+
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
         return isinstance(table, FunctionCallTable) and not isinstance(table, (DirectSQLTable, PostgresTable, S3Table))
@@ -1483,8 +1499,13 @@ class Database(BaseModel):
             if self._is_direct_query()
             else self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
         )
+        posthog_node = self.tables.children.get("posthog")
+        # A hidden table stays readable by name, but the schema leaves it out.
+        hidden_table_names = {
+            f"posthog.{name}" for name, node in (posthog_node.children.items() if posthog_node else ()) if node.hidden
+        }
         for table_name in posthog_table_names:
-            if include_only and table_name not in include_only:
+            if (include_only and table_name not in include_only) or table_name in hidden_table_names:
                 continue
 
             fields_dict: dict[str, DatabaseSchemaField] = {}
@@ -1966,6 +1987,7 @@ class Database(BaseModel):
             include_flag_evaluations_table=False,
             read_flag_calls_from_flag_evaluations=False,
             flag_calls_only_in_flag_evaluations=False,
+            read_flag_calls_with_union=False,
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
@@ -2072,12 +2094,15 @@ class Database(BaseModel):
             # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
             # organization still on EVENTS. The flag goes first because it reads no row.
             read_mode: int = FlagEvaluationsMode.EVENTS
-            if include_flag_evaluations_table and _cached_team_flag(
-                "hogql-flag-calls-from-flag-evaluations", team, lambda: _evaluate_flag_calls_rewrite_flag(team)
+            if include_flag_evaluations_table and _cached_organization_flag(
+                "hogql-flag-calls-from-flag-evaluations", team
             ):
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+            read_flag_calls_with_union = read_flag_calls_from_flag_evaluations and _cached_organization_flag(
+                "hogql-flag-calls-union", team
+            )
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -2344,6 +2369,7 @@ class Database(BaseModel):
             include_flag_evaluations_table=include_flag_evaluations_table,
             read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
             flag_calls_only_in_flag_evaluations=flag_calls_only_in_flag_evaluations,
+            read_flag_calls_with_union=read_flag_calls_with_union,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2399,6 +2425,7 @@ class Database(BaseModel):
             )
             database._read_flag_calls_from_flag_evaluations = sources.read_flag_calls_from_flag_evaluations
             database._flag_calls_only_in_flag_evaluations = sources.flag_calls_only_in_flag_evaluations
+            database._read_flag_calls_with_union = sources.read_flag_calls_with_union
             if sources.connection_id is not None:
                 database._connection_id = sources.connection_id
                 if sources.direct_connection_metadata is not None:
@@ -2418,6 +2445,14 @@ class Database(BaseModel):
         if not sources.include_flag_evaluations_table:
             if posthog_node := database.tables.children.get("posthog"):
                 posthog_node.children.pop("flag_evaluations", None)
+        elif sources.read_flag_calls_with_union and (posthog_node := database.tables.children.get("posthog")):
+            union_table = EventsWithFlagCallsTable()
+            # Assigned after construction, because pydantic copies a dict passed to the constructor. Sharing the
+            # dict makes every later change to the events fields, such as the persons-on-events mode, apply here too.
+            union_table.fields = database.get_table("events").fields
+            posthog_node.children[EVENTS_WITH_FLAG_CALLS_TABLE] = TableNode(
+                name=EVENTS_WITH_FLAG_CALLS_TABLE, table=union_table, hidden=True
+            )
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
