@@ -1,9 +1,11 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
 import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
+import { dayjs } from 'lib/dayjs'
+import posthog from 'lib/posthog-typed'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -62,6 +64,32 @@ export interface MCPOnboardingSignals {
     firstCallAt: string | null
 }
 
+function dashboardStageForSignals(signals: MCPOnboardingSignals | null): MCPDashboardStage | null {
+    if (!signals || !signals.hasToolCall) {
+        return null
+    }
+    return signals.toolCallsTotal >= METRICS_UNLOCK_LIFETIME_CALLS || signals.toolCalls7d >= METRICS_UNLOCK_7D_CALLS
+        ? 'metrics'
+        : 'activity'
+}
+
+export type FirstDataWatch = 'unknown' | 'watching' | 'arrived' | 'settled'
+
+/** A `null` answer (stale response after a project switch) changes nothing. */
+export function nextFirstDataWatch(current: FirstDataWatch, signals: MCPOnboardingSignals | null): FirstDataWatch {
+    if (!signals) {
+        return current
+    }
+    if (current === 'unknown') {
+        return signals.hasToolCall ? 'settled' : 'watching'
+    }
+    if (current === 'watching' && signals.hasToolCall) {
+        // A backfill that lands on the metrics stage is not a "your first call arrived" moment.
+        return dashboardStageForSignals(signals) === 'activity' ? 'arrived' : 'settled'
+    }
+    return current
+}
+
 // Signal funnel over all history. `$mcp_initialize` fires when an agent connects
 // (before any tool call), so it distinguishes "instrumented but no traffic yet"
 // from "not instrumented at all". Counts (not booleans) so the same query drives
@@ -88,6 +116,7 @@ const POLL_INTERVAL_MS = 20000
 export interface mcpAnalyticsOnboardingLogicValues {
     setupStatus: ProductSetupStatus // productSetupStatusLogic
     dashboardStage: MCPDashboardStage | null
+    firstDataWatch: FirstDataWatch
     isOnboarded: boolean
     onboardingState: MCPOnboardingState | null
     signals: MCPOnboardingSignals | null
@@ -99,6 +128,9 @@ export interface mcpAnalyticsOnboardingLogicActions {
     setDetectedStatus: (status: ProductSetupStatus) => {
         status: ProductSetupStatus
     } // productSetupStatusLogic
+    acknowledgeFirstData: (animated: boolean) => {
+        animated: boolean
+    }
     loadSignals: (_: void) => void
     loadSignalsFailure: (
         error: string,
@@ -138,6 +170,9 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
         actions: [productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }), ['setDetectedStatus']],
         values: [productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }), ['status as setupStatus']],
     })),
+    actions({
+        acknowledgeFirstData: (animated: boolean) => ({ animated }),
+    }),
     loaders({
         signals: {
             __default: null as MCPOnboardingSignals | null,
@@ -185,6 +220,15 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
             },
         },
     }),
+    reducers({
+        firstDataWatch: [
+            'unknown' as FirstDataWatch,
+            {
+                loadSignalsSuccess: (state, { signals }) => nextFirstDataWatch(state, signals),
+                acknowledgeFirstData: (state) => (state === 'arrived' ? 'settled' : state),
+            },
+        ],
+    }),
     selectors({
         onboardingState: [
             (s) => [s.signals],
@@ -207,18 +251,10 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
         ],
         dashboardStage: [
             (s) => [s.signals],
-            (signals: MCPOnboardingSignals | null): MCPDashboardStage | null => {
-                if (!signals || !signals.hasToolCall) {
-                    return null
-                }
-                return signals.toolCallsTotal >= METRICS_UNLOCK_LIFETIME_CALLS ||
-                    signals.toolCalls7d >= METRICS_UNLOCK_7D_CALLS
-                    ? 'metrics'
-                    : 'activity'
-            },
+            (signals: MCPOnboardingSignals | null): MCPDashboardStage | null => dashboardStageForSignals(signals),
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, selectors }) => ({
         loadSignalsFailure: () => {
             // A failing signal query must not strand the empty-state gate on its
             // spinner. If nothing (preload included) has answered yet, publish
@@ -256,6 +292,18 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
             if (values.dashboardStage === 'metrics') {
                 cache.disposables.dispose('poll')
             }
+        },
+        acknowledgeFirstData: ({ animated }, _breakpoint, _action, previousState) => {
+            // Compare with the state before the reducer settled it, so a repeated acknowledge captures nothing.
+            if (selectors.firstDataWatch(previousState) !== 'arrived' || isImpersonatedSession()) {
+                return
+            }
+            const { toolCallsTotal, firstCallAt } = values.signals ?? {}
+            posthog.captureRaw('mcp analytics first data seen live', {
+                tool_calls_total: toolCallsTotal,
+                seconds_since_first_call: firstCallAt ? Math.max(0, dayjs().diff(dayjs(firstCallAt), 'second')) : null,
+                animated,
+            })
         },
     })),
     afterMount(({ actions, cache }) => {
