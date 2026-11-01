@@ -310,7 +310,6 @@ def _simulated_answers(domains: SimulatedEmailDomains, qname: Any, rdtype: Any) 
 @contextmanager
 def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOMAINS) -> Iterator[None]:
     original_resolver_method = dns.resolver.Resolver.resolve
-    original_resolve = dns.resolver.resolve
     original_fetch_settings = domain_connect._fetch_provider_settings
     original_signing_key = domain_connect.get_signing_key
     eval_signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -322,13 +321,6 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
             return _simulated_answers(domains, qname, rdtype)
         return original_resolver_method(resolver, qname, rdtype, *args, **kwargs)
 
-    def resolve(
-        qname: Any, rdtype: Any = "A", *args: Any, **kwargs: Any
-    ) -> list[dns.rdata.Rdata] | dns.resolver.Answer:
-        if domains.covers(str(qname)):
-            return _simulated_answers(domains, qname, rdtype)
-        return original_resolve(qname, rdtype, *args, **kwargs)
-
     def fetch_provider_settings(endpoint: str, domain: str) -> dict | None:
         if domains.covers(domain):
             return {"providerName": "Cloudflare", "urlSyncUX": DOMAIN_CONNECT_SYNC_UX}
@@ -337,7 +329,6 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
     with ExitStack() as stack:
         stack.enter_context(patch.object(providers, "SESProvider", lambda: SimulatedSESProvider(domains)))
         stack.enter_context(patch.object(dns.resolver.Resolver, "resolve", resolver_method))
-        stack.enter_context(patch.object(dns.resolver, "resolve", resolve))
         stack.enter_context(patch.object(domain_connect, "_fetch_provider_settings", fetch_provider_settings))
         stack.enter_context(
             patch.object(domain_connect, "get_signing_key", lambda: original_signing_key() or eval_signing_key)
