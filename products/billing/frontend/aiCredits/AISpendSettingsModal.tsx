@@ -1,27 +1,45 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { organizationLogic } from 'scenes/organizationLogic'
 
-import { aiCreditsLogic, automaticReloadConsent, cardLabel } from './aiCreditsLogic'
+import { aiCreditsLogic, automaticReloadConsent, cardShortLabel, settingAmount } from './aiCreditsLogic'
 import { ReloadAmountFields } from './ReloadAmountFields'
 
 export function AISpendSettingsModal(): JSX.Element {
-    const { settingsModalOpen, spendSettingsForm, isSpendSettingsFormSubmitting, settings, card } =
-        useValues(aiCreditsLogic)
+    const {
+        settingsModalOpen,
+        spendSettingsForm,
+        isSpendSettingsFormSubmitting,
+        settings,
+        card,
+        spendSummary,
+        reloadedThisPeriodUsd,
+    } = useValues(aiCreditsLogic)
     const { closeSettingsModal, submitSpendSettingsForm } = useActions(aiCreditsLogic)
+    const { currentOrganization } = useValues(organizationLogic)
 
     const cardOnFile = card?.card ?? null
     const turningReloadOn = spendSettingsForm.reloadEnabled && !settings?.automatic_reload.enabled
+    const savedReloadLimit = settings?.automatic_reload.monthly_reload_limit_usd
 
     return (
         <LemonModal
             isOpen={settingsModalOpen}
             onClose={closeSettingsModal}
-            title="AI credit settings"
-            width={560}
+            title="AI spend settings"
+            description={
+                currentOrganization ? (
+                    <>
+                        For <span className="font-semibold text-primary">{currentOrganization.name}</span>
+                    </>
+                ) : undefined
+            }
+            width={640}
             footer={
                 <>
                     <LemonButton
@@ -42,14 +60,21 @@ export function AISpendSettingsModal(): JSX.Element {
                 </>
             }
         >
-            <Form logic={aiCreditsLogic} formKey="spendSettingsForm" className="flex flex-col gap-4">
-                <div className="flex flex-col gap-3">
+            <Form logic={aiCreditsLogic} formKey="spendSettingsForm" className="flex flex-col gap-5">
+                <div className="flex flex-col gap-3 rounded border px-4 py-3.5">
                     <LemonField name="reloadEnabled">
                         {({ value, onChange }) => (
                             <LemonSwitch
                                 checked={value}
                                 onChange={onChange}
-                                label="Automatic reload"
+                                label={
+                                    <span className="flex flex-col">
+                                        <span className="font-semibold">Automatic reload</span>
+                                        <span className="text-sm font-normal text-secondary">
+                                            {cardOnFile ? cardShortLabel(cardOnFile) : 'No card on file'}
+                                        </span>
+                                    </span>
+                                }
                                 fullWidth
                                 disabledReason={
                                     !cardOnFile && !value ? 'Add a card to your billing details first' : undefined
@@ -58,33 +83,61 @@ export function AISpendSettingsModal(): JSX.Element {
                             />
                         )}
                     </LemonField>
-                    {cardOnFile && <span className="text-secondary">Charges your {cardLabel(cardOnFile)}</span>}
                     {spendSettingsForm.reloadEnabled && (
                         <>
                             <ReloadAmountFields />
-                            {turningReloadOn && cardOnFile && (
+                            {turningReloadOn && cardOnFile ? (
                                 <p className="m-0 text-xs text-secondary">
                                     {automaticReloadConsent(cardOnFile, spendSettingsForm)}
                                 </p>
+                            ) : (
+                                reloadedThisPeriodUsd !== null && (
+                                    <span className="text-xs text-tertiary">
+                                        {savedReloadLimit
+                                            ? `${settingAmount(reloadedThisPeriodUsd)} of ${settingAmount(savedReloadLimit)} reloaded this period`
+                                            : `${settingAmount(reloadedThisPeriodUsd)} reloaded this period`}
+                                    </span>
+                                )
                             )}
                         </>
                     )}
                 </div>
-                <LemonDivider />
-                <LemonField
-                    name="spendLimitUsd"
-                    label="Organization spend limit"
-                    help="The most your organization can spend on AI in a billing period. Leave empty for no limit."
-                >
-                    <LemonInput
-                        type="number"
-                        prefix={<span>$</span>}
-                        min={0}
-                        placeholder="No limit"
-                        className="max-w-60"
-                        data-attr="ai-credits-spend-limit"
-                    />
-                </LemonField>
+
+                <div className="flex flex-col gap-2 border-t pt-5">
+                    <span className="font-semibold">Organization spend limit</span>
+                    <span className="text-sm text-secondary">
+                        The most your organization can spend on AI in a billing period.
+                    </span>
+                    <div className="flex items-start gap-3">
+                        <LemonField name="spendLimitUsd" className="max-w-60 flex-1">
+                            <LemonInput
+                                type="number"
+                                prefix={<span>$</span>}
+                                min={0}
+                                placeholder="No limit"
+                                disabled={spendSettingsForm.noSpendLimit}
+                                data-attr="ai-credits-spend-limit"
+                            />
+                        </LemonField>
+                        <LemonField name="noSpendLimit">
+                            {({ value, onChange }) => (
+                                <LemonCheckbox
+                                    checked={value}
+                                    onChange={onChange}
+                                    label="No limit"
+                                    className="h-9"
+                                    data-attr="ai-credits-no-spend-limit"
+                                />
+                            )}
+                        </LemonField>
+                    </div>
+                    {spendSummary && (
+                        <span className="text-xs text-tertiary">
+                            {humanFriendlyCurrency(spendSummary.spendUsd)} spent this period · resets{' '}
+                            {spendSummary.periodEnd.format('MMM D')}
+                        </span>
+                    )}
+                </div>
             </Form>
         </LemonModal>
     )

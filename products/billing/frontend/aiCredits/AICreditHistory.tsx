@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import type { AICreditHistoryEntryApi } from 'products/billing/frontend/generated/api.schemas'
@@ -14,41 +14,46 @@ export function AICreditHistory(): JSX.Element {
     const { loadOlderHistory } = useActions(aiCreditsLogic)
 
     return (
-        <div className="flex flex-col gap-2">
-            <h3 className="m-0">History</h3>
+        <div className="rounded border bg-surface-primary">
+            <h3 className="m-0 border-b px-5 py-3.5 text-base font-semibold">History</h3>
             <LemonTable<AICreditHistoryEntryApi>
+                embedded
                 dataSource={history?.results ?? []}
                 loading={historyLoading}
-                emptyState="No purchases or reloads yet"
+                emptyState="No purchases or reloads yet. Credits you add show here."
                 rowKey={(entry) => `${entry.created_at}-${entry.kind}-${entry.total_usd}`}
                 columns={[
                     {
                         title: 'Date',
                         key: 'created_at',
-                        render: (_, entry) => <TZLabel time={entry.created_at} />,
+                        render: (_, entry) => (
+                            <span className="text-secondary">{dayjs(entry.created_at).format('MMM D, HH:mm')}</span>
+                        ),
                     },
                     {
                         title: 'Type',
                         key: 'kind',
-                        render: (_, entry) => (entry.kind === 'automatic_reload' ? 'Automatic reload' : 'Purchase'),
+                        render: (_, entry) => (
+                            <span className="font-medium">
+                                {entry.kind === 'automatic_reload' ? 'Automatic reload' : 'Purchase'}
+                            </span>
+                        ),
                     },
                     {
-                        title: 'Credits',
+                        title: 'Amount',
                         key: 'amount_usd',
                         align: 'right',
-                        render: (_, entry) => humanFriendlyCurrency(entry.amount_usd),
+                        render: (_, entry) => (
+                            <span className="font-semibold">{humanFriendlyCurrency(entry.amount_usd)}</span>
+                        ),
                     },
                     {
                         title: 'Tax',
                         key: 'tax_usd',
                         align: 'right',
-                        render: (_, entry) => humanFriendlyCurrency(entry.tax_usd),
-                    },
-                    {
-                        title: 'Total',
-                        key: 'total_usd',
-                        align: 'right',
-                        render: (_, entry) => humanFriendlyCurrency(entry.total_usd),
+                        render: (_, entry) => (
+                            <span className="text-secondary">{humanFriendlyCurrency(entry.tax_usd)}</span>
+                        ),
                     },
                     {
                         title: 'Status',
@@ -66,7 +71,7 @@ export function AICreditHistory(): JSX.Element {
                         align: 'right',
                         render: (_, entry) =>
                             entry.receipt_url ? (
-                                <Link to={entry.receipt_url} target="_blank">
+                                <Link to={entry.receipt_url} target="_blank" className="font-medium">
                                     View
                                 </Link>
                             ) : null,
@@ -74,7 +79,7 @@ export function AICreditHistory(): JSX.Element {
                 ]}
             />
             {history?.has_more && (
-                <div>
+                <div className="border-t px-5 py-3">
                     <LemonButton
                         type="secondary"
                         size="small"

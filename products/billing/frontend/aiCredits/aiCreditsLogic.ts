@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, isBreakpoint, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
+import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
@@ -18,6 +19,7 @@ import {
     billingAiCreditsSettingsAutomaticReloadPartialUpdate,
     billingAiCreditsSettingsRetrieve,
     billingAiCreditsSettingsSpendLimitPartialUpdate,
+    billingAiCreditsSpendRetrieve,
 } from 'products/billing/frontend/generated/api'
 import type {
     AICreditCardApi,
@@ -25,8 +27,11 @@ import type {
     AICreditHistoryResponseApi,
     AICreditQuoteResponseApi,
     AICreditSettingsResponseApi,
+    AISpendResponseApi,
     PatchedAIAutomaticReloadRequestApi,
 } from 'products/billing/frontend/generated/api.schemas'
+
+import { AISpendSummary, ChartedProduct, chartedProducts, reloadedSince, summarizeSpend } from './aiSpend'
 
 export const AI_CREDIT_PRESET_AMOUNTS_USD = [20, 50, 100]
 export const MINIMUM_AI_CREDIT_USD = 20
@@ -56,23 +61,45 @@ export interface AddFundsForm extends ReloadAmounts {
 export interface AISpendSettingsForm extends ReloadAmounts {
     reloadEnabled: boolean
     spendLimitUsd: number | null
+    noSpendLimit: boolean
+}
+
+/** A setting's amount, such as "$20", with cents only when it has them. */
+export function settingAmount(value: number | string): string {
+    return Number.isInteger(Number(value)) ? humanFriendlyCurrency(value, 0) : humanFriendlyCurrency(value)
+}
+
+function cardBrand(card: AICreditCardApi): string {
+    return card.brand.charAt(0).toUpperCase() + card.brand.slice(1)
 }
 
 export function cardLabel(card: AICreditCardApi): string {
-    const brand = card.brand.charAt(0).toUpperCase() + card.brand.slice(1)
-    return `${brand} ending in ${card.last4}`
+    return `${cardBrand(card)} ending in ${card.last4}`
 }
 
-/** The words a person agrees to when they turn automatic reload on. Billing keeps them as the consent. */
-export function automaticReloadConsent(card: AICreditCardApi, amounts: ReloadAmounts): string {
+export function cardShortLabel(card: AICreditCardApi): string {
+    return `${cardBrand(card)} ···· ${card.last4}`
+}
+
+/**
+ * The words a person agrees to when they turn automatic reload on. Billing keeps them as the consent.
+ * When they also pay now, the same sentence covers that charge.
+ */
+export function automaticReloadConsent(card: AICreditCardApi, amounts: ReloadAmounts, chargeNowUsd?: string): string {
     const limit = amounts.monthlyReloadLimitUsd
         ? `up to ${humanFriendlyCurrency(amounts.monthlyReloadLimitUsd)} each billing period`
         : 'with no limit each billing period'
+    const now = chargeNowUsd ? ` ${humanFriendlyCurrency(chargeNowUsd)} now, and again` : ''
     return (
-        `You authorize PostHog to charge your ${cardLabel(card)} when your AI balance drops below ` +
+        `You authorize PostHog to charge your ${cardLabel(card)}${now} when your AI balance drops below ` +
         `${humanFriendlyCurrency(amounts.lowBalanceThresholdUsd ?? 0)}, to bring it back to ` +
         `${humanFriendlyCurrency(amounts.targetUsd ?? 0)}, ${limit}.`
     )
+}
+
+/** The words a person agrees to when they pay for credits without turning automatic reload on. */
+export function purchaseConsent(card: AICreditCardApi, totalUsd: string): string {
+    return `You authorize PostHog to charge your ${cardLabel(card)} ${humanFriendlyCurrency(totalUsd)} now.`
 }
 
 function usd(value: number | null | undefined): string | null {
@@ -151,16 +178,23 @@ export interface aiCreditsLogicValues {
     isAddFundsFormValid: boolean
     isSpendSettingsFormSubmitting: boolean
     isSpendSettingsFormValid: boolean
+    pendingUsd: number
+    previousSpend: AISpendResponseApi | null
+    previousSpendLoading: boolean
     purchaseError: string | null
     purchaseKey: string | null
     quote: AICreditQuoteResponseApi | null
     quoteError: string | null
     quoteLoading: boolean
+    reloadedThisPeriodUsd: number | null
     settings: AICreditSettingsResponseApi | null
     settingsLoading: boolean
     settingsModalOpen: boolean
     showAddFundsFormErrors: boolean
     showSpendSettingsFormErrors: boolean
+    spend: AISpendResponseApi | null
+    spendLoading: boolean
+    spendProducts: ChartedProduct[]
     spendSettingsForm: AISpendSettingsForm
     spendSettingsFormAllErrors: Record<string, any>
     spendSettingsFormChanged: boolean
@@ -170,6 +204,8 @@ export interface aiCreditsLogicValues {
     spendSettingsFormTouched: boolean
     spendSettingsFormTouches: Record<string, boolean>
     spendSettingsFormValidationErrors: DeepPartialMap<AISpendSettingsForm, ValidationErrorType>
+    spendSummary: AISpendSummary | null
+    spendUnavailable: boolean
     unavailable: boolean
 }
 
@@ -226,6 +262,21 @@ export interface aiCreditsLogicActions {
         history: AICreditHistoryResponseApi | null
         payload?: any
     }
+    loadPreviousSpend: () => any
+    loadPreviousSpendFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPreviousSpendSuccess: (
+        previousSpend: AISpendResponseApi | null,
+        payload?: any
+    ) => {
+        previousSpend: AISpendResponseApi | null
+        payload?: any
+    }
     loadQuote: (amountUsd: number | null) => {
         amountUsd: number | null
     }
@@ -242,6 +293,21 @@ export interface aiCreditsLogicActions {
         payload?: any
     ) => {
         settings: AICreditSettingsResponseApi
+        payload?: any
+    }
+    loadSpend: () => any
+    loadSpendFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpendSuccess: (
+        spend: AISpendResponseApi | null,
+        payload?: any
+    ) => {
+        spend: AISpendResponseApi | null
         payload?: any
     }
     openAddFundsModal: () => {
@@ -341,7 +407,22 @@ export interface aiCreditsLogicActions {
     }
 }
 
-export type aiCreditsLogicType = MakeLogicType<aiCreditsLogicValues, aiCreditsLogicActions>
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface aiCreditsLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        spendSummary: (spend: any, previousSpend: any) => AISpendSummary | null
+        spendProducts: (spend: any) => ChartedProduct[]
+        pendingUsd: (history: AICreditHistoryResponseApi | null) => number
+        reloadedThisPeriodUsd: (history: AICreditHistoryResponseApi | null, spend: any) => number | null
+    }
+}
+
+export type aiCreditsLogicType = MakeLogicType<
+    aiCreditsLogicValues,
+    aiCreditsLogicActions,
+    Record<string, any>,
+    aiCreditsLogicMeta
+>
 
 export const aiCreditsLogic = kea<aiCreditsLogicType>([
     path(['products', 'billing', 'frontend', 'aiCredits', 'aiCreditsLogic']),
@@ -363,6 +444,32 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             { loadSettings: async () => await billingAiCreditsSettingsRetrieve() },
         ],
         card: [null as AICreditCardResponseApi | null, { loadCard: async () => await billingAiCreditsCardRetrieve() }],
+        // The AI gateway doesn't report spend everywhere yet, so a failed read leaves the spend out
+        // instead of showing an error on every visit.
+        spend: [
+            null as AISpendResponseApi | null,
+            {
+                loadSpend: async () => {
+                    try {
+                        return await billingAiCreditsSpendRetrieve()
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
+        previousSpend: [
+            null as AISpendResponseApi | null,
+            {
+                loadPreviousSpend: async () => {
+                    try {
+                        return await billingAiCreditsSpendRetrieve({ period: 'previous' })
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
         history: [
             null as AICreditHistoryResponseApi | null,
             {
@@ -397,6 +504,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
         quote: [null as AICreditQuoteResponseApi | null, { loadQuote: () => null, setQuote: (_, { quote }) => quote }],
         quoteLoading: [false, { loadQuote: () => true, setQuote: () => false, setQuoteError: () => false }],
         quoteError: [null as string | null, { loadQuote: () => null, setQuoteError: (_, { error }) => error }],
+        spendUnavailable: [false, { loadSpendSuccess: (_, { spend }) => spend === null }],
         unavailable: [
             false,
             {
@@ -404,6 +512,26 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 loadCardFailure: (_, { errorObject }) =>
                     errorObject instanceof ApiError && errorObject.code === 'ai_credits_unavailable',
             },
+        ],
+    }),
+    selectors({
+        spendSummary: [
+            (s) => [s.spend, s.previousSpend],
+            (spend, previousSpend): AISpendSummary | null =>
+                spend ? summarizeSpend(spend, previousSpend, dayjs()) : null,
+        ],
+        spendProducts: [(s) => [s.spend], (spend): ChartedProduct[] => (spend ? chartedProducts(spend) : [])],
+        pendingUsd: [
+            (s) => [s.history],
+            (history: AICreditHistoryResponseApi | null): number =>
+                (history?.results ?? [])
+                    .filter((entry) => entry.status === 'pending')
+                    .reduce((sum, entry) => sum + Number(entry.amount_usd), 0),
+        ],
+        reloadedThisPeriodUsd: [
+            (s) => [s.history, s.spend],
+            (history: AICreditHistoryResponseApi | null, spend): number | null =>
+                spend ? reloadedSince(history, spend.period_start) : null,
         ],
     }),
     forms(({ actions, values }) => ({
@@ -465,7 +593,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                         await billingAiCreditsSettingsAutomaticReloadPartialUpdate({
                             ...reloadRequest(form),
                             enabled: true,
-                            consent_text: automaticReloadConsent(card, form),
+                            consent_text: automaticReloadConsent(card, form, quote.total_usd),
                         })
                     } catch (error) {
                         lemonToast.error(
@@ -483,12 +611,16 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 targetUsd: 100,
                 monthlyReloadLimitUsd: null,
                 spendLimitUsd: null,
+                noSpendLimit: true,
             } as AISpendSettingsForm,
             errors: (form: AISpendSettingsForm) => ({
                 ...(form.reloadEnabled ? reloadAmountErrors(form) : {}),
-                spendLimitUsd:
-                    form.spendLimitUsd !== undefined && form.spendLimitUsd !== null && form.spendLimitUsd < 0
-                        ? 'Enter a limit of $0 or more, or leave it empty for no limit'
+                spendLimitUsd: form.noSpendLimit
+                    ? undefined
+                    : form.spendLimitUsd === undefined || form.spendLimitUsd === null
+                      ? 'Enter a limit, or choose no limit'
+                      : form.spendLimitUsd < 0
+                        ? 'Enter a limit of $0 or more'
                         : undefined,
             }),
             submit: async (form: AISpendSettingsForm) => {
@@ -508,7 +640,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                     } else if (reload?.enabled) {
                         await billingAiCreditsSettingsAutomaticReloadPartialUpdate({ enabled: false })
                     }
-                    const spendLimit = usd(form.spendLimitUsd)
+                    const spendLimit = form.noSpendLimit ? null : usd(form.spendLimitUsd)
                     if (spendLimit !== (settings?.monthly_spend_limit_usd ?? null)) {
                         await billingAiCreditsSettingsSpendLimitPartialUpdate({ monthly_spend_limit_usd: spendLimit })
                     }
@@ -525,7 +657,7 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 }
                 posthog.capture('ai credits settings saved', {
                     automatic_reload: form.reloadEnabled,
-                    has_spend_limit: form.spendLimitUsd !== undefined && form.spendLimitUsd !== null,
+                    has_spend_limit: !form.noSpendLimit,
                 })
                 lemonToast.success('AI credit settings saved')
                 actions.closeSettingsModal()
@@ -578,7 +710,13 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 targetUsd: amount(reload?.target_usd) ?? 100,
                 monthlyReloadLimitUsd: amount(reload?.monthly_reload_limit_usd),
                 spendLimitUsd: amount(settings?.monthly_spend_limit_usd),
+                noSpendLimit: !settings?.monthly_spend_limit_usd,
             })
+        },
+        loadSpendSuccess: ({ spend }) => {
+            if (spend) {
+                actions.loadPreviousSpend()
+            }
         },
         purchaseCompleted: ({ amountUsd, authenticated }) => {
             posthog.capture('ai credits purchase completed', { amount_usd: amountUsd, authenticated })
@@ -586,11 +724,13 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             actions.closeAddFundsModal()
             actions.loadHistory()
             actions.loadSettings()
+            actions.loadSpend()
         },
     })),
     afterMount(({ actions }) => {
         actions.loadSettings()
         actions.loadCard()
         actions.loadHistory()
+        actions.loadSpend()
     }),
 ])
