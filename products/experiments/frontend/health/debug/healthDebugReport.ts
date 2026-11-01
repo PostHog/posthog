@@ -247,6 +247,13 @@ function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string
     return `Failed: ${failures.join(', ')}. Calculated at ${evidence.calculated_at}.`
 }
 
+function metricAllZeroNote({ evidence }: ExperimentHealthFindingApi): string {
+    const metrics = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+$/.test(key))
+        .map(([key, value]) => `${value} (${evidence[`${key}_cause`] ?? 'no cause shown'})`)
+    return `Zero in every variant: ${metrics.join(', ')}.`
+}
+
 function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
     if (subcode === 'filter_on_another_flag') {
         return `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
@@ -385,6 +392,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
         serverOnlyCheck(input, 'metric_calculation_failed', metricCalculationNote, ['metrics']),
+        serverOnlyCheck(input, 'metric_all_zero', metricAllZeroNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
         exposureFiltersCheck(input),
         serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),

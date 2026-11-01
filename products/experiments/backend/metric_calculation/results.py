@@ -141,6 +141,17 @@ class MetricResultStore:
             rows = rows.defer("result")
         return list(_newest_write_first(rows, "metric_uuid").distinct("metric_uuid"))
 
+    def with_zero_baseline(self, rows: Iterable[ExperimentMetricResult]) -> list[ExperimentMetricResult]:
+        """Those of these rows whose baseline reads zero on the metric or on its denominator, with `result`, in the order
+        of `rows`. The database applies the filter, so the rows with a value don't load `result`."""
+        by_pk = {row.pk: row for row in rows}
+        loaded = ExperimentMetricResult.objects.filter(
+            Q(result__baseline__sum=0) | Q(result__baseline__denominator_sum=0),
+            experiment_id=self.experiment_id,
+            pk__in=by_pk,
+        ).in_bulk()
+        return [loaded[pk] for pk in by_pk if pk in loaded]
+
     def exposures_paths(self, rows: Iterable[ExperimentMetricResult]) -> frozenset[ExposuresPath]:
         """Where the queries of these rows read the exposures. It reads one key of `result`, so the rows of `for_run` can
         leave `result` unloaded. A result without the key adds nothing."""

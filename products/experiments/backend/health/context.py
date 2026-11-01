@@ -361,6 +361,35 @@ class MetricCalculationFailure:
     exposures_path: ExposuresPath | None
 
 
+RatioSide = Literal["numerator", "denominator"]
+
+
+@frozen
+class ZeroMetric:
+    """A metric whose latest calculation reads zero in every variant, which the results page shows as "Not enough data
+    yet" or as an error at any sample size."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The persons or groups of the result, across the variants.
+    exposures: int
+    # The side of a ratio that reads zero. None for the other metric types.
+    ratio_side: RatioSide | None
+    # The effective definition now, which holds the outlier handling and the retention window.
+    definition: Mapping[str, Any]
+    # The persons or groups that reached a step of a funnel before the last one. Zero for the other metric types.
+    reached_earlier_step: int
+    # The events that the zero reads by name, without the other side of a ratio.
+    events: tuple[str, ...]
+    # Whether the zero reads an event node with a blank name, which matches no event. "All events" stores no name.
+    has_blank_event: bool
+    # Whether the zero reads a node with property filters.
+    has_filters: bool
+    # Of `events`, those that the project last received before launch, by the time of the last one.
+    stopped_events: Mapping[str, datetime]
+
+
 @frozen
 class LatestCalculation:
     """The latest finished calculation of the experiment's metrics, whose results and errors the results page
@@ -375,6 +404,11 @@ class LatestCalculation:
     completed_count: int
     # Where the queries of those results read the exposures, when there is a failure to compare them with.
     completed_exposures_paths: frozenset[ExposuresPath]
+    # Of those results, the ones that read zero in every variant.
+    zero_metrics: tuple[ZeroMetric, ...] = ()
+    # The hours from launch to the end of the data of this calculation. None when no calculation has finished. The
+    # page can show a calculation from days ago until its refresh finishes.
+    hours_of_data: float | None = None
 
 
 @frozen
