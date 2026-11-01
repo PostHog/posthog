@@ -1,35 +1,22 @@
-//! When accepted offsets reach the ledger and the commit pacer: per poll or per group.
+//! When accepted offsets reach the ledger and the commit pacer: per group.
 
 mod budget;
 #[cfg(test)]
 mod fakes;
 mod group;
-mod poll;
 mod uncommitted;
 
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicPartition};
 
-use tracing::warn;
-
-use crate::config::CompletionGranularity;
-use crate::order_sentinel::OffsetSpan;
-use crate::partition_budget::BudgetLimits;
+#[cfg(test)]
+use common_kafka_consumer::TopicOffsetLedger;
 
 use budget::PartitionBudget;
 pub(crate) use group::GroupSettlement;
-pub(crate) use poll::PollSettlement;
 use uncommitted::Uncommitted;
-
-pub(crate) struct ChargedSlice<'a> {
-    pub(crate) topic_partition: &'a TopicPartition,
-    pub(crate) generation: u64,
-    pub(crate) span: OffsetSpan,
-    pub(crate) charges: &'a [(Offset, Charge)],
-}
 
 pub(crate) trait Settlement: Send + Sync {
     fn charge(
@@ -46,9 +33,6 @@ pub(crate) trait Settlement: Send + Sync {
         generation: u64,
         offsets: &[Offset],
     ) -> anyhow::Result<RunOutcome>;
-
-    /// The oldest poll retired with every message accepted.
-    fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()>;
 
     fn take_due(&self, now: Instant) -> Option<Commit>;
 
@@ -122,27 +106,6 @@ impl Commit {
             offsets,
             uncommitted,
             resume,
-        }
-    }
-}
-
-pub(crate) fn for_granularity(
-    granularity: CompletionGranularity,
-    ledger: Arc<TopicOffsetLedger>,
-    commit_interval: Duration,
-    limits: BudgetLimits,
-) -> Arc<dyn Settlement> {
-    match granularity {
-        CompletionGranularity::Poll => {
-            if limits.is_set() {
-                warn!(
-                    "Ignoring the partition budget: it needs CONSUMER_COMPLETION_GRANULARITY=group"
-                );
-            }
-            Arc::new(PollSettlement::new(ledger))
-        }
-        CompletionGranularity::Group => {
-            Arc::new(GroupSettlement::new(ledger, commit_interval, limits))
         }
     }
 }

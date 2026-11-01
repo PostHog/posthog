@@ -11,7 +11,7 @@ Each guarantee has a violation counter that must stay flat and a denominator tha
 
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
-| Commits are contiguous and monotonic per partition, each the ledger frontier one past the accepted prefix, and cover only completed offsets | `kafka_consumer_ledger_errors_total{stage,kind}` (a redelivered or out-of-window offset), `kafka_consumer_ledger_gap_offsets_total{topic,partition}` (offsets a frontier walked over without delivery), `ingestion_consumer_commit_violations_total{kind=empty\|uncredited}` | `ingestion_consumer_committed_offset{topic,partition}`, `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` |
+| Commits are contiguous and monotonic per partition, each the ledger frontier one past the accepted prefix, and cover only completed offsets | `kafka_consumer_ledger_errors_total{stage,kind}` (a redelivered or out-of-window offset), `kafka_consumer_ledger_gap_offsets_total{topic,partition}` (offsets a frontier walked over without delivery) | `ingestion_consumer_committed_offset{topic,partition}`, `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` |
 | Async commits land on the broker | `kminion_kafka_consumer_group_topic_partition_lag{group_id}` growing while `ingestion_consumer_messages_processed_total` holds its rate | `ingestion_consumer_committed_offset{topic,partition}` (the offset last handed to the client), `ingestion_consumer_offset_commits_total` |
 | Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
@@ -37,13 +37,9 @@ Each frontier the consumer takes goes to the commit pacer (`commit_pacer.rs`), a
 The pacer holds no I/O: the consumer commits what it is given.
 A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
 
-`CONSUMER_COMPLETION_GRANULARITY` selects the unit that settles against the ledger; each unit is one implementation of `Settlement` in `src/settlement/`, and the consumer loop is the same for both.
-`poll` (the default) settles a whole poll once every one of its groups is accepted, oldest poll first, and commits its frontiers at once.
-`group` settles each group's offsets as its completion arrives, in any order, so a stalled key holds back only its own partition's commit.
-At `group` granularity the pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
+The settlement in `src/settlement/` settles each group's offsets as its completion arrives, in any order, so a stalled key holds back only its own partition's commit.
+The pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
 The consumer asks the pacer on each completion wake, at the top of each loop turn, and on the completion wait's one-second heartbeat, and commits everything pending on exit.
-Under the capped polling strategy, admission is per poll at both granularities: `CONSUMER_MAX_BACKGROUND_TASKS` caps in-flight polls, and a slot frees when its whole poll is covered, oldest first, so a stalled key still holds its poll's slot. See [Polling](#polling).
-At `poll` granularity, `ingestion_consumer_commits_skipped_total{reason}` counts polls that settle with no frontier: `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
 The settlement publishes the uncommitted gauges, because it holds both places a partition's charge can be: the ledger's window and the pacer.
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges the offsets each partition has polled and no commit has covered yet, including those taken for a commit the pacer still holds; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 The ledger emits its own counters, so any consumer built on the crate reports the same series.
@@ -53,34 +49,30 @@ The ledger emits its own counters, so any consumer built on the crate reports th
 ## Partition budget
 
 `CONSUMER_PARTITION_BUDGET_EVENTS` and `CONSUMER_PARTITION_BUDGET_BYTES` bound each partition's replay exposure: the events and bytes the settlement reports as uncommitted for it.
-A budget needs `CONSUMER_COMPLETION_GRANULARITY=group`. At `poll` a stalled partition holds back the commits of every partition in its poll, so their budgets would fill and pause together. The consumer ignores a budget at `poll` and logs a warning, so switching a lane back to `poll` rolls it back without unsetting the budget.
+Both are required: the consumer does not start without them.
 When either axis reaches its limit after a poll, the consumer pauses that partition's fetch through the Kafka client; when a commit brings both axes back under `CONSUMER_PARTITION_BUDGET_LOW_WATERMARK` (a fraction of the budget, default 0.8), it resumes.
 The hysteresis matters because a pause purges the partition's fetched messages from librdkafka's queue and a resume refetches them.
-A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the capped polling strategy's cap is full or the continuous strategy is at its in-flight limit.
+A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the consumer is at its in-flight limit.
 A revoked partition is forgotten. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned, and the partition starts with a fresh ledger.
-Both limits default to `0`, which sets no budget; the admission cap (`CONSUMER_MAX_BACKGROUND_TASKS`) then governs alone.
 The budget is a fixed amount per partition, not a share of a pod-wide amount, so a rebalance changes how many partitions a pod holds, not how much each may expose.
 `ingestion_consumer_budget_paused_partitions` gauges how many partitions are paused and `ingestion_consumer_budget_pauses_total{topic,partition}` counts pauses; read them against `ingestion_lag_ms`.
 
 ## Polling
 
-The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to the selected implementation of the `PollingStrategy` trait in `src/polling/`.
-The strategy returns steps, and the consumer carries them out: charge and submit a poll, submit a commit and resume its partitions, stop, or fail.
+The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to the polling strategy in `src/polling/`.
+The strategy returns steps, and the consumer carries them out: charge and submit a poll, submit a commit and resume its partitions, or stop.
 A poll is submitted when it reaches the batch size or the byte bound, or when `CONSUMER_BATCH_TIMEOUT_MS` passes after its first message.
 
 The rebalance callbacks run inside `recv()`, on the loop's task. After every wake the loop hands the partitions they revoked to the strategy, before the event that woke it.
 The strategy then removes those partitions' messages from the poll in progress and from its in-flight state: the batcher purges them, or Kafka delivers them again from the last commit.
 So a message the loop adds to a poll always belongs to the current assignment, and the poll is charged under the partition's current ledger generation.
 
-`CONSUMER_POLLING_STRATEGY` selects what bounds admission.
-`capped` (the default) admits up to `CONSUMER_MAX_BACKGROUND_TASKS` polls, and frees a slot only when the oldest poll is covered, so a stalled key holds back fetching for every partition.
-
-`continuous` admits polls without waiting on any of them.
+The consumer admits polls without waiting on any of them.
 The partition budget bounds each partition's replay exposure, and the in-flight limit bounds the whole pod: `CONSUMER_IN_FLIGHT_EVENTS` and `CONSUMER_IN_FLIGHT_BYTES` count the uncommitted charge of every partition, as the partition budget counts it.
 The limit is approximate: it stops reading, and the poll in progress still completes, so the uncommitted charge can pass the limit by one poll. One poll holds at most `CONSUMER_BATCH_SIZE` events and `CONSUMER_BATCH_SIZE_KB` plus one message; with the byte bound off, its bytes are bounded only by the batch size times the largest message.
 Room frees when a commit hands out offsets, as it does for the partition budget, not when a completion arrives.
 At the limit the loop stops reading Kafka until a commit frees room, and rebalance callbacks wait with it, so size the limit above the budget times the partitions a pod holds.
-`continuous` needs `CONSUMER_COMPLETION_GRANULARITY=group`, a partition budget, and an in-flight limit, and the budget and the limit each need both their events and bytes settings. A message with no key, value or headers charges zero bytes, so a byte-only limit admits any number of them. Without all three the consumer logs a warning and runs `capped`, so switching a lane back to `poll` rolls back both.
+The budget and the limit each need both their events and bytes settings, or the consumer does not start. A message with no key, value or headers charges zero bytes, so a byte-only limit admits any number of them.
 `ingestion_consumer_in_flight_limit_reached_total` counts each time the loop stops reading at the limit; the `kafka_consumer_ledger_uncommitted_*` gauges show each partition's share.
 
 ## Batcher
