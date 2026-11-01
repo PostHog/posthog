@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RazorpaySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.razorpay.razorpay import (
+    MISSING_ACCOUNT_NUMBER_ERROR,
     RazorpayResumeConfig,
     razorpay_source,
     validate_credentials as validate_razorpay_credentials,
@@ -76,6 +77,7 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
         return {
             "401 Client Error: Unauthorized for url: https://api.razorpay.com": "Razorpay authentication failed. Please check your key ID and key secret.",
             "400 Client Error: Bad Request for url: https://api.razorpay.com": None,
+            MISSING_ACCOUNT_NUMBER_ERROR: MISSING_ACCOUNT_NUMBER_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -95,6 +97,17 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+
+    def get_endpoint_permissions(
+        self, config: RazorpaySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return {
+            endpoint: MISSING_ACCOUNT_NUMBER_ERROR
+            if ENDPOINT_CONFIGS[endpoint].requires_account_number and not config.razorpayx_account_number
+            else None
+            for endpoint in endpoints
+            if endpoint in ENDPOINT_CONFIGS
+        }
 
     def validate_credentials(
         self,
@@ -120,8 +133,7 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
         resumable_source_manager: ResumableSourceManager[RazorpayResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        endpoint_config = ENDPOINT_CONFIGS[inputs.schema_name]
-        resource = razorpay_source(
+        return razorpay_source(
             key_id=config.key_id,
             key_secret=config.key_secret,
             endpoint=inputs.schema_name,
@@ -132,19 +144,7 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-        )
-        return SourceResponse(
-            name=resource.name,
-            items=lambda: resource,
-            primary_keys=[endpoint_config.primary_key],
-            column_hints=resource.column_hints,
-            partition_count=1,
-            partition_size=1,
-            partition_mode="datetime",
-            partition_format="week",
-            partition_keys=[endpoint_config.partition_key],
-            # List endpoints return newest-first and expose no sort param.
-            sort_mode="desc",
+            account_number=config.razorpayx_account_number,
         )
 
     @property
@@ -175,6 +175,15 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="razorpayx_account_number",
+                        label="RazorpayX account number",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="7878780080316316",
+                        caption="Only needed to sync RazorpayX transactions. Find it in the RazorpayX Dashboard under My Account & Settings → Banking. Live mode and test mode use different numbers.",
+                        secret=False,
                     ),
                 ],
             ),
