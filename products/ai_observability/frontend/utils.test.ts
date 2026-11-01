@@ -616,6 +616,56 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ])
         })
 
+        it.each<[name: string, message: Record<string, unknown>, expected: CompatMessage[]]>([
+            [
+                'custom_tool_call with freeform input',
+                {
+                    type: 'custom_tool_call',
+                    id: 'ctc_1',
+                    call_id: 'call_1',
+                    name: 'exec',
+                    input: 'const r = await tools.search({q: "x"});\ntext(r)',
+                    status: 'completed',
+                },
+                [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                type: 'function',
+                                id: 'call_1',
+                                function: {
+                                    name: 'exec',
+                                    arguments: 'const r = await tools.search({q: "x"});\ntext(r)',
+                                },
+                            },
+                        ],
+                    },
+                ],
+            ],
+            [
+                'custom_tool_call_output with a string output',
+                { type: 'custom_tool_call_output', call_id: 'call_1', output: 'ok' },
+                [{ role: 'assistant (tool result)', content: 'ok', tool_call_id: 'call_1' }],
+            ],
+            [
+                'custom_tool_call_output with input_text parts',
+                {
+                    type: 'custom_tool_call_output',
+                    id: 'ctco_1',
+                    call_id: 'call_1',
+                    output: [
+                        { type: 'input_text', text: 'Script completed' },
+                        { type: 'input_text', text: '{"rows":2}' },
+                    ],
+                },
+                [{ role: 'assistant (tool result)', content: 'Script completed\n{"rows":2}', tool_call_id: 'call_1' }],
+            ],
+        ])('parses a %s', (_, message, expected) => {
+            expect(normalizeMessage(message, 'user')).toEqual(expected)
+        })
+
         it('parses a reasoning item as assistant thinking', () => {
             const message = {
                 type: 'reasoning',
@@ -1526,6 +1576,10 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             [
                 'OpenAI Responses function_call_output',
                 { type: 'function_call_output', call_id: 'c1', output: 'opaque' },
+            ],
+            [
+                'OpenAI Responses custom_tool_call_output',
+                { type: 'custom_tool_call_output', call_id: 'c1', output: [{ type: 'input_text', text: 'ok' }] },
             ],
             [
                 'custom {type:"function", tool_name, content}',
@@ -2817,6 +2871,11 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             [
                 'accepts OpenAI Responses `function_call`',
                 { type: 'function_call', call_id: 'c1', name: 'x', arguments: '{}' },
+                true,
+            ],
+            [
+                'accepts OpenAI Responses `custom_tool_call`',
+                { type: 'custom_tool_call', call_id: 'c1', name: 'exec', input: 'text(1)' },
                 true,
             ],
             [

@@ -609,6 +609,7 @@ export function isToolResult(item: unknown): boolean {
         isAnthropicToolResultMessage(item) ||
         isVercelSDKToolResultMessage(item) ||
         isOpenAIResponsesFunctionCallOutput(item) ||
+        isOpenAIResponsesCustomToolCallOutput(item) ||
         isCustomFunctionToolResult(item)
     )
 }
@@ -634,6 +635,7 @@ export function isToolStepItem(item: unknown): boolean {
         isVercelSDKToolCallMessage(item) ||
         isVercelSDKToolResultMessage(item) ||
         isOpenAIResponsesFunctionCall(item) ||
+        isOpenAIResponsesCustomToolCall(item) ||
         isOpenAIResponsesBuiltinToolCall(item)
     ) {
         return true
@@ -683,6 +685,14 @@ export function isOpenAIResponsesFunctionCallOutput(input: unknown): input is Op
         'call_id' in input &&
         'output' in input
     )
+}
+
+function isOpenAIResponsesCustomToolCall(input: unknown): boolean {
+    return isObject(input) && input.type === 'custom_tool_call' && isString(input.name) && isString(input.call_id)
+}
+
+function isOpenAIResponsesCustomToolCallOutput(input: unknown): boolean {
+    return isObject(input) && input.type === 'custom_tool_call_output' && isString(input.call_id) && 'output' in input
 }
 
 export function isOpenAIResponsesBuiltinToolCall(input: unknown): input is OpenAIResponsesBuiltinToolCall {
