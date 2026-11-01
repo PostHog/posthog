@@ -51,6 +51,7 @@ import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/sn
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as unifyTemplate } from './_destinations/unify/unify.template'
+import { template as webhookCallbackTemplate } from './_destinations/webhook/webhook-callback.template'
 import { template as webhookTemplate } from './_destinations/webhook/webhook.template'
 import { template as whatsappTemplate } from './_destinations/whatsapp/whatsapp.template'
 import { template as pixelTemplate } from './_sources/pixel/pixel.template'
@@ -85,6 +86,7 @@ export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComi
 export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     slackTemplate,
     webhookTemplate,
+    webhookCallbackTemplate,
     pagerdutyTemplate,
     tiktokAdsTemplate,
     snapchatAdsTemplate,

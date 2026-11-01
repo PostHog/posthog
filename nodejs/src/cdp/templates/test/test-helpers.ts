@@ -17,6 +17,7 @@ import { PluginsServerConfig } from '../../../types'
 import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
+import { WorkflowStepCallbacks } from '../../services/hogflows/step-callback'
 import { EmailService } from '../../services/messaging/email.service'
 import { EmailTrackingCodeSigner } from '../../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../services/messaging/recipient-tokens.service'
@@ -250,6 +251,7 @@ export class TemplateTester {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                workflowStepCallbacks: new WorkflowStepCallbacks(config),
             }
         )
     }
