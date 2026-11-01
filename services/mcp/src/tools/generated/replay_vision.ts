@@ -391,6 +391,7 @@ const visionObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
                 watch_group: params.watch_group,
             },
         })
@@ -1030,6 +1031,9 @@ const visionScannersDraft = (): ToolBase<
         if (params.experiment_id !== undefined) {
             body['experiment_id'] = params.experiment_id
         }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas.DraftScannerResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/draft/`,
@@ -1119,6 +1123,49 @@ const visionScannersGet = (): ToolBase<ReturnType<typeof VisionScannersGetSchema
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const VisionScannersHighlightFeedSchema = () => {
+    const VisionScannersHighlightFeedRetrieveQueryParams = orvalSchemas.VisionScannersHighlightFeedRetrieveQueryParams()
+    return VisionScannersHighlightFeedRetrieveQueryParams
+}
+
+const visionScannersHighlightFeed = (): ToolBase<
+    ReturnType<typeof VisionScannersHighlightFeedSchema>,
+    WithAgentNote<Schemas.HighlightFeedResponse>
+> => ({
+    name: 'vision-scanners-highlight-feed',
+    schema: VisionScannersHighlightFeedSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersHighlightFeedSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HighlightFeedResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/highlight_feed/`,
+            query: {
+                as_of: params.as_of,
+                categories: params.categories,
+                created_by: params.created_by,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                scanner_ids: params.scanner_ids,
+                scanner_type: params.scanner_type,
+                tags: params.tags,
+            },
+        })
+        const filtered = stripNullFields(
+            omitResponseFields(result, [
+                'results.*.observation.scanner_snapshot',
+                'results.*.observation.workflow_id',
+                'results.*.observation.triggered_by_user',
+            ])
+        ) as typeof result
+        return withAgentNote(
+            filtered,
+            'Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n'
+        )
     },
 })
 
@@ -1268,6 +1315,7 @@ const visionScannersObservationsGet = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
                 watch_group: params.watch_group,
             },
         })
@@ -1315,6 +1363,7 @@ const visionScannersObservationsList = (): ToolBase<
                     triggered_by: params.triggered_by,
                     variant: params.variant,
                     verdict: params.verdict,
+                    watch_category: params.watch_category,
                     watch_group: params.watch_group,
                 },
             })
@@ -1374,6 +1423,7 @@ const visionScannersObservationsStats = (): ToolBase<
                 triggered_by: params.triggered_by,
                 variant: params.variant,
                 verdict: params.verdict,
+                watch_category: params.watch_category,
                 watch_group: params.watch_group,
             },
         })
@@ -1639,49 +1689,6 @@ const visionScannersVariantsList = (): ToolBase<
     },
 })
 
-const VisionScannersWatchFeedSchema = () => {
-    const VisionScannersWatchFeedRetrieveQueryParams = orvalSchemas.VisionScannersWatchFeedRetrieveQueryParams()
-    return VisionScannersWatchFeedRetrieveQueryParams
-}
-
-const visionScannersWatchFeed = (): ToolBase<
-    ReturnType<typeof VisionScannersWatchFeedSchema>,
-    WithAgentNote<Schemas.WatchFeedResponse>
-> => ({
-    name: 'vision-scanners-watch-feed',
-    schema: VisionScannersWatchFeedSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersWatchFeedSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WatchFeedResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
-            query: {
-                as_of: params.as_of,
-                created_by: params.created_by,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                limit: params.limit,
-                offset: params.offset,
-                scanner_ids: params.scanner_ids,
-                scanner_type: params.scanner_type,
-                search: params.search,
-                tags: params.tags,
-            },
-        })
-        const filtered = stripNullFields(
-            omitResponseFields(result, [
-                'results.*.observation.scanner_snapshot',
-                'results.*.observation.workflow_id',
-                'results.*.observation.triggered_by_user',
-            ])
-        ) as typeof result
-        return withAgentNote(
-            filtered,
-            'Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n'
-        )
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-alerts-create': visionAlertsCreate,
     'vision-alerts-delete': visionAlertsDelete,
@@ -1719,6 +1726,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-duplicate': visionScannersDuplicate,
     'vision-scanners-estimate': visionScannersEstimate,
     'vision-scanners-get': visionScannersGet,
+    'vision-scanners-highlight-feed': visionScannersHighlightFeed,
     'vision-scanners-impact-get': visionScannersImpactGet,
     'vision-scanners-inline-scan': visionScannersInlineScan,
     'vision-scanners-list': visionScannersList,
@@ -1733,5 +1741,4 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-self-driving-stats': visionScannersSelfDrivingStats,
     'vision-scanners-update': visionScannersUpdate,
     'vision-scanners-variants-list': visionScannersVariantsList,
-    'vision-scanners-watch-feed': visionScannersWatchFeed,
 }

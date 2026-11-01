@@ -1,4 +1,6 @@
 import re
+from collections.abc import Mapping
+from typing import Any
 
 from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
@@ -87,6 +89,11 @@ class PlanetScalePostgresSource(PostgresSource):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PLANETSCALEPOSTGRES
 
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `PostgresSource`.
+        return "planetscale-postgres"
+
     @staticmethod
     def _adjust_field(field: FieldType) -> FieldType:
         if not isinstance(field, SourceFieldInputConfig):
@@ -147,8 +154,7 @@ class PlanetScalePostgresSource(PostgresSource):
         config: PostgresSourceConfig,
         management_mode: str,
         tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
+        setup: Mapping[str, Any],
         require_ssl: bool = True,
         team_id: int | None = None,
     ) -> list[str]:
@@ -160,8 +166,7 @@ class PlanetScalePostgresSource(PostgresSource):
             config,
             management_mode=management_mode,
             tables=tables,
-            slot_name=slot_name,
-            publication_name=publication_name,
+            setup=setup,
             require_ssl=require_ssl,
             team_id=team_id,
         )

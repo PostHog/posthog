@@ -30,6 +30,7 @@ from products.today.backend.facade.contracts import (
 from products.today.backend.facade.enums import (
     HighlightInterval,
     HighlightLabel,
+    HighlightMetricReason,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
@@ -135,7 +136,7 @@ class TestHighlightRanking(SimpleTestCase):
 
 
 class TestBuildHighlights(SimpleTestCase):
-    def test_the_pulse_follows_the_source_order_and_the_items_follow_priority(self) -> None:
+    def test_the_pulse_follows_the_source_order_with_popular_tiles_last_and_the_items_follow_priority(self) -> None:
         sources = (
             HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
             HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
@@ -144,7 +145,9 @@ class TestBuildHighlights(SimpleTestCase):
         )
         found = {
             "key_metrics": HighlightFindings(pulse=(metric("k1"), metric("k2"), metric("k3"))),
-            "routine": HighlightFindings(pulse=(metric("r1"), metric("r2"))),
+            "routine": HighlightFindings(
+                pulse=(metric("r1"), replace(metric("p1"), reason=HighlightMetricReason.POPULAR), metric("r2"))
+            ),
             "experiments": HighlightFindings(
                 items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),)
             ),
@@ -161,7 +164,7 @@ class TestBuildHighlights(SimpleTestCase):
                 built.refresh_at,
             ),
             (
-                ["r1", "r2", "k1", "k2"],
+                ["r1", "r2", "k1", "k2", "k3", "p1"],
                 [("alert", "alerts", HighlightPriority.P2), ("win", "experiments", HighlightPriority.P3)],
                 DAY,
                 datetime(2026, 10, 14, tzinfo=ZoneInfo("Europe/Prague")),
@@ -375,14 +378,6 @@ class TestGetHighlights(BaseTest):
                 1,
                 [],
             ),
-            (
-                "a ready row for the other pulse ranking",
-                {"status": HighlightsStatus.READY, "ready_at": timedelta(minutes=1)},
-                HighlightsStatus.COMPUTING,
-                1,
-                [],
-                "frecency",
-            ),
         ]
     )
     def test_the_request_never_waits_for_a_computation(
@@ -392,15 +387,10 @@ class TestGetHighlights(BaseTest):
         status: HighlightsStatus,
         starts: int,
         pulse: list[str],
-        ranking_later: str = "control",
     ) -> None:
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
-        ranking = ["control"]
-        with (
-            patch.object(highlights, "sync_connect", connect),
-            patch.object(highlights, "pulse_ranking", side_effect=lambda _user, _team: ranking[0]),
-        ):
+        with patch.object(highlights, "sync_connect", connect):
             if row is not None:
                 highlights.get_highlights(team=self.team, user=self.user, scopes=None)
                 now = timezone.now()
@@ -410,7 +400,6 @@ class TestGetHighlights(BaseTest):
                 )
                 connect.return_value.start_workflow.reset_mock()
                 cache.clear()
-                ranking[0] = ranking_later
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(

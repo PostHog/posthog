@@ -275,8 +275,10 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Both are needed together; every other replay_scanner and session_recording route stays PSAK-denied.
     ("replay_scanner", "write"),
     ("session_recording", "read"),
-    # Lets a service send transactional email through `messaging_templates/:id/send/`. Every other
-    # hog_flow route stays PSAK-denied, because no other hog_flow viewset lists PSAK actions.
+    # Lets a service send transactional email (`messaging_templates/:id/send/`, `messaging/send/email/`) and read a
+    # send's status (`messaging/emails/:id/`). Every other hog_flow route stays PSAK-denied, because no other hog_flow
+    # viewset lists PSAK actions.
+    ("hog_flow", "read"),
     ("hog_flow", "write"),
 ]
 
@@ -396,6 +398,24 @@ def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
         seen.add(token)
         result.append(token)
     return result
+
+
+def filter_self_registered_ceiling(scopes: Iterable[object]) -> list[str]:
+    """The scope ceiling a self-registering client (DCR or CIMD) gets from the scopes it declares.
+
+    Resource scopes go through `filter_to_unprivileged_scopes`. The OIDC identity scopes are
+    granted on top of every ceiling, so a list that also names resource scopes drops them. A list
+    of only identity scopes is a sign-in-only client and keeps them as its ceiling: a non-empty
+    ceiling is an exhaustive allow-list, so the client can't get any resource scope. Dropping them
+    would leave the ceiling empty, which callers reject or widen to the `UNPRIVILEGED_SCOPES` default.
+
+    Returns `[]` only when nothing in `scopes` is grantable.
+    """
+    declared = list(scopes)
+    resource_scopes = filter_to_unprivileged_scopes(declared)
+    if resource_scopes:
+        return resource_scopes
+    return list(dict.fromkeys(token for token in declared if isinstance(token, str) and token in OIDC_SCOPES))
 
 
 # Sentinel element in `OAuthApplication.scopes` meaning "the `UNPRIVILEGED_SCOPES`

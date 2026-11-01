@@ -21,6 +21,7 @@ if is_inbox_ranking_registered():
             inbox_ranking_nn.inbox_ranking_nn_with_prio_model_candidate,
             inbox_ranking_nn.inbox_ranking_nn_with_prio_model_champion,
             inbox_ranking_nn_experiments.inbox_ranking_nn_experiment_candidates,
+            inbox_ranking_nn_experiments.inbox_ranking_nn_pair_experiment_candidates,
             inbox_ranking_nn_pairs.inbox_ranking_nn_pair_examples,
         ],
         jobs=[

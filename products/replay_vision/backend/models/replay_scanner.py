@@ -7,7 +7,6 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
-from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
@@ -283,30 +282,15 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         blank=True,
         help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
     )
-
-    # Retired with the scheduled search suggestion refresher; the columns stay until a later drop.
-    search_suggestions = deprecate_field(
-        models.JSONField(
-            default=list,
-            null=True,
-            blank=True,
-            help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
-        )
+    filter_error = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.",
     )
-    search_suggestions_watermark = deprecate_field(
-        models.DateTimeField(
-            null=True,
-            blank=True,
-            help_text="created_at of the newest observation the suggestions were drawn from.",
-        )
-    )
-    search_suggestions_generated_at = deprecate_field(models.DateTimeField(null=True, blank=True))
-    search_last_viewed_at = deprecate_field(
-        models.DateTimeField(
-            null=True,
-            blank=True,
-            help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
-        )
+    filter_error_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the filter error was recorded. Sweeps skip the scanner until it is a few hours old, then try the filter again.",
     )
 
     # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
@@ -453,6 +437,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
         "estimate_attempted_at",
+        "filter_error",
+        "filter_error_at",
         "last_swept_at",
         "last_seen_session_id",
         "deep_swept_through",
@@ -511,7 +497,12 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                         # A config edit must not wait out a backoff the old config earned.
                         self.estimated_at = None
                         self.estimate_attempted_at = None
-                        extra_fields.extend(["estimated_at", "estimate_attempted_at"])
+                        # The filter changed, so the old filter's error no longer applies.
+                        self.filter_error = None
+                        self.filter_error_at = None
+                        extra_fields.extend(
+                            ["estimated_at", "estimate_attempted_at", "filter_error", "filter_error_at"]
+                        )
                     if track_enabled and not old.enabled and self.enabled:
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()

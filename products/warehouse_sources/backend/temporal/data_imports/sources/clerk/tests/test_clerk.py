@@ -278,6 +278,7 @@ class TestClerkFilteredEndpoints:
             "completed": [f"{config.path}?{config.fan_out.query_param}={parent_id}"],
             "current": None,
             "child_state": None,
+            "parent": None,
         }
         assert result.raised is None
 

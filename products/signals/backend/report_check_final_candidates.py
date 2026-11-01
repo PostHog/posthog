@@ -29,7 +29,10 @@ from posthog.dataclasses import frozen
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalReportMonitoringResult
 from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations
 from products.signals.backend.report_monitoring_attempts import check_definition_version
-from products.signals.backend.report_monitoring_results import MONITORING_RESULT_ELIGIBLE_STATUSES
+from products.signals.backend.report_monitoring_results import (
+    LEGACY_MONITORING_TERMINAL_STATUSES,
+    MONITORING_RESULT_ELIGIBLE_STATUSES,
+)
 
 FINAL_CHECK_RETRY_DELAYS = (timedelta(minutes=5), timedelta(minutes=15))
 MAX_FINAL_CHECKS_PER_TEAM = 10
@@ -58,11 +61,18 @@ def collect_due_final_checks(
     candidates = (
         SignalReportCheck.all_teams.filter(
             kind=kind,
-            status__in=MONITORING_RESULT_ELIGIBLE_STATUSES,
             soak_minutes__isnull=False,
             report__status=SignalReport.Status.MONITORING,
             report__monitoring_attempts__team_id=F("team_id"),
             report__monitoring_attempts__monitoring_started_at=F("report__monitoring_started_at"),
+        )
+        .filter(
+            Q(status__in=MONITORING_RESULT_ELIGIBLE_STATUSES)
+            | Q(
+                kind=SignalReportCheck.Kind.AGENT,
+                status__in=LEGACY_MONITORING_TERMINAL_STATUSES,
+                legacy_monitoring_attempt_id=F("report__monitoring_attempts__id"),
+            )
         )
         .annotate(
             _attempt_id=F("report__monitoring_attempts__id"),

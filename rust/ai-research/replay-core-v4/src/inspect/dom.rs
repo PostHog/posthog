@@ -25,8 +25,6 @@ pub const MAX_IMAGE_URLS: usize = 512;
 /// Attribute changes read per mutation, as many as the nodes tracked. A mutation with more drops its block, because
 /// the inspector does not name the URLs in the rest.
 pub const MAX_ATTRIBUTE_ITEMS: usize = MAX_TRACKED_NODES;
-/// The longest remote URL a block may hold in an image slot: four times the longest the fetcher takes.
-pub const MAX_REMOTE_URL_BYTES: usize = 8 * 1024;
 /// The distinct remote URLs in a block's image slots, and their bytes. The writer builds one matcher over them, and
 /// the build takes memory in proportion to their bytes.
 pub const MAX_BLOCK_REMOTE_URLS: usize = 10_000;
@@ -179,10 +177,9 @@ struct WindowDom {
 }
 
 /// Why the inspector stopped naming a block's remote image URLs. The writer replaces only the URLs it is given, so it
-/// drops the block.
+/// scrubs every other remote URL token in the block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlLimit {
-    UrlLength,
     UrlCount,
     UrlBytes,
     AttributeItems,
@@ -192,7 +189,6 @@ impl UrlLimit {
     /// The outcome of the dropped block in the recorder's metrics.
     pub fn label(self) -> &'static str {
         match self {
-            UrlLimit::UrlLength => "url_too_long",
             UrlLimit::UrlCount => "too_many_urls",
             UrlLimit::UrlBytes => "too_many_url_bytes",
             UrlLimit::AttributeItems => "too_many_attribute_items",
@@ -200,7 +196,7 @@ impl UrlLimit {
     }
 }
 
-/// Distinct remote image URLs within [`MAX_REMOTE_URL_BYTES`], [`MAX_BLOCK_REMOTE_URLS`] and
+/// Distinct remote image URLs within [`MAX_BLOCK_REMOTE_URLS`] and
 /// [`MAX_BLOCK_REMOTE_URL_BYTES`]. Past a limit it keeps no more, and `limit` says why.
 #[derive(Debug, Default)]
 pub struct RemoteUrls {
@@ -236,9 +232,9 @@ impl RemoteUrls {
         if self.limit.is_some() || self.urls.contains(url) {
             return;
         }
-        self.limit = if url.len() > MAX_REMOTE_URL_BYTES {
-            Some(UrlLimit::UrlLength)
-        } else if self.urls.len() >= MAX_BLOCK_REMOTE_URLS {
+        // A URL of any length is named: the policy declines one too long to fetch, and its bytes count toward the
+        // block's budget.
+        self.limit = if self.urls.len() >= MAX_BLOCK_REMOTE_URLS {
             Some(UrlLimit::UrlCount)
         } else if self.bytes + url.len() > MAX_BLOCK_REMOTE_URL_BYTES {
             Some(UrlLimit::UrlBytes)
@@ -266,10 +262,11 @@ impl RemoteUrls {
     }
 
     pub fn extend(&mut self, other: RemoteUrls) {
-        self.limit = self.limit.or(other.limit);
+        // The URLs go in before the other's limit, so that a part that hit a limit still names what it holds.
         for url in &other.urls {
             self.insert(url);
         }
+        self.limit = self.limit.or(other.limit);
         for (raw, (text, unfetched_type)) in other.srcsets.iter().flat_map(|s| &s.values) {
             self.insert_srcset(raw, text, *unfetched_type);
         }
@@ -2003,11 +2000,12 @@ mod tests {
             urls.for_each(|u| remote.insert(&u));
             remote.limit
         };
-        let longest = MAX_REMOTE_URL_BYTES;
+        let longest = 8 * 1024;
         let most_long = MAX_BLOCK_REMOTE_URL_BYTES / longest;
         for (urls, expected) in [
             (vec![url(0, longest)], None),
-            (vec![url(0, longest + 1)], Some(UrlLimit::UrlLength)),
+            // A URL of any length is named, and the policy declines it.
+            (vec![url(0, longest + 1)], None),
             (
                 (0..MAX_BLOCK_REMOTE_URLS).map(|i| url(i, 40)).collect(),
                 None,

@@ -637,6 +637,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # on POSTs (emit-signal, forget) already disable pagination at the @action level.
     pagination_class = None
 
+    def get_serializer_context(self) -> dict[str, object]:
+        context = super().get_serializer_context()
+        context["may_read_reports"] = _may_read_reports(self.request, self.team.parent_team or self.team)
+        return context
+
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
         team_id = _canonical_team_id(self)
@@ -730,7 +735,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 skill_version=skill_version,
                 limit=limit,
             )
-        return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+        return Response(
+            SignalScoutRunSummarySerializer(
+                [row.as_dict() for row in rows], many=True, context=self.get_serializer_context()
+            ).data
+        )
 
     @validated_request(
         query_serializer=RecentRunsPerScoutQuerySerializer,
@@ -772,6 +781,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def recent_per_scout(self, request: Request, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
+        serializer_context = self.get_serializer_context()
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
         max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
@@ -794,17 +804,26 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
-            return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            return Response(
+                SignalScoutRunSummarySerializer(
+                    [row.as_dict() for row in rows], many=True, context=serializer_context
+                ).data
+            )
         # The inbox polls this every minute. A browser revalidates a `no-cache` body with
         # If-None-Match by itself, so an unchanged fleet costs the narrow version read, not hydration.
-        etag = f'"{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
+        report_access = int(bool(serializer_context["may_read_reports"]))
+        etag = f'"{report_access}:{runs_version(team_id=_canonical_team_id(self), run_ids=run_ids)}"'
         conditional = get_conditional_response(request._request, etag=etag)
         if conditional is not None:
             # 304 for a matching If-None-Match, 412 for a failed If-Match.
             response = Response(status=conditional.status_code)
         else:
             rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
-            response = Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
+            response = Response(
+                SignalScoutRunSummarySerializer(
+                    [row.as_dict() for row in rows], many=True, context=serializer_context
+                ).data
+            )
         response["ETag"] = etag
         response["Cache-Control"] = "private, no-cache"
         return response
@@ -860,7 +879,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if saved is not None:
             for row in saved.context.recent_runs:
                 if row.get("run_id") == str(run_id):
-                    return Response(SignalScoutRunDetailSerializer(row).data)
+                    return Response(SignalScoutRunDetailSerializer(row, context=self.get_serializer_context()).data)
         detail = get_run(team_id=_canonical_team_id(self), run_id=str(run_id))
         if detail is None:
             raise exceptions.NotFound()
@@ -870,7 +889,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             reports = private.reports()
             body["emitted_report_ids"] = [report.id for report in reports if report.source_report_id is None]
             body["edited_report_ids"] = [report.id for report in reports if report.source_report_id is not None]
-        return Response(SignalScoutRunDetailSerializer(body).data)
+        return Response(SignalScoutRunDetailSerializer(body, context=self.get_serializer_context()).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -2747,8 +2766,8 @@ def _upsert_scout_config(
         skill_name=skill_name,
         defaults={
             **defaults,
-            "created_by": request.user,
-            "enabled_by": request.user if tunables.get("enabled", True) else None,
+            "created_by": cast(User, request.user),
+            "enabled_by": cast(User, request.user) if tunables.get("enabled", True) else None,
         },
     )
     if created or not tunables:

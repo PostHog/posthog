@@ -1,0 +1,172 @@
+# Views walkthrough in the demo. Starts and ends on the sign-in screen with demo mode off, so it can run
+# again right away. How to run it: products/mobile/docs/TESTING.md, with views-smoke in place of demo-smoke.
+steps:
+    - echo: Restart PostHog. Expect the sign-in screen with demo mode off
+    - launch: com.posthog.code.mobile
+    - await: { visible: { id: try-demo }, timeout: 25000 }
+    - await: { idle: true }
+
+    - echo: On sign-in. Tap Try the demo. Expect the inbox
+    - tap: { id: try-demo }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open Views from the bottom bar. Expect the pinned list
+    - tap: { id: inbox-nav-views }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: views-pin-dashboard-demo-dash-kpis }, contains: Product KPIs } }
+
+    - echo: On Views. Open Edit pins and show Signups as a number. Expect the big value
+    - tap: { id: tabs-more }
+    - tap: { id: views-edit-pins }
+    - await: { visible: { id: edit-pins-sheet } }
+    - tap: { id: edit-pin-mode-number-insight-demo-ins-signups }
+    - tap: { id: edit-pins-done }
+    - await: { visible: { id: views-pin-value-insight-demo-ins-signups } }
+    - await: { idle: true }
+
+    - echo: On Views. Open Product KPIs. Expect the dashboard on its saved range
+    - tap: { id: views-pin-dashboard-demo-dash-kpis }
+    - await: { visible: { id: view-range } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
+
+    - echo: On the dashboard. Pick 7 days. Expect Last 7 days without a save-status indicator or period buttons
+    - tap: { id: view-range }
+    - await: { visible: { id: range-sheet } }
+    - tap: { id: range-chip-7d }
+    - await: { idle: true }
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: range-sheet } }
+    - assert: { text: { in: { id: view-range }, contains: Last 7 days } }
+    - await: { hidden: { id: view-range-not-saved } }
+    - await: { hidden: { id: range-step-prev } }
+    - await: { hidden: { id: range-step-next } }
+
+    - echo: Reset to the saved range. Expect Last 14 days
+    - tap: { id: view-range }
+    - await: { visible: { id: range-sheet } }
+    - tool: gesture-swipe
+      args: { fromX: 0.5, fromY: 0.85, toX: 0.5, toY: 0.35, durationMs: 300 }
+    - tap: { id: range-reset }
+    - await: { hidden: { id: range-reset } }
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: range-sheet } }
+    - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
+    - await: { hidden: { id: view-range-not-saved } }
+
+    - echo: Open the Daily active users tile. Expect the insight on the dashboard's range
+    - tap: { id: view-tile-open-1 }
+    - await: { visible: { id: insight-scroll } }
+    - await: { idle: true }
+    - assert: { text: { in: { id: view-range }, contains: Last 14 days } }
+
+    - echo: On the insight. Turn on compare. Expect the previous period in the legend
+    - tap: { id: view-range }
+    - await: { visible: { id: range-sheet } }
+    - tool: gesture-swipe
+      args: { fromX: 0.5, fromY: 0.85, toX: 0.5, toY: 0.35, durationMs: 300 }
+    - tap: { id: range-compare }
+    - await: { idle: true }
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: range-sheet } }
+    - await: { visible: { text: Previous period } }
+
+    - echo: Tap the chart. Expect a pinned tooltip. Tap it. Expect the point sheet
+    - tap: { id: chart-demo-ins-dau }
+    - await: { idle: true }
+    - await: { visible: { id: chart-tooltip } }
+    - tap: { id: chart-tooltip }
+    - await: { visible: { id: point-sheet } }
+    - await: { idle: true }
+
+    - echo: Close the point sheet. Open the chart full screen. Expect the compare series in the legend
+    - tap: { id: sheet-done }
+    - await: { hidden: { id: point-sheet } }
+    - tap: { id: view-fullscreen }
+    - await: { visible: { id: chart-fullscreen-chart } }
+    - await: { visible: { text: Previous period, within: { id: chart-fullscreen-legend } } }
+    - await: { idle: true }
+
+    - echo: Close full screen and go back. Expect the dashboard
+    - tap: { id: chart-fullscreen-back }
+    - await: { visible: { id: insight-scroll } }
+    - tap: { id: view-back }
+    - await: { visible: { id: dashboard-tiles } }
+    - await: { idle: true }
+
+    - echo: On the dashboard. Tap the first chart. Expect a pinned tooltip
+    - tap: { id: chart-demo-tile-1 }
+    - await: { visible: { id: chart-tooltip } }
+    - await: { idle: true }
+
+    - echo: Scroll to the bar list. Tap the second row. Expect its share of the total
+    - scroll-to: { target: { id: chart-demo-tile-7-row-1 } }
+    - tap: { id: chart-demo-tile-7-row-1 }
+    - await: { visible: { text: of the total } }
+    - await: { idle: true }
+
+    - echo: Scroll to the funnel. Tap step 2. Expect the step to stay selected
+    - scroll-to: { target: { id: view-tile-fullscreen-8 } }
+    - scroll-to: { target: { id: chart-demo-tile-8-step-1 } }
+    - tap: { id: chart-demo-tile-8-step-1 }
+    - await: { visible: { text: Median time from the previous step } }
+    - await: { idle: true }
+
+    - echo: Open the funnel full screen. Expect the full-screen funnel. Go back
+    - tap: { id: view-tile-fullscreen-8 }
+    - await: { visible: { id: chart-fullscreen-funnel } }
+    - await: { idle: true }
+    - tap: { id: chart-fullscreen-back }
+    - await: { visible: { id: view-tile-fullscreen-8 } }
+    - await: { idle: true }
+
+    # A drag that starts outside a selected chart clears its selection, so scroll before the tap, not after it.
+    - echo: Scroll to the card under the retention grid. Tap a cell. Expect the callout under the grid
+    - scroll-to: { target: { id: view-tile-6 } }
+    - scroll-to: { target: { id: chart-demo-tile-9-cell-3-2 } }
+    - tap: { id: chart-demo-tile-9-cell-3-2 }
+    - await: { visible: { id: chart-demo-tile-9-callout } }
+    - assert: { text: { in: { id: chart-demo-tile-9-callout }, contains: 'Week 2: 36%, 163 of 458 people' } }
+    - await: { idle: true }
+
+    - echo: Go back. Expect Views
+    - tap: { id: view-back }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+
+    - echo: On Views. Scroll to Browse and open Dashboards. Expect the dashboard list
+    - tool: gesture-swipe
+      args: { fromX: 0.5, fromY: 0.8, toX: 0.5, toY: 0.25, durationMs: 300 }
+    - await: { visible: { id: views-browse-dashboards } }
+    - tap: { id: views-browse-dashboards }
+    - await: { visible: { id: views-browse-dashboards-screen } }
+    - await: { visible: { text: Product KPIs } }
+    - await: { idle: true }
+
+    - echo: On the dashboard list. Go back. Expect Views
+    - tap: { id: views-browse-back }
+    - await: { visible: { id: views-screen } }
+    - await: { idle: true }
+
+    - echo: On Views. Go to Home from the bottom bar. Expect the inbox
+    - tap: { id: inbox-nav-home }
+    - await: { visible: { id: inbox-screen } }
+    - await: { idle: true }
+
+    - echo: On the inbox. Open the menu. Expect Settings in it
+    - tap: { id: tabs-more }
+    - await: { visible: { id: nav-settings } }
+    - await: { idle: true }
+
+    - echo: Menu open. Open Settings. Expect Exit demo
+    - tap: { id: nav-settings }
+    - scroll-to: { target: { id: settings-exit-demo } }
+    - await: { visible: { id: settings-exit-demo } }
+    - await: { idle: true }
+
+    - echo: On Settings. Tap Exit demo. Expect the sign-in screen
+    - tap: { id: settings-exit-demo }
+    - await: { visible: { id: try-demo }, timeout: 10000 }
+    - await: { hidden: { id: settings-exit-demo } }

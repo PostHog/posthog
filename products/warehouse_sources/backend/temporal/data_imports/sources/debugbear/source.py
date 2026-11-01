@@ -52,6 +52,17 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
             "DebugBear rejected the RUM metrics request": None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_session`'s `make_tracked_session()` already retries 429/5xx, including the Cloudflare
+        # 52x/530 family DebugBear can surface on an edge/origin blip, at the urllib3 layer before
+        # `_get_json`'s `raise_for_status()` can even raise (see `DEFAULT_RETRY` in
+        # sources/common/http/transport.py). A response that still exhausts that budget is a
+        # transient DebugBear/edge issue, not a bug, so Temporal's activity retry recovers once it
+        # clears rather than surfacing it as tracked exception noise. `raise_for_status` derives
+        # these prefixes from the status code alone, not the vendor's reason text, so they're
+        # stable to match on.
+        return {"Server Error", "429 Client Error"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

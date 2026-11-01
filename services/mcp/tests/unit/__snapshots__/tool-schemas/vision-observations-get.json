@@ -61,8 +61,12 @@
             "description": "Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
             "type": "string"
         },
+        "watch_category": {
+            "description": "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.",
+            "type": "string"
+        },
         "watch_group": {
-            "description": "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.",
+            "description": "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.",
             "type": "string"
         }
     },

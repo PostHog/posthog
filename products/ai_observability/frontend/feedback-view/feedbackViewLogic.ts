@@ -5,9 +5,9 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { isUUIDLike } from 'lib/utils/guards'
+import { hogql } from 'lib/utils/hogql'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { Survey } from '~/types'
 
 import { aiObservabilityTraceDataLogic } from '../aiObservabilityTraceDataLogic'

@@ -15,16 +15,13 @@ from django.http import HttpResponse
 import requests
 import structlog
 
-from posthog.models.integration import Integration
-
 from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.services import slack_welcome_messages
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 
 logger = structlog.get_logger(__name__)
-
-SLACK_INTEGRATION_KIND = "slack"
 
 
 def extract_inbox_hints(payload: dict) -> int | None:
@@ -78,16 +75,12 @@ def _post_ephemeral_via_response_url(response_url: str, text: str) -> None:
     post_response_url(response_url, {"response_type": "ephemeral", "replace_original": False, "text": text})
 
 
-def _inbox_integration_from_payload(payload: dict) -> Integration | None:
+def _inbox_integration_from_payload(payload: dict) -> WorkspaceIntegration | None:
     integration_id = extract_inbox_hints(payload)
     slack_team_id = payload.get("team", {}).get("id")
     if not integration_id or not slack_team_id:
         return None
-    return Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind=SLACK_INTEGRATION_KIND,
-        integration_id=slack_team_id,
-    ).first()
+    return get_workspace_integration(integration_id, slack_team_id)
 
 
 def _reconnect_hint() -> str:

@@ -85,9 +85,11 @@ def get_resources(name: str) -> list[EndpointResource]:
         fan_out.query_param: {"type": "resolve", "resource": fan_out.parent, "field": fan_out.parent_field},
         "limit": config.page_size,
     }
+    child = _resource(name, config, f"{config.path}?{fan_out.query_param}={{{fan_out.query_param}}}", child_params)
+    child["resume_parent_pagination"] = True
     return [
         _resource(fan_out.parent, parent_config, parent_config.path, {"limit": parent_config.page_size}),
-        _resource(name, config, f"{config.path}?{fan_out.query_param}={{{fan_out.query_param}}}", child_params),
+        child,
     ]
 
 

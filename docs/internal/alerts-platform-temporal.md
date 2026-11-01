@@ -47,6 +47,16 @@ Reverting the code that registers a schedule does not remove one already registe
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
 
+### Slack message formatting
+
+- Sources can register a Slack renderer with `register_source_slack_renderer` through the delivery facade.
+- Insight alert firings use the same attachment and control builders as their HogFunction templates.
+- Sources without a custom renderer, and insight transitions other than firings, use the platform's default layout.
+- The Slack transport preserves attachments for later message updates. If Slack rejects a chart image, it retries without the image and retains the remaining content.
+- A renderer always sets `text`. A push notification and a screen reader read it, and an attachment does not carry it.
+- A renderer that raises is counted on `alerts_platform_slack_renderer_failures_total` and the message goes out in the platform's layout.
+- A card that lives in an attachment also stores one stand-in block. A reader from before attachments edits `blocks` and indexes its last element, so an empty list would fail that edit during a rolling deploy.
+
 ### Turning a production deployment on
 
 A production tick is a shadow run. Delivery stops at `alerts-platform-deliver-preview`, which records what
@@ -201,7 +211,8 @@ Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow st
 Activity retries retain the same cutoff rather than reading the activity's clock.
 The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
 Only nonempty groups are returned. Discovery does not reserve or claim IDs.
-Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 55 KB per 1,000 keys, under the repository's 256 KB rule for Temporal payload fields.
+The insight binding allows up to 2,000 keys (`ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK`), about 110 KB.
 A source that admits fewer checks per tick sets a lower limit, because every key starts a workflow.
 `omitted_by_source` counts the due IDs left out. The tick adds that count to its `remaining` result, and the next tick discovers that work again.
 
@@ -470,19 +481,23 @@ The path emits through Temporal's own meter, so every series carries the worker,
 the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
-| Metric                                                    | What it answers                                                   |
-| --------------------------------------------------------- | ----------------------------------------------------------------- |
-| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided       |
-| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                      |
-| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending                |
-| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick                  |
-| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                             |
-| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                          |
-| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated                   |
-| `alerts_platform_discovery_omitted_total{source}`         | How many due batch keys a tick left out under the discovery limit |
-| `alerts_platform_checks_deferred_total{source}`           | How many checks a full evaluation pool turned away                |
-| `alerts_platform_checks_unfinished_total{source}`         | How many admitted insight checks reached no outcome               |
-| `alerts_platform_history_rows_dropped_total{source}`      | How many check rows a failed history write lost                   |
+| Metric                                                    | What it answers                                                                                                                                                                |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided                                                                                                                    |
+| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                                                                                                                                   |
+| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending                                                                                                                             |
+| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick                                                                                                                               |
+| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                                                                                                                                          |
+| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                                                                                                                                       |
+| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated                                                                                                                                |
+| `alerts_platform_discovery_omitted_total{source}`         | How many due batch keys a tick left out under the discovery limit                                                                                                              |
+| `alerts_platform_tick_duration_ms{deadline_reached}`      | How long a tick ran from its scheduled minute. Past 60 s, the schedule skips the next tick                                                                                     |
+| `alerts_platform_tick_start_delay_ms`                     | How late a tick's first workflow task ran after its scheduled minute                                                                                                           |
+| `alerts_platform_tick_keys`                               | How many batch keys a tick's discovery found due, including those its limits left out                                                                                          |
+| `alerts_platform_tick_schedule_actions{outcome}`          | The tick schedule's lifetime counts of started, overlap-skipped and late-dropped ticks, pushed every 5 minutes. A rise in `skipped_overlap` or `missed_catchup` is a lost tick |
+| `alerts_platform_checks_deferred_total{source}`           | How many checks a full evaluation pool turned away                                                                                                                             |
+| `alerts_platform_checks_unfinished_total{source}`         | How many admitted insight checks reached no outcome                                                                                                                            |
+| `alerts_platform_history_rows_dropped_total{source}`      | How many check rows a failed history write lost                                                                                                                                |
 
 Histogram buckets are registered in `posthog/temporal/common/worker.py`; a histogram missing from
 `ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS` gets Prometheus defaults instead.
@@ -518,7 +533,10 @@ It copies every insight alert, on every cadence.
 A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
 An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
 Every other check gets one 12-minute attempt.
-An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so copy AI detector alerts only for internal projects until the insight cutover.
+An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so the backfill leaves AI detector alerts out.
+Pass `--include-ai-detector` to copy them, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.
+An AI detector alert created or turned back on later waits for the next backfill run with the flag.
+A copy made without the flag is switched off at its next check when its alert has since moved to the AI detector.
 The AI queue's worker needs `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file too, or those checks query as the worker's own ClickHouse user.
 Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM_INSIGHT_USER` and its token file.
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
@@ -532,8 +550,14 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
-4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size. A batch refills the slots its finished checks free, in rounds within its tick, so the cap limits concurrency rather than checks per minute.
+4. Widen the sample only while both stay flat. Two pools bound the parallel run, whatever the sample size:
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick.
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS` caps the checks admitted at once, and defaults to the query cap. An admitted check also locks itself, so a later run never starts the same check while it runs. An admitted check holds an evaluation worker slot until it ends, including while it waits for a query slot, so keep this cap inside the workers' activity slots.
+
+   Each worker reads both caps from its own environment, so set them to the same values on every worker that runs insight checks, the AI detector worker included.
+   A batch refills the check slots its finished checks free, in rounds within its tick, so the caps limit concurrency rather than checks per minute.
    `ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK` bounds how many teams' batches start each minute, so a larger sample can need it raised. Sixty times its value must cover the batch keys due per hour. Otherwise the checks due at the top of the hour start later and later, while ClickHouse stays idle.
+
 5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
 To stop either parallel run, logs or insight, pass `--disable` to its backfill, with `--team-id` to stop one team.

@@ -260,7 +260,8 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
                         digest=input.digest,
                         common=input.common,
                     ),
-                    start_to_close_timeout=timedelta(minutes=30),
+                    # Batches share the pace of the captures for Workflows, so a batch can wait well past 30 minutes.
+                    start_to_close_timeout=timedelta(hours=2),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),

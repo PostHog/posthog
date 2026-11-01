@@ -1,6 +1,6 @@
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Annotated, Any, Literal
 
@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one import (
     MAX_SCORE_LEVELS,
     ChoiceAnswer,
@@ -40,6 +41,7 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_generation_not_found_result,
     build_skipped_evaluation_result,
 )
+from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, build_attachment_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -54,6 +56,7 @@ from posthog.temporal.common.errors import NonReportableApplicationError, NonRep
 from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.decisions import (
     DecisionClient,
     DecisionEndpointBlockedError,
@@ -93,6 +96,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     sanitize_surrogates,
     truncate_by_line_sampling,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 
 logger = structlog.get_logger(__name__)
 
@@ -442,6 +446,25 @@ def _build_unparsable_response_skip_result(
     return result
 
 
+# Statuses an attached image can cause. Auth, permission and missing-model errors fail the same way without images.
+_IMAGE_REJECTION_STATUSES = frozenset({400, 413, 415, 422})
+
+
+class JudgeAttachmentsRejectedError(Exception):
+    """Reported without the provider's message, which can quote a live presigned link."""
+
+
+def _attachment_rejection_status(error: Exception) -> int | None:
+    """The status of a provider rejection an image can cause, raw or wrapped by an adapter."""
+    for candidate in (error, error.__cause__):
+        if (
+            isinstance(candidate, Exception)
+            and (status := _rejected_request_status(candidate)) in _IMAGE_REJECTION_STATUSES
+        ):
+            return status
+    return None
+
+
 def _rejected_request_status(error: Exception) -> int | None:
     """The 4xx status of a provider rejection that no retry can fix, or None.
 
@@ -558,17 +581,19 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         return _build_errored_trace_result(allows_na, output_type=output_type)
 
     io = extract_event_io(event_type, properties)
-    tools_raw = extract_event_tools(properties)
-
-    input_data = extract_text_from_messages(io.input_raw)
-    output_data = extract_text_from_messages(io.output_raw)
-    tools_data = format_tool_definitions(tools_raw)
-
+    tools_data = format_tool_definitions(extract_event_tools(properties))
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    output_section = f"\n\nOutput: {output_data}"
-    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
-    if context_budget < 0:
+    user_prompt = _build_user_prompt(io.input_raw, io.output_raw, tools_data)
+    attachment_prompt = build_attachment_prompt(
+        evaluation,
+        user_prompt,
+        lambda media_marker: _build_user_prompt(io.input_raw, io.output_raw, tools_data, media_marker=media_marker),
+    )
+    if user_prompt is None and attachment_prompt is not None:
+        # Inline base64 can push the plain text over the limit when the marked text still fits.
+        user_prompt = attachment_prompt.unnumbered_text()
+    if user_prompt is None:
         return build_skipped_evaluation_result(
             output_type=output_type,
             allows_na=allows_na,
@@ -576,20 +601,32 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
             skip_reason="generation_output_too_long",
         )
 
-    sections = [input_data]
-    if tools_data:
-        sections.append(f"Tools available:\n{tools_data}")
-    # Keep the full answer being graded outside the sampled context.
-    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
-    user_prompt = sanitize_surrogates(f"Input: {context}{output_section}")
-
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        attachment_prompt=attachment_prompt,
     )
+
+
+def _build_user_prompt(
+    input_raw: Any, output_raw: Any, tools_data: str, *, media_marker: MediaMarker | None = None
+) -> str | None:
+    """The judge's user prompt, or None when the output alone exceeds the judge's text limit."""
+    # Render the input first, so its images get the lower numbers in reading order.
+    input_text = extract_text_from_messages(input_raw, media_marker)
+    output_section = f"\n\nOutput: {extract_text_from_messages(output_raw, media_marker)}"
+    context_budget = EVENT_TEXT_MAX_CHARS - len("Input: ") - len(output_section)
+    if context_budget < 0:
+        return None
+    sections = [input_text]
+    if tools_data:
+        sections.append(f"Tools available:\n{tools_data}")
+    # Keep the full answer being graded outside the sampled context.
+    context = truncate_by_line_sampling("\n\n".join(sections), context_budget)
+    return sanitize_surrogates(f"Input: {context}{output_section}")
 
 
 def _decision_numeric_score(minimum: float, maximum: float, index: float) -> float:
@@ -613,6 +650,7 @@ def call_llm_judge(
     user_prompt: str,
     allows_na: bool,
     backfill: bool = False,
+    attachment_prompt: AttachmentPrompt | None = None,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -821,15 +859,47 @@ def call_llm_judge(
                 ),
             )
         else:
-            response = client.complete(
-                CompletionRequest(
-                    model=model,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
-                    provider=provider,
-                    response_format=response_format,
-                )
+            content = (
+                attachment_prompt.attachments.content(attachment_prompt.text, provider, model)
+                if attachment_prompt
+                else user_prompt
             )
+            sent_attachments = isinstance(content, list) and any(isinstance(part, AttachmentPart) for part in content)
+            request = CompletionRequest(
+                model=model,
+                system=system_prompt,
+                messages=[{"role": "user", "content": content}],
+                provider=provider,
+                response_format=response_format,
+                reasoning_level=evaluation["evaluation_config"].get("reasoning_level"),
+            )
+            status: int | None = None
+            try:
+                response = client.complete(request)
+            except Exception as e:
+                status = _attachment_rejection_status(e) if sent_attachments else None
+                if status is None:
+                    raise
+            # Handle the rejection outside the except: the provider's error can quote a presigned link, and
+            # an active exception reaches the logs through capture_exception and chains onto a retry failure.
+            if status is not None:
+                # A model without image or PDF input, or a link the provider could not download.
+                # Grade the plain transcript rather than skip the run.
+                context = {
+                    "evaluation_id": evaluation["id"],
+                    "team_id": evaluation["team_id"],
+                    "provider": provider,
+                    "model": model,
+                    "status": status,
+                    "sent_pdfs": any(isinstance(part, AttachmentPart) and part.is_pdf for part in content),
+                }
+                logger.warning("judge_attachments_rejected", **context)
+                if not is_byok:
+                    # On a PostHog key this can mean broken presigned links or a refused PDF, so keep it visible.
+                    capture_exception(
+                        JudgeAttachmentsRejectedError(f"Provider rejected judge images ({status})"), context
+                    )
+                response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(

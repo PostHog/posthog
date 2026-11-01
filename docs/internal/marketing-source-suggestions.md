@@ -193,7 +193,7 @@ The source scan, enhanced catalog, dashboard section changes, and header feedbac
 Google Search Console onboarding stays behind its independent `marketing-analytics-organic-keywords` flag.
 Mounting source setup state does not start the UTM audit; Integration health loads the audit when opened.
 Search onboarding stays independent under `marketing-analytics-organic-keywords`.
-The read-only setup plan is available with `marketing-analytics-source-onboarding`, `marketing-analytics-setup`, or `new-marketing-analytics-dashboard`; other setup operations keep their existing flag requirements.
+The read-only setup plan is available with `marketing-analytics-source-onboarding` or `marketing-analytics-setup`; other setup operations keep their existing flag requirements.
 
 Source setup uses a consistent panel for connection checks, event scanning, suggestions, empty results, and recoverable errors.
 Detected platforms show concise evidence with expandable details.
@@ -242,8 +242,8 @@ Integration buttons show the external-link icon because their connection panels 
 
 The native integration catalog uses a consistent display order: Google Ads, Meta Ads, Bing Ads, LinkedIn Ads, TikTok Ads, Reddit Ads, Pinterest Ads, Snapchat Ads, OpenAI Ads, Apple Ads, Amazon Ads, Rokt Ads, and X Ads. Google Search Console stays in the search section.
 
-The separate Ad performance tab is available only with `new-marketing-analytics-dashboard` enabled.
-Enabling Search performance alone keeps paid and organic reporting inside the current Dashboard tab.
+The separate Ad performance tab appears when `marketing-analytics-organic-keywords` is on and `marketing-analytics-source-onboarding` is off.
+Otherwise paid and organic reporting stay inside the Dashboard tab.
 
 Detected-source suggestions keep the money hedgehog in the header, matching the empty state and manual catalog.
 

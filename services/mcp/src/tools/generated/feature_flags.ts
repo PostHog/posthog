@@ -98,6 +98,9 @@ const DeleteFeatureFlagSchema = () => {
         FeatureFlagsPartialUpdateParams.omit({ project_id: true })
             .extend(
                 FeatureFlagsPartialUpdateBody.omit({
+                    ask_rollback_reason: true,
+                    rollback_reason: true,
+                    rollback_reason_note: true,
                     key: true,
                     name: true,
                     filters: true,
@@ -1055,7 +1058,13 @@ const UpdateFeatureFlagSchema = () => {
     return z.preprocess(
         normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
         FeatureFlagsPartialUpdateParams.omit({ project_id: true })
-            .extend(FeatureFlagsPartialUpdateBody.shape)
+            .extend(
+                FeatureFlagsPartialUpdateBody.omit({
+                    ask_rollback_reason: true,
+                    rollback_reason: true,
+                    rollback_reason_note: true,
+                }).shape
+            )
             .extend({
                 id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']),
                 filters: UpdateFeatureFlagFiltersSchema.optional(),

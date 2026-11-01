@@ -628,8 +628,10 @@ tools:
             addressed to the person, the chosen `model`, and the `free_only` and `credit_limit` to save. `sampling_mode`
             and `sampling_rate` are solved to fit the budget, and come back null only when the cost estimate failed. A
             draft that watches an experiment comes back as an `experiment` scanner; pass `experiment_id` to draft one on
-            a launched experiment the person picked. Review the draft with the person, then pass it to
-            `vision-scanners-create`. The call is an inline LLM request and can take a while.
+            a launched experiment the person picked. Pass `query` when the person already chose which recordings to
+            watch: the draft starts from that filter and can only narrow it, and returns what it added in
+            `query_additions`. Review the draft with the person, then pass it to `vision-scanners-create`. The call is
+            an inline LLM request and can take a while.
         requires_ai_consent: true
     vision-scanners-duplicate:
         operation: vision_scanners_duplicate_create
@@ -690,6 +692,31 @@ tools:
             `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.
             `dashboard_id` links the scanner's dashboard when one exists, and `dashboard_suggested` says whether to
             offer the user one with `vision-scanners-dashboard-create`.
+    vision-scanners-highlight-feed:
+        operation: vision_scanners_highlight_feed_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get ranked recordings to watch
+        description: >
+            Rank succeeded replay vision observations in a window by how worth watching their recordings are, across
+            every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it
+            made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days.
+            Narrow with `scanner_ids`, `scanner_type`, or scanner `tags`. `limit` is at most 50. Use it to answer "which
+            recordings should I watch this week?".
+        agent_note: |
+            Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.
+        response:
+            exclude:
+                - results.*.observation.scanner_snapshot
+                - results.*.observation.workflow_id
+                - results.*.observation.triggered_by_user
+            strip_nulls: true
     vision-scanners-impact-get:
         operation: vision_scanners_impact_retrieve
         enabled: true
@@ -1020,28 +1047,3 @@ tools:
             `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher
             `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call
             `vision-scanners-observations-list` with `variant` set to its key.
-    vision-scanners-watch-feed:
-        operation: vision_scanners_watch_feed_retrieve
-        enabled: true
-        scopes:
-            - replay_scanner:read
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get ranked recordings to watch
-        description: >
-            Rank succeeded replay vision observations in a window by how worth watching their recordings are, across
-            every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it
-            made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days.
-            Narrow with `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit`
-            is at most 50. Use it to answer "which recordings should I watch this week?".
-        agent_note: |
-            Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.
-        response:
-            exclude:
-                - results.*.observation.scanner_snapshot
-                - results.*.observation.workflow_id
-                - results.*.observation.triggered_by_user
-            strip_nulls: true

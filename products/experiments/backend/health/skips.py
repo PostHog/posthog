@@ -22,6 +22,7 @@ NOT_ON_ARCHIVED = "Doesn't run on archived experiments"
 NO_FLAG = "The experiment has no feature flag"
 FLAG_DELETED = "The feature flag is deleted"
 NEEDS_VARIANTS = "Runs once the feature flag has variants"
+NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
 
 
 def not_applicable(reason: str) -> CheckSkip:

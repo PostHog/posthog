@@ -4,11 +4,11 @@ import { useActions, useValues } from 'kea'
 import { compare as compareFn } from 'natural-orderby'
 import { ReactNode, useCallback, useMemo, useState } from 'react'
 
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/country'
 import { percentage } from 'lib/utils/numbers'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -98,6 +98,7 @@ export function InsightsTable({
         getTrendsHidden,
         insightData,
         querySource,
+        actionNames,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const {
@@ -213,7 +214,7 @@ export function InsightsTable({
             ) : (
                 <SeriesColumnItem
                     item={item}
-                    series={getResultSeries(querySource, item)}
+                    series={getResultSeries(querySource, item, actionNames)}
                     showCountedByTag={showCountedByTag}
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
@@ -248,8 +249,8 @@ export function InsightsTable({
                 return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
             }
 
-            const labelA = getResultSeriesName(getResultSeries(querySource, a)) || a.label || ''
-            const labelB = getResultSeriesName(getResultSeries(querySource, b)) || b.label || ''
+            const labelA = getResultSeriesName(getResultSeries(querySource, a, actionNames)) || a.label || ''
+            const labelB = getResultSeriesName(getResultSeries(querySource, b, actionNames)) || b.label || ''
             return labelA.localeCompare(labelB)
         },
     })
