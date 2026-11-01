@@ -108,6 +108,7 @@ _FINGERPRINTS_SELECT = """
     FROM __FAILURES_SOURCE__
     WHERE timestamp >= {date_from} AND lower(repo) = lower({repository})
     GROUP BY fingerprint
+    HAVING __FILTERS__
     ORDER BY master_hits DESC, merge_queue_hits DESC, branches DESC, last_seen DESC
     LIMIT {limit_plus_one}
 """
@@ -219,6 +220,8 @@ def query_broken_tests(
     hourly_from: datetime,
     window_days: int,
     limit: int,
+    test: str | None = None,
+    branch: str | None = None,
 ) -> BrokenTestsResult:
     repository = curated.repository
     # The failure-lines view is team-global; without a source repository we cannot scope it to the
@@ -231,9 +234,6 @@ def query_broken_tests(
     failures_source = f"({ci_failures.build_query()})"
     # Shape-only: the failure-lines view carries no actor to corroborate against, and a false
     # positive here can only mis-rank one fingerprint — it drops and re-keys nothing.
-    fingerprints_sql = _FINGERPRINTS_SELECT.replace(
-        "__MERGE_QUEUE_BRANCH__", looks_like_merge_queue_branch_expr("branch")
-    ).replace("__FAILURES_SOURCE__", failures_source)
     logs_placeholders: dict[str, ast.Expr] = {
         "default_branches": ast.Constant(value=_DEFAULT_BRANCHES),
         "repository": ast.Constant(value=repository),
@@ -241,6 +241,22 @@ def query_broken_tests(
         # +1 so a full page reveals that more fingerprints qualified than returned.
         "limit_plus_one": ast.Constant(value=limit + 1),
     }
+    # The filters run before the cap, so a narrowed read reaches rows the cap would cut. They sit in
+    # HAVING because `test_id` in WHERE would bind to the `any(test_id)` alias (see repo_name above).
+    filters = ["1"]
+    if test:
+        filters.append("positionCaseInsensitive(test_id, {test}) > 0")
+        logs_placeholders["test"] = ast.Constant(value=test)
+    # A branch keeps a fingerprint that failed there, but its counts cover every branch, so the row
+    # still shows whether the failure also happens elsewhere.
+    if branch:
+        filters.append("countIf(branch = {branch}) > 0")
+        logs_placeholders["branch"] = ast.Constant(value=branch)
+    fingerprints_sql = (
+        _FINGERPRINTS_SELECT.replace("__MERGE_QUEUE_BRANCH__", looks_like_merge_queue_branch_expr("branch"))
+        .replace("__FAILURES_SOURCE__", failures_source)
+        .replace("__FILTERS__", " AND ".join(filters))
+    )
     fingerprint_rows = (
         curated.run(
             fingerprints_sql,

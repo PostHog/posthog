@@ -38,6 +38,7 @@ from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchDepotJobLogInputs,
     FetchDepotJobLogWorkflow,
@@ -45,7 +46,11 @@ from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchJobLogInputs,
 )
 from products.engineering_analytics.backend.logic.queries._test_spans import rerun_recovered_job_attempts
-from products.engineering_analytics.backend.logic.sources import depot_source_job_attempts_table
+from products.engineering_analytics.backend.logic.sources import (
+    depot_source_job_attempts,
+    depot_source_job_attempts_table,
+    resolve_github_tables,
+)
 from products.engineering_analytics.backend.logic.views.depot_ci import depot_github_run_id, depot_id_to_int
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
@@ -248,8 +253,8 @@ def _query_failed_depot_attempts(
     # against the cutoff is chronological. The table name comes from the source's synced schema.
     after = after or DepotAttemptCursor(finished_at=cutoff_iso, attempt_id="")
     sql = f"""
-        SELECT run_id, run_workflow_count, workflow_id, attempt_id, attempt, repo, head_sha, workflow_name, job_id,
-               job_display_name, job_key, attempt_finished_at
+        SELECT run_id, run_workflow_count, workflow_id, attempt_id, attempt, repo, ref, head_sha, workflow_name,
+               job_id, job_display_name, job_key, attempt_finished_at
         FROM {table}
         WHERE attempt_status = 'failed' AND attempt_finished_at > {{cutoff}} AND (
             attempt_finished_at > {{after_finished_at}}
@@ -273,7 +278,64 @@ def _query_failed_depot_attempts(
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
 
-def _depot_attempt_inputs(source: ExternalDataSource, row: dict[str, Any]) -> FetchDepotJobLogInputs | None:
+# The same ref patterns the Depot runs view reads the branch from.
+_PUSHED_REF = re.compile(r"^refs/heads/(.+)$")
+_PULL_REQUEST_REF = re.compile(r"^refs/pull/([0-9]+)/")
+
+
+def _query_depot_attempt_branches(source: ExternalDataSource, rows: list[dict[str, Any]]) -> dict[str, str]:
+    """The head branch of each discovered attempt, read the way the runs view reads it.
+
+    Depot reports only a ref. A pushed ref names its branch, and a pull request ref takes its head
+    branch from the GitHub PR snapshot, so a missing snapshot leaves pull request attempts blank.
+    """
+    branches: dict[str, str] = {}
+    pr_numbers: dict[str, int] = {}
+    for row in rows:
+        ref = row.get("ref") or ""
+        if pushed := _PUSHED_REF.match(ref):
+            branches[row["attempt_id"]] = pushed.group(1)
+        elif pull_request := _PULL_REQUEST_REF.match(ref):
+            pr_numbers[row["attempt_id"]] = int(pull_request.group(1))
+    depot = depot_source_job_attempts(source.team, source)
+    if not pr_numbers or depot is None:
+        return branches
+    try:
+        pull_requests = resolve_github_tables(team=source.team, repo=depot.repository).pull_requests
+    except GitHubSourceNotConnectedError:
+        return branches
+    numbers = sorted(set(pr_numbers.values()))
+    sql = f"""
+        SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch
+        FROM {pull_requests}
+        WHERE number IN {{numbers}}
+        GROUP BY number
+        LIMIT {{limit}}
+    """
+    with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=source.team.pk):
+        response = execute_hogql_query(
+            query=parse_select(
+                sql,
+                placeholders={
+                    "numbers": ast.Constant(value=numbers),
+                    # Without a LIMIT, HogQL caps the read at its default row count, below a discovery page.
+                    "limit": ast.Constant(value=len(numbers)),
+                },
+            ),
+            team=source.team,
+            query_type="DepotJobLogsBranches",
+            bypass_warehouse_access_control=True,
+        )
+    head_branches = {number: head_branch for number, head_branch in response.results if head_branch}
+    for attempt_id, number in pr_numbers.items():
+        if number in head_branches:
+            branches[attempt_id] = head_branches[number]
+    return branches
+
+
+def _depot_attempt_inputs(
+    source: ExternalDataSource, row: dict[str, Any], branch: str
+) -> FetchDepotJobLogInputs | None:
     # The same run id the runs view gives this workflow, so the logs join it. A push run's id carries
     # a prefix outside the Depot id alphabet, so it has no integer run id for its logs to join on.
     run_id = depot_github_run_id(row["run_id"] or "", row["workflow_id"] or "", row["run_workflow_count"] or 0)
@@ -294,6 +356,7 @@ def _depot_attempt_inputs(source: ExternalDataSource, row: dict[str, Any]) -> Fe
         native_run_id=row["run_id"] or "",
         native_workflow_run_id=row["workflow_id"] or "",
         native_job_id=row["job_id"] or "",
+        branch=branch,
     )
 
 
@@ -326,7 +389,16 @@ def _discover_failed_depot_attempts(inputs: DepotDiscoveryInputs) -> DepotDiscov
             if cursor is not None:
                 cursors[source_id] = cursor
             continue
-        attempts.extend(found for row in rows if (found := _depot_attempt_inputs(source, row)) is not None)
+        try:
+            branches = _query_depot_attempt_branches(source, [row for row in rows if row["attempt_id"]])
+        except Exception:
+            # A log without its branch still classifies, so a failed lookup must not drop the attempts.
+            logger.warning("depot_job_logs_branch_lookup_failed", source_id=source_id, exc_info=True)
+            branches = {}
+        for row in rows:
+            found = _depot_attempt_inputs(source, row, branches.get(row["attempt_id"] or "", ""))
+            if found is not None:
+                attempts.append(found)
         if len(rows) == limit:
             cursors[source_id] = DepotAttemptCursor(
                 finished_at=rows[-1]["attempt_finished_at"], attempt_id=rows[-1]["attempt_id"]
