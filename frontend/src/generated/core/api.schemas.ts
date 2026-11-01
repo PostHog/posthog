@@ -5367,6 +5367,16 @@ export const PropertyTypeEnumApi = {
     Duration: 'Duration',
 } as const
 
+export type PropertyDefinitionTypeNameEnumApi =
+    (typeof PropertyDefinitionTypeNameEnumApi)[keyof typeof PropertyDefinitionTypeNameEnumApi]
+
+export const PropertyDefinitionTypeNameEnumApi = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
+} as const
+
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -5390,6 +5400,13 @@ export interface EnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index: number | null
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -5424,6 +5441,13 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin?: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type?: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index?: number | null
 }
 
 /**
@@ -5474,21 +5498,6 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
-/**
- * * `event` - Event
- * * `person` - Person
- * * `group` - Group
- * * `session` - Session
- */
-export type PropertyUsageTypeEnumApi = (typeof PropertyUsageTypeEnumApi)[keyof typeof PropertyUsageTypeEnumApi]
-
-export const PropertyUsageTypeEnumApi = {
-    Event: 'event',
-    Person: 'person',
-    Group: 'group',
-    Session: 'session',
-} as const
-
 export interface PropertyUsageEntryApi {
     /** Property definition type the name belongs to.
      *
@@ -5496,7 +5505,7 @@ export interface PropertyUsageEntryApi {
      * * `person` - Person
      * * `group` - Group
      * * `session` - Session */
-    type?: PropertyUsageTypeEnumApi
+    type?: PropertyDefinitionTypeNameEnumApi
     /**
      * Property name, for example `$current_url`.
      * @maxLength 400
@@ -5523,7 +5532,7 @@ export interface PropertyUsageMetricsItemApi {
      * * `person` - Person
      * * `group` - Group
      * * `session` - Session */
-    type: PropertyUsageTypeEnumApi
+    type: PropertyDefinitionTypeNameEnumApi
     /** Property name. */
     name: string
     /**
