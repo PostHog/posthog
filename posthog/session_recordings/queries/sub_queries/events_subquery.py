@@ -87,7 +87,7 @@ HYBRID_QUERY_ELIGIBLE_PROPERTIES = {
 
 
 def _event_session_id_field() -> ast.Field:
-    return ast.Field(chain=["properties", "$session_id"])
+    return ast.Field(chain=["$session_id"])
 
 
 def get_negative_entity_properties(
@@ -150,7 +150,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 table=self._recording_bounds_query(scope_session_ids=scope_session_ids),
                 alias="recording_bounds",
                 constraint=ast.JoinConstraint(
-                    expr=parse_expr("recording_bounds.session_id = events.properties.$session_id"),
+                    expr=parse_expr("recording_bounds.session_id = events.$session_id"),
                     constraint_type="ON",
                 ),
             )
