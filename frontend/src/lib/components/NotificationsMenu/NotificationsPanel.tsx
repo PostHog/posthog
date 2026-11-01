@@ -24,7 +24,7 @@ export function NotificationsPanel(): JSX.Element {
         archivedLoaded,
         loadedUnreadCount,
         inAppUnreadCount,
-        importantChangesLoading,
+        isInitialLoadComplete,
         hasMoreNotifications,
         hasMoreArchived,
         isLoadingMore,
@@ -126,7 +126,7 @@ export function NotificationsPanel(): JSX.Element {
                 className="flex-1 overflow-hidden"
                 innerClassName="p-1"
             >
-                {(isArchivedTab ? !archivedLoaded : importantChangesLoading && groups.length === 0) ? (
+                {(isArchivedTab ? !archivedLoaded : !isInitialLoadComplete && groups.length === 0) ? (
                     <div className="p-2">
                         <LemonSkeleton className="h-10 my-1" repeat={5} fade />
                     </div>
