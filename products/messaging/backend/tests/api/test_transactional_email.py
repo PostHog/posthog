@@ -748,7 +748,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
         assert "may still go out" in response.json()["detail"]
-        assert "same Idempotency-Key" in response.json()["detail"]
+        assert "within 24 hours with the same Idempotency-Key" in response.json()["detail"]
 
     def test_the_send_schema_gives_a_template_send_no_code_only_field(self, _mock_post, _flag, _capture):
         schema = self.client.get("/api/schema/").data
