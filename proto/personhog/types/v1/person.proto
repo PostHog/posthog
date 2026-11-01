@@ -785,9 +785,9 @@ enum DistinctIdWriteAction {
   // Tombstone a live row whose person is tombstoned (a stray), at version max(row + 1, min_version).
   // A live person's row is refused: moving a distinct id off a live person is a split.
   // Retry with the same min_version: a row this call already tombstoned then reports unchanged.
-  // On applied or unchanged, publish the returned row to ClickHouse only while ClickHouse still holds a
-  // live row for the distinct id. After the deletion sweep removed it, a published tombstone outlives
-  // the cleanup drain's hard delete and hides a later re-use of the distinct id.
+  // Postgres only: do not publish the returned row to ClickHouse. A ClickHouse tombstone written while the
+  // deletion sweep runs survives that sweep, and once the cleanup drain hard-deletes the Postgres row it
+  // hides a later re-use of the distinct id.
   DISTINCT_ID_WRITE_ACTION_TOMBSTONE = 3;
 }
 
