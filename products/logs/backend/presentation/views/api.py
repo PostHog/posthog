@@ -22,7 +22,16 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
-from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery, LogValuesQuery, PropertyGroupFilter
+from posthog.schema import (
+    DateRange,
+    LogAttributesQuery,
+    LogPropertyFilter,
+    LogPropertyFilterType,
+    LogsOrderBy,
+    LogsQuery,
+    LogValuesQuery,
+    PropertyGroupFilter,
+)
 
 from posthog.hogql.errors import QueryError
 
@@ -65,6 +74,7 @@ from products.logs.backend.log_attributes_query_runner import LogAttributesQuery
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import (
+    COLUMN_FILTER_FACET_FIELDS,
     MAX_CUSTOM_COLUMNS,
     CachedLogsQueryResponse,
     LogsQueryResponse,
@@ -244,6 +254,33 @@ class _LogsFilterGroupField(serializers.JSONField):
     pass
 
 
+_ROLLUP_FILTER_GROUP_HELP = (
+    "Property filters to narrow which logs are scanned for {noun}. Supports only log filters on "
+    '"service_name" and "severity_level", and "log_resource_attribute" filters. Any other filter, such as '
+    '"message", "trace_id" or a "log_attribute" filter, returns a 400. To scope by those, query the logs '
+    "with a short dateRange instead."
+)
+
+
+def _filters_the_rollup_ignores(filter_group: PropertyGroupFilter) -> list[str]:
+    """Label each filter that the attribute key and value lookups cannot apply.
+
+    These lookups read the `log_attributes` rollup. The rollup holds the service, the severity and the
+    resource attributes of a log, but not its body, trace ids or log attributes.
+    """
+    ignored: list[str] = []
+    for group in filter_group.values:
+        for leaf in group.values:
+            if isinstance(leaf, LogPropertyFilter) and (
+                leaf.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE
+                or (leaf.type == LogPropertyFilterType.LOG and leaf.key in COLUMN_FILTER_FACET_FIELDS)
+            ):
+                continue
+            key = getattr(leaf, "key", None)
+            ignored.append(f"{key} ({leaf.type})" if key is not None else "a nested filter group")
+    return ignored
+
+
 class _LogsAttributesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names")
     search_values = serializers.BooleanField(
@@ -284,7 +321,7 @@ class _LogsAttributesQuerySerializer(serializers.Serializer):
         child=_LogPropertyFilterSerializer(),
         required=False,
         default=[],
-        help_text="Property filters to narrow which logs are scanned for attributes.",
+        help_text=_ROLLUP_FILTER_GROUP_HELP.format(noun="attributes"),
     )
 
 
@@ -314,7 +351,7 @@ class _LogsValuesQuerySerializer(serializers.Serializer):
         child=_LogPropertyFilterSerializer(),
         required=False,
         default=[],
-        help_text="Property filters to narrow which logs are scanned for values.",
+        help_text=_ROLLUP_FILTER_GROUP_HELP.format(noun="values"),
     )
 
 
@@ -1524,6 +1561,23 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             return None
 
     @staticmethod
+    def _rollup_filter_group_error(request: Request, filter_group: PropertyGroupFilter | None) -> str | None:
+        # The web app sends the nested form with every filter in the viewer, and expects the lookup to
+        # apply the ones it can. API and MCP callers send the documented flat form. For them a dropped
+        # filter returns values from logs that the filter excludes, so the request fails instead.
+        if filter_group is None or not request.GET.get("filterGroup", "").lstrip().startswith("["):
+            return None
+        ignored = _filters_the_rollup_ignores(filter_group)
+        if not ignored:
+            return None
+        return (
+            f"These filterGroup filters can't narrow attribute keys or values: {', '.join(ignored)}. "
+            "This lookup supports only service_name and severity_level log filters and log_resource_attribute "
+            "filters. Remove the other filters, or query the logs with a short dateRange to see the values "
+            "in the matching logs."
+        )
+
+    @staticmethod
     def _require_dict_query(query_data: object) -> None:
         """Guard against a non-object `query` field crashing on the first `.get()` call below."""
         if not isinstance(query_data, dict):
@@ -2113,6 +2167,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except json.JSONDecodeError:
             serviceNames = []
         filterGroup = self._filter_group_from_query_params(request)
+        if filter_group_error := self._rollup_filter_group_error(request, filterGroup):
+            return Response({"error": filter_group_error}, status=status.HTTP_400_BAD_REQUEST)
 
         attributeType = request.GET.get("attribute_type", "log")
         # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
@@ -2194,6 +2250,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             except json.JSONDecodeError:
                 serviceNames = []
             filterGroup = self._filter_group_from_query_params(request)
+            if filter_group_error := self._rollup_filter_group_error(request, filterGroup):
+                return Response({"error": filter_group_error}, status=status.HTTP_400_BAD_REQUEST)
 
             attributeType = request.GET.get("attribute_type", "log")
             # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'

@@ -5791,7 +5791,9 @@ export const LogsAttributesRetrieveQueryParams = () => zod.object({
             })
         )
         .default(logsAttributesRetrieveQueryFilterGroupDefault)
-        .describe('Property filters to narrow which logs are scanned for attributes.'),
+        .describe(
+            'Property filters to narrow which logs are scanned for attributes. Supports only log filters on \"service_name\" and \"severity_level\", and \"log_resource_attribute\" filters. Any other filter, such as \"message\", \"trace_id\" or a \"log_attribute\" filter, returns a 400. To scope by those, query the logs with a short dateRange instead.'
+        ),
     keys: zod
         .string()
         .min(1)
@@ -7197,7 +7199,9 @@ export const LogsValuesRetrieveQueryParams = () => zod.object({
             })
         )
         .default(logsValuesRetrieveQueryFilterGroupDefault)
-        .describe('Property filters to narrow which logs are scanned for values.'),
+        .describe(
+            'Property filters to narrow which logs are scanned for values. Supports only log filters on \"service_name\" and \"severity_level\", and \"log_resource_attribute\" filters. Any other filter, such as \"message\", \"trace_id\" or a \"log_attribute\" filter, returns a 400. To scope by those, query the logs with a short dateRange instead.'
+        ),
     key: zod.string().min(1).describe('The attribute key to get values for'),
     serviceNames: zod
         .array(zod.string())
