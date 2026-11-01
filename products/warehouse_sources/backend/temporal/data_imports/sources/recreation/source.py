@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recreation
 from products.warehouse_sources.backend.temporal.data_imports.sources.recreation.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    RESERVATIONS_ENDPOINT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -67,7 +68,8 @@ class RecreationSource(ResumableSource[RecreationSourceConfig, RecreationResumeC
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # The reservations window restarts at the watermark day, so append would duplicate that day's rows.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=(RESERVATIONS_ENDPOINT,))
 
     def validate_credentials(
         self,

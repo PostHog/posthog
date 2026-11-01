@@ -146,14 +146,23 @@ class TestRecreationSourceTransport:
         assert len(result.rows) == 2 * PAGE_LIMIT
         assert result.params("page") == ["0", "1", "2"]
         assert result.params("limit") == [str(PAGE_LIMIT)] * 3
-        assert result.saved_states[0] == RecreationResumeConfig(page=1)
+        assert result.saved_states[0] == RecreationResumeConfig(
+            page=1, date_from=result.params("dateFrom")[0], date_to=result.params("dateTo")[0]
+        )
 
-    def test_reservations_resume_from_the_saved_page(self) -> None:
+    def test_reservations_resume_from_the_saved_page_and_date_window(self) -> None:
+        resume_state = RecreationResumeConfig(page=7, date_from="2025-01-01", date_to="2027-01-01")
         result = self._drive(
-            "Reservations", [_reservations_response(0, 0)], resume_state=RecreationResumeConfig(page=7)
+            "Reservations",
+            [_reservations_response(0, 0)],
+            resume_state=resume_state,
+            incremental_field="OrderDate",
+            db_incremental_field_last_value="2026-03-04",
         )
 
         assert result.params("page") == ["7"]
+        assert result.params("dateFrom") == ["2025-01-01"]
+        assert result.params("dateTo") == ["2027-01-01"]
 
     @pytest.mark.parametrize(
         ("inputs", "expected_from"),

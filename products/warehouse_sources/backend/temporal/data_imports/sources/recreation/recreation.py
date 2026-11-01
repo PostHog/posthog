@@ -1,7 +1,8 @@
-import dataclasses
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -30,11 +31,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recreation
 VALIDATION_TIMEOUT_SECONDS = 10
 
 
-@dataclasses.dataclass
+@frozen
 class RecreationResumeConfig:
     offset: int | None = None
-    # `/reservations` pages by page number instead of offset.
+    # `/reservations` pages by page number instead of offset. A resumed run reuses the saved date
+    # window, because a moved window shifts the rows behind each page number.
     page: int | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+
+
+@frozen
+class ReservationsWindow:
+    date_from: date
+    date_to: date
 
 
 def _build_paginator() -> OffsetPaginator:
@@ -62,33 +72,42 @@ def _as_date(value: Any) -> date | None:
     return parsed.date() if parsed is not None else None
 
 
-def _reservations_date_range(
-    should_use_incremental_field: bool, db_incremental_field_last_value: Any, today: date
-) -> tuple[date, date]:
+def _reservations_window(
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+    resume_config: RecreationResumeConfig | None,
+    today: date,
+) -> ReservationsWindow:
+    if resume_config is not None and resume_config.date_from and resume_config.date_to:
+        return ReservationsWindow(
+            date_from=date.fromisoformat(resume_config.date_from),
+            date_to=date.fromisoformat(resume_config.date_to),
+        )
     date_from = today - timedelta(days=RESERVATIONS_LOOKBACK_DAYS)
     if should_use_incremental_field:
         # Restart from the watermark day itself: the filter is day-grained, and merge drops the repeats.
         last_value = _as_date(db_incremental_field_last_value)
         if last_value is not None:
             date_from = last_value
-    return date_from, today + timedelta(days=RESERVATIONS_FORWARD_DAYS)
+    return ReservationsWindow(date_from=date_from, date_to=today + timedelta(days=RESERVATIONS_FORWARD_DAYS))
 
 
 def get_resource(
     endpoint: str,
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
+    reservations_window: ReservationsWindow | None = None,
 ) -> EndpointResource:
     config = RECREATION_ENDPOINTS[endpoint]
     params: dict[str, Any] = {}
     data_selector = "RECDATA"
     paginator: BasePaginator = _build_paginator()
 
-    if endpoint == RESERVATIONS_ENDPOINT:
-        date_from, date_to = _reservations_date_range(
-            should_use_incremental_field, db_incremental_field_last_value, datetime.now(UTC).date()
-        )
-        params = {"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat(), "limit": PAGE_LIMIT}
+    if reservations_window is not None:
+        params = {
+            "dateFrom": reservations_window.date_from.isoformat(),
+            "dateTo": reservations_window.date_to.isoformat(),
+            "limit": PAGE_LIMIT,
+        }
         data_selector = "data"
         # `page` is the number of pages to skip, so the first page is 0. `total_results` counts rows,
         # not pages, so the paginator stops on the first empty page.
@@ -122,6 +141,13 @@ def recreation_source(
 ) -> SourceResponse:
     endpoint_config = RECREATION_ENDPOINTS[endpoint]
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    reservations_window: ReservationsWindow | None = None
+    if endpoint == RESERVATIONS_ENDPOINT:
+        reservations_window = _reservations_window(
+            should_use_incremental_field, db_incremental_field_last_value, resume_config, datetime.now(UTC).date()
+        )
+
     config: RESTAPIConfig = {
         "client": {
             "base_url": RIDB_BASE_URL,
@@ -139,18 +165,16 @@ def recreation_source(
         "resource_defaults": {
             "write_disposition": "replace",
         },
-        "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
+        "resources": [get_resource(endpoint, should_use_incremental_field, reservations_window)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {
-                key: value
-                for key, value in (("offset", resume_config.offset), ("page", resume_config.page))
-                if value is not None
-            } or None
+    if resume_config is not None:
+        initial_paginator_state = {
+            key: value
+            for key, value in (("offset", resume_config.offset), ("page", resume_config.page))
+            if value is not None
+        } or None
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Only persist when there's a next page to resume to; the Redis TTL
@@ -163,6 +187,8 @@ def recreation_source(
                 RecreationResumeConfig(
                     offset=int(offset) if offset is not None else None,
                     page=int(page) if page is not None else None,
+                    date_from=reservations_window.date_from.isoformat() if reservations_window else None,
+                    date_to=reservations_window.date_to.isoformat() if reservations_window else None,
                 )
             )
 
