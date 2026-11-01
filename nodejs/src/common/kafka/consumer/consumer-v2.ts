@@ -22,7 +22,7 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '../config'
+import { getKafkaConfigFromEnv, stripClassicProtocolConfig, validateKafkaSecurityConfig } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -718,6 +718,7 @@ export class KafkaConsumerV2 {
                 | 'earliest'
                 | 'latest'
                 | undefined) ?? DEFAULT_AUTO_OFFSET_RESET
+        validateKafkaSecurityConfig(this.rdKafkaConfig)
         const consumer = new RdKafkaConsumer(this.rdKafkaConfig, { 'auto.offset.reset': autoOffsetReset })
 
         consumer.on('event.log', (log) => logger.info('📝', 'kafka_consumer_v2_librdkafka_log', { log }))

@@ -1,6 +1,11 @@
 import { ConsumerGlobalConfig } from 'node-rdkafka'
 
-import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from './config'
+import {
+    getKafkaConfigFromEnv,
+    redactKafkaConfig,
+    stripClassicProtocolConfig,
+    validateKafkaSecurityConfig,
+} from './config'
 
 describe('getKafkaConfigFromEnv', () => {
     const OLD_ENV = process.env
@@ -12,6 +17,30 @@ describe('getKafkaConfigFromEnv', () => {
 
     afterAll(() => {
         process.env = OLD_ENV
+    })
+
+    it.each(['00123', 'true', 'false', ' fake:$! '])('preserves credential strings: %s', (credential) => {
+        process.env.KAFKA_PRODUCER_SECURITY_PROTOCOL = 'SASL_SSL'
+        process.env.KAFKA_PRODUCER_SASL_MECHANISMS = 'scram-sha-512'
+        process.env.KAFKA_PRODUCER_SASL_USERNAME = credential
+        process.env.KAFKA_PRODUCER_SASL_PASSWORD = credential
+        const config = getKafkaConfigFromEnv('PRODUCER')
+        expect(config['sasl.username']).toBe(credential)
+        expect(config['sasl.password']).toBe(credential)
+        expect(config['security.protocol']).toBe('sasl_ssl')
+        expect(config['sasl.mechanisms']).toBe('SCRAM-SHA-512')
+        expect(() => validateKafkaSecurityConfig(config)).not.toThrow()
+        expect(redactKafkaConfig(config)['sasl.password']).toBe('***')
+    })
+
+    it.each(['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'])('rejects missing credentials for %s', (mechanism) => {
+        expect(() =>
+            validateKafkaSecurityConfig({
+                'security.protocol': 'sasl_ssl',
+                'sasl.mechanisms': mechanism,
+                'sasl.username': 'example-user',
+            })
+        ).toThrow('sasl.password is required')
     })
 
     it('converts KAFKA_PRODUCER_ env vars to rdkafka config', () => {

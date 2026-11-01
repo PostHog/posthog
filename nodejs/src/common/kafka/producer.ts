@@ -16,7 +16,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
-import { KafkaConfigTarget, getKafkaConfigFromEnv } from './config'
+import { KafkaConfigTarget, getKafkaConfigFromEnv, redactKafkaConfig, validateKafkaSecurityConfig } from './config'
 import { ProducerStatsTracker } from './kafka-producer-metrics'
 
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -103,7 +103,8 @@ export class KafkaProducerWrapper implements KafkaProducer {
             dr_cb: true,
         }
 
-        logger.info('📝', 'librdkafka producer config', { config: producerConfig })
+        validateKafkaSecurityConfig(producerConfig)
+        logger.info('📝', 'librdkafka producer config', { config: redactKafkaConfig(producerConfig) })
 
         const producer = new HighLevelProducer(producerConfig)
 
