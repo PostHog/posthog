@@ -1,5 +1,6 @@
 import pytest
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -33,12 +34,10 @@ class TestRipplingSource:
         assert error_message == expected_message
         assert network.requests_log[0].headers["authorization"] == "Bearer api-token"
 
-    def test_version_declaration_defaults_to_v2_with_v1_supported(self):
-        # Rippling's REST API version is bound to the token account-side, so both labels issue the
-        # same requests; the default tracks the newest label without repinning existing v1 sources.
+    def test_version_declaration_defaults_to_v2_with_v1_deprecated(self):
         assert self.source.supported_versions == ("v1", "v2")
         assert self.source.default_version == "v2"
-        assert self.source.deprecated_versions == ()
+        assert self.source.deprecated_versions == (VersionDeprecation(version="v1", sunset_at=None),)
 
     @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
     @pytest.mark.parametrize("endpoint", ["workers", "work_locations"])
