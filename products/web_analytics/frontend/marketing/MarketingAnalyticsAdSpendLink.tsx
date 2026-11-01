@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,7 +22,7 @@ import { AdPlatformLogo } from './AdPlatformLogo'
 import { marketingCrossSellStateLogic } from './marketingCrossSellStateLogic'
 import {
     buildMarketingAnalyticsDestination,
-    isMarketingCrossSellTestArm,
+    isMarketingCrossSellEnabled,
     isMarketingSetupEnabled,
     paidTrafficTarget,
 } from './marketingCrossSellUtils'
@@ -47,10 +46,10 @@ export function MarketingAnalyticsAdSpendLink({
     const { hasConnectedSources } = useValues(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
     const { ensureConnectionState } = useActions(marketingCrossSellStateLogic({ teamId: currentTeamId ?? 0 }))
 
-    const candidate =
+    const target =
         currentTeamId &&
         removeProjectIdIfPresent(location.pathname) === urls.webAnalytics() &&
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true
+        isMarketingCrossSellEnabled(featureFlags)
             ? paidTrafficTarget(
                   breakdownBy,
                   value,
@@ -58,7 +57,6 @@ export function MarketingAnalyticsAdSpendLink({
                   getEnabledNativeMarketingSources(featureFlags)
               )
             : null
-    const target = candidate && isMarketingCrossSellTestArm(featureFlags) ? candidate : null
     const hasTarget = !!target
 
     useEffect(() => {

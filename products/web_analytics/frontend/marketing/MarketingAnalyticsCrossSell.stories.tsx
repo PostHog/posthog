@@ -139,10 +139,7 @@ export const FlagOff: Story = {
 }
 const paidTrafficCardFlags = {
     pageUrl: urls.webAnalytics(),
-    featureFlags: {
-        [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: true,
-        [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL_V2]: 'test',
-    },
+    featureFlags: { [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: true },
 }
 const withRowActions = mswDecorator({
     post: { '/api/environments/:team_id/query/:kind/': sourcesQueryResponse(true) },
