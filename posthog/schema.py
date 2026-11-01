@@ -6371,6 +6371,15 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
+    pushDownIntoEventsSubqueries: bool | None = Field(
+        default=None,
+        description=(
+            "Move outer WHERE conjuncts and `properties.<key>` reads into a plain"
+            " events subquery (`FROM (SELECT ... FROM events)`), so the shards filter"
+            " the scan and read keys as columns instead of exporting whole rows. Unset"
+            " means on; `false` turns it off."
+        ),
+    )
     pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(

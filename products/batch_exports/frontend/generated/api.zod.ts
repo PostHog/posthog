@@ -645,6 +645,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                     propertyGroupsMode: zod
                         .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
                         .optional(),
+                    pushDownIntoEventsSubqueries: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off.'
+                        ),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
                     sessionIdPushdown: zod
@@ -1631,6 +1637,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                     propertyGroupsMode: zod
                         .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
                         .optional(),
+                    pushDownIntoEventsSubqueries: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off.'
+                        ),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
                     sessionIdPushdown: zod
@@ -2376,6 +2388,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                     propertyGroupsMode: zod
                         .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
                         .optional(),
+                    pushDownIntoEventsSubqueries: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off.'
+                        ),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
                     sessionIdPushdown: zod
@@ -3106,6 +3124,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                     propertyGroupsMode: zod
                         .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
                         .optional(),
+                    pushDownIntoEventsSubqueries: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off.'
+                        ),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
                     sessionIdPushdown: zod
@@ -3855,6 +3879,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                     propertyGroupsMode: zod
                         .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
                         .optional(),
+                    pushDownIntoEventsSubqueries: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off.'
+                        ),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
                     sessionIdPushdown: zod
@@ -4321,6 +4351,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                     propertyGroupsMode: zod
                         .union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()])
                         .optional(),
+                    pushDownIntoEventsSubqueries: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off.'
+                        ),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
                     sessionIdPushdown: zod
@@ -4591,6 +4627,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     ])
                     .optional(),
                 propertyGroupsMode: zod.union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()]).optional(),
+                pushDownIntoEventsSubqueries: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Move outer WHERE conjuncts and `properties.<key>` reads into a plain events subquery (`FROM (SELECT ... FROM events)`), so the shards filter the scan and read keys as columns instead of exporting whole rows. Unset means on; `false` turns it off.'
+                    ),
                 pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                 s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
                 sessionIdPushdown: zod
