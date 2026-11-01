@@ -48,6 +48,8 @@ class SourceWeights:
     repeat_view_days: float = 0.0
     # A new day of opening a product scene.
     scene_views: float = 0.0
+    # A distinct MCP session after the pair's watermark, without plumbing routes.
+    mcp: float = 1.0
 
 
 @frozen
@@ -109,6 +111,8 @@ class ActivitySummaryConfig:
     mcp_buffer_days: int = 10
     # Renders the buffer in the input. Apart from `mcp_buffer_enabled`, so the buffer can fill before the prompt uses it.
     mcp_render_enabled: bool = False
+    # Drains the buffer's dirty set into the queue, so a pair with only MCP calls can come due. Needs `mcp_render_enabled`.
+    mcp_queue_enabled: bool = False
 
 
 DISABLED = ActivitySummaryConfig()
@@ -253,6 +257,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
             _positive_int(payload.get("mcp_buffer_days"), defaults.mcp_buffer_days), MAX_MCP_BUFFER_DAYS
         ),
         mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
+        mcp_queue_enabled=_bool(payload.get("mcp_queue_enabled"), defaults.mcp_queue_enabled),
     )
 
 

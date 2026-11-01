@@ -4256,6 +4256,8 @@ class UserActivitySummaryQueueState(TeamScopedRootMixin, UUIDModel):
     pending_view_score = models.FloatField(default=0.0)
     # Distinct days with an opened object or scene in the window, for the first summary of a view-only pair.
     view_active_days = models.IntegerField(default=0)
+    # The MCP part of `pending_score`. The MCP feed computes it again from the buffer, so a record counts once.
+    pending_mcp_score = models.FloatField(default=0.0)
     last_activity_at = models.DateTimeField(null=True, blank=True)
     # The pair is due when this is empty or past. A copy of `UserActivitySummary.next_eligible_at`.
     due_at = models.DateTimeField(null=True, blank=True)
