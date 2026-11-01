@@ -4,6 +4,7 @@ import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { parseMcpResourcesFromConnection } from '@/lib/mcp-resources'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
 import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, getPublicUrl, getRegionFromRequest, matchAuthServerRedirect } from '@/lib/routing'
@@ -250,8 +251,12 @@ const handleRequest = async (
     // Explicit selection between tool-based and CLI-based MCP. Falls back to the
     // client-detection logic in `resolveMode` when unset. See `parseMcpMode`.
     const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
+    const mcpResources = parseMcpResourcesFromConnection(
+        request.headers.get('x-posthog-mcp-resources'),
+        url.searchParams.get('resources')
+    )
 
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode, mcpResources }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
     if (mcpConsumer) {

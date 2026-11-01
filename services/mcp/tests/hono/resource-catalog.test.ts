@@ -40,6 +40,7 @@ vi.mock('@/resources/ui-apps', async (importOriginal) => importOriginal())
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { ResourceCatalog } from '@/hono/resource-catalog'
+import { MCP_RESOURCES_ALL, type McpResourcesSelection } from '@/lib/mcp-resources'
 import { getPromptsFromManifest } from '@/resources'
 import { fetchAndExtractEntries } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
@@ -123,7 +124,7 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            const { resources } = catalog.getResourcesList()
+            const { resources } = catalog.getResourcesList(MCP_RESOURCES_ALL)
             const names = resources.map((r) => r.name)
             expect(names).toContain('name-guide')
             expect(names).toContain('name-faq')
@@ -150,9 +151,9 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            const list1 = catalog.getResourcesList().resources
-            const list2 = catalog.getResourcesList().resources
-            expect(list1).toBe(list2)
+            const list1 = catalog.getResourcesList(MCP_RESOURCES_ALL).resources
+            const list2 = catalog.getResourcesList(MCP_RESOURCES_ALL).resources
+            expect(list1).toEqual(list2)
         })
 
         it('lists the Visual Review artifact source in its CSP metadata', async () => {
@@ -163,7 +164,7 @@ describe('ResourceCatalog', () => {
             await catalog.warmup()
 
             const listed = catalog
-                .getResourcesList()
+                .getResourcesList(MCP_RESOURCES_ALL)
                 .resources.find((r) => r.uri === 'ui://posthog/visual-review-snapshots.html')
             const uiMeta = listed?._meta?.ui as { csp?: { resourceDomains?: string[] } } | undefined
 
@@ -184,7 +185,7 @@ describe('ResourceCatalog', () => {
 
             await catalog.revalidateContextMillResources('initialize')
 
-            const names = catalog.getResourcesList().resources.map((r) => r.name)
+            const names = catalog.getResourcesList(MCP_RESOURCES_ALL).resources.map((r) => r.name)
             expect(names).toContain('name-new')
             expect(names).not.toContain('name-old')
             expect(mockRevalidationsInc).toHaveBeenCalledWith({
@@ -208,7 +209,9 @@ describe('ResourceCatalog', () => {
 
                 await catalog.revalidateContextMillResources('initialize')
 
-                expect(catalog.getResourcesList().resources.map((r) => r.name)).toContain('name-stable')
+                expect(catalog.getResourcesList(MCP_RESOURCES_ALL).resources.map((r) => r.name)).toContain(
+                    'name-stable'
+                )
                 expect(mockRevalidationsInc).toHaveBeenCalledWith({
                     source: 'initialize',
                     status: 'error',
@@ -233,7 +236,10 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            const result = await catalog.readResource({ uri: 'ui://posthog/visual-review-snapshots.html' })
+            const result = await catalog.readResource(
+                { uri: 'ui://posthog/visual-review-snapshots.html' },
+                MCP_RESOURCES_ALL
+            )
             const uiMeta = result.contents[0]?._meta?.ui as { csp?: { resourceDomains?: string[] } } | undefined
 
             expect(uiMeta?.csp?.resourceDomains).toContain(
@@ -248,7 +254,7 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            const result = await catalog.readResource({ uri: 'posthog://doc' })
+            const result = await catalog.readResource({ uri: 'posthog://doc' }, MCP_RESOURCES_ALL)
             expect(result.contents).toHaveLength(1)
             const content = result.contents[0]! as { uri: string; text: string; mimeType: string }
             expect(content.text).toBe('content of doc')
@@ -262,7 +268,7 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            const result = await catalog.readResource({ uri: 'posthog://nonexistent' })
+            const result = await catalog.readResource({ uri: 'posthog://nonexistent' }, MCP_RESOURCES_ALL)
             expect(result.contents).toEqual([])
         })
 
@@ -284,7 +290,7 @@ describe('ResourceCatalog', () => {
             }
             vi.mocked(fetchAndExtractEntries).mockClear()
 
-            const result = await catalog.readResource({ uri: 'posthog://doc' })
+            const result = await catalog.readResource({ uri: 'posthog://doc' }, MCP_RESOURCES_ALL)
             expect(result.contents).toEqual([])
 
             // No refresh fired on the miss path.
@@ -324,6 +330,39 @@ describe('ResourceCatalog', () => {
         })
     })
 
+    describe('connection-time resource selection', () => {
+        it('filters list and read by category', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([
+                makeEntry('skills/foo'),
+                { ...makeEntry('docs-bar'), uri: 'posthog://docs/bar' },
+            ])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const skillsOnly: McpResourcesSelection = { policy: 'include', categories: ['skills'] }
+            const listed = catalog.getResourcesList(skillsOnly).resources
+            expect(listed.every((r) => r.uri.startsWith('posthog://skills/'))).toBe(true)
+            expect(listed.some((r) => r.uri.includes('docs'))).toBe(false)
+
+            const readAllowed = await catalog.readResource({ uri: 'posthog://skills/foo' }, skillsOnly)
+            expect(readAllowed.contents).toHaveLength(1)
+            const readBlocked = await catalog.readResource({ uri: 'posthog://docs/bar' }, skillsOnly)
+            expect(readBlocked.contents).toEqual([])
+        })
+
+        it('returns empty list when policy is none', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('skills/foo')])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            expect(catalog.getResourcesList({ policy: 'none' }).resources).toEqual([])
+        })
+    })
+
     describe('error resilience', () => {
         it('continues serving prompts when resource fetch fails', async () => {
             vi.mocked(fetchAndExtractEntries).mockRejectedValue(new Error('network'))
@@ -334,7 +373,7 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            const names = catalog.getResourcesList().resources.map((r) => r.name)
+            const names = catalog.getResourcesList(MCP_RESOURCES_ALL).resources.map((r) => r.name)
             expect(names).not.toContain('name-guide')
             expect(catalog.getPromptsList().prompts).toHaveLength(1)
         })
@@ -346,7 +385,7 @@ describe('ResourceCatalog', () => {
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
-            expect(catalog.getResourcesList().resources.map((r) => r.name)).toContain('name-r')
+            expect(catalog.getResourcesList(MCP_RESOURCES_ALL).resources.map((r) => r.name)).toContain('name-r')
             expect(catalog.getPromptsList().prompts).toEqual([])
         })
     })
