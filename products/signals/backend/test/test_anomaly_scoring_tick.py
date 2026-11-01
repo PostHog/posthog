@@ -1105,12 +1105,13 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
 class TestReadSpend(ClickhouseTestMixin, BaseTest):
     def test_sums_the_scoring_queries_of_the_day_per_team(self) -> None:
         today = NOW.replace(hour=1)
+        other_team_id = self.team.id + 1_000_000
         rows = [
             # One distributed train query: the initial row holds the bytes, and every node row holds its CPU.
             (today, self.team.id, "train", 1, 2_000_000, 300, "signals", "alerting", "anomaly_scoring_train"),
             (today, self.team.id, "train", 0, 1_000_000, 0, "signals", "alerting", "anomaly_scoring_train"),
             (today, self.team.id, "score", 1, 500_000, 40, "signals", "alerting", "anomaly_scoring_score"),
-            (today, 999, "other_team", 1, 4_000_000, 7, "signals", "alerting", "anomaly_scoring_score"),
+            (today, other_team_id, "other_team", 1, 4_000_000, 7, "signals", "alerting", "anomaly_scoring_score"),
             # Not a scoring query: the scored-buckets read, and a query of another product with the same name.
             (today, self.team.id, "buckets", 1, 9_000_000, 9, "signals", "alerting", ""),
             (today, self.team.id, "foreign", 1, 9_000_000, 9, "insights", "alerting", "anomaly_scoring_train"),
@@ -1135,9 +1136,10 @@ class TestReadSpend(ClickhouseTestMixin, BaseTest):
 
         snapshot = read_spend(NOW)
 
-        assert snapshot.teams == {
+        # The query log also holds the real queries of other tests.
+        assert {team_id: snapshot.teams.get(team_id) for team_id in (self.team.id, other_team_id)} == {
             self.team.id: TeamSpend(cpu_seconds=3.5, read_bytes=340),
-            999: TeamSpend(cpu_seconds=4.0, read_bytes=7),
+            other_team_id: TeamSpend(cpu_seconds=4.0, read_bytes=7),
         }
 
 
