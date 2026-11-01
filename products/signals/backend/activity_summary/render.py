@@ -25,7 +25,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 10
+RENDER_VERSION = 11
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -124,6 +124,7 @@ _LETTER = re.compile(r"[A-Za-z]")
 # A name that is only masks, digits and punctuation after `clean_text` names nothing.
 _MEANINGLESS_NAME = re.compile(r"(?:<token>|<email>|\d|[^\w<>]|_)*")
 _WHITESPACE = re.compile(r"\s+")
+_LINE_REF = re.compile(r"^- [tm]\d+")
 
 # Inbox onboarding creates a scout config for each canonical scout, named after its skill.
 ONBOARDING_CONFIG_SCOPES: frozenset[str] = frozenset({"SignalScoutConfig"})
@@ -416,6 +417,14 @@ class _ActivityLine:
 
 
 @frozen
+class LineRef:
+    """The ref of one rendered task or MCP line, such as "t1" or "m2", with the day of the line."""
+
+    ref: str
+    last_at: str
+
+
+@frozen
 class RenderedInput:
     text: str
     n_tasks: int
@@ -439,6 +448,9 @@ class RenderedInput:
     mcp_pool: int = 0
     # Products whose pages the person opened. They render in the computed block, not here, but count as units.
     n_page_units: int = 0
+    # The refs of the task and MCP lines in `text`, in the order of the lines.
+    task_refs: tuple[LineRef, ...] = ()
+    mcp_refs: tuple[LineRef, ...] = ()
 
     @property
     def units(self) -> int:
@@ -1273,6 +1285,28 @@ def enforce_budget(
         drops[Drop.SECTIONS_BUDGET] += 1
 
 
+def _with_refs(units: Sequence[Unit], prefix: str, max_chars: int) -> list[Unit]:
+    """The units with a ref after the leading "- " of each line, numbered from 1 in the order of the units."""
+    return [
+        dataclasses.replace(unit, text=cap_line(f"- {prefix}{index} {unit.text.removeprefix('- ')}", max_chars))
+        for index, unit in enumerate(units, start=1)
+    ]
+
+
+def _renumbered(units: Sequence[Unit], prefix: str) -> list[Unit]:
+    """The units numbered from 1, with the text they had. A new cut could keep one more word than the budget measured."""
+    return [
+        dataclasses.replace(unit, text=_LINE_REF.sub(f"- {prefix}{index}", unit.text, count=1))
+        for index, unit in enumerate(units, start=1)
+    ]
+
+
+def _line_refs(units: Sequence[Unit], prefix: str) -> tuple[LineRef, ...]:
+    return tuple(
+        LineRef(ref=f"{prefix}{index}", last_at=_day(unit.at).isoformat()) for index, unit in enumerate(units, start=1)
+    )
+
+
 def build_input(
     tasks: Iterable[TaskItem],
     activity: Iterable[ActivityItem],
@@ -1310,13 +1344,16 @@ def build_input(
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
     chosen_mcp = sample_units(mcp_pool, limit=limits.mcp_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(mcp_pool) - len(chosen_mcp)
+    # The budget counts the refs too. It drops the oldest lines, so the numbers after it only get shorter.
     sections = [
-        (TASKS_HEADER, chosen_tasks),
+        (TASKS_HEADER, _with_refs(chosen_tasks, "t", limits.task_line_chars)),
         (ACTIVITY_HEADER, activity_lines),
-        (MCP_HEADER, chosen_mcp),
+        (MCP_HEADER, _with_refs(chosen_mcp, "m", limits.mcp_line_chars)),
         (VIEWS_HEADER, view_lines),
     ]
     enforce_budget(sections, drops, limits.sections_max_chars)
+    sections[0] = (TASKS_HEADER, _renumbered(sections[0][1], "t"))
+    sections[2] = (MCP_HEADER, _renumbered(sections[2][1], "m"))
     sections[3] = (VIEWS_HEADER, sorted(sections[3][1], key=lambda unit: unit.text))
     rendered = [_section(header, units) for header, units in sections]
     text = "\n\n".join(part for part in rendered if part)
@@ -1339,4 +1376,6 @@ def build_input(
         mcp_chars=len(rendered[2]),
         mcp_pool=len(mcp_pool),
         n_page_units=len(pages),
+        task_refs=_line_refs(sections[0][1], "t"),
+        mcp_refs=_line_refs(sections[2][1], "m"),
     )
