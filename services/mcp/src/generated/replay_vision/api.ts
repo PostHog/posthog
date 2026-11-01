@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 52 enabled ops
+ * PostHog API - MCP 56 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -405,6 +405,137 @@ export const VisionAlertsResetCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Groups of near-duplicate issue observations, each one scanner's sessions that tell the same story, such as one bug many people hit. Narrower than themes. Use it to find the issues that reach the most people.
+ */
+export const VisionGroupsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionGroupsListQueryByVariantDefault = false
+
+export const visionGroupsListQueryIncludeRoutineDefault = false
+export const visionGroupsListQueryLimitDefault = 20
+export const visionGroupsListQueryLimitMax = 100
+
+export const visionGroupsListQueryOffsetDefault = 0
+export const visionGroupsListQueryOffsetMin = 0
+
+export const visionGroupsListQueryOrderDefault = `people`
+
+export const VisionGroupsListQueryParams = () => zod.object({
+    by_variant: zod
+        .boolean()
+        .default(visionGroupsListQueryByVariantDefault)
+        .describe(
+            "Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners."
+        ),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    include_routine: zod
+        .boolean()
+        .default(visionGroupsListQueryIncludeRoutineDefault)
+        .describe(
+            "Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionGroupsListQueryLimitMax)
+        .default(visionGroupsListQueryLimitDefault)
+        .describe('Page size.'),
+    offset: zod
+        .number()
+        .min(visionGroupsListQueryOffsetMin)
+        .default(visionGroupsListQueryOffsetDefault)
+        .describe('Rows to skip, for the next page.'),
+    order: zod
+        .enum(['people', 'observations', 'growth', 'recent'])
+        .default(visionGroupsListQueryOrderDefault)
+        .describe(
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - People\n\* `observations` - Observations\n\* `growth` - Growth\n\* `recent` - Recent'
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+    variant: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.'
+        ),
+})
+
+/**
+ * One group's counts and examples over the window.
+ */
+export const VisionGroupsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionGroupsRetrieveQueryByVariantDefault = false
+
+export const visionGroupsRetrieveQueryIncludeRoutineDefault = false
+
+export const VisionGroupsRetrieveQueryParams = () => zod.object({
+    by_variant: zod
+        .boolean()
+        .default(visionGroupsRetrieveQueryByVariantDefault)
+        .describe(
+            "Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners."
+        ),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    include_routine: zod
+        .boolean()
+        .default(visionGroupsRetrieveQueryIncludeRoutineDefault)
+        .describe(
+            "Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave."
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+    variant: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.'
         ),
 })
 
@@ -2538,4 +2669,90 @@ export const VisionScannersStatsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Recurring kinds of issue in replay observations, each a broad cluster of one scanner's issue observations with a short model-written name. Use it to see what comes up often and what is growing.
+ */
+export const VisionThemesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionThemesListQueryLimitDefault = 20
+export const visionThemesListQueryLimitMax = 100
+
+export const visionThemesListQueryOffsetDefault = 0
+export const visionThemesListQueryOffsetMin = 0
+
+export const visionThemesListQueryOrderDefault = `people`
+
+export const VisionThemesListQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionThemesListQueryLimitMax)
+        .default(visionThemesListQueryLimitDefault)
+        .describe('Page size.'),
+    offset: zod
+        .number()
+        .min(visionThemesListQueryOffsetMin)
+        .default(visionThemesListQueryOffsetDefault)
+        .describe('Rows to skip, for the next page.'),
+    order: zod
+        .enum(['people', 'observations', 'growth', 'recent'])
+        .default(visionThemesListQueryOrderDefault)
+        .describe(
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - People\n\* `observations` - Observations\n\* `growth` - Growth\n\* `recent` - Recent'
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+})
+
+/**
+ * One search theme's counts and examples over the window.
+ */
+export const VisionThemesRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisionThemesRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from this time: ISO 8601 or relative like `-7d`. Defaults to `-30d`. The window spans at most 90 days with `scanner_id`, and at most 30 days without it.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
 })

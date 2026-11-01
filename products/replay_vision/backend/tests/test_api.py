@@ -44,6 +44,7 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
+from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.highlight_builds import build_highlight_feed
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -5825,7 +5826,7 @@ class TestScannerActivityLogging(_VisionAPITestCase):
         self.assertEqual(set(ReplayScanner._MACHINE_OWNED_FIELDS) - set(replay_scanner_machine_fields), set())
 
 
-class TestClusterMembers(_VisionAPITestCase):
+class TestClusterViewSets(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.checkout = self._create_scanner(name="checkout")
@@ -5905,6 +5906,94 @@ class TestClusterMembers(_VisionAPITestCase):
             team=self.team, resource="replay_scanner", resource_id=str(self.hidden.id), access_level="none"
         )
 
+    def url(self, kind: str, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/vision/{kind}/{suffix}"
+
+    def session_row(self, session_id: str) -> uuid.UUID:
+        return ReplayObservation.objects.get(team=self.team, session_id=session_id).id
+
+    @parameterized.expand(
+        [
+            ("themes_by_people", "themes", "people", ["growing", "big"]),
+            ("groups_by_people", "groups", "people", ["growing", "big"]),
+            ("groups_by_growth", "groups", "growth", ["growing", "big"]),
+        ]
+    )
+    def test_list_counts_readable_issue_members_in_the_window(
+        self, _name: str, kind: str, order: str, expected_order: list[str]
+    ) -> None:
+        resp = self.client.get(
+            self.url(kind), {"order": order, "scanner_id": str(self.checkout.id), "date_from": "-30d"}
+        )
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        ids = {"big": self.big, "growing": self.growing}
+        if kind == "themes":
+            ids = {name: self.theme_of[cluster] for name, cluster in ids.items()}
+        names = {str(cluster): name for name, cluster in ids.items()}
+        results = resp.json()["results"]
+        self.assertEqual([names[row["id"]] for row in results], expected_order)
+        big = next(row for row in results if row["id"] == str(ids["big"]))
+        self.assertEqual((big["observation_count"], big["people_count"], big["previous_observation_count"]), (3, 2, 1))
+        self.assertEqual((big["name"], big["status"]), ("coupon rejected" if kind == "themes" else None, "active"))
+        growing = next(row for row in results if row["id"] == str(ids["growing"]))
+        self.assertEqual(growing["status"], "emerging")
+        self.assertEqual(len(big["example_observation_ids"]), 3)
+        self.assertNotIn(str(self.session_row("big-restricted")), big["example_observation_ids"])
+
+    @parameterized.expand(
+        [
+            ("readable", "big", 200),
+            ("unreadable_scanner", "secret", 404),
+            ("theme_id_on_groups", "big_theme", 404),
+            ("unknown", None, 404),
+        ]
+    )
+    def test_retrieve_hides_what_the_caller_cannot_read(self, _name: str, cluster: str | None, status: int) -> None:
+        cluster_id = {"big": self.big, "secret": self.secret, "big_theme": self.theme_of[self.big]}.get(
+            cluster or "", uuid.uuid4()
+        )
+
+        resp = self.client.get(self.url("groups", f"{cluster_id}/"))
+
+        self.assertEqual(resp.status_code, status)
+
+    @parameterized.expand(
+        [
+            ("issues", {}, {"test": (2, 1), UNATTRIBUTED_VARIANT: (1, 1)}),
+            (
+                "with_routine",
+                {"include_routine": "true"},
+                {"test": (2, 1), "control": (1, 1), UNATTRIBUTED_VARIANT: (1, 1)},
+            ),
+            ("one_variant", {"variant": "test"}, {"test": (2, 1)}),
+        ]
+    )
+    def test_group_splits_its_window_by_variant(
+        self, _name: str, params: dict[str, str], expected: dict[str, tuple[int, int]]
+    ) -> None:
+        resp = self.client.get(self.url("groups", f"{self.big}/"), {"by_variant": "true", **params})
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        variants = {row["key"]: (row["observation_count"], row["people_count"]) for row in resp.json()["variants"]}
+        self.assertEqual(variants, expected)
+        self.assertEqual(resp.json()["observation_count"], sum(count for count, _ in expected.values()))
+
+    @parameterized.expand(
+        [
+            ("one_scanner_90d", "checkout", {"date_from": "-90d"}, 200),
+            ("cross_scanner_30d", "", {"date_from": "-30d"}, 200),
+            ("cross_scanner_90d", "", {"date_from": "-90d"}, 400),
+            ("past_the_cap", "checkout", {"date_from": "-120d"}, 400),
+        ]
+    )
+    def test_window_cap(self, _name: str, scanner: str, params: dict[str, str], status: int) -> None:
+        query = {**params, **({"scanner_id": str(self.checkout.id)} if scanner else {})}
+
+        resp = self.client.get(self.url("groups"), query)
+
+        self.assertEqual(resp.status_code, status, resp.json())
+
     @parameterized.expand(
         [
             ("theme", {"theme": "big"}, {"big-1", "big-2", "big-3"}),
@@ -5926,6 +6015,15 @@ class TestClusterMembers(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
+
+    def test_list_pages_with_offset(self) -> None:
+        params = {"scanner_id": str(self.checkout.id), "order": "people", "limit": "1"}
+
+        first = self.client.get(self.url("groups"), params).json()
+        second = self.client.get(self.url("groups"), {**params, "offset": "1"}).json()
+
+        self.assertEqual(([row["id"] for row in first["results"]], first["has_more"]), ([str(self.growing)], True))
+        self.assertEqual(([row["id"] for row in second["results"]], second["has_more"]), ([str(self.big)], False))
 
 
 class TestClusterStatus(SimpleTestCase):
