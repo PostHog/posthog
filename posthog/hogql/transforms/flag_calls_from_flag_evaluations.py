@@ -23,7 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, Table
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
@@ -35,6 +35,7 @@ from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
 from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.property_metadata import PropertyMetadata, load_property_metadata
+from posthog.hogql.resolver_utils import table_folds_identifier_case
 from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -559,22 +560,16 @@ def _join_names(join: ast.JoinExpr | None) -> Iterator[str]:
 
 
 def _folded_join_names(join: ast.JoinExpr | None, database: "Database | None") -> Iterator[str]:
-    """The lowercased name of each joined table that the resolver matches in any case, as
-    `resolver_utils._folds_identifier_case` decides it. An explicit alias keeps its exact spelling."""
+    """The lowercased name of each joined table that the resolver matches in any case."""
     while database is not None and join is not None:
         if isinstance(join.table, ast.Field):
             chain = [str(part) for part in join.table.chain]
-            name = "__".join(chain)
             try:
                 table = database.get_table(chain) if database.has_table(chain) else None
             except BaseHogQLError:
                 table = None
-            if (
-                table is not None
-                and getattr(table, "case_insensitive_identifiers", False)
-                and (join.alias is None or join.alias.lower() == (table.name or "").lower())
-            ):
-                yield (join.alias or name).lower()
+            if isinstance(table, Table) and table_folds_identifier_case(table, join.alias):
+                yield (join.alias or "__".join(chain)).lower()
         join = join.next_join
 
 
