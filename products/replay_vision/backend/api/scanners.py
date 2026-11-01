@@ -142,6 +142,7 @@ from products.replay_vision.backend.scanner_access import (
     creator_can_scan,
     is_experiment_accessible,
     readable_observation_scanner_ids,
+    recording_viewer_access,
     scanner_experiment_scope_q,
     scanners_for_reading_observations,
 )
@@ -894,9 +895,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if not creator_can_scan(self.instance):
             if not take_over:
                 raise serializers.ValidationError(
-                    "This scanner's creator can no longer view recordings. "
-                    "Turn it on with `take_over_as_creator` to become its creator.",
+                    "This scanner's creator can no longer view recordings, so turning it on makes you its creator. "
+                    "Confirm the take-over to turn it on.",
                     code=SCANNER_CREATOR_LOST_ACCESS_CODE,
+                )
+            if recording_viewer_access(acting_user(self.context), self.instance.team) is None:
+                raise serializers.ValidationError(
+                    {"enabled": "You need access to session recordings to take over this scanner."}
                 )
             attrs["take_over_as_creator"] = True
 

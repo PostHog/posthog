@@ -1234,7 +1234,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             },
                         })
                     } else {
-                        await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
+                        // The toggles own `enabled`, and the sweep may have turned the scanner off while the form was open.
+                        const { enabled: _enabled, ...editedFields } = body
+                        await visionScannersPartialUpdate(
+                            String(teamId),
+                            props.id,
+                            scannerToPatchedApiBody(editedFields)
+                        )
                         actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
                         leaveScannerEditor(props.id, urls.replayVision(props.id))

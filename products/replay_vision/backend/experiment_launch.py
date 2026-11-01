@@ -34,13 +34,13 @@ def start_scanners_waiting_for_launch(
             )
         )
         for scanner in waiting:
+            if not scanner.team.organization.is_ai_data_processing_approved or not creator_can_scan(scanner):
+                # The sweep would turn it straight back off. It keeps waiting, so the reconciler's launch
+                # catch-up starts it once consent returns, and turning it on by hand clears the marker.
+                continue
             # Cleared with the enable, so a reset and relaunch never turns on a scanner its owner
             # turned off after the first launch.
             scanner.scanner_config = {k: v for k, v in scanner.scanner_config.items() if k != START_ON_LAUNCH_KEY}
-            if not scanner.team.organization.is_ai_data_processing_approved or not creator_can_scan(scanner):
-                # The sweep would turn it straight back off, so it stays off for its owner to turn on.
-                scanner.save(update_fields=["scanner_config"])
-                continue
             # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — enables a ReplayScanner, not an alert; scanners have no state machine.
             scanner.enabled = True
             scanner.save(update_fields=["scanner_config", "enabled"])

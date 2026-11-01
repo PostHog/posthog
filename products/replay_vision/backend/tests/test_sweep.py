@@ -236,15 +236,19 @@ class TestFindScannerCandidatesActivity:
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
 
-    def test_a_deleted_experiment_keeps_its_scanner_on_until_the_scout_is_paused(self) -> None:
+    @parameterized.expand([("deleted_experiment",), ("no_ai_consent",)])
+    def test_an_experiment_scanner_stays_on_until_its_scout_is_paused(self, cause: str) -> None:
         # A disabled scanner has no schedule left to retry the pause, and the scout would keep
         # running on the customer's bill. So the scanner stays on until a later tick pauses it.
         scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
         experiment = create_experiment(scanner.team, "deleted-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
-        experiment.deleted = True
-        experiment.save()
+        if cause == "deleted_experiment":
+            experiment.deleted = True
+            experiment.save()
+        else:
+            Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
         inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
         with (
@@ -326,11 +330,15 @@ class TestFindScannerCandidatesActivity:
         )
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
-    @parameterized.expand([("creator_left_org",), ("no_ai_consent",)])
+    @parameterized.expand([("creator_left_org",), ("creator_deactivated",), ("no_ai_consent",)])
     def test_a_scanner_that_cannot_spend_is_turned_off_before_any_read(self, case: str) -> None:
         scanner = _make_scanner()
-        if case == "creator_left_org":
-            scanner.created_by = User.objects.create_user(email="departed@example.com", password="x", first_name="d")
+        if case != "no_ai_consent":
+            creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+            if case == "creator_deactivated":
+                scanner.team.organization.members.add(creator)
+                User.objects.filter(pk=creator.pk).update(is_active=False)
+            scanner.created_by = creator
             scanner.save(update_fields=["created_by"])
         else:
             Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)

@@ -162,6 +162,14 @@ def _fail_on_filter_error(scanner: ReplayScanner, error: Exception) -> None:
 def _disable_unrunnable_scanner(
     scanner: ReplayScanner, reason: Literal["no_ai_consent", "creator_lost_access", "experiment_deleted"]
 ) -> FindScannerCandidatesOutput:
+    """Turn the scanner off so the reconciler drops its schedule and the owner sees it off, not silently idle.
+
+    An experiment scanner's scouts are paused first: a disabled scanner has no schedule left to retry a
+    failed pause, so a failure keeps the scanner on and the next tick tries again.
+    """
+    if scanner.scanner_type == ScannerType.EXPERIMENT and not _stop_variant_analysis(scanner):
+        record_sweep_outcome(f"{reason}_pause_failed")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
     # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
     scanner.enabled = False
     scanner.save(update_fields=["enabled"])
@@ -191,13 +199,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     lifecycle_block = _experiment_lifecycle_block(scanner)
     sweep_until: dt.datetime | None = None
     if lifecycle_block is not None and lifecycle_block.kind == "deleted":
-        # A deleted experiment can't resolve a population again, so disable: the reconciler drops
-        # the schedule and the owner sees the scanner off instead of silently idle. Its scout is
-        # paused first: a disabled scanner has no schedule left to retry a failed pause, so a
-        # failure keeps the scanner on and the next tick tries again.
-        if not _stop_variant_analysis(scanner):
-            record_sweep_outcome("experiment_deleted_pause_failed")
-            return FindScannerCandidatesOutput(candidates=[], saturated=False)
+        # A deleted experiment can't resolve a population again.
         return _disable_unrunnable_scanner(scanner, "experiment_deleted")
     if lifecycle_block is not None:
         end = lifecycle_block.end_date

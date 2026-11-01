@@ -119,7 +119,9 @@ async function enable(teamId: string, scannerId: string, takeOver: boolean): Pro
 }
 
 async function turnOnScanner(teamId: string, scannerId: string): Promise<ReplayScannerApi | null> {
-    if (!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved && !(await allowAIAnalysis())) {
+    const organization = organizationLogic.values.currentOrganization
+    // Unknown consent is left to the server, which answers with the code `enable` handles.
+    if (organization && !organization.is_ai_data_processing_approved && !(await allowAIAnalysis())) {
         return null
     }
     return enable(teamId, scannerId, false)

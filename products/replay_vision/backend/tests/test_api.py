@@ -66,6 +66,7 @@ from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ES
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
+from products.replay_vision.backend.scanner_access import recording_viewer_access
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
@@ -245,26 +246,39 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("creator_left_without_take_over", True, False, 400, False, False),
-            ("creator_left_with_take_over", True, True, 200, True, True),
-            ("creator_still_member_ignores_take_over", False, True, 200, True, False),
+            ("creator_left_without_take_over", True, False, True, "scanner_creator_lost_access", False, False),
+            ("creator_left_with_take_over", True, True, True, None, True, True),
+            ("taker_cannot_view_recordings", True, True, False, "invalid_input", False, False),
+            ("creator_still_member_ignores_take_over", False, True, True, None, True, False),
         ]
     )
     def test_turning_on_a_scanner_whose_creator_lost_access_needs_an_explicit_take_over(
-        self, _name: str, creator_left: bool, take_over: bool, status: int, enabled: bool, taken_over: bool
+        self,
+        _name: str,
+        creator_left: bool,
+        take_over: bool,
+        taker_has_access: bool,
+        error_code: str | None,
+        enabled: bool,
+        taken_over: bool,
     ) -> None:
         creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
         if not creator_left:
             self.organization.members.add(creator)
         scanner = self._create_scanner(enabled=False, created_by=creator)
 
-        resp = self.client.patch(
-            f"{self.scanners_url}{scanner.id}/", {"enabled": True, "take_over_as_creator": take_over}, format="json"
-        )
+        with patch(
+            "products.replay_vision.backend.api.scanners.recording_viewer_access",
+            side_effect=None if taker_has_access else lambda *_: None,
+            wraps=recording_viewer_access,
+        ):
+            resp = self.client.patch(
+                f"{self.scanners_url}{scanner.id}/", {"enabled": True, "take_over_as_creator": take_over}, format="json"
+            )
 
-        self.assertEqual(resp.status_code, status, resp.json())
-        if status == 400:
-            self.assertEqual(resp.json()["code"], "scanner_creator_lost_access")
+        self.assertEqual(resp.status_code, 400 if error_code else 200, resp.json())
+        if error_code:
+            self.assertEqual(resp.json()["code"], error_code)
         scanner.refresh_from_db()
         self.assertEqual(scanner.enabled, enabled)
         self.assertEqual(scanner.created_by, self.user if taken_over else creator)
@@ -482,7 +496,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertFalse(ReplayScanner.objects.get(id=other.json()["id"]).enabled)
         never_started = ReplayScanner.objects.get(id=departed_creator.json()["id"])
         self.assertFalse(never_started.enabled)
-        self.assertNotIn("start_on_launch", never_started.scanner_config)
+        self.assertTrue(never_started.scanner_config["start_on_launch"])
 
         # Setting a start date on a draft also launches it, through the experiment update path.
         patch_launch = self.client.patch(
