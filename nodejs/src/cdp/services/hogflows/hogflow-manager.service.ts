@@ -52,6 +52,7 @@ export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
+    private primaryReads = new Map<HogFlow['id'], Promise<HogFlow | null>>()
 
     constructor(
         private postgres: PostgresRouter,
@@ -147,11 +148,26 @@ export class HogFlowManagerService {
         if (cached) {
             return cached
         }
-        const fromPrimary = (await this.fetchHogFlows([id], PostgresUse.COMMON_WRITE))[id] ?? null
-        if (fromPrimary) {
-            this.lazyLoader.markForRefresh(id)
+        return await this.readPrimary(id)
+    }
+
+    private readPrimary(id: HogFlow['id']): Promise<HogFlow | null> {
+        const readInFlight = this.primaryReads.get(id)
+        if (readInFlight) {
+            return readInFlight
         }
-        return fromPrimary
+        const read = this.fetchHogFlows([id], PostgresUse.COMMON_WRITE)
+            .then((flows) => this.refreshOnPrimaryHit(flows[id] ?? null))
+            .finally(() => this.primaryReads.delete(id))
+        this.primaryReads.set(id, read)
+        return read
+    }
+
+    private refreshOnPrimaryHit(flow: HogFlow | null): HogFlow | null {
+        if (flow) {
+            this.lazyLoader.markForRefresh(flow.id)
+        }
+        return flow
     }
 
     public async getHogFlows(ids: HogFlow['id'][]): Promise<Record<HogFlow['id'], HogFlow | null>> {

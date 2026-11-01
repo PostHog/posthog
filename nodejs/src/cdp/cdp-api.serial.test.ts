@@ -2599,7 +2599,13 @@ describe('CDP API', () => {
                 const keyed = { ...body, ...extra, idempotency_key: `key-${new UUIDT().toString()}` }
                 const headers = { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }
                 const first = await sendOn(route, hogFlow.id, headers, keyed)
-                jest.spyOn(api['hogFlowManager'], 'getHogFlow').mockResolvedValueOnce({ ...hogFlow, status: 'draft' })
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
+                    [hogFlow.id],
+                    'deactivate-workflow'
+                )
+                api['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
 
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 
