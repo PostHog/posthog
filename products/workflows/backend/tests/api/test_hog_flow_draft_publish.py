@@ -602,7 +602,21 @@ class TestHogFlowDraftPublish(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
-    def test_publish_validates_draft_strictly(self):
+    @parameterized.expand(
+        [
+            ("missing_function_config", {"id": "bad", "type": "function", "config": {}}),
+            (
+                "invalid_time_window",
+                {
+                    "id": "window",
+                    "name": "Wait for a time window",
+                    "type": "wait_until_time_window",
+                    "config": {"day": "everyday", "time": "any"},
+                },
+            ),
+        ]
+    )
+    def test_publish_validates_draft_strictly(self, _name: str, invalid_action: dict[str, object]) -> None:
         # A draft written by some future lenient path must not promote unvalidated: publish is defensive
         # regardless of who wrote the blob
         flow_id = self._create_active_flow()
@@ -611,7 +625,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         confirm_token = self._publish_preview(flow_id).json()["confirm_token"]
         # Tampering via the ORM leaves draft_updated_at untouched, so the token stays valid —
         # strict revalidation is what must catch the bad blob
-        flow.draft = {**flow.draft, "actions": [{"id": "bad", "type": "function", "config": {}}]}
+        flow.draft = {**flow.draft, "actions": [invalid_action]}
         flow.save(update_fields=["draft"])
 
         response = self.client.post(
