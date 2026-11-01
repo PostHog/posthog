@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.productboa
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.productboard.settings import (
     ENDPOINTS,
+    FANOUT_PARENT_ENDPOINTS,
     INCREMENTAL_FIELDS,
     PRODUCTBOARD_ENDPOINTS,
 )
@@ -42,6 +43,9 @@ def _probe_path(schema_name: Optional[str]) -> str:
         return "/members"
 
     config = PRODUCTBOARD_ENDPOINTS[schema_name]
+    if config.fanout is not None:
+        # Child paths need a parent id; the parent listing needs the same scope.
+        return {**PRODUCTBOARD_ENDPOINTS, **FANOUT_PARENT_ENDPOINTS}[config.fanout.parent_name].path
     if config.entity_type:
         return f"/entities?type[]={config.entity_type}"
     return config.path
