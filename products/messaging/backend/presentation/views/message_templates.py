@@ -721,7 +721,7 @@ class TransactionalEmailRejected(exceptions.ValidationError):
         "recipient_suppressed": 422,
         "recipient_unreachable": 422,
     }
-    # The caller has to change the request. Without this the error handler reports a server error.
+    # The caller has to change the request. Without this the error handler types it `validation_error`.
     default_type = "invalid_request"
 
     def __init__(self, error: TransactionalEmailError) -> None:
