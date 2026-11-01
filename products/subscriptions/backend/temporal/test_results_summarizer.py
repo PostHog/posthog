@@ -78,6 +78,18 @@ class TestBuildResultsSummaryEmpty:
             ["Step 1 (Step A)", "Step 2 (Step B)", "conversion=50%"],
         ),
         (
+            "funnels_time_to_convert",
+            "FunnelsQuery",
+            {"bins": [[60, 10], [120, 5], [180, 0]], "average_conversion_time": 3725.0, "median_conversion_time": 90},
+            ["Average time to convert: 1h 2m 5s", "Median time to convert: 1m 30s", "Converted users: 15 across 3"],
+        ),
+        (
+            "funnels_skip_non_dict_steps",
+            "FunnelsQuery",
+            [{"name": "Step A", "count": 500, "conversion_rate": 100}, None, "bad"],
+            ["Step 1 (Step A)", "count=500"],
+        ),
+        (
             "retention_basic",
             "RetentionQuery",
             [
