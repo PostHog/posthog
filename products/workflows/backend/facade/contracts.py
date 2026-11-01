@@ -679,6 +679,7 @@ class WorkflowRef:
     variables: list[dict[str, Any]] | None
     # Read from the published steps, not the draft.
     has_email_step: bool
+    step_template_ids: frozenset[str]
 
 
 # Engagement tracking and message assets key on this id, so it stays stable across versions.
