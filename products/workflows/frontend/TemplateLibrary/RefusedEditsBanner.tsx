@@ -9,7 +9,7 @@ export const DUPLICATE_REFUSED_EDITS_REASON = 'To keep your changes, use "Duplic
 export function RefusedEditsBanner(props: MessageTemplateLogicProps): JSX.Element | null {
     const logic = messageTemplateLogic(props)
     const { refusedEdits, isDuplicating } = useValues(logic)
-    const { duplicateWithMyChanges, setRefusedEdits } = useActions(logic)
+    const { duplicateWithMyChanges } = useActions(logic)
 
     if (!refusedEdits) {
         return null
@@ -19,7 +19,6 @@ export function RefusedEditsBanner(props: MessageTemplateLogicProps): JSX.Elemen
         <LemonBanner
             type="warning"
             className="shrink-0"
-            onClose={() => setRefusedEdits(null)}
             action={{
                 children: 'Duplicate with my changes',
                 onClick: duplicateWithMyChanges,
@@ -28,7 +27,7 @@ export function RefusedEditsBanner(props: MessageTemplateLogicProps): JSX.Elemen
             }}
         >
             Your changes weren't saved. While you were editing, an upload from code took this template back. To keep
-            your changes, duplicate the template with them. If you close this message, your changes are discarded.
+            your changes, duplicate the template with them.
         </LemonBanner>
     )
 }
