@@ -25,7 +25,7 @@ from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
-from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -246,10 +246,11 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("creator_left_without_take_over", True, False, True, "scanner_creator_lost_access", False, False),
-            ("creator_left_with_take_over", True, True, True, None, True, True),
-            ("taker_cannot_view_recordings", True, True, False, "invalid_input", False, False),
-            ("creator_still_member_ignores_take_over", False, True, True, None, True, False),
+            ("creator_left_without_take_over", True, False, "admin", "scanner_creator_lost_access", False, False),
+            ("creator_left_with_take_over", True, True, "admin", None, True, True),
+            ("taker_cannot_view_recordings", True, True, "no_recordings", "invalid_input", False, False),
+            ("taker_cannot_manage_access", True, True, "member", "invalid_input", False, False),
+            ("creator_still_member_ignores_take_over", False, True, "member", None, True, False),
         ]
     )
     def test_turning_on_a_scanner_whose_creator_lost_access_needs_an_explicit_take_over(
@@ -257,11 +258,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         _name: str,
         creator_left: bool,
         take_over: bool,
-        taker_has_access: bool,
+        taker: str,
         error_code: str | None,
         enabled: bool,
         taken_over: bool,
     ) -> None:
+        if taker != "member":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
         creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
         if not creator_left:
             self.organization.members.add(creator)
@@ -269,7 +273,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
         with patch(
             "products.replay_vision.backend.api.scanners.recording_viewer_access",
-            side_effect=None if taker_has_access else lambda *_: None,
+            side_effect=(lambda *_: None) if taker == "no_recordings" else None,
             wraps=recording_viewer_access,
         ):
             resp = self.client.patch(

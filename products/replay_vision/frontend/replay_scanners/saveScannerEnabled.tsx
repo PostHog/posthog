@@ -81,6 +81,20 @@ function openForDecision(props: LemonDialogProps): Promise<boolean> {
     })
 }
 
+async function acceptAIConsent(): Promise<void> {
+    const organization = organizationLogic.values.currentOrganization
+    if (organization) {
+        // Approving can trigger an SSO reauthentication redirect, so aiConsentLogic finishes it on return.
+        const { pathname, search, hash } = window.location
+        aiConsentLogic.actions.setPendingApprovalRedirect({
+            url: `${pathname}${search}${hash}`,
+            organizationId: organization.id,
+            setAt: Date.now(),
+        })
+    }
+    await aiConsentLogic.asyncActions.acceptDataProcessing()
+}
+
 async function allowAIAnalysis(): Promise<boolean> {
     const unmount = aiConsentLogic.mount()
     try {
@@ -90,9 +104,7 @@ async function allowAIAnalysis(): Promise<boolean> {
         }
         return (
             (await openForDecision(confirmDialogProps(ALLOW_AI_ANALYSIS_DIALOG))) &&
-            (await openForDecision(
-                aiConsentLegalDialogProps({ onConfirm: () => aiConsentLogic.asyncActions.acceptDataProcessing() })
-            ))
+            (await openForDecision(aiConsentLegalDialogProps({ onConfirm: acceptAIConsent })))
         )
     } finally {
         unmount()

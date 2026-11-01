@@ -139,6 +139,7 @@ from products.replay_vision.backend.scanner_access import (
     SCANNER_CREATOR_LOST_ACCESS_CODE,
     accessible_experiment_ids,
     accessible_observations,
+    can_read_targeted_experiment,
     creator_can_scan,
     is_experiment_accessible,
     readable_observation_scanner_ids,
@@ -899,11 +900,24 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                     "Confirm the take-over to turn it on.",
                     code=SCANNER_CREATOR_LOST_ACCESS_CODE,
                 )
-            if recording_viewer_access(acting_user(self.context), self.instance.team) is None:
-                raise serializers.ValidationError(
-                    {"enabled": "You need access to session recordings to take over this scanner."}
-                )
+            self._check_can_take_over(self.instance)
             attrs["take_over_as_creator"] = True
+
+    def _check_can_take_over(self, scanner: ReplayScanner) -> None:
+        # The creator scans as themselves and manages the scanner's access, so the new one needs all of it.
+        if recording_viewer_access(acting_user(self.context), scanner.team) is None:
+            raise serializers.ValidationError(
+                {"enabled": "You need access to session recordings to take over this scanner."}
+            )
+        access = cast(UserAccessControl, self.user_access_control)
+        if not access.check_can_modify_access_levels_for_object(scanner):
+            raise serializers.ValidationError(
+                {"enabled": "You need permission to manage this scanner's access to take it over."}
+            )
+        if not can_read_targeted_experiment(access, scanner.team_id, scanner):
+            raise serializers.ValidationError(
+                {"enabled": "You need access to this scanner's experiment to take it over."}
+            )
 
     def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
         # to_representation redacts experiment_targeting to null for callers denied the experiment,
