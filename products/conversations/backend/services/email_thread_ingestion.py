@@ -25,6 +25,8 @@ from products.customer_analytics.backend.facade.email_matching import (
     schedule_email_thread_link_recalculation_for_threads,
 )
 
+MAX_EMAIL_BODY_LENGTH = 50_000
+
 
 @dataclass(frozen=True, kw_only=True)
 class EmailAddress:

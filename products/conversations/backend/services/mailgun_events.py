@@ -59,8 +59,10 @@ from products.conversations.backend.services.email_channel_setup import (
     capture_google_forwarding_confirmation,
     process_forwarding_challenges,
 )
+from products.conversations.backend.services.email_html import html_to_text, looks_like_html_document
 from products.conversations.backend.services.email_links import recover_links_from_html
 from products.conversations.backend.services.email_thread_ingestion import (
+    MAX_EMAIL_BODY_LENGTH,
     EmailAddress,
     ParsedEmail,
     ingest_customer_email,
@@ -76,7 +78,6 @@ _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_ADDRESS_LENGTH = 254
-MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
 # Sender-controlled To/Cc headers can list far more addresses than a real thread carries, and each
@@ -609,10 +610,22 @@ def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> Parse
         sender_email = recovered_email
         sender_name = recovered_name
 
-    stripped_text = request.POST.get("stripped-text", "")
+    body_plain = request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH]
+    stripped_text = request.POST.get("stripped-text", "")[:MAX_EMAIL_BODY_LENGTH]
+    body_html = request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH]
+    stripped_html = request.POST.get("stripped-html", "")[:MAX_EMAIL_BODY_LENGTH]
+    # A document in the `text/plain` part gives us markup where the inbox expects prose. Both
+    # scopes come from that one part, and it stays as their HTML so link recovery keeps the hrefs.
+    if looks_like_html_document(body_plain) or looks_like_html_document(stripped_text):
+        logger.info("email_inbound_html_text_part", team_id=config.team_id)
+        body_html = body_html or body_plain
+        stripped_html = stripped_html or stripped_text
+        body_plain = html_to_text(body_plain)
+        stripped_text = html_to_text(stripped_text)
+
     stripped_signature = request.POST.get("stripped-signature", "")
     if stripped_signature and stripped_text:
-        stripped_text = f"{stripped_text}\n\n{stripped_signature}"
+        stripped_text = f"{stripped_text}\n\n{stripped_signature}"[:MAX_EMAIL_BODY_LENGTH]
 
     in_reply_to_ids = _parse_message_ids(request.POST.get("In-Reply-To", ""))
     attachments: list[UploadedFile] = []
@@ -637,10 +650,10 @@ def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> Parse
         to_recipients=_parse_addresses(request.POST.get("To", "")),
         cc_recipients=_parse_addresses(request.POST.get("Cc", "")),
         subject=request.POST.get("subject", "")[:500],
-        body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
-        stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
-        body_html=request.POST.get("body-html", "")[:MAX_EMAIL_BODY_LENGTH],
-        stripped_html=request.POST.get("stripped-html", "")[:MAX_EMAIL_BODY_LENGTH],
+        body_plain=body_plain,
+        stripped_text=stripped_text,
+        body_html=body_html,
+        stripped_html=stripped_html,
         sender_authenticated=sender_authenticated,
         dkim_passed=_mailgun_authentication_passed(request, "X-Mailgun-Dkim-Check-Result"),
         dkim_signing_domains=_dkim_signing_domains(request),
