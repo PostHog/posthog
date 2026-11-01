@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db.models.query import QuerySet
 
+import structlog
 from opentelemetry import trace
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -278,6 +279,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             request_span = trace.get_current_span()
             if request_span.is_recording():
                 request_span.set_attribute("team_id", team_id)
+            # Bind the same team to the log context. `user_logging_context_middleware` binds a
+            # team from `request.user`, but DRF authenticates inside the view, so `request.user`
+            # is anonymous while that middleware runs and every API-key request logs with no team
+            # at all. This is also the team being acted on, which the user's current team is not.
+            structlog.contextvars.bind_contextvars(team_id=team_id)
             # Compute canonical team_id. self.team is a @cached_property
             # (line ~297) usually loaded by the permission checks above, so
             # this is free. Reading via __dict__ rather than attribute access

@@ -128,6 +128,15 @@ pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// Returns true if the error chain carries a refusal from the shared DNS resolver, because the
+/// host is on the out-of-band domain denylist. The refusal is permanent, so a retry always fails
+/// the same way, and the caller must pause rather than treat it as a transient network error.
+pub fn is_oob_domain_error(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|err| err.downcast_ref::<common_dns::OobDomainError>().is_some())
+}
+
 /// Returns true if the error chain contains a reqwest::Error with HTTP 502/503/504.
 pub fn is_transient_server_error(error: &anyhow::Error) -> bool {
     error.chain().any(|err| {

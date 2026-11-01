@@ -34,12 +34,14 @@ from urllib3.util.retry import Retry
 from urllib3.util.timeout import Timeout
 
 from posthog.cloud_utils import is_cloud
-from posthog.security.oob_domains import matched_oob_domain
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL, matched_oob_domain
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import SOURCE_HOST_NOT_ALLOWED_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import retry_budget_seconds
 
 logger = structlog.get_logger(__name__)
@@ -277,14 +279,24 @@ DEFAULT_RETRY = BoundedRetry(
 )
 
 
-def _note_oob_domain(request: PreparedRequest) -> None:
-    """Record a request to an out-of-band interaction domain, without refusing it.
+class OutOfBandDomainError(NonReportableError):
+    """The request targets a listed out-of-band interaction domain, so the adapter never sent it.
 
-    `requests` re-enters the adapter on every redirect hop, so a hop to a listed host is recorded
+    Deliberately not a `RequestException`: the sources catch that broadly and relabel it, and
+    several retry on it, so a refusal raised as one would be retried or reported as a transport
+    fault. `NonReportableError` keeps it out of error tracking, and the message carries
+    `SOURCE_HOST_NOT_ALLOWED_ERROR` so `Any_Source_Errors` pauses the schema instead.
+    """
+
+
+def _check_oob_domain(request: PreparedRequest) -> str | None:
+    """The listed out-of-band interaction domain this request targets, or None.
+
+    `requests` re-enters the adapter on every redirect hop, so a hop to a listed host is checked
     as well as the first request.
     """
     if not is_cloud():
-        return
+        return None
 
     try:
         host = urlparse(request.url or "").hostname
@@ -294,19 +306,22 @@ def _note_oob_domain(request: PreparedRequest) -> None:
         # parsers disagree. The URL stays out of the line because it carries the credential that
         # `record_request` scrubs; it logs the same request a moment later.
         logger.warning("security.oob_domain_url_unparsed", error=type(exc).__name__)
-        return
+        return None
 
     if host is None:
-        return
+        return None
 
     try:
         oob_domain = matched_oob_domain(host)
     except Exception:
+        # A fault in the matcher must not fail a customer's sync. The request goes out as it did
+        # before this list existed.
         logger.exception("security.oob_domain_check_failed", host=host)
-        return
+        return None
 
     if oob_domain is not None:
         logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="warehouse_http")
+    return oob_domain
 
 
 class TrackedHTTPAdapter(HTTPAdapter):
@@ -354,7 +369,8 @@ class TrackedHTTPAdapter(HTTPAdapter):
         cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
         proxies: Mapping[str, str] | None = None,
     ) -> Response:
-        _note_oob_domain(request)
+        if _check_oob_domain(request) is not None:
+            raise OutOfBandDomainError(f"{SOURCE_HOST_NOT_ALLOWED_ERROR}: {OOB_DOMAIN_REFUSAL}")
         started = time.monotonic()
         deadline = _request_deadline.get()
         if deadline is None:

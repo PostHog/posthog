@@ -3474,8 +3474,8 @@ class TestConnectCertificateVerification:
             delegate.assert_called_once()
 
 
-class TestOOBDomainDetection:
-    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+class TestOOBDomainGuard:
+    def test_the_pinned_path_refuses_before_it_resolves(self, mocker):
         mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
         mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
         mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
@@ -3486,7 +3486,7 @@ class TestOOBDomainDetection:
         )
         log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(HostNotAllowedError):
             _pinned_addresses("abc.oast.live", 3306, 5, 2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]
