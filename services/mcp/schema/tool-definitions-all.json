@@ -791,6 +791,22 @@
         },
         "feature_flag": "aeo-citation-tracking"
     },
+    "aeo-prompts-overview-get": {
+        "description": "Get set-level totals for AI citation tracking over the last `days` days (default 30, at most 90, in the project's timezone) without writing SQL. `prompts_tracked` is how many prompts are on. `current` and `previous` compare the window with the one before it: `checks`, `failed`, `cited`, `mentioned` (answers that name the brand), `citation_rate` and `mention_rate` (shares of answered checks, 0-1), `prompts` that ran and `prompts_cited` (prompts minus prompts_cited is how many prompts were never cited). `engines` splits the current window per answer engine: Claude (`claude-web-search`), ChatGPT/OpenAI (`openai-web-search`) and Exa (`exa-answer`). `topics` splits it per prompt topic with the same counts, rates and the number of active prompts, so you can rank topics by citation or mention rate. `top_domains` lists the sites the engines cite most across all answers, with `is_target` marking the project's own domains. Use it to answer \"how are we doing overall\", \"which topics or engines mention or cite us least\", \"how many prompts are never cited\" and \"which sites do the engines cite instead of us\". For one prompt, use `aeo-prompts-stats-get`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Get the AI citation overview of the whole prompt set",
+        "title": "Get the AI citation overview of the whole prompt set",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/overview/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
     "aeo-prompts-stats-get": {
         "description": "Get citation stats for one AI citation tracking prompt. `engines` has one row per answer engine over the prompt's whole history: `checks`, `cited`, `mentioned` (answers that name the brand), `failed`, `citation_rate` and `mention_rate` (shares of answered checks, 0-1, failed checks left out), and the first and last check times. `daily` has counts per day and engine for the last 30 days (`daily_from` to `daily_to`, in the project's timezone); days without a check are left out. Over the same 30 days, `consensus` says how many of each engine's answers cited each of the ten most cited domains, `sentiment` counts positive, neutral and negative answers toward the brand per engine (`unscored` answers name the brand but are not scored yet), and `top_words` lists the most used words of the web searches the engines ran. `brand_names` are the words an answer must contain to count as a mention; use them to filter `answer_text` in a HogQL query over `system.aeo_citation_checks`. Use it to compare engines, to see whether a prompt's citations are trending up or down, and to find which sources the engines agree on.",
         "category": "AI citation tracking",
