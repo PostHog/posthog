@@ -130,6 +130,7 @@ class AnomalyScoringTickPlan:
     enrolled_organizations: int = 0
     teams_planned: int = 0
     teams_skipped: int = 0
+    self_driving_organization_percentage: float = 0.0
 
 
 @frozen
@@ -185,6 +186,8 @@ class AnomalyScoringTickResult:
     # Teams with active insights that the plan loaded, and the teams that wait for a later tick.
     teams_planned: int = 0
     teams_skipped: int = 0
+    # The percentage rollout after the overrides of this deployment.
+    self_driving_organization_percentage: float = 0.0
     # The plan activity failed, and the tick scored nothing. `plan_error` is the error class.
     plan_failed: bool = False
     plan_error: str | None = None
@@ -218,6 +221,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         enrolled_organizations=selection.enrolled_organizations,
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
     )
 
 
@@ -459,6 +463,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         plan_ms=result.plan_ms,
         teams_planned=result.teams_planned,
         teams_skipped=result.teams_skipped,
+        self_driving_organization_percentage=result.self_driving_organization_percentage,
         plan_failed=result.plan_failed,
         plan_error=result.plan_error,
     )
@@ -491,6 +496,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "plan_ms": result.plan_ms,
             "teams_planned": result.teams_planned,
             "teams_skipped": result.teams_skipped,
+            "self_driving_organization_percentage": result.self_driving_organization_percentage,
             "plan_failed": result.plan_failed,
             "plan_error": result.plan_error,
         },
@@ -610,6 +616,7 @@ class AnomalyScoringTickWorkflow:
             plan_ms=plan_ms,
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,
+            self_driving_organization_percentage=plan.self_driving_organization_percentage,
         )
         await self._capture(result)
         return result
