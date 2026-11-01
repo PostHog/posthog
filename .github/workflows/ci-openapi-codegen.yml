@@ -25,6 +25,18 @@ jobs:
         timeout-minutes: 5
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /*
+                      !/*/
+                      **/package.json
+                      /.github/actions/pnpm-install/
+                      /.github/actions/setup-pnpm/
+                      /.husky/
+                      /bin/fix-rdkafka-paths
+                      /patches/
+                      /tools/openapi-codegen/
+                  sparse-checkout-cone-mode: false
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install

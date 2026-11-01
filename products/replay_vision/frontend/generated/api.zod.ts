@@ -656,6 +656,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
             ),
+        take_over_as_creator: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
+            ),
         scanner_config: zod
             .unknown()
             .describe(
@@ -812,6 +818,12 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n\* `ai` - AI draft\n\* `template` - Template\n\* `scratch` - From scratch'
+            ),
+        take_over_as_creator: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`."
             ),
         scanner_config: zod
             .unknown()
@@ -1335,6 +1347,23 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .default(visionScannersScoutsCreateBodyVariantAnalysisDefault)
             .describe(
                 "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
+            ),
+        template_key: zod
+            .enum([
+                'variant-analysis',
+                'daily-digest',
+                'root-cause',
+                'weekly-themes',
+                'trend-watch',
+                'new-issues',
+                'scratch',
+            ])
+            .describe(
+                '\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
+            )
+            .optional()
+            .describe(
+                'The template the body came from. A body left exactly as the template rendered it keeps following later edits to that template; an edited body stays as written.\n\n\* `variant-analysis` - Variant analysis\n\* `daily-digest` - Daily digest\n\* `root-cause` - Root cause\n\* `weekly-themes` - Weekly themes\n\* `trend-watch` - Trend watch\n\* `new-issues` - New issue watch\n\* `scratch` - Start from scratch'
             ),
     })
     .describe(

@@ -96,6 +96,7 @@ It also carries `from`, read from the route's `from` param: `inbox` (a row tap),
 
 **Full report.** "Read the full report" under the lede opens `/report/{id}/details` when the report has a summary or at least one signal.
 The screen reads `useReport(id)`, so it shares the report screen's cache and does not poll.
+The Charts section follows the summary and shows the same chart titles, captions, and open links as the abbreviated report.
 The signals can arrive after the first render when a Today page exists, because the report screen does not wait for them then; the Signals section appears when they land.
 `mobile_report_details_opened` is sent once per open, with `report_id`, `has_summary` and `signal_count`.
 `mobile_report_details_link_opened` carries `report_id` and `target`: `web` (Open in PostHog), `replay` (a signal's Watch session) or `link` (a link in the summary or a signal).
@@ -147,7 +148,9 @@ A metric has a saved snapshot (`value`, `value_at`, up to 14 undated `series` po
 - **Open link.** `{host}/project/{id}/insights/new#q=<query>` with the embed flags (`full`, `embedded`, `show*`) removed. A link over 8,000 characters is dropped, because nginx refuses a longer request line.
 
 `reportChartView(chart, scope)` builds a `ReportChartView`.
-The app draws a chart only when it is an `InsightVizNode` with a `TrendsQuery` source, one series, no breakdown, and a display that draws buckets over time (`ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, the three bar displays, or none).
+The app draws a chart only when it is an `InsightVizNode` with a `TrendsQuery` source, one output series, no breakdown, and a display that draws buckets over time (`ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, the three bar displays, or none).
+A single `formulaNodes` entry can combine multiple input series into that output series.
+Queries with multiple output formulas keep their open link instead of drawing only the first result.
 Such a chart gets `data` (its own display kept, the same clean-up as a metric) and a format from `aggregationAxisFormat`.
 Any other chart (SQL, saved insight, pie, number, table, breakdown) has no `data` and stays in the list with its title and open link:
 `/sql?open_query=` for a `DataVisualizationNode` with a `HogQLQuery` source, `/insights/{shortId}` for a `SavedInsightNode`.
@@ -183,6 +186,10 @@ The query endpoint needs the `query:read` scope. Without it the request answers 
 - Without live buckets, the observation draws the snapshot's undated series. The points are one interval apart and the last one sits at `value_at`, or at the current time when that is unknown.
 - While the live query loads, nothing is drawn, so the chart does not draw the snapshot and then redraw.
 - With no points at all, the observation leaves the chart out. A drawable chart in the Charts section shows a spinner while it loads, then "No data in this window." or an error line.
+
+Each report screen uses `ChartCanvasBudget`, active only while that screen has focus.
+The observation and report charts share the limit of six native canvases.
+Additional charts and charts on an unfocused screen use sparklines of the same height.
 
 ## Actions
 

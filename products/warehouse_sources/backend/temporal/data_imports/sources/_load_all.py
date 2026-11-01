@@ -1194,6 +1194,7 @@ from .square.source import SquareSource
 from .squarespace.source import SquarespaceSource
 from .stack_overflow_for_teams.source import StackOverflowForTeamsSource
 from .stackadapt.source import StackAdaptSource
+from .stamped.source import StampedSource
 from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource

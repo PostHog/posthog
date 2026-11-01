@@ -160,6 +160,8 @@ class TestBackfillQuotaCommitment:
             scanner, status=BackfillStatus.PAUSED_QUOTA, total_count=10, dispatched_count=4, credits_per_observation=2
         )
         assert spend_projection(scanner.team.organization_id).backfills_committed_credits == 12
+        ReplayScanner.objects.filter(pk=scanner.pk).update(enabled=False)
+        assert spend_projection(scanner.team.organization_id).backfills_committed_credits == 0
 
 
 @pytest.mark.django_db(transaction=True)

@@ -9,8 +9,9 @@ import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightV
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
-import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
+import { LATEST_VERSIONS } from '~/queries/schema/latest-versions'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     FunnelsQuery,
     LifecycleQuery,
@@ -19,7 +20,6 @@ import {
     RetentionQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,

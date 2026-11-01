@@ -4,11 +4,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { AiOnboarding } from 'products/posthog_ai/frontend/api/onboarding'
 
-import { maxGlobalLogic } from '../maxGlobalLogic'
 import { resolvePhaiOnboardingMounts } from './phaiOnboardingHost'
 
 /**
@@ -23,7 +23,7 @@ import { resolvePhaiOnboardingMounts } from './phaiOnboardingHost'
 export function MaybePhaiOnboarding(): JSX.Element | null {
     const { sceneId } = useValues(sceneLogic)
     const { receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { effectivePhaiView } = useValues(maxGlobalLogic)
+    const { effectivePhaiView } = useValues(aiShellLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelStateLogic)
 
     const mounts = resolvePhaiOnboardingMounts({

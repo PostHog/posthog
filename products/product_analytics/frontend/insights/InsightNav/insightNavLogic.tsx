@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -14,12 +15,31 @@ import {
     withFlagCallsAggregationTarget,
 } from 'scenes/insights/filters/ActionFilter/flagCallsSeries'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { normalizeDisplay } from '~/queries/schema/node-accessors'
+import {
+    containsHogQLQuery,
+    isAnyDataWarehouseNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isDataWarehouseNode,
+    isFunnelsQuery,
+    isFunnelsDataWarehouseNode,
+    isInsightQueryWithBreakdown,
+    isInsightVizNode,
+    isLifecycleDataWarehouseNode,
+    isLifecycleQuery,
+    isMetricsQuery,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -54,30 +74,12 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Node } from '~/queries/schema/schema-general'
 import {
-    containsHogQLQuery,
     getResultCustomizations,
     filterForQuery,
-    isAnyDataWarehouseNode,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isDataWarehouseNode,
     isEndpointsUsageQuery,
     isEventsQuery,
-    isFunnelsQuery,
-    isFunnelsDataWarehouseNode,
     isHogQuery,
-    isInsightQueryWithBreakdown,
-    isInsightVizNode,
-    isLifecycleDataWarehouseNode,
-    isLifecycleQuery,
-    isMetricsQuery,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isStickinessQuery,
-    isTrendsQuery,
     isWebAnalyticsInsightQuery,
-    normalizeDisplay,
 } from '~/queries/utils'
 import {
     BaseMathType,

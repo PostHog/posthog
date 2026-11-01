@@ -5,6 +5,12 @@ import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
 import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
+import {
     DashboardFilter,
     HogQLFilters,
     HogQLQuery,
@@ -15,11 +21,11 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
 import {
+    ActivityScope,
     DashboardType,
     InsightSceneSource,
     InsightShortId,
@@ -30,6 +36,10 @@ import {
 
 export const manifest: ProductManifest = {
     name: 'Product Analytics',
+    activityDescribers: {
+        [ActivityScope.INSIGHT]: () =>
+            import('./frontend/insights/activityDescriptions').then((module) => module.insightActivityDescriber),
+    },
     urls: {
         insights: (): string => '/insights',
         insightNew: ({

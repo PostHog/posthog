@@ -4,9 +4,9 @@ import { useRef, type ReactNode, type Ref } from 'react'
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { resizerLogic, ResizerLogicProps } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import { BICalculatedMeasureModal } from 'products/business_intelligence/frontend/BICalculatedMeasureModal'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'

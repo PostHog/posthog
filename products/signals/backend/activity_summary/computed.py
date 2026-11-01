@@ -19,12 +19,15 @@ from products.signals.backend.activity_summary.render import (
     ACTIVITY_NAME_CHARS,
     SCENE_VIEW_TYPE,
     ActivityItem,
+    LineRef,
     Product,
+    RenderedInput,
     TaskItem,
     ViewItem,
     cap_line,
     clean_text,
     is_auto_named,
+    is_unnamed,
     person_activity,
     scene_product,
     scope_of,
@@ -33,8 +36,13 @@ from products.signals.backend.activity_summary.render import (
 )
 
 # Bump on any change to the shape or the meaning of a field, so a consumer can tell old rows apart.
-COMPUTED_SCHEMA_VERSION = 1
+COMPUTED_SCHEMA_VERSION = 2
+# Versions that `read.py` still serves. Version 1 has no `tasks` and no `mcp_sessions`.
+READABLE_COMPUTED_SCHEMA_VERSIONS: frozenset[int] = frozenset({1, COMPUTED_SCHEMA_VERSION})
 MAX_OWNED = 20
+# Owned objects one type takes in the first pass, so a burst of insights cannot fill the list.
+MAX_OWNED_PER_TYPE = 8
+DASHBOARD_SCOPE = "Dashboard"
 MAX_WATCHED = 20
 # An object opened on fewer days than this is a visit, not something the person keeps an eye on.
 MIN_WATCHED_OPEN_DAYS = 3
@@ -89,6 +97,12 @@ class ComputedFields:
     pages: tuple[PageVisits, ...]
     products: ProductSplit
     task_count: int
+    # The task and MCP lines of the rendered input, which themes cite as "t" and "m" refs.
+    tasks: tuple[LineRef, ...] = ()
+    mcp_sessions: tuple[LineRef, ...] = ()
+
+    def with_line_refs(self, rendered: RenderedInput) -> "ComputedFields":
+        return dataclasses.replace(self, tasks=rendered.task_refs, mcp_sessions=rendered.mcp_refs)
 
     def as_json(self) -> dict[str, Any]:
         # JSON has no tuples, so the stored value and this one compare equal.
@@ -119,6 +133,64 @@ def _object_id(item: ActivityItem) -> str | None:
     return item.item_id
 
 
+@frozen
+class _OwnedEntry:
+    scope: str
+    id: str
+    latest: ActivityItem
+    edit_days: int
+    created: bool
+    group_days: frozenset[datetime.date]
+    group_created: bool
+
+
+def _owned_entries(edits: dict[tuple[str, str], list[ActivityItem]]) -> list[_OwnedEntry]:
+    """One entry per type and name, the most edited first, at most `MAX_OWNED`.
+
+    Objects of one type with the same name share one entry, the one with the newest row. The API returns
+    `id`, `edit_days` and `created` together, so they all describe that object. Only the rank uses the
+    distinct days of the whole group, so ten copies edited on one day rank as one day of work.
+
+    A created dashboard ranks above the objects edited on as many days, such as the insights on it. The
+    first pass takes at most `MAX_OWNED_PER_TYPE` of a type, and the second fills the rest of the slots."""
+    merged: dict[tuple[str, str], list[tuple[str, list[ActivityItem]]]] = {}
+    for (scope, object_id), rows in edits.items():
+        latest = max(rows, key=lambda row: row.at)
+        merged.setdefault((scope, _name(latest.name or "").casefold()), []).append((object_id, rows))
+    entries: list[_OwnedEntry] = []
+    for (scope, _), objects in merged.items():
+        object_id, rows = max(objects, key=lambda pair: max(row.at for row in pair[1]))
+        group_rows = [row for _, object_rows in objects for row in object_rows]
+        entries.append(
+            _OwnedEntry(
+                scope=scope,
+                id=object_id,
+                latest=max(rows, key=lambda row: row.at),
+                edit_days=len({_day(row.at) for row in rows}),
+                created=any(row.activity == "created" for row in rows),
+                group_days=frozenset(_day(row.at) for row in group_rows),
+                group_created=any(row.activity == "created" for row in group_rows),
+            )
+        )
+    entries.sort(
+        key=lambda entry: (
+            -len(entry.group_days),
+            not (entry.scope == DASHBOARD_SCOPE and entry.group_created),
+            -entry.latest.at.timestamp(),
+            entry.scope,
+            entry.id,
+        )
+    )
+    per_type: Counter[str] = Counter()
+    first: list[_OwnedEntry] = []
+    for entry in entries:
+        if len(first) < MAX_OWNED and per_type[entry.scope] < MAX_OWNED_PER_TYPE:
+            per_type[entry.scope] += 1
+            first.append(entry)
+    rest = [entry for entry in entries if entry not in first][: MAX_OWNED - len(first)]
+    return [entry for entry in entries if entry in first or entry in rest]
+
+
 def _ranked(counts: Counter[Product]) -> tuple[str, ...]:
     return tuple(str(product) for product, _ in sorted(counts.items(), key=lambda pair: (-pair[1], pair[0])))
 
@@ -128,8 +200,8 @@ def compute_fields(
 ) -> ComputedFields:
     """The owned and watched objects, the product pages, the products and the task count of one window.
 
-    `owned` holds the objects the person created or changed, the most edited first. `watched` holds
-    the objects opened on `MIN_WATCHED_OPEN_DAYS` or more days, the most opened first. A product is in
+    `owned` holds the objects the person created or changed, in the order of `_owned_entries`. `watched`
+    holds the objects opened on `MIN_WATCHED_OPEN_DAYS` or more days, the most opened first. A product is in
     `works_in` when the person changed something in it or tagged a task with it, and in `visits` when
     they only opened its pages or objects."""
     kept, _ = person_activity(activity, Counter(), keep_ticket_bursts=True)
@@ -142,26 +214,17 @@ def compute_fields(
             edits.setdefault((item.scope, object_id), []).append(item)
     work: Counter[Product] = Counter({product: len(days) for product, days in work_days.items()})
 
-    owned_ranked = sorted(
-        edits.items(),
-        key=lambda entry: (
-            -len({_day(row.at) for row in entry[1]}),
-            -max(row.at for row in entry[1]).timestamp(),
-            entry[0],
-        ),
-    )
     owned: list[OwnedObject] = []
-    for (scope, item_id), rows in owned_ranked[:MAX_OWNED]:
-        latest = max(rows, key=lambda row: row.at)
+    for entry in _owned_entries(edits):
         owned.append(
             OwnedObject(
                 ref=f"o{len(owned) + 1}",
-                type=_snake(scope),
-                id=item_id,
-                name=_name(latest.name or ""),
-                edit_days=len({_day(row.at) for row in rows}),
-                last_at=_day(latest.at).isoformat(),
-                created=any(row.activity == "created" for row in rows),
+                type=_snake(entry.scope),
+                id=entry.id,
+                name=_name(entry.latest.name or ""),
+                edit_days=entry.edit_days,
+                last_at=_day(entry.latest.at).isoformat(),
+                created=entry.created,
             )
         )
 
@@ -181,7 +244,7 @@ def compute_fields(
                 pages[product] = (max(at, view.at), days | set(view.days))
             continue
         name = (view.name or "").strip()
-        if not name or is_auto_named(name):
+        if is_unnamed(name) or is_auto_named(name):
             continue
         open_days = len(set(view.days))
         if (product := scope_product(scope_of(view.type))) is not None:

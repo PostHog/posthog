@@ -3,9 +3,9 @@ import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { AI_CONSENT_PENDING_REDIRECT_TTL_MS } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { AI_CONSENT_PENDING_REDIRECT_TTL_MS } from '~/layout/ai/aiConsentLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'

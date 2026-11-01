@@ -3854,6 +3854,7 @@ export interface CredentialApi {
  * * `Soniox` - Soniox
  * * `Nango` - Nango
  * * `Fathom` - Fathom
+ * * `Stamped` - Stamped
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5273,6 +5274,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Soniox: 'Soniox',
     Nango: 'Nango',
     Fathom: 'Fathom',
+    Stamped: 'Stamped',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -7,10 +7,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { maxMocks } from 'scenes/max/testUtils'
 
+import { attachedContextItemKey } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-
-import { attachedContextItemKey, attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { PICKED_TEMPLATE_DISMISS_GROUP } from './templateAgentContext'

@@ -18,9 +18,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { withTimeout } from 'lib/utils/async'
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     DataVisualizationLogicProps,
@@ -28,8 +28,8 @@ import {
     dataVisualizationLogic,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery } from '~/queries/query'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { VisualizationNode, HogLanguage, HogQLMetadata, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import * as decisionsApi from 'products/ml_inference/frontend/generated/api'

@@ -1,5 +1,6 @@
+import { escapeHogQLString } from 'lib/utils/hogql'
+
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType, HogQLMathType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {

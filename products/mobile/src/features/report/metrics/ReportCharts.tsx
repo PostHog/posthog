@@ -29,8 +29,8 @@ export function ReportCharts({ charts, reportId, accent }: ReportChartsProps): R
     return (
         <View style={styles.section} testID="report-charts">
             <Eyebrow>Charts</Eyebrow>
-            {charts.map((chart) => (
-                <ChartCard key={chart.chartId} chart={chart} reportId={reportId} accent={accent} />
+            {charts.map((chart, index) => (
+                <ChartCard key={chart.chartId} chart={chart} reportId={reportId} accent={accent} index={index + 1} />
             ))}
         </View>
     )
@@ -40,16 +40,17 @@ interface ChartCardProps {
     chart: ReportChartView
     reportId: string
     accent: Accent
+    index: number
 }
 
-function ChartCard({ chart, reportId, accent }: ChartCardProps): ReactElement {
+function ChartCard({ chart, reportId, accent, index }: ChartCardProps): ReactElement {
     const styles = useStyles()
     const openUrl = insightUrl(chart.openUrl)
     return (
         <View style={styles.card} testID={`report-chart-${chart.chartId}`}>
             <Text style={styles.title}>{chart.title}</Text>
             {chart.caption ? <Text style={styles.caption}>{chart.caption}</Text> : null}
-            {chart.data ? <DrawnChart chart={chart} reportId={reportId} accent={accent} /> : null}
+            {chart.data ? <DrawnChart chart={chart} reportId={reportId} accent={accent} index={index} /> : null}
             {openUrl ? (
                 <View style={styles.footer}>
                     <OpenInsightLink url={openUrl} reportId={reportId} source="chart" title={chart.title} />
@@ -59,7 +60,7 @@ function ChartCard({ chart, reportId, accent }: ChartCardProps): ReactElement {
     )
 }
 
-function DrawnChart({ chart, reportId, accent }: ChartCardProps): ReactElement | null {
+function DrawnChart({ chart, reportId, accent, index }: ChartCardProps): ReactElement | null {
     const styles = useStyles()
     const colors = useColors()
     const state = useChartPoints(chart.data)
@@ -78,6 +79,7 @@ function DrawnChart({ chart, reportId, accent }: ChartCardProps): ReactElement |
                     label={chart.title}
                     formatValue={formatValue}
                     onSelect={onSelect}
+                    canvasSlot={{ key: `chart:${chart.chartId}`, index }}
                     testID={`report-chart-${chart.chartId}-canvas`}
                 />
             </View>

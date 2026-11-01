@@ -6,6 +6,12 @@ import { ActivityScope, ExperimentsTabs, FileSystemIconColor, ProductManifest } 
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
+    activityDescribers: {
+        [ActivityScope.EXPERIMENT]: () =>
+            import('scenes/experiments/experimentActivityDescriber').then(
+                (module) => module.experimentActivityDescriber
+            ),
+    },
     scenes: {
         Experiments: {
             import: () => import('./frontend/scenes/ExperimentsScene'),
