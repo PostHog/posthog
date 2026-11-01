@@ -125,6 +125,8 @@ const ROOTS = [
             'src/taxonomy/core-filter-definitions-by-group.json',
             // The project notice logic pulls in dompurify and the sample data logic.
             'src/layout/navigation/projectNoticeLogic.tsx',
+            // Only impersonating staff see this notice, and it pulls in react-draggable.
+            'src/layout/navigation/ImpersonationNotice/ImpersonationNotice.tsx',
             // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
             'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The Today layout renders only behind the today-rail-nav flag, and it pulls in quill primitives.
