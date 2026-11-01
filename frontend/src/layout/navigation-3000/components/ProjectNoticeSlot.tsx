@@ -4,6 +4,7 @@ import { Suspense } from 'react'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
@@ -42,13 +43,15 @@ export function ProjectNoticeSlot({
             })}
         >
             <ErrorBoundary>
-                <Suspense fallback={null}>
-                    <ProjectNotice
-                        className={cn('my-0 mb-4', {
-                            'mt-4': noPaddingScene,
-                        })}
-                    />
-                </Suspense>
+                <ChunkLoadErrorBoundary>
+                    <Suspense fallback={null}>
+                        <ProjectNotice
+                            className={cn('my-0 mb-4', {
+                                'mt-4': noPaddingScene,
+                            })}
+                        />
+                    </Suspense>
+                </ChunkLoadErrorBoundary>
             </ErrorBoundary>
         </div>
     )
