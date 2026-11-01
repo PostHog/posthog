@@ -35,6 +35,35 @@ export type GuidanceRule = z.infer<typeof guidanceRuleSchema>
 
 export const MCP_GUIDANCE_REPLAY_VISION_FLAG = 'mcp-guidance-replay-vision'
 export const MCP_GUIDANCE_SQL_SCHEMA_FLAG = 'mcp-guidance-sql-schema'
+export const MCP_GUIDANCE_SQL_TYPED_RUNNER_FLAG = 'mcp-guidance-sql-typed-runner'
+
+const TYPED_RUNNER_TOOLS = [
+    'query-trends',
+    'query-funnel',
+    'query-retention',
+    'query-stickiness',
+    'query-paths',
+    'query-lifecycle',
+]
+
+// SQL constructs that no typed runner can express. A query that uses one of them needs SQL, so
+// the typed-runner hint stays silent: per-actor rows, exact first or last timestamps, time
+// between events, array work, HAVING filters, joins, CTEs, window functions, unions,
+// subqueries and system tables. A first or last timestamp grouped by event is an event
+// inventory, which `read-data-schema` answers, so it still matches.
+const SQL_ONLY_CONSTRUCTS = [
+    String.raw`\b(JOIN|WITH|OVER|UNION|HAVING)\b`,
+    String.raw`\bsystem\.`,
+    String.raw`\(\s*SELECT\b`,
+    String.raw`\barray\w*\s*\(`,
+    String.raw`\b(groupArray|groupUniqArray|argMax|argMin|dateDiff|date_diff)\w*\s*\(`,
+    String.raw`\b(max|min)(If)?\s*\(\s*timestamp\b(?![\s\S]*\bGROUP\s+BY\s+event\b)`,
+    String.raw`\bGROUP\s+BY\b(?:(?!\b(ORDER|LIMIT)\b)[\s\S])*\b(person_id|distinct_id|session_id)\b`,
+]
+const SIMPLE_EVENTS_AGGREGATE = new RegExp(
+    String.raw`^(?![\s\S]*(${SQL_ONLY_CONSTRUCTS.join('|')}))(?=[\s\S]*\bFROM\s+events\b)(?=[\s\S]*\b(count|uniq)\w*\s*\()`,
+    'i'
+)
 
 const RULES: GuidanceRule[] = [
     {
@@ -85,6 +114,30 @@ const RULES: GuidanceRule[] = [
             'Before another attempt, check the schema: query `system.information_schema.tables` and',
             '`system.information_schema.columns` for table and column names, or call `read-data-schema` for',
             'event and property names. Then rewrite the query against that schema.',
+        ].join(' '),
+    },
+    {
+        id: 'sql-aggregate-to-typed-runner',
+        flag: MCP_GUIDANCE_SQL_TYPED_RUNNER_FLAG,
+        trigger: {
+            tool: 'execute-sql',
+            argPath: 'query',
+            argPattern: SIMPLE_EVENTS_AGGREGATE,
+            outcome: 'success',
+            presets: ['user'],
+        },
+        threshold: 1,
+        maxPerSession: 1,
+        suppressIfCalled: TYPED_RUNNER_TOOLS,
+        requiresTool: ['query-trends', 'query-funnel', 'read-data-schema'],
+        text: [
+            'This SQL is a simple aggregate over events.',
+            'For a new product analytics result, prefer a typed runner when it supports the calculation:',
+            '`query-trends` for event counts, unique users, breakdowns, time series and period comparisons,',
+            '`query-funnel` for conversion between steps.',
+            'Typed runners keep PostHog calculation rules and save as native insights.',
+            'To only check that an event or property exists, use `read-data-schema`.',
+            'Keep SQL for row inspection, joins, warehouse tables and calculations the runners do not support.',
         ].join(' '),
     },
 ]
