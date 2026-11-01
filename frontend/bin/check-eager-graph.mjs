@@ -104,8 +104,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-11-01: 5.21 MiB eager output, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_480_000,
+        // 2026-11-01: 4.14 MiB eager output, stable CSS included. ~0.3% headroom.
+        budgetBytes: 4_360_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -188,8 +188,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-11-01: 5.65 MiB, stable CSS included. ~0.3% headroom.
-        budgetBytes: 5_945_000,
+        // 2026-11-01: 5.05 MiB, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_310_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
@@ -206,8 +206,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        // 2026-11-01: 6.49 MiB, stable CSS included. ~1% headroom.
-        budgetBytes: 6_880_000,
+        // 2026-11-01: 6.44 MiB, stable CSS included. ~1% headroom.
+        budgetBytes: 6_820_000,
         forbidden: [
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
