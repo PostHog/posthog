@@ -59,12 +59,18 @@ def code_sends_paused(team_id: int, hog_flow_id: UUID) -> bool:
     return flow is not None and (flow.status != HogFlow.State.ACTIVE or flow.email_sending_paused_at is not None)
 
 
-def transactional_email_workflow_email(team_id: int, hog_flow_id: UUID) -> dict[str, Any]:
+def transactional_email_workflow_matches(team_id: int, hog_flow_id: UUID, content: TransactionalEmailContent) -> bool:
     actions = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values_list("actions", flat=True).first()
+    sent_email = _email_value(actions or [])
+    sender_id = content.from_integration_id or (sent_email.get("from") or {}).get("integrationId")
+    return bool(sent_email) and sent_email == _email_value(transactional_email_actions(content, sender_id))
+
+
+def _email_value(actions: list) -> dict[str, Any]:
     email_step = next(
         (
             action
-            for action in actions or []
+            for action in actions
             if isinstance(action, dict) and action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID
         ),
         {},
