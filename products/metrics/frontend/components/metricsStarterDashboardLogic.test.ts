@@ -90,7 +90,7 @@ describe('metricsStarterDashboardLogic', () => {
 
         expect(mockInsightCreate).toHaveBeenCalledTimes(2)
         const [countInsight, histogramInsight] = mockInsightCreate.mock.calls.map(([insight]) => insight)
-        expect(countInsight.dashboards).toEqual([42])
+        expect(mockInsightCreate.mock.calls.map(([, dashboardIds]) => dashboardIds)).toEqual([[42], [42]])
         expect(countInsight.query).toMatchObject({
             kind: 'MetricsQuery',
             clauses: [
