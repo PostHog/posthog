@@ -10,7 +10,7 @@ jest.mock('./latest-versions', () => {
 
 jest.resetModules()
 
-const { setLatestVersionsOnQuery } = require('./utils')
+const { setLatestVersionsOnQuery } = require('./query-versions')
 
 // in a separate file to make it easier to mock the LATEST_VERSIONS
 describe('setLatestVersionsOnQuery', () => {

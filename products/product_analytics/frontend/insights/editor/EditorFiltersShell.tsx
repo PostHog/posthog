@@ -11,6 +11,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { AnyAssistantGeneratedQuery } from '~/queries/schema/schema-assistant-messages'
 import {
     AssistantFunnelsQuery,
@@ -26,7 +27,7 @@ import {
     NodeKind,
     QuerySchema,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode, setLatestVersionsOnQuery } from '~/queries/utils'
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 

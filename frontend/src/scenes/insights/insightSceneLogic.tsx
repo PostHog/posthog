@@ -42,6 +42,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DashboardFilter,
     FileSystemIconType,
@@ -51,12 +52,7 @@ import {
     QueryLogTags,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import {
-    checkLatestVersionsOnQuery,
-    convertDataTableNodeToDataVisualizationNode,
-    isDataTableNode,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { convertDataTableNodeToDataVisualizationNode, isDataTableNode, isInsightVizNode } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,

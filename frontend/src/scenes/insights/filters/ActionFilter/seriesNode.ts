@@ -1,5 +1,6 @@
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActionsNode,
     AnyDataWarehouseNode,
@@ -9,7 +10,6 @@ import {
     GroupNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { EntityType, EntityTypes } from '~/types'
 
 /**

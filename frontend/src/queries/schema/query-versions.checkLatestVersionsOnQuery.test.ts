@@ -10,7 +10,7 @@ jest.mock('./latest-versions', () => {
 
 jest.resetModules()
 
-const { checkLatestVersionsOnQuery } = require('./utils')
+const { checkLatestVersionsOnQuery } = require('./query-versions')
 
 describe('checkLatestVersionsOnQuery', () => {
     it('returns true if all nodes have the latest version', () => {
