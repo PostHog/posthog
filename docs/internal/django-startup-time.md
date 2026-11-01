@@ -140,6 +140,18 @@ When the floor has crept, the lever is the same as it ever was — find the heav
 
 ## Measuring
 
+### Diagnose a stalled migration check
+
+Set `POSTHOG_COMMAND_DIAGNOSTICS=1` for `migrate --check` or `migrate_clickhouse --check`; other management commands ignore it.
+`manage.py` arms `faulthandler.dump_traceback_later` before Django imports and writes every thread's stack to stderr every 60 seconds.
+`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` changes the interval; invalid, nonpositive or oversized values fall back to 60 seconds.
+faulthandler writes from its own C thread, so a dump still arrives while the main thread is blocked in native code or holds the GIL.
+The top frames tell a Django import or `django.setup()` wait apart from a database connection or query wait.
+Diagnostics impose no timeout and preserve the command's exit status. With the variable unset, they produce no output.
+Direct output requires a draining stderr: a blocked destination can block the watchdog and delay interpreter shutdown.
+Use it on a scoped run, such as a deployment's migration check, and capture stderr before the pod is replaced.
+`migrate --profile-operations` covers per-operation timings once migrations run; this covers everything before and around them.
+
 - Wall-clock: `time.perf_counter()` around `django.setup()` _inside_ the process.
   Do not time the shell wrapper — env activation is not part of the number.
 - Set `TEST=1 DEBUG=1` so `ready()` skips redis/runtime I/O; you want import cost, which is identical in test mode, not environment-dependent network round-trips.

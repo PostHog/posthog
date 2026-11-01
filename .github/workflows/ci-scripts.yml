@@ -28,6 +28,8 @@ on:
             - tools/test_snob_backend_test_selection_shadow.py
             - tools/test_selection_verdict.py
             - tools/test_test_selection_verdict.py
+            - tools/test_manage_diagnostics.py
+            - manage.py
             # test_tach_map.py holds tach_map.py's pin to the locked tach version,
             # and a routine dependency bump is what moves it.
             - uv.lock
@@ -62,6 +64,7 @@ jobs:
                       /bin/report-jest-timings
                       /.depot/
                       /tools/
+                      /manage.py
                       /packages/owners-yaml/
                       /proto/
                       /rust/
@@ -112,7 +115,8 @@ jobs:
                   python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
                       .github/scripts/test_*.py \
                       tools/test_snob_backend_test_selection_shadow.py \
-                      tools/test_test_selection_verdict.py
+                      tools/test_test_selection_verdict.py \
+                      tools/test_manage_diagnostics.py
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
             # preinstalled python3.
