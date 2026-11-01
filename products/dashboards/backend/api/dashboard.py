@@ -89,6 +89,7 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
 from posthog.hogql_queries.query_runner import team_configs_for_cache_key
 from posthog.hogql_queries.refresh_policy import ComputeSurface
+from posthog.models.activity_logging.activity_log import Change
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.group_type_mapping import (
@@ -162,7 +163,12 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
-from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
+from products.dashboards.backend.facade.api import (
+    CannotAddToDashboard,
+    DashboardTileBasicSerializer,
+    add_insight_to_dashboard,
+    tile_ids_prefetch,
+)
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -216,6 +222,8 @@ from products.product_analytics.backend.presentation.insight import (
     InsightSerializer,
     InsightViewSet,
     get_insight_type,
+    log_and_report_insight_activity,
+    viewable_insight_or_404,
 )
 from products.subscriptions.backend.facade.api import dashboard_ids_with_subscriptions
 
@@ -787,6 +795,16 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="New accent color name, empty string or null to clear. Omit to leave unchanged.",
         error_messages={"max_length": "Color cannot exceed 400 characters"},
+    )
+
+
+class AddInsightToDashboardRequestSerializer(serializers.Serializer):
+    insight_id = serializers.IntegerField(
+        help_text=(
+            "ID of an existing insight to place on the dashboard. The insight must belong to the same "
+            "environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and "
+            "adding one that was removed from the dashboard restores its tile."
+        ),
     )
 
 
@@ -1656,10 +1674,11 @@ def _report_dashboard_tile_added(
     request: Request | None = None,
     widget_type: str | None = None,
     tile: DashboardTile | None = None,
+    insight: Insight | None = None,
 ) -> None:
     properties: dict[str, Any] = {
         "tile_type": tile_type,
-        "insight_type": None,
+        "insight_type": get_insight_type(insight) if insight is not None else None,
         "dashboard_id": dashboard.id,
     }
     if widget_type is not None:
@@ -1696,6 +1715,48 @@ def _report_dashboard_tile_added(
         widget_properties,
         team=dashboard.team,
         request=request,
+    )
+
+
+def _insight_dashboard_refs(insight: Insight) -> list[dict[str, Any]]:
+    """The dashboards an insight's live tiles sit on, in the shape the insight activity log records them."""
+    return [
+        {"id": dashboard_id, "name": name}
+        for dashboard_id, name in DashboardTile.objects.filter(insight=insight)
+        .order_by("dashboard_id")
+        .values_list("dashboard_id", "dashboard__name")
+    ]
+
+
+def _log_insight_dashboards_change(
+    *,
+    request: Request,
+    insight: Insight,
+    dashboards_before: list[dict[str, Any]],
+    dashboards_after: list[dict[str, Any]],
+) -> None:
+    # Same entry as a write of the insight's `dashboards` field, so the insight's history reads the same
+    # whichever endpoint placed or removed the tile.
+    user = cast(User, request.user)
+    log_and_report_insight_activity(
+        activity="updated",
+        insight=insight,
+        insight_id=insight.id,
+        insight_short_id=insight.short_id,
+        organization_id=insight.team.organization_id,
+        team_id=insight.team_id,
+        user=user,
+        was_impersonated=is_impersonated(request),
+        request=request,
+        changes=[
+            Change(
+                type="Insight",
+                action="changed",
+                field="dashboards",
+                before=dashboards_before,
+                after=dashboards_after,
+            )
+        ],
     )
 
 
@@ -3842,6 +3903,8 @@ class DashboardsViewSet(
             dashboard=dashboard,
             dashboard__team__project_id=self.team.project_id,
         )
+        insight = tile.insight
+        insight_dashboards_before = _insight_dashboard_refs(insight) if insight is not None else []
         # Collapse the vertical gap the removed tile leaves, matching the dashboard UI
         # (react-grid-layout compacts upward on render but never persists it).
         with transaction.atomic():
@@ -3862,8 +3925,65 @@ class DashboardsViewSet(
             tile=tile,
             request=request,
         )
+        if insight is not None:
+            _log_insight_dashboards_change(
+                request=request,
+                insight=insight,
+                dashboards_before=insight_dashboards_before,
+                dashboards_after=[ref for ref in insight_dashboards_before if ref["id"] != dashboard.id],
+            )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @validated_request(
+        request_serializer=AddInsightToDashboardRequestSerializer,
+        responses={200: DashboardTileBasicSerializer},
+        description=(
+            "Place an existing insight on this dashboard as a new tile. Requires edit access to the dashboard "
+            "and view access to the insight. Returns the tile. Adding an insight the dashboard already shows "
+            "returns its tile unchanged, and adding one that was removed from the dashboard restores its tile "
+            "with its old layout. To take an insight off a dashboard, use delete_tile."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def add_insight(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+
+        insight = viewable_insight_or_404(
+            team_id=dashboard.team_id,
+            insight_id=request.validated_data["insight_id"],
+            user_access_control=self.user_access_control,
+        )
+
+        user = cast(User, request.user)
+        insight_dashboards_before = _insight_dashboard_refs(insight)
+        try:
+            with transaction.atomic():
+                placed = add_insight_to_dashboard(
+                    insight_id=insight.id,
+                    insight_team_id=insight.team_id,
+                    query=insight.query,
+                    dashboard_id=dashboard.id,
+                    user=user,
+                    user_access_control=self.user_access_control,
+                )
+        except CannotAddToDashboard:
+            raise exceptions.PermissionDenied("You don't have permission to add insights to this dashboard.")
+
+        if placed.added:
+            _report_dashboard_tile_added(
+                user=user, dashboard=dashboard, tile_type="insight", insight=insight, request=request
+            )
+            _log_insight_dashboards_change(
+                request=request,
+                insight=insight,
+                dashboards_before=insight_dashboards_before,
+                dashboards_after=[*insight_dashboards_before, {"id": dashboard.id, "name": dashboard.name}],
+            )
+
+        return Response(DashboardTileBasicSerializer(DashboardTile.objects.get(pk=placed.id)).data)
 
     @extend_schema(
         parameters=[

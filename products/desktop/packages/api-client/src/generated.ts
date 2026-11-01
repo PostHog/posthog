@@ -6748,7 +6748,13 @@ export namespace Schemas {
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
+        /**
+         * ID of the dashboard tile.
+         */
         id: number;
+        /**
+         * ID of the dashboard the tile sits on.
+         */
         dashboard_id: number;
         deleted?: (boolean | null) | undefined;
     };
