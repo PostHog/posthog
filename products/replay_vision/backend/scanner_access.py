@@ -63,6 +63,29 @@ class UnrunnableReason(models.TextChoices):
     CREATOR_LOST_ACCESS = "creator_lost_access", "Creator lost access"
 
 
+def unrunnable_reasons(scanners: list[ReplayScanner]) -> dict[uuid.UUID, UnrunnableReason | None]:
+    """`unrunnable_reason` for one team's scanners, with one batched access lookup for all their creators."""
+    if not scanners:
+        return {}
+    team = scanners[0].team
+    if not team.organization.is_ai_data_processing_approved:
+        return {scanner.id: UnrunnableReason.NO_AI_CONSENT for scanner in scanners}
+    creator_ids = {scanner.created_by_id for scanner in scanners if scanner.created_by_id is not None}
+    can_scan = {
+        user_id
+        for user_id, access in UserAccessControl.for_user_ids(user_ids=creator_ids, team=team).items()
+        if access.user.is_active
+        and access.has_project_access
+        and access.check_access_level_for_resource("session_recording", required_level="viewer")
+    }
+    return {
+        scanner.id: None
+        if scanner.created_by_id is None or scanner.created_by_id in can_scan
+        else UnrunnableReason.CREATOR_LOST_ACCESS
+        for scanner in scanners
+    }
+
+
 def unrunnable_reason(scanner: ReplayScanner) -> UnrunnableReason | None:
     """Why the sweep can never spend for this scanner, or None when it can."""
     if not scanner.team.organization.is_ai_data_processing_approved:

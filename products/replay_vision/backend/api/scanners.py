@@ -147,7 +147,7 @@ from products.replay_vision.backend.scanner_access import (
     recording_viewer_access,
     scanner_experiment_scope_q,
     scanners_for_reading_observations,
-    unrunnable_reason,
+    unrunnable_reasons,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -861,13 +861,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     @extend_schema_field(serializers.ChoiceField(choices=UnrunnableReason.choices, allow_null=True))
     def get_unrunnable_reason(self, scanner: ReplayScanner) -> UnrunnableReason | None:
-        # Consent is per organization and access per creator, so each creator is checked once per response.
-        by_creator: dict[int | None, UnrunnableReason | None] = self.context.setdefault(
-            "_scanner_unrunnable_reason", {}
-        )
-        if scanner.created_by_id not in by_creator:
-            by_creator[scanner.created_by_id] = unrunnable_reason(scanner)
-        return by_creator[scanner.created_by_id]
+        # Shared across the list's children, so a page costs one access lookup rather than one per creator.
+        reasons = self.context.get("_scanner_unrunnable_reasons")
+        if reasons is None or scanner.id not in reasons:
+            page = self.root.instance if isinstance(self.root, serializers.ListSerializer) else None
+            reasons = unrunnable_reasons(list(page) if page is not None else [scanner])
+            self.context["_scanner_unrunnable_reasons"] = reasons
+        return reasons[scanner.id]
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:

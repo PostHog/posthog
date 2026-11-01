@@ -8,6 +8,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
 export const RECENT_RECORDINGS_DAYS = 30
+// Matches Session Replay's own setup check, so a page left open flips once the first recording lands.
+const POLL_INTERVAL_MS = 20000
 
 export type RecordingsBlock = 'replay-off' | 'no-recordings'
 
@@ -112,7 +114,17 @@ export const replayRecordingsLogic = kea<replayRecordingsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        loadHasRecentRecordingsSuccess: ({ hasRecentRecordings }) => {
+            if (hasRecentRecordings === false) {
+                cache.disposables.add(() => {
+                    const id = window.setInterval(() => actions.loadHasRecentRecordings(), POLL_INTERVAL_MS)
+                    return () => clearInterval(id)
+                }, 'poll')
+            } else {
+                cache.disposables.dispose('poll')
+            }
+        },
         // Turning recording on from the banner does not remount this logic, so the skipped probe runs now.
         updateCurrentTeamSuccess: ({ currentTeam }) => {
             if (currentTeam?.session_recording_opt_in && values.hasRecentRecordings === null) {

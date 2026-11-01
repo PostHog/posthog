@@ -263,7 +263,7 @@ export interface highlightPicksStaleLogicMeta {
         blockReason: (
             scanners: ReplayScannerApi[],
             quota: VisionQuotaApi | null,
-            recordingsBlock: any
+            recordingsBlock: RecordingsBlock | null
         ) => HighlightFeedEmptyReason
         staleReason: (
             picks: HighlightFeedItemApi[] | null,
