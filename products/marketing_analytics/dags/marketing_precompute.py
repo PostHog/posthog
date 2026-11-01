@@ -552,6 +552,16 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
     # and schema introspection would be un-attributable in query_log.
     tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
     team = plan.team
+    # Reads span whole team-local days and step back in local wall-clock days, so warm the same bounds. A
+    # UTC-based range misses the UTC day that a local day crosses into, and precompute-only reads then report
+    # not-ready or fall back to live costs.
+    local_now = end.astimezone(team.timezone_info)
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_day_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(UTC)
+
+    def days_before_today(days: int) -> datetime:
+        return (local_midnight - timedelta(days=days)).astimezone(UTC)
+
     conversion_teams = 0
     costs_teams = 0
     failures = 0
@@ -563,14 +573,20 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
             try:
                 # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
                 # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
-                tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
+                tp_start = days_before_today(PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
                 failures += _ensure_touchpoints_for_team(
-                    context, team, plan.filter_test_accounts, tp_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
+                    context,
+                    team,
+                    plan.filter_test_accounts,
+                    tp_start,
+                    local_day_end,
+                    PRECOMPUTE_CHUNK_DAYS,
+                    plan.database,
                 )
                 # Conversions need no attribution backfill — the conversion event must fall in the query range.
                 # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
                 # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
-                conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                conv_start = days_before_today(PRECOMPUTE_WINDOW_DAYS)
                 _goals_warmed, conv_failures = _ensure_conversions_for_team(
                     context,
                     team,
@@ -578,7 +594,7 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
                     plan.conversion_goals,
                     plan.filter_test_accounts,
                     conv_start,
-                    end,
+                    local_day_end,
                     PRECOMPUTE_CHUNK_DAYS,
                     plan.database,
                 )
@@ -591,9 +607,9 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
 
         if plan.warm_costs:
             try:
-                costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                costs_start = days_before_today(PRECOMPUTE_WINDOW_DAYS)
                 _sources_warmed, costs_failures = _ensure_costs_for_team(
-                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
+                    context, team, costs_start, local_day_end, PRECOMPUTE_CHUNK_DAYS, plan.database
                 )
                 failures += costs_failures
                 costs_teams += 1  # after the block, mirroring conversion_teams: not counted if it raised
