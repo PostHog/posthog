@@ -39,7 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.raygun.set
 _APPLICATIONS_SENSITIVE_FIELDS = frozenset({"apiKey"})
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RaygunResumeConfig:
     # Offset (rows to skip) for the next page of a top-level list endpoint.
     offset: int = 0
@@ -208,7 +208,17 @@ def _nested_fan_out_rows(
                 if watermark is not None and parent.skip_below_watermark_field is not None:
                     last_activity = _parse_timestamp(parent_row.get(parent.skip_below_watermark_field))
                     if last_activity is not None and last_activity < watermark:
-                        state_index = len(state_filters)
+                        # Advance the cursor past it, so a resume after many quiet parents skips them.
+                        resumable_source_manager.save_state(
+                            RaygunResumeConfig(
+                                nested_application_identifier=application_identifier,
+                                nested_parent_offset=parent_offset,
+                                nested_parent_index=index + 1,
+                            )
+                        )
+                        state_index, child_offset = 0, 0
+                        resumable_source_manager.safe_point()
+                        continue
 
                 child_path = config.path.format(
                     application_identifier=application_identifier, parent_identifier=parent_identifier
@@ -246,14 +256,14 @@ def _nested_fan_out_rows(
                         else:
                             resumable_source_manager.safe_point()
                     child_offset = 0
-                state_index = 0
+                state_index, child_offset = 0, 0
                 resumable_source_manager.safe_point()
 
             if len(parents) < PAGE_SIZE:
                 break
             parent_offset += PAGE_SIZE
             parent_index = 0
-        parent_offset, parent_index = 0, 0
+        parent_offset, parent_index, state_index, child_offset = 0, 0, 0, 0
 
 
 def _metrics_rows(
@@ -481,4 +491,6 @@ def raygun_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        # Metrics endpoints save no cursor, so a handed-off run would start over rather than resume.
+        supports_resume=not config.metrics_requests,
     )

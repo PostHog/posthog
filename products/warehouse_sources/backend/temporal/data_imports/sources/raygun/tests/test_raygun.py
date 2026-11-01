@@ -142,6 +142,10 @@ class TestNestedFanOut:
         assert {(row["applicationIdentifier"], row["errorGroupIdentifier"]) for row in result.rows} == {
             ("app-1", "eg-new")
         }
+        # Skipping the quiet group still advances the cursor, so a resume does not re-check it.
+        assert result.saved_states[0] == RaygunResumeConfig(
+            nested_application_identifier="app-1", nested_parent_index=1
+        )
 
     @patch(f"{MODULE}.PAGE_SIZE", 2)
     def test_resume_continues_at_the_saved_state_filter_and_child_offset(self) -> None:

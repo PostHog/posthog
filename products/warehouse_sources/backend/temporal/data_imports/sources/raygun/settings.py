@@ -38,7 +38,7 @@ class RaygunMetricsRequest:
     metrics: tuple[str, ...]
 
 
-@dataclass
+@dataclass(frozen=True)
 class RaygunEndpointConfig:
     name: str
     # Path relative to RAYGUN_BASE_URL. Fan-out children carry a `{application_identifier}`
