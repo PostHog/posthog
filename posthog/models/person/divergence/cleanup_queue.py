@@ -2,8 +2,7 @@
 
 The cleanup drain (`posthog/dags/person_pg_cleanup_drain.py`) owns this table and hard-deletes the persons queued in
 it. A person that still owns a live distinct id is stamped `blocked_at` and skipped for a retry window. The repair
-tools move `blocked_at` only: they clear it once a repair removed what blocked the person, so the next drain run
-retries it, or stamp it to hold the person while a repair waits on a ClickHouse publish.
+tools only clear `blocked_at`, once a repair removed what blocked the person, so the next drain run retries it.
 
 The queue is not person data that personhog serves, so it is read and written here directly, as the drain does.
 """
@@ -16,14 +15,13 @@ from posthog.persons_db import persons_db_connection
 PG_CLEANUP_QUEUE_TABLE = "person_pg_cleanup_queue"
 
 
-def set_blocked(team_id: int, person_uuids: Sequence[str], *, blocked: bool) -> int:
-    """Stamp `blocked_at` now on the queued persons, or clear it, and return how many queue rows changed."""
+def clear_blocked(team_id: int, person_uuids: Sequence[str]) -> int:
+    """Clear `blocked_at` on the queued persons, and return how many queue rows changed."""
     if not person_uuids:
         return 0
     with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
         cursor.execute(
-            f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = {'now()' if blocked else 'NULL'} "
-            "WHERE team_id = %s AND person_uuid = ANY(%s::uuid[])",
+            f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET blocked_at = NULL WHERE team_id = %s AND person_uuid = ANY(%s::uuid[])",
             [team_id, list(person_uuids)],
         )
         return cursor.rowcount
