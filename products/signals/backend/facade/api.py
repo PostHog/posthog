@@ -61,6 +61,10 @@ from products.signals.backend.briefing_reports import (
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
+from products.signals.backend.facade.source_scouts import (
+    SOURCE_TEMPLATE_HASH_METADATA_KEY,
+    SOURCE_TEMPLATE_METADATA_KEY,
+)
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
     generated_pull_requests,
@@ -1484,11 +1488,6 @@ def scouts_for_source(
             "id", "skill_name", "enabled", "created_at"
         )
     ]
-
-
-# `LLMSkill.metadata` keys where a source product records the template a scout's text came from, and that text's hash.
-SOURCE_TEMPLATE_METADATA_KEY = "source_template"
-SOURCE_TEMPLATE_HASH_METADATA_KEY = "source_template_hash"
 
 
 def source_scout_body_hash(body: str) -> str:

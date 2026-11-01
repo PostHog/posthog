@@ -338,6 +338,18 @@ class TestScoutTemplateSync(_VisionAPITestCase):
     def test_template_edits_reach_untouched_scouts_before_they_run_and_never_edited_ones(self) -> None:
         digest = self._template_body("daily-digest")
         self._create("signals-scout-x-daily-digest", digest, "daily-digest")
+        # Claiming stamps server-owned metadata, which must not turn a retried create into a conflict.
+        retry = self.client.post(
+            self.url,
+            data={
+                "name": "signals-scout-x-daily-digest",
+                "description": "d",
+                "body": digest,
+                "template_key": "daily-digest",
+            },
+            format="json",
+        )
+        assert retry.status_code == 200, retry.json()
         self._create("signals-scout-y-daily-digest", digest + "\nOnly report checkout.", "daily-digest")
         # A scout made before claiming existed: its untouched text is claimed on its next run.
         self._create("signals-scout-z-daily-digest", digest, None)

@@ -9,6 +9,11 @@ from django.utils.module_loading import import_string
 
 from products.signals.backend.models import SignalScoutConfig
 
+# `LLMSkill.metadata` keys where a source product records the template a scout's text came from, and that text's hash.
+SOURCE_TEMPLATE_METADATA_KEY = "source_template"
+SOURCE_TEMPLATE_HASH_METADATA_KEY = "source_template_hash"
+SOURCE_TEMPLATE_METADATA_KEYS = frozenset({SOURCE_TEMPLATE_METADATA_KEY, SOURCE_TEMPLATE_HASH_METADATA_KEY})
+
 # source_product -> dotted path of `refresher(team_id: int, skill_name: str, source_id: str) -> None`.
 _REFRESHERS: dict[str, str] = {}
 
