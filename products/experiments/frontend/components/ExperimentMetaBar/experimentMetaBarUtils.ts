@@ -1,5 +1,6 @@
 import { Experiment, ExperimentStatsMethod } from '~/types'
 
+import { getExperimentStatsLevel } from 'products/experiments/frontend/experimentStatsConfig'
 import { ExperimentStatusInput, hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 export type ExperimentMetaBarInput = NonNullable<ExperimentStatusInput> & Pick<Experiment, 'conclusion'>
@@ -34,11 +35,11 @@ export function getExperimentStatsSummary(
     experiment: Pick<Experiment, 'stats_config'>,
     statsMethod: ExperimentStatsMethod
 ): ExperimentStatsSummary {
+    const level = getExperimentStatsLevel(experiment, statsMethod)
+
     if (statsMethod === ExperimentStatsMethod.Bayesian) {
-        const level = `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
         return { method: 'Bayesian', level, description: `Bayesian statistics with a ${level} credible interval` }
     }
 
-    const level = `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`
     return { method: 'Frequentist', level, description: `Frequentist statistics with a ${level} confidence level` }
 }
