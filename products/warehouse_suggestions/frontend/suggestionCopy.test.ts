@@ -2,12 +2,15 @@ import type { WarehouseSuggestionMaterializePayloadApi } from './generated/api.s
 import {
     MonthlySaving,
     SavingHighlight,
+    MainSavingKind,
     UNKNOWN_SOURCES_CAVEAT,
     dataAgeLabel,
+    materializeHighlight,
     notNowCondition,
     savingHighlight,
     savingSentence,
     suggestedScheduleHint,
+    summarySavings,
     todayAgeLabel,
 } from './suggestionCopy'
 
@@ -31,6 +34,7 @@ function payload(
         unknown_sources: unknownSources,
         refresh_mode: 'full',
         refresh_interval_basis: 'savings',
+        main_saving: null,
     }
 }
 
@@ -76,6 +80,79 @@ describe('suggestionCopy', () => {
     ])('names every saving worth naming when a suggestion saves %s', (_name, saving, highlight, sentence) => {
         expect(savingHighlight(saving)).toEqual(highlight)
         expect(savingSentence(saving)).toEqual(sentence)
+    })
+
+    it.each<[string, MainSavingKind | null, number, number, SavingHighlight]>([
+        [
+            'saves waiting but its refreshes cost background work',
+            'waiting',
+            2 * HOUR,
+            -HOUR,
+            {
+                amount: '~2 hours',
+                detail: 'less waiting',
+                narrowLabel: 'less waiting a month',
+                tooltip: ['Refreshing costs ~1 hour of background work a month', '~3.20 TB less scanned a month'],
+            },
+        ],
+        [
+            'saves little waiting but a lot of scanning',
+            'scanned',
+            10 * 60,
+            0,
+            {
+                amount: '~3.20 TB',
+                detail: 'less scanned',
+                narrowLabel: 'less scanned a month',
+                tooltip: ['~10 minutes less waiting a month'],
+            },
+        ],
+        [
+            'saves only background work',
+            'background',
+            0,
+            9 * HOUR,
+            {
+                amount: '~9 hours',
+                detail: 'less background work',
+                narrowLabel: 'less background work a month',
+                tooltip: ['~3.20 TB less scanned a month'],
+            },
+        ],
+        [
+            'was made before the main saving was recorded',
+            null,
+            0,
+            0,
+            {
+                amount: '~20 minutes',
+                detail: '~3.20 TB less scanned',
+                narrowLabel: 'saved a month, ~3.20 TB less scanned',
+            },
+        ],
+    ])(
+        'leads with the saving that earned a materialize suggestion that %s',
+        (_name, main, waiting, background, highlight) => {
+            const input = {
+                ...payload(null),
+                saves_bytes_per_month: 3.2 * TB,
+                waiting_seconds_saved_per_month: waiting,
+                background_seconds_saved_per_month: background,
+                main_saving: main,
+            }
+
+            expect(materializeHighlight(input)).toEqual(highlight)
+        }
+    )
+
+    it('leads the summary with waiting and lists the other savings without adding them up', () => {
+        expect(
+            summarySavings({ views: 2, saving: { seconds: 11 * HOUR, bytes: 3.2 * TB }, waitingSeconds: 2 * HOUR })
+        ).toEqual({
+            waiting: '~2 hours',
+            headline: null,
+            detail: 'Also ~9 hours less background work and ~3.20 TB less scanned, across 2 views',
+        })
     })
 
     it.each<[Parameters<typeof suggestedScheduleHint>[0], string]>([
