@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -7,7 +8,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
-from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES
+from posthog.hogql.database.schema.events_with_flag_calls import (
+    EVENT_ROW_TABLES,
+    EventsWithFlagCallsTable,
+    union_table_of,
+)
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
@@ -132,6 +137,8 @@ class ToTimeZoneParts:
     swapped: bool
 
 
+_PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
+
 # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
 # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
 # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
@@ -163,7 +170,10 @@ class PropertySwapper(CloningVisitor):
         group_properties: dict[str, dict[str, str | None]],
         context: HogQLContext,
         setTimeZones: bool,
+        before_lazy_tables: bool = False,
     ):
+        """`before_lazy_tables` marks the pass that runs before lazy tables resolve. Of the event and person
+        properties, that pass converts only the reads of a union scan, and the pass after it converts the rest."""
         super().__init__(clear_types=False)
         self.timezone = timezone
         self.event_properties = event_properties
@@ -174,6 +184,24 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self.before_lazy_tables = before_lazy_tables
+        self._union_scan_depth = 0
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
+        if not (
+            isinstance(node.type, ast.SelectQueryAliasType)
+            and isinstance(node.type.lazy_table, EventsWithFlagCallsTable)
+        ):
+            return super().visit_join_expr(node)
+        # Only the table is the union. The constraint and the joins after it read other tables.
+        self._union_scan_depth += 1
+        try:
+            table = self.visit(node.table)
+        finally:
+            self._union_scan_depth -= 1
+        joined = super().visit_join_expr(dataclasses.replace(node, table=None))
+        joined.table = table
+        return joined
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
@@ -723,7 +751,7 @@ class PropertySwapper(CloningVisitor):
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 resolved_table = type.field_type.table_type.resolve_database_table(self.context)
-                if isinstance(resolved_table, EVENTS_TABLE_TYPES):
+                if isinstance(resolved_table, _PERSON_PROPERTIES_TABLES):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
 
@@ -740,6 +768,8 @@ class PropertySwapper(CloningVisitor):
             "person": self.person_properties,
             "group": self.group_properties,
         }
+        if property_type != "group" and not self._converts_event_or_person_property(node):
+            return node
         prop_info = properties_by_type[property_type].get(property_name, {})
         field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
@@ -756,6 +786,16 @@ class PropertySwapper(CloningVisitor):
         # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
         # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
+
+    def _converts_event_or_person_property(self, node: ast.Field) -> bool:
+        # Lazy tables move a union scan's property reads into branches, away from a call such as toFloatOrZero that
+        # needs the raw value. The pass before lazy tables converts each read at its call, so the branches stay raw.
+        if self._union_scan_depth > 0:
+            return False
+        if not self.before_lazy_tables:
+            return True
+        assert isinstance(node.type, ast.PropertyType)
+        return union_table_of(node.type.field_type.table_type) is not None
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":

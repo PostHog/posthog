@@ -20,7 +20,7 @@ from django.test import SimpleTestCase
 
 from parameterized import param, parameterized
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -281,15 +281,18 @@ class TestReadFlagCallsWithUnion(BaseTest):
         union: bool = True,
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
     ) -> str:
         _set_mode(self.organization, mode)
         with _enabled_flags(union=union):
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=persons_on_events,
-                    useNewEventsSchema=_events_schema_for(mode, new_events_schema),
+                modifiers=(modifiers or HogQLQueryModifiers()).model_copy(
+                    update={
+                        "personsOnEventsMode": persons_on_events,
+                        "useNewEventsSchema": _events_schema_for(mode, new_events_schema),
+                    },
                 ),
                 pretty=False,
             ).generate_clickhouse_sql()
@@ -334,12 +337,50 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
+            # Mode 1 keeps a materialized property on events, so mode 2 shows which columns the union can read.
+            param(
+                "property_in_a_string_materialized_column_on_mode_2",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                True,
+                True,
+                mode=ONLY,
+                column_type="Nullable(String)",
+            ),
+            # Each branch reads the property from JSON, so the typed column never reaches the UNION ALL.
+            param(
+                "typed_materialized_column_on_the_native_events_schema_on_mode_2",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                True,
+                True,
+                mode=ONLY,
+                column_type="Nullable(Float64)",
+                new_events_schema=True,
+            ),
+            param(
+                "typed_materialized_column_with_materialization_disabled",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                True,
+                True,
+                column_type="Nullable(Float64)",
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            ),
         ]
     )
     def test_union_reads_the_scans_phase_1_leaves_on_events(
-        self, _name: str, query: str, union: bool, expected_union: bool, mode: FlagEvaluationsMode = READ
+        self,
+        _name: str,
+        query: str,
+        union: bool,
+        expected_union: bool,
+        mode: FlagEvaluationsMode = READ,
+        column_type: str | None = None,
+        new_events_schema: bool | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
     ):
-        sql = self._sql(query, union=union, mode=mode)
+        if column_type is not None:
+            self.addCleanup(cleanup_materialized_columns)
+            materialize("events", "probe", is_nullable=True, column_type=column_type)
+        sql = self._sql(query, union=union, mode=mode, new_events_schema=new_events_schema, modifiers=modifiers)
 
         assert ("UNION ALL" in sql) is expected_union
         if expected_union:
@@ -364,16 +405,10 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 warehouse_join=True,
             ),
             param(
-                "string_parser_on_a_typed_event_property",
-                f"SELECT toFloatOrZero(properties.probe) FROM events WHERE {MIXED}",
-                "Numeric event property probe",
-                typed=PropertyDefinition.Type.EVENT,
-            ),
-            param(
-                "string_parser_on_a_typed_person_property",
-                f"SELECT toIntOrZero(person.properties.probe) FROM events WHERE {MIXED}",
-                "Numeric person property probe",
-                typed=PropertyDefinition.Type.PERSON,
+                "property_in_a_typed_materialized_column",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                "probe, which events stores in a Nullable\\(Float64\\) column",
+                typed_column=True,
             ),
         ]
     )
@@ -383,10 +418,11 @@ class TestReadFlagCallsWithUnion(BaseTest):
         query: str,
         reason: str,
         warehouse_join: bool = False,
-        typed: PropertyDefinition.Type | None = None,
+        typed_column: bool = False,
     ):
-        if typed is not None:
-            PropertyDefinition.objects.create(team=self.team, name="probe", property_type="Numeric", type=typed)
+        if typed_column:
+            self.addCleanup(cleanup_materialized_columns)
+            materialize("events", "probe", is_nullable=True, column_type="Nullable(Float64)")
         if warehouse_join:
             # Joined on persons, it reaches events as a join that compares `person.properties.email`, not its key.
             DataWarehouseJoin.objects.create(
@@ -399,9 +435,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
             )
         persons_on_events = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
-        assert "UNION ALL" not in self._sql(query, persons_on_events=persons_on_events)
+        # The native events schema reads every property from JSON, so only the legacy schema reads a typed column.
+        new_events_schema = False if typed_column else None
+        assert "UNION ALL" not in self._sql(
+            query, persons_on_events=persons_on_events, new_events_schema=new_events_schema
+        )
         with pytest.raises(QueryError, match=reason):
-            self._sql(query, mode=ONLY, persons_on_events=persons_on_events)
+            self._sql(query, mode=ONLY, persons_on_events=persons_on_events, new_events_schema=new_events_schema)
 
     @parameterized.expand([("dotted", UNION), ("quoted", f"`{UNION}`")])
     def test_query_cannot_name_the_union_table(self, _name: str, table: str):
@@ -550,6 +590,24 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
         assert sql.count("FROM person_distinct_id_overrides") == 2  # one inner, one outer for `person_id`
 
+    def test_typed_property_converts_once_at_its_read_and_stays_raw_in_the_branches(self):
+        for kind in (PropertyDefinition.Type.EVENT, PropertyDefinition.Type.PERSON):
+            PropertyDefinition.objects.create(team=self.team, name="amount", property_type="Numeric", type=kind)
+        sql = self._sql(
+            f"SELECT toFloatOrZero(properties.amount), properties.amount FROM events "
+            f"WHERE {MIXED} AND properties.amount > 9 AND person.properties.amount > 9",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+        )
+
+        assert "accurateCastOrNull(accurateCastOrNull" not in sql
+        assert "toFloat64OrZero(events.properties___amount)" in sql
+        for branch in self._branches(sql):
+            projection, _, where = branch.partition(" FROM ")
+            assert "accurateCastOrNull" not in projection
+            assert where.count("accurateCastOrNull") == 1
+        # The persons join comes after the union, so it converts its property as it does on events.
+        assert "accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'amount')" in sql
+
 
 class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
@@ -667,6 +725,60 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             assert rows[:4] == [*history, *recent]
             assert [row[:3] for row in rows[4:]] == keyless
 
+    @parameterized.expand(
+        [
+            (f"{kind.name.lower()}_{mode.name.lower()}", kind, mode)
+            for kind in (PropertyDefinition.Type.EVENT, PropertyDefinition.Type.PERSON)
+            for mode in (READ, ONLY)
+        ]
+    )
+    def test_string_parser_reads_the_raw_value_of_a_typed_property(
+        self, _name: str, kind: PropertyDefinition.Type, mode: FlagEvaluationsMode
+    ):
+        PropertyDefinition.objects.create(team=self.team, name="amount", property_type="Numeric", type=kind)
+        now = datetime.now(UTC)
+        person = _create_person(distinct_ids=["typed"], team_id=self.team.pk)
+        for amount in ("9", "20"):
+            _create_event(
+                event="$pageview",
+                distinct_id="typed",
+                person_id=person.uuid,
+                person_properties={"amount": amount},
+                team=self.team,
+                timestamp=now - timedelta(days=1),
+                properties={"amount": amount},
+            )
+        _create_event(
+            event="$feature_flag_called",
+            distinct_id="typed",
+            person_id=person.uuid,
+            person_properties={"amount": "12.5"},
+            team=self.team,
+            timestamp=now - timedelta(days=1),
+            properties={"$feature_flag": "typed-flag", "source": "events", "amount": "12.5"},
+        )
+        _create_flag_evaluations(
+            self.team.pk,
+            "typed-flag",
+            timestamp=now - timedelta(days=1),
+            distinct_id="typed",
+            person_id=person.uuid,
+            person_properties={"amount": "12.5"},
+            properties={"source": "flag_evaluations", "amount": "12.5"},
+        )
+        flush_persons_and_events()
+        amount = "properties.amount" if kind == PropertyDefinition.Type.EVENT else "person.properties.amount"
+
+        # Compared as text, "20" and "12.5" sort before "9", so a raw read in any branch or above it drops them.
+        response = self._run(
+            f"SELECT event, properties.source, toFloatOrZero({amount}) FROM events "
+            f"WHERE {MIXED} AND distinct_id = 'typed' AND {amount} > 9 ORDER BY event",
+            mode,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        )
+
+        assert response.results == [("$feature_flag_called", "flag_evaluations", 12.5), ("$pageview", None, 20.0)]
+
     def test_prewhere_reads_both_tables(self):
         response = self._run(
             f"SELECT count() FROM events PREWHERE {MIXED} WHERE timestamp >= now() - INTERVAL 120 DAY",
@@ -763,7 +875,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         # Mode 1 keeps reading events on the native JSON table, so only mode 2 reads the union there.
         _set_mode(self.organization, ONLY if new_schema else READ)
         create_group_type_mapping(team=self.team, group_type="organization", group_type_index=0)
-        # A typed property reads as a number, which the union keeps only when it types each branch.
+        # A typed property reads as a number, which the union keeps only when it converts the read above the branches.
         for property_type in (PropertyDefinition.Type.EVENT, PropertyDefinition.Type.PERSON):
             PropertyDefinition.objects.create(team=self.team, name="probe", property_type="Numeric", type=property_type)
         modifiers = HogQLQueryModifiers(personsOnEventsMode=poe, useNewEventsSchema=new_schema)
