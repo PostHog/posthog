@@ -47,7 +47,6 @@ describe('featureFlagsSetupLogic', () => {
     )
 
     // Undo of a project's only deleted flag reloads the flag list without remounting the gate.
-    // A list reload that returns flags answers the gate itself, so it sends no requests.
     it.each([
         [0, 'needs-setup', 2],
         [1, 'has-data', 1],

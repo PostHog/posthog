@@ -90,7 +90,6 @@ export const featureFlagsSetupLogic = kea<featureFlagsSetupLogicType>([
             if (values.setupStatus === 'has-data') {
                 return
             }
-            // Any flag in the list, under any filter, answers the gate without a request.
             if (featureFlags.count > 0) {
                 actions.setDetectedStatus('has-data')
             } else {
