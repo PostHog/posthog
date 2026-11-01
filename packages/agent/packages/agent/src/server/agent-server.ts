@@ -5263,7 +5263,7 @@ export class AgentServer {
             outcome: { outcome: "cancelled" },
             _meta: {
               message:
-                "This run is configured to stop before publishing. Do not push commits or create/update pull requests unless the user explicitly asks.",
+                "This run is configured to stop before publishing. Publishing is disabled for this run, even if the user invokes a skill. Do not retry this push or pull request update here. Explain that publishing must be enabled for this run.",
             },
           };
         }
