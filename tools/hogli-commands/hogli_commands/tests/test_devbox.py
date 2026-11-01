@@ -21,6 +21,7 @@ from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
     config as devbox_config,
+    hogland as devbox_hogland,
     mutagen as devbox_mutagen,
     sync as devbox_sync,
     worktree as devbox_worktree,
@@ -4125,8 +4126,8 @@ class TestKeepaliveShim:
 
     @pytest.mark.parametrize(
         "target, bumped",
-        [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
-        ids=["devbox-host-bumped", "non-devbox-host-untouched"],
+        [("coder.devbox-test-user", True), ("hogland.wt-test", True), ("nobody@127.0.0.1", False)],
+        ids=["devbox-host-bumped", "hogland-host-bumped-with-config", "non-devbox-host-untouched"],
     )
     def test_shim_rewrites_ssh_options_only_for_devbox_hosts(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, bumped: bool
@@ -4163,6 +4164,8 @@ class TestKeepaliveShim:
                 "-oConnectTimeout=": f"-oConnectTimeout={devbox_mutagen._CONNECT_TIMEOUT_SECONDS}",
             }
             expected = [next((v for k, v in rewrites.items() if a.startswith(k)), a) for a in incoming]
+            if target.startswith("hogland."):
+                expected = ["-F", str(devbox_mutagen.hogland_ssh_config_path()), *expected]
             assert forwarded == expected
             assert "-oServerAliveCountMax=1" not in forwarded
             assert "-oConnectTimeout=5" not in forwarded
@@ -4856,3 +4859,26 @@ class TestRenderSyncStatus:
         rendered = devbox_cli._render_sync_status("devbox-test-user")
         assert "watching" in rendered
         assert "●" in rendered
+
+
+class TestHoglandEndpoint:
+    @pytest.mark.parametrize(
+        ("action", "fresh_box"),
+        [("running", True), ("noop-already-running", False)],
+        ids=["new-box-resets-host-key", "running-box-keeps-host-key"],
+    )
+    def test_only_a_new_box_resets_the_host_key(self, action: str, fresh_box: bool) -> None:
+        payload = {
+            "action": action,
+            "box": {"id": "box-1", "status": "running", "public_ip": "192.0.2.10", "guest_ssh_port": 2222},
+        }
+
+        endpoint = devbox_hogland.parse_endpoint(payload)
+
+        assert endpoint == devbox_hogland.HoglandEndpoint(
+            box_id="box-1", host="192.0.2.10", port=2222, fresh_box=fresh_box
+        )
+
+    def test_box_without_ssh_fails(self) -> None:
+        with pytest.raises(SystemExit):
+            devbox_hogland.parse_endpoint({"action": "running", "box": {"id": "box-1", "status": "placing"}})
