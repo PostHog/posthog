@@ -352,8 +352,8 @@ export interface supportTicketSceneLogicActions {
     setTicketContext: (context: ImpersonationTicketContext | null) => {
         context: ImpersonationTicketContext | null
     } // impersonationNoticeLogic
-    loadTickets: () => {
-        value: true
+    loadTickets: (debounce?: boolean) => {
+        debounce: boolean
     } // supportTicketsSceneLogic
     loadTags: () => {
         value: true

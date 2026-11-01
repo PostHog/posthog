@@ -100,11 +100,17 @@ describe('propertyDefinitionsTableLogic', () => {
             expect(listRequests()).toHaveLength(1)
         })
 
-        it('waits for typing in the search box to pause, then sends one request', async () => {
+        it.each([
+            ['the list has results', false],
+            ['the list is empty', true],
+        ])('waits for typing in the search box to pause, then sends one request when %s', async (_, emptyList) => {
             router.actions.push(urls.propertyDefinitions())
             logic = propertyDefinitionsTableLogic({ key: '1', syncWithUrl: true })
             logic.mount()
             await jest.advanceTimersByTimeAsync(1000)
+            if (emptyList) {
+                logic.actions.loadPropertyDefinitionsSuccess({ count: 0, results: [] })
+            }
             api.get.mockClear()
 
             logic.actions.setFilters({ property: 'chec' })

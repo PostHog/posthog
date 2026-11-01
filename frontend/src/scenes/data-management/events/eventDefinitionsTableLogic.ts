@@ -662,8 +662,10 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     listeners(({ actions, values, cache }) => ({
         setFilters: async ({ debounce }, breakpoint) => {
             if (debounce) {
+                cache.filtersLoadPending = true
                 await breakpoint(200)
             }
+            cache.filtersLoadPending = false
             actions.loadEventDefinitions()
         },
         bulkUpdateVerifiedSuccess: ({ bulkVerifiedResult, payload }) => {
@@ -726,7 +728,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         '/data-management/events': (_, searchParams) => {
             const { event, event_type, ordering, tags, verified } = searchParams
 
@@ -741,7 +743,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
 
             if (!objectsEqual(values.filters, filtersFromUrl)) {
                 actions.setFilters(filtersFromUrl, false)
-            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+            } else if (
+                // A debounced filter change already writes this URL, so loading here would skip the debounce
+                !cache.filtersLoadPending &&
+                !values.eventDefinitions.results.length &&
+                !values.eventDefinitionsLoading
+            ) {
                 actions.loadEventDefinitions()
             }
         },

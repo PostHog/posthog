@@ -269,8 +269,10 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
     listeners(({ actions, values, cache }) => ({
         setFilters: async ({ debounce }, breakpoint) => {
             if (debounce) {
+                cache.filtersLoadPending = true
                 await breakpoint(500)
             }
+            cache.filtersLoadPending = false
             const params: Record<string, any> = {
                 offset: 0,
                 search: values.filters.property,
@@ -308,7 +310,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             })
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         [urls.propertyDefinitions()]: (_, searchParams) => {
             if (values.propertyDefinitionsLoading) {
                 return
@@ -323,7 +325,11 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             }
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(parsedParams))) {
                 actions.setFilters(parsedParams as Filters, false)
-            } else if (!values.propertyDefinitions.results.length) {
+            } else if (
+                // A debounced filter change already writes this URL, so loading here would skip the debounce
+                !cache.filtersLoadPending &&
+                !values.propertyDefinitions.results.length
+            ) {
                 actions.loadPropertyDefinitions()
             }
         },
