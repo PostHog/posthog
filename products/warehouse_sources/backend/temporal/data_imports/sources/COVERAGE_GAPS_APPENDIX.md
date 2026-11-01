@@ -13189,6 +13189,7 @@ Diffed against: <https://raw.githubusercontent.com/whopio/whopsdk-python/main/re
 - [ ] `Courses (GET /api/v1/courses)` — identify course content associated with synced experiences and products (medium)
 - [ ] `Course students (GET /api/v1/course_students)` — measure enrollment and student participation by course (medium)
 - [ ] `Course lesson interactions (GET /api/v1/course_lesson_interactions)` — measure lesson engagement and learning progress (medium)
+- [x] `External accounts (GET /api/v1/external_accounts)` — identify the social, ads, and marketing accounts connected to the company (low)
 
 Note: Read the official SDK reference and resource modules, including raw request paths and the production base URL. Individual reference pages supplied embedded OpenAPI schemas for legacy memberships, fees, reviews, and courses. Current documentation renames plans to variants and company filters to account filters, so some additions need version handling. Fees and member logs require parent loops; excluded credentials, uploads, and webhook delivery records.
 
