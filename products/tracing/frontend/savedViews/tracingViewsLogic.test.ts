@@ -1,12 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { savedViewsLogic } from 'lib/components/SavedViews/savedViewsLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { tracingFiltersLogic } from '../tracingFiltersLogic'
-import { tracingViewsListLogic } from './tracingViewsListLogic'
-import { TracingView, tracingViewsLogic } from './tracingViewsLogic'
+import { TRACING_SAVED_VIEWS_LOGIC_PROPS, TracingView, tracingViewsLogic } from './tracingViewsLogic'
 
 const mockView = (overrides: Partial<TracingView> = {}): TracingView => ({
     id: 'view-1',
@@ -23,112 +23,71 @@ const mockView = (overrides: Partial<TracingView> = {}): TracingView => ({
 describe('tracing saved views', () => {
     let filtersLogic: ReturnType<typeof tracingFiltersLogic.build>
     let viewsLogic: ReturnType<typeof tracingViewsLogic.build>
-    let listLogic: ReturnType<typeof tracingViewsListLogic.build>
+    let savedViews: ReturnType<typeof savedViewsLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        // openModal triggers loadViews → api.get; keep it from hitting the network.
-        jest.spyOn(api, 'get').mockResolvedValue({ results: [] })
         filtersLogic = tracingFiltersLogic()
         filtersLogic.mount()
         viewsLogic = tracingViewsLogic()
         viewsLogic.mount()
-        listLogic = tracingViewsListLogic()
-        listLogic.mount()
+        savedViews = savedViewsLogic(TRACING_SAVED_VIEWS_LOGIC_PROPS)
+        savedViews.mount()
     })
 
     afterEach(() => {
-        listLogic?.unmount()
+        savedViews?.unmount()
         viewsLogic?.unmount()
         filtersLogic?.unmount()
         jest.restoreAllMocks()
     })
 
-    describe('saveView', () => {
-        it('persists only the saveable filter subset, excluding ephemeral compare state', async () => {
-            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(mockView())
+    it('saves only the saveable filter subset, excluding ephemeral compare state', async () => {
+        const createSpy = jest.spyOn(api, 'create').mockResolvedValue(mockView())
 
-            filtersLogic.actions.setServiceNames(['api'])
-            filtersLogic.actions.setViewMode('spans')
-            filtersLogic.actions.setSort('duration', 'ASC')
-            // Ephemeral state that must NOT be saved.
-            filtersLogic.actions.setComparison({
-                mode: 'time',
-                preset: 'custom',
-                currentWindowOverride: null,
-                previousWindowOverride: null,
-            })
-
-            listLogic.actions.setViewName('Slow spans')
-            await expectLogic(listLogic, () => {
-                listLogic.actions.saveView()
-            }).toFinishAllListeners()
-
-            expect(createSpy).toHaveBeenCalledTimes(1)
-            const payload = createSpy.mock.calls[0][1] as { name: string; filters: Record<string, any> }
-            expect(payload.name).toBe('Slow spans')
-            expect(payload.filters).toEqual({
-                dateRange: { date_from: '-1h', date_to: null },
-                serviceNames: ['api'],
-                filterGroup: filtersLogic.values.filterGroup,
-                orderBy: 'duration',
-                orderDirection: 'ASC',
-                viewMode: 'spans',
-            })
-            expect(payload.filters).not.toHaveProperty('comparison')
+        filtersLogic.actions.setServiceNames(['api'])
+        filtersLogic.actions.setViewMode('spans')
+        filtersLogic.actions.setSort('duration', 'ASC')
+        // Ephemeral state that must NOT be saved.
+        filtersLogic.actions.setComparison({
+            mode: 'time',
+            preset: 'custom',
+            currentWindowOverride: null,
+            previousWindowOverride: null,
         })
 
-        it('does nothing when the name is blank', async () => {
-            const createSpy = jest.spyOn(api, 'create').mockResolvedValue(mockView())
+        savedViews.actions.setViewName('Slow spans')
+        await expectLogic(savedViews, () => {
+            savedViews.actions.saveView(viewsLogic.values.savePayload)
+        }).toFinishAllListeners()
 
-            listLogic.actions.setViewName('   ')
-            await expectLogic(listLogic, () => {
-                listLogic.actions.saveView()
-            }).toFinishAllListeners()
-
-            expect(createSpy).not.toHaveBeenCalled()
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        const [url, payload] = createSpy.mock.calls[0] as [string, { name: string; filters: Record<string, any> }]
+        expect(url).toMatch(/\/tracing\/views\/$/)
+        expect(payload.name).toBe('Slow spans')
+        expect(payload.filters).toEqual({
+            dateRange: { date_from: '-1h', date_to: null },
+            serviceNames: ['api'],
+            filterGroup: filtersLogic.values.filterGroup,
+            orderBy: 'duration',
+            orderDirection: 'ASC',
+            viewMode: 'spans',
         })
+        expect(payload.filters).not.toHaveProperty('comparison')
     })
 
-    describe('loadView', () => {
-        it('restores the saved filters into tracingFiltersLogic', async () => {
-            const view = mockView({
-                filters: { serviceNames: ['web'], viewMode: 'spans', orderBy: 'duration', orderDirection: 'DESC' },
-            })
-
-            await expectLogic(viewsLogic, () => {
-                viewsLogic.actions.loadView(view)
-            }).toFinishAllListeners()
-
-            expect(filtersLogic.values.serviceNames).toEqual(['web'])
-            expect(filtersLogic.values.viewMode).toBe('spans')
-            expect(filtersLogic.values.orderBy).toBe('duration')
-            expect(filtersLogic.values.orderDirection).toBe('DESC')
+    it('restores the saved filters into tracingFiltersLogic when a view is loaded', async () => {
+        const view = mockView({
+            filters: { serviceNames: ['web'], viewMode: 'spans', orderBy: 'duration', orderDirection: 'DESC' },
         })
 
-        it('closes the list modal when a view is loaded', async () => {
-            listLogic.actions.openModal()
-            expect(listLogic.values.isModalOpen).toBe(true)
+        await expectLogic(viewsLogic, () => {
+            savedViews.actions.loadView(view)
+        }).toFinishAllListeners()
 
-            viewsLogic.actions.loadView(mockView())
-            expect(listLogic.values.isModalOpen).toBe(false)
-        })
-    })
-
-    describe('deleteView', () => {
-        it('optimistically removes the view from the list', async () => {
-            jest.spyOn(api, 'delete').mockResolvedValue(undefined)
-            // Seed the loader state with two views.
-            jest.spyOn(api, 'get').mockResolvedValue({
-                results: [mockView({ short_id: 'keep' }), mockView({ short_id: 'drop' })],
-            })
-            await expectLogic(viewsLogic, () => {
-                viewsLogic.actions.loadViews()
-            }).toFinishAllListeners()
-            expect(viewsLogic.values.views).toHaveLength(2)
-
-            viewsLogic.actions.deleteView('drop')
-            expect(viewsLogic.values.views.map((v) => v.short_id)).toEqual(['keep'])
-        })
+        expect(filtersLogic.values.serviceNames).toEqual(['web'])
+        expect(filtersLogic.values.viewMode).toBe('spans')
+        expect(filtersLogic.values.orderBy).toBe('duration')
+        expect(filtersLogic.values.orderDirection).toBe('DESC')
     })
 })
