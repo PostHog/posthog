@@ -188,6 +188,7 @@ describe('hogFunctionConfigurationLogic', () => {
         })
 
         it('sets rejects submission if missing inputs', async () => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
 
@@ -200,6 +201,8 @@ describe('hogFunctionConfigurationLogic', () => {
                     url: 'This field is required',
                 },
             })
+            expect(toastSpy).toHaveBeenCalledWith("Can't save yet. Webhook URL: This field is required")
+            toastSpy.mockRestore()
         })
 
         it('saves if form valid', async () => {
