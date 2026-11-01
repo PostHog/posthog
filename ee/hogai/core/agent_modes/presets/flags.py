@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
+from products.experiments.backend.facade.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.feature_flags.backend.max_tools import CreateFeatureFlagTool
 
 from ee.hogai.chat_agent.executables import ChatAgentPlanExecutable, ChatAgentPlanToolsExecutable
