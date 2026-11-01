@@ -13,6 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2Auth,
     OAuth2AuthRequestError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
@@ -22,14 +25,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import RAMP_ENDPOINTS, TOKEN_SCOPES
+from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import (
+    PAGE_SIZE,
+    RAMP_ENDPOINTS,
+    TOKEN_SCOPES,
+)
 
 RAMP_HOSTS = {
     "production": "https://api.ramp.com",
     "sandbox": "https://demo-api.ramp.com",
 }
-# Ramp list pages cap at 100 items.
-PAGE_SIZE = 100
 
 
 @dataclasses.dataclass
@@ -37,6 +42,8 @@ class RampResumeConfig:
     # Ramp paginates via the self-contained page.next URL. Optional/defaulted so previously
     # saved state (which always carried next_url) still parses via dataclass(**saved).
     next_url: Optional[str] = None
+    # Per-vendor progress of a fan-out table (completed parents plus the in-flight child page).
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _base_url(environment: str) -> str:
@@ -54,7 +61,7 @@ def _token_url(environment: str) -> str:
     return f"{_api_base_url(environment)}/token"
 
 
-def _make_auth(environment: str, client_id: str, client_secret: str) -> OAuth2Auth:
+def _make_auth(environment: str, client_id: str, client_secret: str, scopes: str) -> OAuth2Auth:
     """Ramp uses OAuth2 client-credentials with HTTP Basic client auth.
 
     Tokens last ~10 days; the framework mints one lazily, caches it for the run, and re-mints
@@ -64,7 +71,7 @@ def _make_auth(environment: str, client_id: str, client_secret: str) -> OAuth2Au
         client_id=client_id,
         client_secret=client_secret,
         grant_type="client_credentials",
-        scopes=TOKEN_SCOPES,
+        scopes=scopes,
         client_auth_method="basic",
     )
 
@@ -97,13 +104,17 @@ class RampPaginator(JSONResponsePaginator):
         super().update_state(response, data)
 
 
-def validate_credentials(environment: str, client_id: str, client_secret: str) -> tuple[bool, str | None]:
+def validate_credentials(
+    environment: str, client_id: str, client_secret: str, schema_name: Optional[str] = None
+) -> tuple[bool, str | None]:
     """Confirm the developer app credentials are valid by minting a token.
 
     Distinguishes a genuine credential rejection (permanent 4xx from the token endpoint) from a
     transient connectivity problem so the user sees an actionable message instead of a blanket
     "invalid credentials"."""
-    auth = _make_auth(environment, client_id, client_secret)
+    endpoint_config = RAMP_ENDPOINTS.get(schema_name) if schema_name else None
+    scopes = endpoint_config.scope if endpoint_config else TOKEN_SCOPES
+    auth = _make_auth(environment, client_id, client_secret, scopes)
     # Force the lazy token mint through the public auth callable; a bad credential raises here.
     probe = Request(method="GET", url=_api_base_url(environment)).prepare()
     try:
@@ -133,7 +144,7 @@ def ramp_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = RAMP_ENDPOINTS[endpoint]
-    auth = _make_auth(environment, client_id, client_secret)
+    auth = _make_auth(environment, client_id, client_secret, config.scope)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -144,6 +155,41 @@ def ramp_source(
         and db_incremental_field_last_value is not None
     ):
         params[config.incremental_param] = _format_timestamp(db_incremental_field_last_value)
+
+    client_config: ClientConfig = {
+        "base_url": _api_base_url(environment),
+        "auth": auth,
+        # Pin every request — including page.next links and the seeded resume URL — to the
+        # configured Ramp host so a tampered next/resume link can't exfiltrate the bearer token.
+        "allowed_hosts": [],
+    }
+
+    if config.fanout is not None:
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(RampResumeConfig(fanout_state=dict(state)))
+
+        items = build_dependent_resource(
+            endpoint_configs=RAMP_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data", "paginator": RampPaginator()},
+            child_endpoint_extra={"data_selector": "data", "paginator": RampPaginator()},
+            page_size_param="page_size",
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume.fanout_state if resume is not None else None,
+        )
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: items,
+            primary_keys=config.primary_keys,
+        )
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resume is not None and resume.next_url is not None:
@@ -161,13 +207,6 @@ def ramp_source(
         "data_selector": "data",
         "paginator": RampPaginator(),
     }
-    client_config: ClientConfig = {
-        "base_url": _api_base_url(environment),
-        "auth": auth,
-        # Pin every request — including page.next links and the seeded resume URL — to the
-        # configured Ramp host so a tampered next/resume link can't exfiltrate the bearer token.
-        "allowed_hosts": [],
-    }
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resources": [{"name": endpoint, "endpoint": endpoint_config}],
@@ -184,7 +223,7 @@ def ramp_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

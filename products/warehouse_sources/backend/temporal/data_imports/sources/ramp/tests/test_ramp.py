@@ -66,16 +66,23 @@ class TestFormatTimestamp:
 
 
 class TestValidateCredentials:
-    def test_mint_requests_documented_scopes(self):
+    @pytest.mark.parametrize(
+        "schema_name, expected_scope",
+        [
+            (None, TOKEN_SCOPES),
+            ("bills", "bills:read"),
+        ],
+    )
+    def test_mint_requests_documented_scopes(self, schema_name, expected_scope):
         with scripted_network([_token()]) as network:
-            validate_credentials("production", "cid", "sec")
+            validate_credentials("production", "cid", "sec", schema_name)
 
         request = network.requests_log[0]
         # HTTP Basic client auth: credentials ride in the auth header, scopes in the form body.
         assert request.url == TOKEN_URL
         assert parse_qs((request.body or b"").decode()) == {
             "grant_type": ["client_credentials"],
-            "scope": [TOKEN_SCOPES],
+            "scope": [expected_scope],
         }
         assert request.headers["authorization"] == "Basic " + base64.b64encode(b"cid:sec").decode()
 
@@ -142,3 +149,27 @@ class TestGetRows:
         assert isinstance(result.raised, ValueError)
         assert not any("evil.example.com" in url for url in result.urls)
         assert result.saved_states == []
+
+    def test_vendor_contacts_fan_out_over_vendors_with_a_vendor_scoped_token(self):
+        script = route(
+            {
+                "/token": [_token()],
+                "/developer/v1/vendors": [
+                    _page([{"id": "v1"}], next_url="https://api.ramp.com/developer/v1/vendors?start=v1"),
+                    _page([{"id": "v2"}]),
+                ],
+                "/vendors/v1/contacts": [_page([{"id": "c1"}])],
+                "/vendors/v2/contacts": [
+                    _page([{"id": "c2"}], next_url="https://api.ramp.com/developer/v1/vendors/v2/contacts?start=c2"),
+                    _page([{"id": "c3"}]),
+                ],
+            }
+        )
+        config = RampSourceConfig(environment="production", client_id="cid", client_secret="sec")
+        result = SourceDriver(RampSource(), config).run("vendor_contacts", script)
+
+        assert result.raised is None
+        assert [(row["vendor_id"], row["id"]) for row in result.rows] == [("v1", "c1"), ("v2", "c2"), ("v2", "c3")]
+        token_request = next(request for request in result.requests if request.path.endswith("/token"))
+        token_body = parse_qs((token_request.body or b"").decode())
+        assert token_body["scope"] == ["vendors:read"]
