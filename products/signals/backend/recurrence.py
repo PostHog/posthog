@@ -9,7 +9,14 @@ from datetime import datetime
 
 from pydantic import ValidationError
 
-from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, FIXED_DISMISSAL_REASONS, Dismissal
+from products.signals.backend.artefact_schemas import (
+    DISMISSAL_REASON_INACTIVE,
+    DISMISSAL_REASON_WRONG_REPO,
+    FIXED_DISMISSAL_REASONS,
+    Dismissal,
+)
+
+INACTIVE_DISMISSAL_REASON = DISMISSAL_REASON_INACTIVE
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.repo_corrections import sanitized_repository
@@ -51,7 +58,7 @@ def fixed_dismissal_at(report: SignalReport) -> datetime | None:
 
 
 def recurrence_dismissal_at(report: SignalReport) -> datetime | None:
-    return _dismissal_at(report, FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO})
+    return _dismissal_at(report, FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO, DISMISSAL_REASON_INACTIVE})
 
 
 def recurrence_rejects_repository(*, team_id: int, report_id: str, repository: str) -> bool:

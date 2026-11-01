@@ -1652,6 +1652,26 @@ No `enforced` property: every event is a real block.
 Unlike the billing gates, the ingestion and scout stages do emit (with `report_id=null`) — the limit is user-set and the volume is bounded by the team's own signal flow, and the events answer "why did nothing arrive today".
 Promotion-stage events keep the billing discipline of firing only when the signal would have promoted; both events fire independently when both limits bind.
 
+### Inbox Report Inactivity Auto-Close
+
+Teams can configure `auto_close_inactive_after_days` on `SignalTeamConfig` (null=off, min 14, max 365) to automatically archive reports that have received no attention.
+
+A daily Celery sweep (`auto_close_inactive_signal_reports` scheduled at 6:20 AM) processes teams with this setting enabled under the `inbox-auto-close-inactive-reports` feature flag.
+
+- **Candidate filter:** Reports in `ready` or `pending_input` status whose first visible / created timestamp is older than `N` days.
+- **Activity evaluation:** A report is considered active and spared from auto-closing if within the last `N` days:
+  - New signals were linked to it (ClickHouse signal timestamp).
+  - Human-attributed artefacts were created (notes, title/summary edits, code reviews, PR links).
+  - Research or analysis runs were executed (`report.last_run_at`).
+  - Deliberate non-passive actions occurred (thumbs rating, Slack discussions). Passive detail views and reads do not count as activity.
+- **Skip guards:** Auto-closing is skipped if:
+  - An open implementation PR exists (`implementation_pr_report_filter(active_only=True)`).
+  - An active claim exists (`get_active_claim`).
+  - A task run is queued, in progress, or not started (`TaskRun.Status`).
+  - Another live report in `ready`, `pending_input`, `potential`, `in_progress`, or `candidate` depends on this report (`incoming_links(kinds=(ReportLinkKind.DEPENDS_ON,))`).
+- **Dismissal & Recurrence:** Closed reports transition to `suppressed` with dismissal reason `"inactive"` and note `"Closed after N days with no activity."`. Like `wrong_repo`, future matching signals start a fresh recurrence report, but do not supply prior-fix context since no fix was claimed.
+- **Concurrency & Telemetry:** Sweeps use `select_for_update()` in atomic transactions so racing human edits win. Telemetry captures `signal_report_status_changed` and `signals_inbox_auto_close_sweep` with counts of candidates, closed, skips by reason, and remaining backlog.
+
 ### Self-driving free trial
 
 A third pause with the same shape, on the implementation side only: while the `self-driving-free-trial` flag is on for an org (org-keyed, toggled by sales per trial), Self-driving still researches and writes reports but opens no pull requests.

@@ -255,6 +255,14 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # within the project-timezone day. Once reached, the whole generation pipeline pauses until
     # local midnight (see daily_limit.py). Null means unlimited.
     max_reports_per_day = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    # Automatically archive ready or pending_input reports with no activity after this many days.
+    # Null means off (the default). Minimum 14 days, maximum 365 days.
+    auto_close_inactive_after_days = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(14), MaxValueValidator(365)],
+        help_text="Archive ready or pending_input reports with no activity after this many days. Null means off.",
+    )
     # Tracker issue per self-driving PR (see tracker_issues.py). The integration is the switch:
     # null means the team does not want tracker issues, so there is no separate boolean that can
     # disagree with the target. `issue_tracking_config` holds the provider target, for example

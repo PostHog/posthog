@@ -478,6 +478,16 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "pause until local midnight. Null means unlimited."
         ),
     )
+    auto_close_inactive_after_days = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=14,
+        max_value=365,
+        help_text=(
+            "Automatically close ready or pending_input reports that have had no activity after this "
+            "many days. Minimum 14, maximum 365. Null turns off auto-closing (the default)."
+        ),
+    )
     default_open_pull_request_ready = serializers.BooleanField(
         required=False,
         help_text=(
@@ -626,6 +636,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "issue_tracking_integration",
             "issue_tracking_config",
             "max_reports_per_day",
+            "auto_close_inactive_after_days",
             "default_open_pull_request_ready",
             "github_issue_writeback_enabled",
             "pull_request_label_enabled",
