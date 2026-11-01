@@ -74,16 +74,21 @@ jobs:
                       /*
                       !/*/
                       **/package.json
-                      /.github/
+                      /.github/actions/
                       /.husky/
-                      /bin/
-                      /common/
-                      /frontend/
-                      /packages/
+                      /bin/fix-rdkafka-paths
+                      /common/mosaic/
+                      /frontend/bin/ci-report/
+                      /frontend/src/generated/
+                      /frontend/src/types.ts
+                      /packages/llm-normalizer/
+                      /packages/quill/
                       /patches/
-                      /products/
+                      /products/*/mcp/
+                      /products/*/frontend/generated/
+                      /products/product_analytics/frontend/insights/
                       /services/mcp/
-                      /tools/
+                      /tools/openapi-codegen/
                   sparse-checkout-cone-mode: false
 
             - name: Install uv # Needed for formatting generated code and running scripts
