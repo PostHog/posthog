@@ -1128,7 +1128,7 @@ export const getLogsSamplingRulesReorderCreateUrl = (
 }
 
 /**
- * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1). Log and span rules have separate orders; the `source` query parameter picks which one.
  */
 export const logsSamplingRulesReorderCreate = async (
     projectId: string,
