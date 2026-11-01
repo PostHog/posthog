@@ -565,6 +565,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://bots.fyi/d/chrome-privacy-preserving-prefetch-proxy",
     ),
     # Headless Browsers
+    "Lightpanda": BotDefinition(
+        "Lightpanda",
+        "headless_browser",
+        "Automation",
+        "Lightpanda",
+        documentation_url="https://github.com/lightpanda-io/browser",
+    ),
     "Mozlila/": BotDefinition("Mozlila Typo Bot", "headless_browser", "Automation", "Unknown"),
     # Real Chrome always emits "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/..."; a platform
     # paren followed directly by Chrome (no KHTML clause) only occurs in hand-built UAs from
