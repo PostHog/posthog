@@ -1,4 +1,5 @@
 import json
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -252,7 +253,7 @@ class TestRewriteEmailAssetUrl(BaseTest):
         )
         workflow_id = make_transactional(self.team.id, template, user_id=self.user.id, from_integration_id=None)
 
-        def delete_instead(template_id, *_args, **_kwargs) -> int:
+        def delete_instead(template_id: UUID, *_args: object, **_kwargs: object) -> int:
             save_template_fields(
                 self.team.id, template_id, {"deleted": True}, user_id=None, require_workflow_editor=lambda _: None
             )
