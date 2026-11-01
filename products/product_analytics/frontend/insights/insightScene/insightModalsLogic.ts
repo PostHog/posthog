@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightLogicProps } from '~/types'
 
