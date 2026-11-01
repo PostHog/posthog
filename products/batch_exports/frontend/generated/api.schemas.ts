@@ -2386,6 +2386,7 @@ export const RedshiftDestinationRequestTypeEnumApi = {
 export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2541,6 +2542,7 @@ export type BatchExportsLogsRetrieveParams = {
 export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

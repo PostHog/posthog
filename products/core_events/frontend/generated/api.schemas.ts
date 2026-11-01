@@ -94,6 +94,7 @@ export interface PatchedCoreEventApi {
 export type CoreEventsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

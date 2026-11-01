@@ -281,6 +281,7 @@ export interface StreamlitAppVersionListApi {
 export type StreamlitAppsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

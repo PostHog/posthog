@@ -16,6 +16,8 @@ export const CohortsListParams = () => zod.object({
         ),
 })
 
+export const cohortsListQueryLimitMax = 1000
+
 export const CohortsListQueryParams = () => zod.object({
     basic: zod
         .boolean()
@@ -30,7 +32,7 @@ export const CohortsListQueryParams = () => zod.object({
         .describe(
             "Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(cohortsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod
         .string()

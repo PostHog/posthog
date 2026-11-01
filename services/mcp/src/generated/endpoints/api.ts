@@ -19,10 +19,12 @@ export const EndpointsListParams = () => zod.object({
         ),
 })
 
+export const endpointsListQueryLimitMax = 1000
+
 export const EndpointsListQueryParams = () => zod.object({
     created_by: zod.number().optional(),
     is_active: zod.boolean().optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(endpointsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -2208,10 +2210,16 @@ export const EndpointsVersionsListParams = () => zod.object({
         ),
 })
 
+export const endpointsVersionsListQueryLimitMax = 1000
+
 export const EndpointsVersionsListQueryParams = () => zod.object({
     created_by: zod.number().optional(),
     is_active: zod.boolean().optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(endpointsVersionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 

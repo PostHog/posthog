@@ -316,6 +316,7 @@ export interface PatchedEarlyAccessFeatureApi {
 export type EarlyAccessFeatureListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

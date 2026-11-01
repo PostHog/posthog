@@ -2453,6 +2453,7 @@ export type SurveysListParams = {
     ids?: string[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

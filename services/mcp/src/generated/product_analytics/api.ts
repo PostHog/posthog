@@ -64,6 +64,8 @@ export const InsightsListParams = () => zod.object({
         ),
 })
 
+export const insightsListQueryLimitMax = 1000
+
 export const insightsListQueryRefreshDefault = `force_cache`
 
 export const InsightsListQueryParams = () => zod.object({
@@ -128,7 +130,7 @@ export const InsightsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(insightsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod
         .string()

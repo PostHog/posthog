@@ -42,6 +42,8 @@ export const NotebooksListParams = () => zod.object({
         ),
 })
 
+export const notebooksListQueryLimitMax = 1000
+
 export const NotebooksListQueryParams = () => zod.object({
     contains: zod
         .string()
@@ -58,7 +60,7 @@ export const NotebooksListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('Filter for notebooks created before this date & time'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(notebooksListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     user: zod
         .string()

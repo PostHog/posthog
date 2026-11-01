@@ -8,8 +8,10 @@
  */
 import * as zod from 'zod'
 
+export const listQueryLimitMax = 1000
+
 export const ListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(listQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -113,6 +115,8 @@ export const MembersListParams = () => zod.object({
         ),
 })
 
+export const membersListQueryLimitMax = 1000
+
 export const MembersListQueryParams = () => zod.object({
     email_domain: zod
         .string()
@@ -122,7 +126,7 @@ export const MembersListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(membersListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod.string().optional().describe('Sort order. Defaults to `-joined_at`.'),
     outside_verified_domains: zod
@@ -160,8 +164,10 @@ export const RolesListParams = () => zod.object({
         ),
 })
 
+export const rolesListQueryLimitMax = 1000
+
 export const RolesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(rolesListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -191,8 +197,14 @@ export const RolesRoleMembershipsListParams = () => zod.object({
     role_id: zod.string(),
 })
 
+export const rolesRoleMembershipsListQueryLimitMax = 1000
+
 export const RolesRoleMembershipsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(rolesRoleMembershipsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -331,8 +343,14 @@ export const ApprovalPoliciesListParams = () => zod.object({
         ),
 })
 
+export const approvalPoliciesListQueryLimitMax = 1000
+
 export const ApprovalPoliciesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(approvalPoliciesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -353,9 +371,15 @@ export const ChangeRequestsListParams = () => zod.object({
         ),
 })
 
+export const changeRequestsListQueryLimitMax = 1000
+
 export const ChangeRequestsListQueryParams = () => zod.object({
     action_key: zod.string().optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(changeRequestsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     requester: zod.number().optional(),
     resource_id: zod.string().optional(),

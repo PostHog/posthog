@@ -1511,6 +1511,7 @@ export type BillingUsageExportRetrieveParams = {
 export type BillingAlertsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1522,6 +1523,7 @@ export type BillingAlertsListParams = {
 export type BillingAlertsEventsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

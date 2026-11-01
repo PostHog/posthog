@@ -1911,6 +1911,7 @@ export type CanvasesListParams = {
     kind?: CanvasesListKind
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2109,6 +2110,7 @@ export const CanvasesStateValueRetrieveScope = {
 export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

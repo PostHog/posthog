@@ -1182,6 +1182,7 @@ export type EndpointsListParams = {
     is_active?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1253,6 +1254,7 @@ export type EndpointsVersionsListParams = {
     is_active?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

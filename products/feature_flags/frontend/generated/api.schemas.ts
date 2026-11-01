@@ -2500,6 +2500,7 @@ export type FeatureFlagsListParams = {
     key?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2628,6 +2629,7 @@ export type FlagValueValuesRetrieveParams = {
 export type ScheduledChangesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
