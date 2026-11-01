@@ -352,9 +352,9 @@ export interface featureFlagsLogicActions {
         replace?: boolean,
         debounce?: boolean
     ) => {
+        debounce: boolean
         filters: Partial<FeatureFlagsFilters>
         replace: boolean | undefined
-        debounce: boolean
     }
     toggleFeatureFlagActive: (
         id: number,
