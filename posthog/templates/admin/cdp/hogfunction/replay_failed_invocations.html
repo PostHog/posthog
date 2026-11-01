@@ -42,7 +42,7 @@
     <div id="content-main" class="replay">
         {% if step == "form" %}
             <p class="intro">
-                Re-sends failed destination runs from an incident window. The next page shows how many destinations,
+                Re-sends failed destination and workflow runs from an incident window. The next page shows how many destinations,
                 teams and runs this covers. Nothing is sent until you confirm on the details page.
             </p>
             <form method="post">
@@ -106,7 +106,7 @@
                             <thead>
                                 <tr>
                                     <th>Team</th>
-                                    <th>Destination</th>
+                                    <th>Destination or workflow</th>
                                     <th class="num">Runs</th>
                                     <th class="num">HTTP status</th>
                                     <th>Rerun job or error</th>
@@ -117,7 +117,11 @@
                                     <tr {% if row.failed %}class="is-failed"{% endif %}>
                                         <td>{{ row.team_id }}</td>
                                         <td>
-                                            <a href="{% url 'admin:cdp_hogfunction_change' row.function_id %}"><code class="replay-id">{{ row.function_id }}</code></a>
+                                            {% if row.function_kind == "hog_flow" %}
+                                                <a href="{% url 'admin:workflows_hogflow_change' row.function_id %}"><code class="replay-id">{{ row.function_id }}</code></a>
+                                            {% else %}
+                                                <a href="{% url 'admin:cdp_hogfunction_change' row.function_id %}"><code class="replay-id">{{ row.function_id }}</code></a>
+                                            {% endif %}
                                         </td>
                                         <td class="num">{{ row.invocation_count }}</td>
                                         <td class="num">{{ row.status_code|default:"no response" }}</td>
@@ -152,7 +156,7 @@
                 </p>
                 <div class="replay-stats">
                     <div class="replay-stat">
-                        <strong>{{ plan.replayable_functions|length }}</strong><span>destinations</span>
+                        <strong>{{ plan.replayable_functions|length }}</strong><span>destinations and workflows</span>
                     </div>
                     <div class="replay-stat">
                         <strong>{{ plan.team_count }}</strong><span>teams</span>
@@ -215,7 +219,7 @@
                                     <tr>
                                         <th>Team</th>
                                         <th>Organization</th>
-                                        <th class="num">Destinations</th>
+                                        <th class="num">Destinations and workflows</th>
                                         <th class="num">Runs to replay</th>
                                     </tr>
                                 </thead>
@@ -243,12 +247,12 @@
                 {% endif %}
                 {% if step == "details" %}
                     <div class="module">
-                        <h2>Destinations</h2>
+                        <h2>Destinations and workflows</h2>
                         <table>
                             <thead>
                                 <tr>
                                     <th>Team</th>
-                                    <th>Destination</th>
+                                    <th>Destination or workflow</th>
                                     <th>Template</th>
                                     <th class="num">Runs to replay</th>
                                     <th>Not replayed</th>
@@ -259,11 +263,21 @@
                                     <tr>
                                         <td><a href="{% url 'admin:posthog_team_change' row.function.team_id %}">{{ row.function.team_id }}</a> {{ row.function.team_name }}</td>
                                         <td>
-                                            <a href="{% url 'admin:cdp_hogfunction_change' row.function.function_id %}">{{ row.function.function_name|default:"(no name)" }}</a>
+                                            {% if row.function.function_kind == "hog_flow" %}
+                                                <a href="{% url 'admin:workflows_hogflow_change' row.function.function_id %}">{{ row.function.function_name|default:"(no name)" }}</a>
+                                            {% else %}
+                                                <a href="{% url 'admin:cdp_hogfunction_change' row.function.function_id %}">{{ row.function.function_name|default:"(no name)" }}</a>
+                                            {% endif %}
                                             <br>
                                             <code class="replay-id">{{ row.function.function_id }}</code>
                                         </td>
-                                        <td>{{ row.function.template_id|default:"(custom function)" }}</td>
+                                        <td>
+                                            {% if row.function.function_kind == "hog_flow" %}
+                                                (workflow)
+                                            {% else %}
+                                                {{ row.function.template_id|default:"(custom function)" }}
+                                            {% endif %}
+                                        </td>
                                         <td class="num {% if not row.function.invocation_ids %}muted{% endif %}">{{ row.function.invocation_ids|length }}</td>
                                         <td class="muted">
                                             {% for label, count in row.skipped %}
@@ -286,7 +300,7 @@
                         <div class="replay-danger">
                             <h2>Send the replay</h2>
                             <p>
-                                This queues {{ plan.invocation_count }} runs for {{ plan.replayable_functions|length }} destinations
+                                This queues {{ plan.invocation_count }} runs for {{ plan.replayable_functions|length }} destinations and workflows
                                 in {{ plan.team_count }} teams. The destinations receive these requests again. This cannot be undone.
                             </p>
                             <p>
