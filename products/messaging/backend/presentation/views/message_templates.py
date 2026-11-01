@@ -563,7 +563,7 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
     )
 
 
-class TransactionalEmailRejected(exceptions.APIException):
+class TransactionalEmailRejected(exceptions.ValidationError):
     STATUS_BY_CODE = {
         "quota_limited": 429,
         "idempotency_key_in_flight": 409,
@@ -578,13 +578,7 @@ class TransactionalEmailRejected(exceptions.APIException):
 
     def __init__(self, error: TransactionalEmailError) -> None:
         self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
-        super().__init__(detail=str(error), code=error.code)
-
-
-def _rejection(error: TransactionalEmailError) -> exceptions.APIException:
-    if error.attr:
-        return exceptions.ValidationError({error.attr: [str(error)]}, code=error.code)
-    return TransactionalEmailRejected(error)
+        super().__init__(detail={error.attr: [str(error)]} if error.attr else str(error), code=error.code)
 
 
 class TransactionalEmailUnavailable(exceptions.APIException):
@@ -762,7 +756,7 @@ class TransactionalEmailSendMixin:
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
-            raise _rejection(e)
+            raise TransactionalEmailRejected(e)
         except DeliveryUnavailable:
             outcome["outcome"] = "unavailable"
             raise unavailable() from None
