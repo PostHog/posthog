@@ -719,14 +719,15 @@ class OauthIntegration:
                     # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
                     # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
                     # mandatory scope would fail the whole authorization for portals that lack it.
-                    # The owners/commerce/product scopes are the same story: the data warehouse
-                    # source offers those tables, but the objects only exist on portals with the
-                    # matching hub, so they stay optional and their tables start deselected.
+                    # The owners/commerce/product/forecast/conversation scopes are the same story: the
+                    # data warehouse source offers those tables, but the objects only exist on portals
+                    # with the matching hub, so they stay optional and their tables start deselected.
                     "optional_scope": (
                         "analytics.behavioral_events.send behavioral_events.event_definitions.read_write "
                         "crm.objects.leads.read crm.objects.owners.read crm.objects.line_items.read "
                         "crm.objects.products.read crm.objects.invoices.read crm.objects.orders.read "
-                        "crm.objects.subscriptions.read crm.objects.commercepayments.read"
+                        "crm.objects.subscriptions.read crm.objects.commercepayments.read "
+                        "crm.objects.forecasts.read conversations.read"
                     )
                 },
                 id_path="hub_id",
