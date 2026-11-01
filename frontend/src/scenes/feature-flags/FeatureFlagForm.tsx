@@ -661,6 +661,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                         onChange: onChangeEvalContexts,
                                                                     }) => (
                                                                         <FeatureFlagEvaluationContexts
+                                                                            flagId={props.id}
                                                                             tags={formTags}
                                                                             evaluationContexts={formEvalContexts || []}
                                                                             context="form"
