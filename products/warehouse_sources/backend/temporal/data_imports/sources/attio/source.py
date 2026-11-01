@@ -74,6 +74,7 @@ You can generate an API key in your Attio workspace settings. Check out [this gu
 - `note:read` - To read notes
 - `task:read` - To read tasks
 - `user_management:read` - To read workspace members
+- `activity_configuration:read` - To read activity types
 """,
             iconPath="/static/services/attio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/attio",

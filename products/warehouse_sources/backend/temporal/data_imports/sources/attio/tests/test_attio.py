@@ -88,3 +88,54 @@ class TestAttioResume:
         assert [request.json() for request in result.requests] == [
             {"sorts": [{"attribute": "created_at", "direction": "asc"}], "offset": 500, "limit": 500}
         ]
+
+
+def _cursor_page(start: int, count: int, next_cursor: str | None) -> ScriptedResponse:
+    rows = [
+        {"id": {"workspace_id": "ws", "activity_id": f"row-{i}"}, "created_at": "2024-01-01"}
+        for i in range(start, start + count)
+    ]
+    return ScriptedResponse(json={"data": rows, "pagination": {"next_cursor": next_cursor}})
+
+
+class TestAttioCursorPagination:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(AttioSource(), AttioSourceConfig(api_key="key"))
+
+    @pytest.mark.parametrize(
+        "resume_state, responses, expected_cursors, expected_rows, expected_states",
+        [
+            (
+                None,
+                [_cursor_page(0, 2, "c1"), _cursor_page(2, 2, "c2"), _cursor_page(4, 1, None)],
+                [None, "c1", "c2"],
+                5,
+                [AttioResumeConfig(cursor="c1"), AttioResumeConfig(cursor="c2")],
+            ),
+            (
+                AttioResumeConfig(cursor="c2"),
+                [_cursor_page(4, 2, "c3"), _cursor_page(6, 1, None)],
+                ["c2", "c3"],
+                3,
+                [AttioResumeConfig(cursor="c3")],
+            ),
+        ],
+    )
+    def test_activities_follow_next_cursor_and_stage_it(
+        self,
+        resume_state: AttioResumeConfig | None,
+        responses: list[ScriptedResponse],
+        expected_cursors: list[str | None],
+        expected_rows: int,
+        expected_states: list[AttioResumeConfig],
+    ) -> None:
+        result = self._driver().run("activities", responses, resume_state=resume_state)
+
+        assert result.raised is None
+        assert [request.param("cursor") for request in result.requests] == expected_cursors
+        assert all(request.param("limit") == "500" for request in result.requests)
+        assert all(request.param("offset") is None for request in result.requests)
+        assert len(result.rows) == expected_rows
+        assert "activity_id" in result.rows[0]
+        assert result.saved_states == expected_states

@@ -10,6 +10,7 @@ class AttioEndpointConfig:
     partition_key: str = "created_at"
     method: Literal["GET", "POST"] = "GET"
     page_size: int = 500
+    pagination: Literal["offset", "cursor"] = "offset"
 
 
 # Attio API doesn't support updatedAt filtering, so only full refresh is supported
@@ -68,6 +69,13 @@ ATTIO_ENDPOINTS: dict[str, AttioEndpointConfig] = {
         path="/v2/workspace_members",
         method="GET",
         primary_key="workspace_member_id",
+    ),
+    "activities": AttioEndpointConfig(
+        name="activities",
+        path="/v2/activities",
+        method="GET",
+        primary_key="activity_id",
+        pagination="cursor",
     ),
 }
 
