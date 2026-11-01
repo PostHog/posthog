@@ -100,12 +100,14 @@ export function ShareOverTimeChart({
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <div className="flex min-h-[300px] flex-1 flex-col">
+                    {/* The minimum is on the plot so a wrapping legend grows the card instead of shrinking the plot. `!` beats the chart's min-h-0. */}
                     <TimeSeriesLineChart
                         series={chartSeries}
                         labels={labels}
                         config={config}
                         theme={theme}
                         tooltip={renderTooltip}
+                        className="min-h-[276px]!"
                     />
                 </div>
             </CardState>

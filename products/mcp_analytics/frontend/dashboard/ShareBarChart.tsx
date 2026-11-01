@@ -29,11 +29,16 @@ export function ShareBarChart<T>({
     totalCalls,
     theme,
     tooltip,
+    fillHeight = false,
+    label,
 }: {
     rows: ShareBarRow<T>[]
     totalCalls: number
     theme: ChartTheme
     tooltip: (ctx: TooltipContext<ShareMeta<T>>) => JSX.Element | null
+    /** Fill the parent's height and scroll the rows. The parent must be a flex column. */
+    fillHeight?: boolean
+    label?: string
 }): JSX.Element {
     const series = useMemo<Series<ShareMeta<T>>[]>(
         () =>
@@ -65,17 +70,36 @@ export function ShareBarChart<T>({
         },
         [rowByKey]
     )
+    const barList = (
+        <BarList
+            series={series}
+            theme={theme}
+            total={totalCalls}
+            config={SHARE_BAR_CONFIG}
+            valueFormatter={formatCalls}
+            renderLabel={renderLabel}
+            tooltip={tooltip}
+        />
+    )
+    if (!fillHeight) {
+        return (
+            <div translate="no" className="pt-2">
+                {barList}
+            </div>
+        )
+    }
+    // The absolute scroller adds no height, so the chart beside it sets the row height. Keep min-h-60 below that chart's height.
     return (
-        <div translate="no" className="pt-2">
-            <BarList
-                series={series}
-                theme={theme}
-                total={totalCalls}
-                config={SHARE_BAR_CONFIG}
-                valueFormatter={formatCalls}
-                renderLabel={renderLabel}
-                tooltip={tooltip}
-            />
+        <div className="relative min-h-60 flex-1">
+            <div
+                className="absolute inset-0 overflow-y-auto pt-2"
+                translate="no"
+                tabIndex={0}
+                role="region"
+                aria-label={label}
+            >
+                {barList}
+            </div>
         </div>
     )
 }
