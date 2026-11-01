@@ -5,6 +5,7 @@ import {
   countRemovedTools,
   countToolsByApproval,
   filterToolsByName,
+  groupToolsByReadOnly,
   sortToolsForDisplay,
 } from "./toolDerivation";
 
@@ -22,6 +23,7 @@ function tool(
     team_state: null,
     locked: false,
     decided_by: "default",
+    is_read_only: false,
     last_seen_at: "2026-01-01T00:00:00Z",
     removed_at: null,
     created_at: "2026-01-01T00:00:00Z",
@@ -70,5 +72,31 @@ describe("count helpers", () => {
     const tools = [tool("a"), tool("b", { removed_at: "2026-04-01" })];
     expect(countActiveTools(tools)).toBe(1);
     expect(countRemovedTools(tools)).toBe(1);
+  });
+});
+
+describe("groupToolsByReadOnly", () => {
+  it("splits tools into read-only and write/delete groups, preserving order", () => {
+    const tools = [
+      tool("create_ticket", { is_read_only: false }),
+      tool("list_tickets", { is_read_only: true }),
+      tool("delete_ticket", { is_read_only: false }),
+      tool("search_tickets", { is_read_only: true }),
+    ];
+    const { readOnly, writeOrDelete } = groupToolsByReadOnly(tools);
+    expect(readOnly.map((t) => t.tool_name)).toEqual([
+      "list_tickets",
+      "search_tickets",
+    ]);
+    expect(writeOrDelete.map((t) => t.tool_name)).toEqual([
+      "create_ticket",
+      "delete_ticket",
+    ]);
+  });
+
+  it("treats a missing is_read_only as write/delete", () => {
+    const { readOnly, writeOrDelete } = groupToolsByReadOnly([tool("alpha")]);
+    expect(readOnly).toHaveLength(0);
+    expect(writeOrDelete).toHaveLength(1);
   });
 });
