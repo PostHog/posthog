@@ -110,7 +110,7 @@ import {
 import { parseDeepLinkTime } from './utils/deep-link-time'
 import { makeLogger, makeNoOpLogger } from './utils/player-logging'
 import { deleteRecording } from './utils/playerUtils'
-import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
+import { initialFrameState, resolveFrameTimestamp, shouldForceSkipForward } from './utils/resolve-frame-timestamp'
 import { shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -2772,6 +2772,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             posthog.capture('stuck session player skipped forward', {
                 sessionId: values.sessionRecordingId,
                 rrWebTime: rrWebPlayerTime,
+                playerState: values.currentPlayerState,
+                segmentKind: values.currentSegment?.kind,
             })
         },
         setRootFrame: () => {
@@ -3993,7 +3995,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
     })),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
@@ -4004,7 +4006,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         timestampChangeTracking: (value) => {
-            if (value.timestampMatchesPrevious < 10) {
+            if (value.timestampMatchesPrevious === 0) {
+                cache._timestampRepeatStartedAt = undefined
+                return
+            }
+            cache._timestampRepeatStartedAt ??= performance.now()
+            if (
+                !shouldForceSkipForward(
+                    value.timestampMatchesPrevious,
+                    performance.now() - cache._timestampRepeatStartedAt
+                )
+            ) {
                 return
             }
 

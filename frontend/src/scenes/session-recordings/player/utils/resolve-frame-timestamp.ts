@@ -3,6 +3,8 @@
 // value every frame without advancing, so a "same value N times" counter never trips.
 export const STUCK_TIME_THRESHOLD_MS = 1000
 
+export const STUCK_FRAME_THRESHOLD = 10
+
 export interface FrameState {
     lastProgressTimestamp: number | undefined
     lastProgressAt: number | undefined
@@ -51,4 +53,11 @@ export function resolveFrameTimestamp(
 
 export function initialFrameState(): FrameState {
     return { lastProgressTimestamp: undefined, lastProgressAt: undefined }
+}
+
+// A forced replayer seek is the last resort and shows as a visible jump. resolveFrameTimestamp advances the
+// playhead itself after STUCK_TIME_THRESHOLD_MS, so the seek must wait at least that long, or every short
+// rrweb pause becomes a jump.
+export function shouldForceSkipForward(repeatedFrames: number, stalledForMs: number): boolean {
+    return repeatedFrames >= STUCK_FRAME_THRESHOLD && stalledForMs >= STUCK_TIME_THRESHOLD_MS
 }
