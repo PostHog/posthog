@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -592,6 +593,29 @@ describe('messageTemplateLogic', () => {
             ])
         })
 
+        it('tells the person once when the release fails', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [
+                        403,
+                        {
+                            type: 'authentication_error',
+                            code: 'permission_denied',
+                            detail: 'You cannot edit its workflow.',
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.releaseTemplate()
+            })
+                .toDispatchActions(['releaseTemplateFailure'])
+                .toFinishAllListeners()
+
+            expect(mockToast.error.mock.calls).toEqual([['You cannot edit its workflow.']])
+        })
+
         it('becomes editable once released', async () => {
             await expectLogic(logic, () => {
                 logic.actions.releaseTemplate()
@@ -745,9 +769,11 @@ describe('messageTemplateLogic', () => {
             'turns read-only when $refusal is refused and the reload $reload',
             async ({ refuse: refusal, status, edits }) => {
                 reloadStatus = status
+                const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
                 await refuse(refusal)
 
                 expect(mockToast.error).not.toHaveBeenCalledWith(expect.stringContaining('managed by code'))
+                expect(captureException).not.toHaveBeenCalledWith(expect.objectContaining({ code: 'immutable' }))
                 await expectLogic(logic).toMatchValues({
                     isCodeManaged: true,
                     hasDraft: false,
