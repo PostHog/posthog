@@ -66,18 +66,21 @@ How to write:
 - Summarize a long list by count and topic, such as "12 insights about checkout conversion".
 - Write plain statements. Do not hedge, and do not write about what the input does not show.
 - Write about the work, not a job title.
+- Settings, integrations, API keys and project configuration are setup. They are never a theme and never in the headline.
+- Day counts, change counts and dates in the input are for ranking. Do not repeat them in the headline or the profile. Say how often in words.
+- Never write `<token>` or a numeric id.
 
 Return JSON:
 - `headline`: one or two sentences about what they work on and care about in this project.
 - `themes`: at most 6 threads of work, the strongest first. A thread is work that repeats or a question the person keeps coming back to. Give only the threads that the input shows. One or two themes, or none, is correct for thin input. Do not add a theme to reach a number. Each theme has:
-  - `label`: the topic of the thread in at most 60 characters, such as "Experiment recalculation reliability". Name the topic, not a list of objects.
-  - `mode`: one of {modes}.
+  - `label`: the topic of the thread in at most 60 characters, such as "Experiment recalculation reliability". Name the topic, not a list of objects. Not "Feature flag updates": name what the flags are for, such as "Live stream rollout".
+  - `mode`: one of {modes}. `building` is creating or changing objects, including dashboards and alerts. `analyzing` is querying or reading to answer a question, without saving. `monitoring` is opening the same things again and again. `investigating` is finding the cause of a specific problem. `operating` is running day-to-day work, such as tickets. `experimenting` is A/B tests and controlled rollouts.
   - `strength`: high, medium or low, by how much of the activity is about this thread.
   - `refs`: the refs that show this thread. A ref is the evidence for the theme, so cite only lines that are about this thread. Use the "o" refs of its objects, the "t" refs of its tasks and the "m" refs of its MCP sessions. A "p" ref only shows that the person opened the pages of a product, so cite one only when no other ref shows the thread. Every theme needs at least one ref. Leave out a theme that no ref shows.
-- `modes`: at most {max_modes} modes that describe how they work in this project overall, from the same list, the main one first.
+- `modes`: at most {max_modes} modes that describe how they work in this project overall, from the same list, the main one first. Use only modes that a theme has.
 - `profile`: markdown, at most {profile_max_chars} characters, with these sections in this order:
-  - `## Working on`: the threads they build or change, with the objects by name.
-  - `## Keeps an eye on`: what they open again and again but do not change.
+  - `## Working on`: the threads they build or change, with the objects by name. A task or MCP session never goes here.
+  - `## Keeps an eye on`: objects they opened on {min_watched_days} or more days and did not edit. Mention product pages at most once, without counts. Leave out this section when there is nothing to name.
   - `## Recently asked about`: what they asked PostHog AI or the Slack agent, and what their agent looked into over MCP. Only when there are tasks or MCP sessions.
   - `## Earlier context`: what the previous summary says that the new activity does not repeat. Only when there is a previous summary.
   Leave out a section that has nothing to say. Do not add other sections, such as one for page visits or for evidence.
@@ -85,7 +88,12 @@ Return JSON:
 
 
 def system_prompt(profile_max_chars: int = PROFILE_MAX_CHARS) -> str:
-    return _SYSTEM_PROMPT.format(profile_max_chars=profile_max_chars, modes=", ".join(MODES), max_modes=MAX_MODES)
+    return _SYSTEM_PROMPT.format(
+        profile_max_chars=profile_max_chars,
+        modes=", ".join(MODES),
+        max_modes=MAX_MODES,
+        min_watched_days=MIN_WATCHED_OPEN_DAYS,
+    )
 
 
 # Strict structured output. The normalization below still checks every rule, because a provider
