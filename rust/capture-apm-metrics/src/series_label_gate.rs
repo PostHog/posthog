@@ -234,6 +234,7 @@ impl SeriesLabelGate {
 
         counter!("capture_metrics_series_labels_sent").increment(sent);
         counter!("capture_metrics_series_labels_skipped").increment(skipped);
+        gauge!("capture_metrics_series_cache_size").set(self.len.load(Ordering::Acquire) as f64);
         if queue_full > 0 {
             counter!("capture_metrics_series_redis_queue_full").increment(queue_full);
         }
@@ -323,17 +324,28 @@ impl SeriesLabelGate {
     /// fill the gap.
     pub async fn seed_from_redis(&self, client: &dyn Client, budget: Duration) {
         let now = (self.clock)();
-        match self
+        let (outcome, merged) = match self
             .pull_from_redis(client, PullKind::Seed, now - self.window_secs, budget)
             .await
         {
-            Ok(merged) => info!("Seeded series label cache with {merged} series from Redis"),
-            Err(PullError::Timeout { merged }) => warn!(
-                "Series label cache seed hit its {}s budget after {merged} series, starting with a partial cache",
-                budget.as_secs()
-            ),
-            Err(e) => warn!("Could not seed series label cache from Redis, starting empty: {e}"),
-        }
+            Ok(merged) => {
+                info!("Seeded series label cache with {merged} series from Redis");
+                ("complete", merged)
+            }
+            Err(PullError::Timeout { merged }) => {
+                warn!(
+                    "Series label cache seed hit its {}s budget after {merged} series, starting with a partial cache",
+                    budget.as_secs()
+                );
+                ("timeout", merged)
+            }
+            Err(e) => {
+                warn!("Could not seed series label cache from Redis, starting empty: {e}");
+                ("error", 0)
+            }
+        };
+        counter!("capture_metrics_series_seed", "outcome" => outcome).increment(1);
+        gauge!("capture_metrics_series_seeded").set(merged as f64);
     }
 
     /// Merge the series with a score at or after `since` into the cache. A
@@ -700,6 +712,7 @@ mod tests {
     use std::sync::atomic::{AtomicI64, Ordering};
 
     use common_redis::{MockRedisClient, MockRedisValue};
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
     use super::*;
 
@@ -1175,6 +1188,115 @@ mod tests {
         let calls = client.get_calls();
         assert!(calls.iter().any(|c| c.op == "heal"));
         assert!(calls.iter().all(|c| c.op == "heal"));
+    }
+
+    fn recorded(snapshotter: &Snapshotter, name: &str, label: Option<(&str, &str)>) -> Option<f64> {
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find(|(key, _, _, _)| {
+                key.key().name() == name
+                    && label.is_none_or(|(k, v)| {
+                        key.key().labels().any(|l| l.key() == k && l.value() == v)
+                    })
+            })
+            .map(|(_, _, _, value)| match value {
+                DebugValue::Gauge(value) => value.into_inner(),
+                DebugValue::Counter(value) => value as f64,
+                DebugValue::Histogram(_) => f64::NAN,
+            })
+    }
+
+    fn seed_with_metrics(client: &MockRedisClient, budget: Duration) -> Snapshotter {
+        let (gate, _, _) = gate(true, false);
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        metrics::with_local_recorder(&recorder, || {
+            runtime.block_on(gate.seed_from_redis(client, budget));
+        });
+        snapshotter
+    }
+
+    fn seed_client() -> MockRedisClient {
+        let mut client = MockRedisClient::new();
+        for key in bucket_keys(START - WINDOW.as_secs() as i64, START) {
+            client = client.zrangebyscore_ret(&key, vec![]);
+        }
+        client.zrangebyscore_ret(&bucket_key(START), vec!["1".into(), "2".into(), "3".into()])
+    }
+
+    #[test]
+    fn cache_size_gauge_follows_each_request() {
+        let (gate, _, _) = gate(true, false);
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let mut rows = vec![row(1), row(2), row(1)];
+
+        metrics::with_local_recorder(&recorder, || gate.apply("token", &mut rows));
+
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_cache_size", None),
+            Some(2.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_complete_seed_and_its_size() {
+        let snapshotter = seed_with_metrics(&seed_client(), Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "complete"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(3.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_spent_budget_as_timeout() {
+        let snapshotter = seed_with_metrics(&seed_client(), Duration::ZERO);
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "timeout"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn seed_reports_a_redis_failure_as_error() {
+        let snapshotter = seed_with_metrics(&MockRedisClient::new(), Duration::from_secs(5));
+
+        assert_eq!(
+            recorded(
+                &snapshotter,
+                "capture_metrics_series_seed",
+                Some(("outcome", "error"))
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            recorded(&snapshotter, "capture_metrics_series_seeded", None),
+            Some(0.0)
+        );
     }
 
     #[test]
