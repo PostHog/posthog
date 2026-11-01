@@ -28,6 +28,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.direct_connection import get_direct_connection_source
 
@@ -114,8 +115,18 @@ from products.notebooks.backend.facade.widgets import (
     set_widget_instance_version,
     start_widget_generation,
 )
-from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.kernel_runtime import (
+    KernelSandboxLimitExceeded,
+    build_notebook_sandbox_config,
+    get_kernel_runtime,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.notebook_throttles import (
+    NotebookCreateBurstThrottle,
+    NotebookCreateSustainedThrottle,
+    NotebookKernelStartBurstThrottle,
+    NotebookKernelStartSustainedThrottle,
+)
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetAttachRequestSerializer,
     ReusableWidgetDetailSerializer,
@@ -727,6 +738,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action == "create":
+            return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
+        if self.action in ("kernel_start", "kernel_restart"):
+            return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
+        return throttles
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
@@ -1537,6 +1556,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to start notebook kernel."}, status=503)
@@ -1560,6 +1581,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
@@ -1894,6 +1917,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 variable_names=variable_names,
                 timeout=serializer.validated_data.get("timeout"),
             )
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to execute notebook code."}, status=503)

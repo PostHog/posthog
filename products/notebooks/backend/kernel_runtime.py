@@ -43,6 +43,16 @@ logger = structlog.get_logger(__name__)
 # (`SANDBOX_TTL_SECONDS`) is longer because it has to outlast an unattended agent run.
 NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 
+# Each sandbox is paid compute that runs until its TTL, so a scripted caller must not start them
+# without bound. A normal user starts a few a day. These limits apply to every path that
+# provisions a sandbox (start, restart, execute, SQL runs), not only to one endpoint.
+NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR = 30
+NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM = 20
+
+
+class KernelSandboxLimitExceeded(RuntimeError):
+    pass
+
 
 @dataclass
 class KernelExecutionResult:
@@ -721,7 +731,27 @@ class KernelRuntimeService:
             return KernelRuntime.Backend.DOCKER
         return None
 
+    def _check_sandbox_limits(self, notebook: Notebook, user: User | None) -> None:
+        now = timezone.now()
+        if isinstance(user, User):
+            recent_starts = KernelRuntime.objects.filter(user=user, created_at__gte=now - timedelta(hours=1)).count()
+            if recent_starts >= NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR:
+                logger.warning("notebook_kernel_user_start_limit", team_id=notebook.team_id, user_id=user.id)
+                raise KernelSandboxLimitExceeded(
+                    "You started too many notebook kernels in the last hour. Try again later."
+                )
+        # A sandbox that PostHog did not destroy keeps running until its TTL, so count it until then.
+        running = KernelRuntime.objects.filter(
+            team_id=notebook.team_id, ended_at__isnull=True, ttl_expires_at__gt=now
+        ).count()
+        if running >= NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM:
+            logger.warning("notebook_kernel_team_running_limit", team_id=notebook.team_id)
+            raise KernelSandboxLimitExceeded(
+                "This project has too many notebook kernels running. Stop a kernel or try again later."
+            )
+
     def _create_kernel_handle(self, notebook: Notebook, user: User | None, backend: str) -> _KernelHandle:
+        self._check_sandbox_limits(notebook, user)
         runtime = self._create_runtime(notebook, user, backend)
         connection_file = f"/tmp/jupyter/kernel-{runtime.id}.json"
         kernel_id = f"kernel-{runtime.id}"
