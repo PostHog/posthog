@@ -93,7 +93,6 @@ RAMP_ENDPOINTS: dict[str, RampEndpointConfig] = {
         name="vendor_contacts",
         path="/vendors/{vendor_id}/contacts",
         scope="vendors:read",
-        # Contact rows carry no vendor reference of their own.
         primary_keys=["vendor_id", "id"],
         fanout=_VENDORS_FANOUT,
     ),
@@ -128,4 +127,10 @@ ENDPOINTS = tuple(RAMP_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in RAMP_ENDPOINTS.items() if config.incremental_fields
+}
+
+# Credential validation only proves TOKEN_SCOPES, so tables needing any other scope start
+# unselected rather than failing every sync on apps that were never granted it.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: False for name, config in RAMP_ENDPOINTS.items() if config.scope not in TOKEN_SCOPES.split()
 }

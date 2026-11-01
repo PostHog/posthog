@@ -30,7 +30,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.ramp 
     ramp_source,
     validate_credentials as validate_ramp_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -126,7 +130,7 @@ To also sync vendors, merchants, bills, or general ledger accounts, grant `vendo
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self, config: RampSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
