@@ -6,6 +6,7 @@ import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'l
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
+import { retryImport } from 'lib/utils/retryImport'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
@@ -64,7 +65,6 @@ import {
     type SDK,
 } from '~/types'
 
-import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
@@ -2024,13 +2024,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('created new dashboard from modal')
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
-            if (isBIVisualizationNode(insight?.query)) {
-                captureBIWorksheetAction('added_to_dashboard', insight.query.config, { insight_id: insight.id })
-            }
             posthog.capture('saved insight to dashboard', {
                 insight: sanitizeInsight(insight),
                 dashboard_id: dashboardId,
             })
+            if (isBIVisualizationNode(insight?.query)) {
+                // Dynamic import keeps the BI editor runtime out of the eager shell bundle
+                const biEditorAnalytics = await retryImport(
+                    () => import('products/business_intelligence/frontend/biEditorAnalytics')
+                ).catch(() => null)
+                if (biEditorAnalytics) {
+                    biEditorAnalytics.captureBIWorksheetAction('added_to_dashboard', insight.query.config, {
+                        insight_id: insight.id,
+                    })
+                } else {
+                    posthog.capture('bi-worksheet-action', { action: 'added_to_dashboard', insight_id: insight.id })
+                }
+            }
         },
         reportRemovedInsightFromDashboard: async ({ insight, dashboardId }) => {
             posthog.capture('removed insight from dashboard', {
