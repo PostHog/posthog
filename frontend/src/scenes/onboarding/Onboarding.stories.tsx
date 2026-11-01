@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
+import { delay } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -269,6 +270,33 @@ export const LinkData: Story = {
         })
 
         return <App />
+    },
+}
+
+export const LinkDataLoading: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/wizard': async () => {
+                    await delay('infinite')
+                    return [200, {}]
+                },
+            },
+        })
+        useMountedLogic(onboardingLogic)
+        const { setProduct } = useActions(onboardingLogic)
+
+        useDelayedOnMountEffect(() => {
+            setProduct(availableOnboardingProducts[ProductKey.DATA_WAREHOUSE])
+            router.actions.push(
+                urls.onboarding({ productKey: ProductKey.DATA_WAREHOUSE, stepKey: OnboardingStepKey.LINK_DATA })
+            )
+        })
+
+        return <App />
+    },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[aria-label="Loading sources"]' },
     },
 }
 

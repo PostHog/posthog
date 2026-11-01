@@ -225,7 +225,22 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     }
 
     if (availableSourcesLoading) {
-        return <LemonSkeleton />
+        return (
+            <LemonCard hoverEffect={false}>
+                <div className="space-y-4" role="status" aria-busy aria-label="Loading sources">
+                    <div className="flex items-center gap-3">
+                        <LemonSkeleton.Circle className="w-12 h-12" />
+                        <div className="flex-1 space-y-2">
+                            <LemonSkeleton className="h-5 w-1/3" />
+                            <LemonSkeleton className="h-4 w-1/2" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                        <LemonSkeleton className="h-14" repeat={8} />
+                    </div>
+                </div>
+            </LemonCard>
+        )
     }
 
     if (availableSources === null) {
