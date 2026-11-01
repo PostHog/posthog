@@ -91,15 +91,22 @@ def _emit(task_run: TaskRun, origin_key: str, status: WorkflowStepResumeStatus) 
     )
 
 
+def _final_output_pending(task_run: TaskRun) -> bool:
+    if not (task_run.output or {}).get("final_message"):
+        return True
+    # `finish` ends the run before the turn's structured output is written.
+    return bool(task_run.task.json_schema) and task_run.finish_report is not None
+
+
 def resume_workflow_step_for_run(task_run: TaskRun, *, wait_for_final_message: bool = True) -> None:
-    """Wake the step waiting on this run; a completed run without its final message defers the wake."""
+    """Wake the step waiting on this run; a completed run without its final output defers the wake."""
     status = _STATUS_BY_RUN_STATUS.get(task_run.status)
     if status is None:
         return
     origin_key = _workflow_origin_key(task_run)
     if origin_key is None:
         return
-    if wait_for_final_message and status == "completed" and not (task_run.output or {}).get("final_message"):
+    if wait_for_final_message and status == "completed" and _final_output_pending(task_run):
         current_app.send_task(DEFERRED_RESUME_TASK, args=[str(task_run.id)], countdown=FINAL_MESSAGE_GRACE_SECONDS)
         return
     _emit(task_run, origin_key, status)
