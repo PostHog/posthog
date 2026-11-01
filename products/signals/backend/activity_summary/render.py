@@ -24,7 +24,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 9
+RENDER_VERSION = 10
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -100,12 +100,19 @@ _AUTO_NAME = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|model report", re.IGNORECASE)
 
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _URL = re.compile(r"<?https?://[^\s<>]+>?")
-# Long runs of word characters: a run that mixes letters and digits is an API key, session token,
-# hash or UUID. The digit and letter checks run in `_mask_token`, because lookaheads in the pattern
-# rescan the run at every word boundary inside it and take quadratic time on a long input.
-_WORD_RUN = re.compile(r"[\w-]{24,}")
+# Long runs of word characters. A run with a long segment that mixes letters and digits is an API key,
+# session token or hash, but a name like "checkout-redesign-test-2026" has only short segments. The
+# segment checks run in `_mask_token`, because lookaheads in the pattern rescan the run at every word
+# boundary inside it and take quadratic time on a long input.
+_WORD_RUN = re.compile(r"[\w-]{16,}")
+_RUN_SEPARATORS = re.compile(r"[-_]")
+MIN_SECRET_SEGMENT_CHARS = 16
+# UUID segments are shorter than `MIN_SECRET_SEGMENT_CHARS`, so they have their own pattern.
+_UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE)
 _DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[A-Za-z]")
+# A name that is only masks, digits and punctuation after `clean_text` names nothing.
+_MEANINGLESS_NAME = re.compile(r"(?:<token>|<email>|\d|[^\w<>]|_)*")
 _WHITESPACE = re.compile(r"\s+")
 
 # Inbox onboarding creates a scout config for each canonical scout, named after its skill.
@@ -116,11 +123,16 @@ API_KEY_SCOPES: frozenset[str] = frozenset({"PersonalAPIKey"})
 # CI writes deploy markers as annotations through a personal API key.
 ANNOTATION_SCOPE = "Annotation"
 PERSONAL_API_KEY_CREDENTIAL = "personal_api_key"
-TEAM_SCOPE = "Team"
+# Project settings live on both scopes.
+TEAM_SETTINGS_SCOPES: frozenset[str] = frozenset({"Team", "Project"})
 # Team settings rows without an intent are dropped when the person has at least this many: one change
 # can be deliberate, but repeated ones come from setup flows.
 MIN_TEAM_SETTINGS_ROWS = 2
 TICKET_SCOPE = "Ticket"
+# Setup chores, such as Inbox settings, integrations and their diagnostics, are not work in the project.
+SETUP_SCOPES: frozenset[str] = frozenset({"SignalTeamConfig", "Integration", "ProjectSecretAPIKey", "ExportedAsset"})
+# Person deletes come from data cleanup, such as removing test users.
+PERSON_SCOPE = "Person"
 # Changes to this many distinct tickets on one UTC day collapse to one line with a count.
 MIN_TICKET_BURST = 3
 # Changes of one kind to this many distinct objects of one type inside the window are a bulk job,
@@ -287,6 +299,7 @@ class Drop(StrEnum):
     API_KEY_CHANGE = "api_key_change"
     API_KEY_ANNOTATION = "api_key_annotation"
     TEAM_SETTINGS = "team_settings"
+    SETUP_SCOPE = "setup_scope"
     BULK_SAME_TYPE = "bulk_same_type"
     TICKET_BURST = "ticket_burst"
     REPEATED_TASK = "repeated_task"
@@ -414,15 +427,20 @@ class RenderedInput:
     mcp_chars: int = 0
     # MCP sessions that passed the named filters, before the caps.
     mcp_pool: int = 0
+    # Products whose pages the person opened. They render in the computed block, not here, but count as units.
+    n_page_units: int = 0
 
     @property
     def units(self) -> int:
-        return self.n_tasks + self.n_activity_lines + self.n_view_lines + self.n_mcp_lines
+        return self.n_tasks + self.n_activity_lines + self.n_view_lines + self.n_mcp_lines + self.n_page_units
 
 
 def _mask_token(match: re.Match[str]) -> str:
     run = match.group()
-    return "<token>" if _DIGIT.search(run) and _LETTER.search(run) else run
+    for segment in _RUN_SEPARATORS.split(run):
+        if len(segment) >= MIN_SECRET_SEGMENT_CHARS and _DIGIT.search(segment) and _LETTER.search(segment):
+            return "<token>"
+    return run
 
 
 def _url_host(match: re.Match[str]) -> str:
@@ -455,6 +473,7 @@ def clean_text(text: str, max_chars: int) -> str:
     text = bounded_raw(text, max_chars * RAW_TEXT_FACTOR)
     text = _URL.sub(_url_host, text)
     text = _EMAIL.sub("<email>", text)
+    text = _UUID.sub("<token>", text)
     text = _WORD_RUN.sub(_mask_token, text)
     return _WHITESPACE.sub(" ", text).strip()[:max_chars].strip()
 
@@ -615,12 +634,17 @@ def _usable_parents(parents: Sequence[Parent]) -> list[Parent]:
     return usable
 
 
+def _day_span(rows: Sequence[ActivityItem]) -> str:
+    """The UTC day of the rows, or the first and the last day when they span more than one."""
+    first, last = _day(min(row.at for row in rows)), _day(max(row.at for row in rows))
+    return last.isoformat() if first == last else f"{first.isoformat()} to {last.isoformat()}"
+
+
 def _object_line(
     scope: str, activity: str, name: str, rows: Sequence[ActivityItem], context: str, limits: RenderLimits
 ) -> _ActivityLine:
-    latest = max(row.at for row in rows)
     count = f" (x{len(rows)})" if len(rows) > 1 else ""
-    line = f'- {_day(latest).isoformat()} {activity} {scope} "{_display_name(name)}"{context}{count}'
+    line = f'- {_day_span(rows)} {activity} {scope} "{_display_name(name)}"{context}{count}'
     return _activity_line(line, rows, limits, created=activity == "created")
 
 
@@ -633,7 +657,6 @@ def _group_line(
 ) -> _ActivityLine:
     """One line for a parent and the children merged into it, children ranked like lines."""
     rows = [row for key in (*own, *children) for row in collapsed[key]]
-    latest = max(row.at for row in rows)
     ranked_children = sorted(
         children,
         key=lambda key: (
@@ -652,7 +675,7 @@ def _group_line(
     else:
         activities = sorted({key[1] for key in children}, key=lambda activity: (activity != "created", activity))
         head = f"{' and '.join(activities)} {child_text} on {parent_text}: "
-    head = f"- {_day(latest).isoformat()} {head}"
+    head = f"- {_day_span(rows)} {head}"
     intent, _ = _intent_text(rows, limits)
     suffix_chars = len(f" (agent: {intent})") if intent else 0
     line = head + _quoted_names(names, limits.activity_line_chars - len(head) - suffix_chars)
@@ -735,6 +758,11 @@ def is_auto_named(name: str) -> bool:
     return _AUTO_NAME.search(name) is not None
 
 
+def is_unnamed(name: str) -> bool:
+    """True for an empty name, and for a name that is only masks or digits once `clean_text` masks it."""
+    return _MEANINGLESS_NAME.fullmatch(clean_text(name, ACTIVITY_NAME_CHARS * 2)) is not None
+
+
 def _has_intent(item: ActivityItem) -> bool:
     return bool(item.intent and item.intent.strip())
 
@@ -752,7 +780,10 @@ def _row_drop(item: ActivityItem) -> Drop | None:
         return Drop.API_KEY_ANNOTATION
     if item.scope in ONBOARDING_CONFIG_SCOPES and name.startswith(CANONICAL_SCOUT_PREFIX) and not _has_intent(item):
         return Drop.ONBOARDING_SCOUT_CONFIG
-    if not name:
+    is_setup = item.scope in SETUP_SCOPES or (item.scope == PERSON_SCOPE and item.activity == "deleted")
+    if is_setup and not _has_intent(item):
+        return Drop.SETUP_SCOPE
+    if is_unnamed(name):
         return Drop.UNNAMED_OBJECT
     if _AUTO_NAME.search(name):
         return Drop.AUTO_NAMED_OBJECT
@@ -846,7 +877,7 @@ def _collapse_bulk(
 
 def _drop_team_settings(items: Sequence[ActivityItem], drops: Counter[str]) -> list[ActivityItem]:
     """Without the team settings rows that state no intent, when there are `MIN_TEAM_SETTINGS_ROWS` or more."""
-    unstated = [item for item in items if item.scope == TEAM_SCOPE and not _has_intent(item)]
+    unstated = [item for item in items if item.scope in TEAM_SETTINGS_SCOPES and not _has_intent(item)]
     if len(unstated) < MIN_TEAM_SETTINGS_ROWS:
         return list(items)
     drops[Drop.TEAM_SETTINGS] += len(unstated)
@@ -957,13 +988,26 @@ def _days(count: int) -> str:
     return f"{count} day" if count == 1 else f"{count} days"
 
 
+def page_products(views: Iterable[ViewItem], drops: Counter[str]) -> set[Product]:
+    """The products of the opened scenes. The "p" lines of the computed block show them, so they get no view line."""
+    products: set[Product] = set()
+    for view in views:
+        if view.type != SCENE_VIEW_TYPE:
+            continue
+        if (product := scene_product(view.ref)) is None:
+            drops[Drop.GENERIC_SCENE] += 1
+        else:
+            products.add(product)
+    return products
+
+
 def view_units(
     views: Iterable[ViewItem],
     activity: Iterable[ActivityItem],
     drops: Counter[str],
     limits: RenderLimits = DEFAULT_LIMITS,
 ) -> list[Unit]:
-    """One line per opened object and one per product of the opened scenes, the most opened first.
+    """One line per opened object, the most opened first. Scenes are in `page_products`.
 
     An object line also counts the days the person edited it, matched to their activity rows by
     scope and name. These lines skip the per-day burst cap."""
@@ -971,18 +1015,11 @@ def view_units(
     for item in person_activity(activity, Counter(), limits)[0]:
         edit_days.setdefault((item.scope, (item.name or "").strip()), set()).add(_day(item.at))
     ranked: list[tuple[int, datetime.datetime, str]] = []
-    scenes: dict[Product, tuple[datetime.datetime, set[datetime.date]]] = {}
     for view in views:
         if view.type == SCENE_VIEW_TYPE:
-            product = scene_product(view.ref)
-            if product is None:
-                drops[Drop.GENERIC_SCENE] += 1
-                continue
-            at, days = scenes.get(product, (view.at, set()))
-            scenes[product] = (max(at, view.at), days | set(view.days))
             continue
         name = (view.name or "").strip()
-        if not name:
+        if is_unnamed(name):
             drops[Drop.UNNAMED_OBJECT] += 1
             continue
         if _AUTO_NAME.search(name):
@@ -997,14 +1034,6 @@ def view_units(
             facts.append("not theirs")
         label = view.type.split("/")[0].replace("_", " ").capitalize()
         ranked.append((opened, view.at, f'- {label} "{name_text}": {", ".join(facts)}'))
-    for product, (at, days) in scenes.items():
-        ranked.append(
-            (
-                len(days),
-                at,
-                f"- {PRODUCT_LABELS[product]} pages: opened {_days(len(days))}, last {_day(at).isoformat()}",
-            )
-        )
     ranked.sort(key=lambda entry: (-entry[0], -entry[1].timestamp(), entry[2]))
     if len(ranked) > limits.view_lines:
         drops[Drop.SAMPLE_CAP] += len(ranked) - limits.view_lines
@@ -1178,16 +1207,18 @@ def build_input(
     person's agent from the MCP intent buffer, and gets its own section after the activity."""
     drops: Counter[str] = Counter()
     activity = list(activity)
+    views = list(views)
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
     capped_before = drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP]
     activity_lines = activity_units(activity, drops, parents, limits)
     # Lines that `activity_units` dropped for its line cap or its per-day cap.
     activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP] - capped_before
     view_lines = view_units(views, activity, drops, limits)
+    pages = page_products(views, drops)
     mcp_pool = burst_cap(
         dedupe_latest(mcp_units(mcp, activity_lines, drops, limits), drops), drops, limits.max_units_per_day
     )
-    if not task_pool and not activity_lines and not view_lines and not mcp_pool:
+    if not task_pool and not activity_lines and not view_lines and not mcp_pool and not pages:
         return None
     chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
@@ -1221,4 +1252,5 @@ def build_input(
         n_mcp_lines=len(sections[2][1]),
         mcp_chars=len(rendered[2]),
         mcp_pool=len(mcp_pool),
+        n_page_units=len(pages),
     )

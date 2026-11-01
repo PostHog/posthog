@@ -260,13 +260,22 @@ class TestActivitySummaryQueue(BaseTest):
     def _user(self, email: str) -> User:
         return User.objects.create_and_join(self.organization, email, None)
 
-    def _changes(self, user: User, count: int, *, days_ago: float = 1, team: Team | None = None, **fields: Any):
+    def _changes(
+        self,
+        user: User,
+        count: int,
+        *,
+        days_ago: float = 1,
+        team: Team | None = None,
+        scope: str = "Insight",
+        **fields: Any,
+    ):
         for index in range(count):
             ActivityLog.objects.create(
                 team_id=(team or self.team).id,
                 organization_id=self.organization.id,
                 user=user,
-                scope="Insight",
+                scope=scope,
                 activity="created",
                 item_id=str(index),
                 detail={"name": f"Funnel {index}"},
@@ -392,13 +401,14 @@ class TestActivitySummaryQueue(BaseTest):
         ]
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
-        waiting, scout_only, impersonated, skipped_team = (
-            self._user(f"{name}@example.com") for name in ("waiting", "scout", "impersonated", "skipped")
+        waiting, scout_only, setup_only, impersonated, skipped_team = (
+            self._user(f"{name}@example.com") for name in ("waiting", "scout", "setup", "impersonated", "skipped")
         )
         due = self._user("due@example.com")
         self._summary(waiting, next_eligible_at=NOW + datetime.timedelta(hours=1))
         self._changes(waiting, 3)
         self._changes(scout_only, 3, client="scout:product-analytics")
+        self._changes(setup_only, 3, scope="Integration")
         self._changes(impersonated, 3, was_impersonated=True)
         other_team = Team.objects.create(organization=self.organization, name="Skipped")
         self._changes(skipped_team, 3, team=other_team)

@@ -54,10 +54,12 @@ from products.signals.backend.activity_summary.render import (
     MAX_LIMITS,
     MAX_SUMMARY_CHARS,
     NOISY_ACTIVITY_SCOPES,
+    PERSON_SCOPE,
     RENDER_VERSION,
     SANDBOX_PROMPT_TITLE_PREFIX,
     SCENE_VIEW_TYPE,
     SCOUT_CLIENT_PREFIX,
+    SETUP_SCOPES,
     RenderLimits,
 )
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MAX_ATTEMPTS, MODEL_PRICES, cost_usd
@@ -358,7 +360,10 @@ def _after_watermark(
 def _activity_rows(
     team_ids: list[int], start: datetime.datetime, end: datetime.datetime, after_watermark: bool
 ) -> _Pending:
-    """Activity log rows per pair in [start, end), with the filters of `inputs.user_activity`."""
+    """Activity log rows per pair in [start, end), with the filters of `inputs.user_activity`.
+
+    Setup rows do not make a pair due, even with an intent. A setup row with an intent still renders
+    when the pair is due for another reason."""
     rows = (
         ActivityLog.objects.filter(
             team_id__in=team_ids, user_id__isnull=False, created_at__gte=start, created_at__lt=end
@@ -367,6 +372,8 @@ def _activity_rows(
         .exclude(was_impersonated=True)
         .exclude(scope__in=NOISY_ACTIVITY_SCOPES)
         .exclude(client__startswith=SCOUT_CLIENT_PREFIX)
+        .exclude(scope__in=SETUP_SCOPES)
+        .exclude(scope=PERSON_SCOPE, activity="deleted")
     )
     unit_count = Count("id")
     if after_watermark:
