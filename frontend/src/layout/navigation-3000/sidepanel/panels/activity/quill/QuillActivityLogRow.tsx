@@ -15,6 +15,7 @@ import {
 } from '@posthog/quill'
 
 import { ActivityClientTag } from 'lib/components/ActivityLog/ActivityClientTag'
+import { ActivityLogDescription } from 'lib/components/ActivityLog/ActivityLogDescription'
 import { ActivityLogDiff } from 'lib/components/ActivityLog/ActivityLogDiff'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { AgentAttribution } from 'lib/components/ActivityLog/AgentAttribution'
@@ -22,7 +23,6 @@ import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeAct
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 type ActivityLogTab = 'details' | 'extended description' | 'diff' | 'raw'
@@ -155,11 +155,7 @@ export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLog
                         </>
                     ) : (
                         <div>
-                            {logItem.markdownDescription ? (
-                                <LazyLemonMarkdown>{logItem.markdownDescription}</LazyLemonMarkdown>
-                            ) : (
-                                logItem.description
-                            )}
+                            <ActivityLogDescription logItem={logItem} />
                         </div>
                     )}
                     {logItem.extendedDescription && <div>{logItem.extendedDescription}</div>}

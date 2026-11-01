@@ -9,11 +9,11 @@ import { LemonButton, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ActivityClientTag } from './ActivityClientTag'
+import { ActivityLogDescription } from './ActivityLogDescription'
 import { ActivityLogDiff } from './ActivityLogDiff'
 import { ACTIVITY_SEARCH_PARAM } from './activityLogLogic'
 import { AgentAttribution } from './AgentAttribution'
@@ -75,11 +75,7 @@ function RowSummary({ logItem, isExpanded }: { logItem: HumanizedActivityLogItem
     if (!logItem.summary) {
         return (
             <div className="ActivityLogRow__description">
-                {logItem.markdownDescription ? (
-                    <LazyLemonMarkdown>{logItem.markdownDescription}</LazyLemonMarkdown>
-                ) : (
-                    logItem.description
-                )}
+                <ActivityLogDescription logItem={logItem} />
             </div>
         )
     }
