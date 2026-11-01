@@ -125,6 +125,7 @@ fn prepare_block(
     let mut rewrite = UrlRewrite::new(
         &block.remote_urls,
         &block.srcsets,
+        &block.css_rewrites,
         block.session.team_id,
         key_month,
         team_key,
@@ -785,6 +786,7 @@ mod tests {
             remote_urls: Vec::new(),
             url_limit: None,
             srcsets: Vec::new(),
+            css_rewrites: Vec::new(),
             visited_urls: Vec::new(),
             captured_at_ms: None,
         }
@@ -801,7 +803,10 @@ mod tests {
 
     /// The block's stored lines, after the inspector named its remote URLs.
     fn stored_lines(events: &str, extra: &[&str]) -> String {
-        let mut inspected = block_of("kept", events);
+        stored(block_of("kept", events), extra)
+    }
+
+    fn stored(mut inspected: Block, extra: &[&str]) -> String {
         let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
         let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
         for message in &inspected.messages {
@@ -811,6 +816,7 @@ mod tests {
         inspected.remote_urls = found.remote_urls;
         inspected.url_limit = found.url_limit;
         inspected.srcsets = found.srcsets;
+        inspected.css_rewrites = found.css_rewrites;
         inspected
             .remote_urls
             .extend(extra.iter().map(|url| (*url).to_owned()));
@@ -935,6 +941,100 @@ mod tests {
         );
         assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
         assert!(!lines.contains("https://"));
+    }
+
+    #[test]
+    fn leaves_css_only_images_an_offline_render_can_load() {
+        let compressed: String = replay_core_v4::compression::gzip(
+            json!([{"rule": ".a{background:url(/img/a.png)} .q{content:\"url(/img/a.png)\"} .b{background-image:image-set(url(https://cdn.example.com/1x.png) 1x, url(https://cdn.example.com/2x.png) 2x)} .c{background:url(/c.png?X-Amz-Signature=abc123)} .bg-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/t\\.png\\)\\]{background-image:url(https://cdn.example.com/t.png)} .s-\\[url\\(https\\:\\/\\/cdn\\.example\\.com\\/s\\.png\\?X-Amz-Signature\\=abc123\\)\\]{background-image:url(https://cdn.example.com/s.png?X-Amz-Signature=abc123)}", "index": 0}])
+                .to_string()
+                .as_bytes(),
+        )
+        .unwrap()
+        .iter()
+        .map(|&b| char::from(b))
+        .collect();
+        let events = json!([
+            {"type": 4, "timestamp": 1, "data": {"href": "http://app.example.com/shop/item", "width": 800, "height": 600}},
+            {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
+            {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
+            {"type": 3, "timestamp": 4, "data": {"source": 8, "id": 3, "replaceSync": ".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png?X-Amz-Signature=abc123)}"}},
+        ]);
+        let lines = stored_lines(&events.to_string(), &[]);
+        let reference = |url: &str| {
+            crate::urls::url_reference(
+                url,
+                7,
+                "2026-10",
+                &replay_core_v4::seal::image_url_key(&[6; 32]),
+            )
+            .unwrap()
+            .1
+        };
+        for expected in [
+            format!(
+                r#"url(\"{}\")"#,
+                reference("https://app.example.com/img/a.png")
+            ),
+            format!(
+                r#"image-set(url({}) 2x)"#,
+                reference("https://cdn.example.com/2x.png")
+            ),
+            format!(
+                r#"url(\"{}\")"#,
+                crate::rewrite::declined_marker("credential")
+            ),
+        ] {
+            assert!(lines.contains(&expected), "{expected} in {lines}");
+        }
+        for kept in [
+            r#""class":"bg-[url(/img/a.png)]""#,
+            r#".q{content:\"url(/img/a.png)\"}"#,
+        ] {
+            assert!(lines.contains(kept), "{kept} in {lines}");
+        }
+        let class_url = reference("https://cdn.example.com/t.png");
+        for expected in [
+            format!(r#""class":"bg-[url({class_url})]""#),
+            format!(r".bg-\\[url\\({}\\)\\]", class_url.replace(':', r"\\:")),
+        ] {
+            assert!(lines.contains(&expected), "{expected} in {lines}");
+        }
+        for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature"] {
+            assert!(!lines.contains(gone), "{gone} in {lines}");
+        }
+    }
+
+    #[test]
+    fn leaves_a_relative_url_that_resolves_two_ways_as_the_page_wrote_it() {
+        let window = |id: &str, href: &str| {
+            let mut message = block_of(
+                "kept",
+                &json!([
+                    {"type": 4, "timestamp": 1, "data": {"href": href, "width": 800, "height": 600}},
+                    {"type": 3, "timestamp": 2, "data": {"source": 8, "id": 3, "replaceSync": ".a{background:url(/a.png)}"}},
+                ])
+                .to_string(),
+            )
+            .messages
+            .remove(0);
+            message.window_id = Some(Arc::from(id));
+            message
+        };
+        let mut block = block_of("kept", "[]");
+        block.messages = vec![
+            window("w1", "http://10.0.0.5/admin"),
+            window("w2", "https://app.example.com/shop"),
+        ];
+        let lines = stored(block, &[]);
+        // A private host declines its resolved URL, which must not send the block to the host scrub.
+        for kept in [
+            r#""href":"http://10.0.0.5/admin""#,
+            r#""href":"https://app.example.com/shop""#,
+        ] {
+            assert!(lines.contains(kept), "{kept} in {lines}");
+        }
+        assert_eq!(lines.matches("url(/a.png)").count(), 2, "{lines}");
     }
 
     #[test]
