@@ -208,6 +208,9 @@ class PipelineV3(Generic[ResumableData]):
     _resumed_incremental_run_uuid: str | None = None
     _sent_resumed_run_finalization: bool = False
     _writes_staged_repartition_scheme: bool = False
+    # A destinations-only run has no Delta table, so it skips every step that reads or writes one.
+    _destinations_only: bool = False
+    _writes_warehouse: bool = True
     # Set only for a run whose batches record the watermark that each loaded prefix covers.
     _prefix_checkpoint: IncrementalHandoffCheckpoint | None = None
     _job_rows_synced_through_batch: int = 0
@@ -261,6 +264,8 @@ class PipelineV3(Generic[ResumableData]):
         self._schema = models.schema
         self._source = models.source
         self._table = models.table
+        self._destinations_only = models.destinations_only
+        self._writes_warehouse = models.writes_warehouse
         # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
         # Same for a change stream, which only ever carries the rows that changed.
@@ -342,7 +347,11 @@ class PipelineV3(Generic[ResumableData]):
         replaces_table = attempt <= 1 and resets_table_before_extraction(
             reset_pipeline, is_resume, self._schema, self._resource.webhook_only
         )
-        staged_scheme = self._schema.pending_scheme_for_table_replacement if replaces_table else None
+        staged_scheme = (
+            self._schema.pending_scheme_for_table_replacement
+            if replaces_table and not self._destinations_only
+            else None
+        )
         self._writes_staged_repartition_scheme = staged_scheme is not None
         if staged_scheme is not None:
             partition_count = staged_scheme.get("partition_count") or self._resource.partition_count
@@ -495,6 +504,7 @@ class PipelineV3(Generic[ResumableData]):
             # destinations, and every run of a team the flag is off for.
             "destination_ids": list(self._job.destination_ids or []),
             "external_destination_ids": list(self._external_destination_ids),
+            "writes_warehouse": self._writes_warehouse,
             **self._producer_kwargs,
         }
 
@@ -913,15 +923,16 @@ class PipelineV3(Generic[ResumableData]):
                 )
 
             if self._attempt <= 1:
-                # Revive a corrupt-`_delta_log` table before extraction so it self-heals in this run
-                # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
-                await handle_corrupted_delta_log(
-                    self._schema,
-                    self._job,
-                    self._delta_table_ref,
-                    self._logger,
-                    table_will_be_reset=table_will_be_reset,
-                )
+                if not self._destinations_only:
+                    # Revive a corrupt-`_delta_log` table before extraction so it self-heals in this run
+                    # instead of looping forever (an interrupted repartition swap or OOM-crashed merge).
+                    await handle_corrupted_delta_log(
+                        self._schema,
+                        self._job,
+                        self._delta_table_ref,
+                        self._logger,
+                        table_will_be_reset=table_will_be_reset,
+                    )
 
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
@@ -930,6 +941,7 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     webhook_only=self._resource.webhook_only,
+                    delete_table=not self._destinations_only,
                 )
                 # A reset drops the earliest value of the table it deletes. No reloaded row is older than
                 # that value, so a run that kept it would never stage an earliest value of its own.
@@ -937,8 +949,11 @@ class PipelineV3(Generic[ResumableData]):
                     self._schema.incremental_field_earliest_value, self._schema.incremental_field_type
                 )
 
-            is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
-            if not is_fresh_sync and self._attempt > 1 and not should_resume:
+            # Every step below that depends on this value repairs, compacts or rebuilds the Delta table.
+            # A destinations-only run has no table, so it skips all of them.
+            writes_delta = not self._destinations_only
+            is_fresh_sync = writes_delta and (self._delta_table_ref.is_first_sync or self._schema.table is None)
+            if writes_delta and not is_fresh_sync and self._attempt > 1 and not should_resume:
                 # Only the first attempt deletes the table for a reset, and only that attempt holds
                 # the flag the delete sets. This attempt reads the source from the start again, so
                 # it must load the way the first attempt did: its first batch overwrites the table
@@ -954,13 +969,13 @@ class PipelineV3(Generic[ResumableData]):
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
-            if not is_fresh_sync and not await self._first_batch_restores_table(should_resume):
+            if writes_delta and not is_fresh_sync and not await self._first_batch_restores_table(should_resume):
                 await DeltaMaintenance(self._delta_table_ref).run_scheduled(
                     self._schema,
                     is_cdc_companion=self._maintains_companion_table(),
                 )
 
-            if not is_fresh_sync and not should_resume:
+            if writes_delta and not is_fresh_sync and not should_resume:
                 await self._stage_replace_scope(sync_type)
 
             async def stage_remaining_rows() -> None:

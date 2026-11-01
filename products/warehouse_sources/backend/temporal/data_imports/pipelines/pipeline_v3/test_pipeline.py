@@ -516,6 +516,51 @@ class TestPreWriteMaintenanceBeforeAnAppendRestore:
         assert maintenance.return_value.run_scheduled.called is expected_maintained
 
 
+class TestDestinationsOnlyExtraction:
+    @pytest.mark.parametrize("destinations_only", [True, False], ids=["destinations_only", "writes_warehouse"])
+    @pytest.mark.asyncio
+    async def test_a_zero_batch_full_refresh_touches_the_delta_table_only_when_it_writes_the_warehouse(
+        self, destinations_only: bool
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._destinations_only = destinations_only
+        pipeline._writes_warehouse = not destinations_only
+        pipeline._run_uuid = "run-abc-a1"
+        pipeline._schema.table = MagicMock()
+        pipeline._table = pipeline._schema.table
+        pipeline._schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
+        pipeline._schema.sync_type_config = {}
+        delta_table_ref = MagicMock(is_first_sync=False, reset_table=AsyncMock())
+        pipeline._delta_table_ref = delta_table_ref
+        pipeline._resource.items = MagicMock(return_value=iter([]))
+        pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "persist_primary_keys",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            revive = stack.enter_context(patch(f"{_PIPELINE}.handle_corrupted_delta_log", new_callable=AsyncMock))
+            stack.enter_context(patch(f"{_PIPELINE}.validate_incremental_sync"))
+            stack.enter_context(patch(f"{_PIPELINE}.update_sync_type_config_keys"))
+            maintenance = stack.enter_context(patch(f"{_PIPELINE}.DeltaMaintenance"))
+            maintenance.return_value.run_scheduled = AsyncMock()
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+
+            result = await pipeline.run()
+
+        touched = {
+            "reset_table": delta_table_ref.reset_table.await_count > 0,
+            "revive": revive.await_count > 0,
+            "maintenance": maintenance.return_value.run_scheduled.await_count > 0,
+        }
+        assert touched == dict.fromkeys(touched, not destinations_only)
+        # No batch reached the loader, so the workflow completes the job and releases the lock.
+        assert result.get("consumer_manages_job_status") is False
+
+
 class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:

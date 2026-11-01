@@ -4941,8 +4941,9 @@ async def test_a_second_sync_merges_into_the_destination_rather_than_duplicating
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+@pytest.mark.parametrize("destinations_only_runs", [False, True], ids=["flag_off", "destinations_only_runs"])
 async def test_a_source_can_sync_to_a_destination_and_not_to_posthog(
-    team, stripe_charge, mock_stripe_client, postgres_config, setup_postgres_test_db
+    team, stripe_charge, mock_stripe_client, postgres_config, setup_postgres_test_db, destinations_only_runs
 ):
     """Selecting destinations replaces the default rather than adding to it.
 
@@ -4953,17 +4954,21 @@ async def test_a_source_can_sync_to_a_destination_and_not_to_posthog(
     """
     destination = await _postgres_destination(team, postgres_config)
 
-    await _run(
-        team=team,
-        schema_name=STRIPE_CHARGE_RESOURCE_NAME,
-        table_name="stripe_charge",
-        source_type="Stripe",
-        job_inputs=_STRIPE_JOB_INPUTS,
-        mock_data_response=stripe_charge["data"],
-        destinations=[destination],
-        # No Delta write, so the run has no storage delta for `_run` to assert on.
-        ignore_assertions=True,
-    )
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.destinations.enablement.is_schema_flag_enabled",
+        return_value=destinations_only_runs,
+    ):
+        await _run(
+            team=team,
+            schema_name=STRIPE_CHARGE_RESOURCE_NAME,
+            table_name="stripe_charge",
+            source_type="Stripe",
+            job_inputs=_STRIPE_JOB_INPUTS,
+            mock_data_response=stripe_charge["data"],
+            destinations=[destination],
+            # No Delta write, so the run has no storage delta for `_run` to assert on.
+            ignore_assertions=True,
+        )
 
     rows = await _destination_rows(postgres_config, DESTINATION_TABLE_NAME)
     assert len(rows) > 0
@@ -4975,3 +4980,10 @@ async def test_a_source_can_sync_to_a_destination_and_not_to_posthog(
     run = await sync_to_async(ExternalDataJob.objects.filter(team_id=team.pk).order_by("-created_at").first)()
     assert run is not None
     assert len(run.destination_ids) == 1
+    assert run.status == ExternalDataJobStatus.COMPLETED
+    assert (run.schema_snapshot or {}).get("destinations_only", False) is destinations_only_runs
+
+    # A destinations-only run does the sync bookkeeping that post-load does for a warehouse run.
+    schema = await sync_to_async(ExternalDataSchema.objects.get)(id=run.schema_id)
+    assert schema.initial_sync_complete is destinations_only_runs
+    assert schema.table_id is None

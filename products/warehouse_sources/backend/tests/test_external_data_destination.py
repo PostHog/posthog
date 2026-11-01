@@ -21,8 +21,11 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.enabl
     NoActiveDestinationsError,
     destination_ids_for_run,
     external_destination_ids_for,
+    is_destinations_only_run,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+ENABLEMENT = "products.warehouse_sources.backend.temporal.data_imports.destinations.enablement"
 
 
 class TestResolveDestinations(BaseTest):
@@ -267,3 +270,32 @@ class TestDestinationIdsForRun(BaseTest):
         )
 
         assert external_destination_ids_for(self.team.pk, [str(theirs.id)]) == []
+
+    @parameterized.expand(
+        [
+            ("no_destinations", [], "incremental", True, False),
+            ("warehouse_only", ["warehouse"], "incremental", True, False),
+            ("one_external_destination", ["redshift"], "incremental", True, True),
+            ("several_external_destinations", ["redshift", "snowflake"], "incremental", True, True),
+            ("warehouse_and_an_external_destination", ["warehouse", "snowflake"], "incremental", True, False),
+            ("a_deleted_warehouse_row_does_not_count", ["deleted_warehouse", "snowflake"], "incremental", True, True),
+            ("flag_off", ["snowflake"], "incremental", False, False),
+            ("cdc_history_lane_writes_the_warehouse", ["snowflake"], "cdc", True, False),
+        ]
+    )
+    def test_destinations_only_needs_no_warehouse_in_the_set_and_the_flag(
+        self, _name: str, names: list[str], sync_type: str, flag_on: bool, expected: bool
+    ) -> None:
+        destinations = {
+            "warehouse": lambda: get_or_create_warehouse_destination(self.team.pk),
+            "deleted_warehouse": lambda: ExternalDataDestination.objects.for_team(self.team.pk).create(
+                team_id=self.team.pk, type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE, name="old", deleted=True
+            ),
+            "redshift": lambda: self._destination("redshift", ExternalDataDestination.Type.REDSHIFT),
+            "snowflake": lambda: self._destination("snowflake", ExternalDataDestination.Type.SNOWFLAKE),
+        }
+        destination_ids = [str(destinations[name]().id) for name in names]
+        self.schema.sync_type = sync_type
+
+        with patch(f"{ENABLEMENT}.is_schema_flag_enabled", return_value=flag_on):
+            assert is_destinations_only_run(self.schema, destination_ids) is expected

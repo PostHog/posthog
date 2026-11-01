@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from posthog.test.base import BaseTest
 from unittest import TestCase, mock
@@ -15,8 +16,10 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import BatchWriteOutcome
 from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import (
     register_destination_writer,
@@ -33,9 +36,20 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
     DestinationConfigurationError,
+    DestinationDeliveryError,
     destination_named_in_failure,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    process_message,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    acquire_v3_pipeline_lock,
+    get_v3_pipeline_lock_holder,
+)
+from products.warehouse_sources_queue.backend.core.jobs_db import UnfinishedEarlierBatches
+
+_PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
 
 
 class RecordingWriter:
@@ -529,3 +543,112 @@ class TestDestinationNamedInFailure(TestCase):
     )
     def test_matches(self, _name, reason, names, expected):
         assert destination_named_in_failure(reason, names) == expected
+
+
+class _DeltaTouched(Exception):
+    pass
+
+
+class TestDestinationsOnlyLoad(DeliveryTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team, source_id="src", connection_id="conn", status="Running", source_type="Stripe"
+        )
+        self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
+        self.post_import = mock.MagicMock()
+        complete_run = UnfinishedEarlierBatches(count=0, first_batch_index=None, states=())
+        patches = [
+            # Under a test transaction this would close the connection the test runs in.
+            mock.patch(f"{_PROCESSOR}.close_old_connections"),
+            mock.patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync", return_value=complete_run),
+            mock.patch(f"{_PROCESSOR}._resume_schedule_with_retry", return_value=False),
+            mock.patch(f"{_PROCESSOR}._trigger_post_import_workflow", self.post_import),
+            # Every Delta read and write goes through a table ref, so building one is touching Delta.
+            mock.patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=_DeltaTouched),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def _job(self, destinations: list[ExternalDataDestination], *, destinations_only_snapshot: bool) -> ExternalDataJob:
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=self.source,
+            schema=self.schema,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=2,
+            workflow_run_id=f"wf-run-{uuid.uuid4()}",
+            destination_ids=[str(d.id) for d in destinations],
+            schema_snapshot={"destinations_only": True} if destinations_only_snapshot else {},
+        )
+        assert acquire_v3_pipeline_lock(self.team.pk, str(self.schema.id), job.workflow_run_id)
+        return job
+
+    def _message(
+        self, job: ExternalDataJob, *, batch_index: int, is_final: bool, writes_warehouse: bool | None
+    ) -> dict:
+        signal = self._signal(
+            job.destination_ids, batch_index=batch_index, is_final=is_final, schema_id=str(self.schema.id)
+        )
+        return dataclasses.replace(
+            signal, job_id=str(job.id), source_id=str(self.source.id), writes_warehouse=writes_warehouse
+        ).to_dict()
+
+    @parameterized.expand(
+        [
+            ("one_destination", ["a"], False, True),
+            ("several_destinations", ["a", "b"], False, True),
+            ("a_batch_queued_before_the_producer_recorded_it", ["a", "b"], None, True),
+            # The flag was off when the job was created: the loader keeps what it did before.
+            ("flag_off_keeps_the_old_completion", ["a"], False, False),
+        ]
+    )
+    def test_a_run_delivers_every_batch_and_completes_without_touching_delta(
+        self, _name: str, names: list[str], writes_warehouse: bool | None, destinations_only_snapshot: bool
+    ) -> None:
+        destinations = [self._destination(name) for name in names]
+        job = self._job(destinations, destinations_only_snapshot=destinations_only_snapshot)
+
+        process_message(self._message(job, batch_index=0, is_final=False, writes_warehouse=writes_warehouse))
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING
+        process_message(self._message(job, batch_index=1, is_final=True, writes_warehouse=writes_warehouse))
+
+        assert sorted(RecordingWriter.calls) == sorted(
+            [("write", name, index) for name in names for index in (0, 1)] + [("finalize", name, -1) for name in names]
+        )
+        job.refresh_from_db()
+        self.schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.COMPLETED
+        assert get_v3_pipeline_lock_holder(self.team.pk, str(self.schema.id)) is None
+        assert not DataWarehouseTable.objects.filter(team_id=self.team.pk).exists()
+        assert self.schema.table_id is None
+        assert (self.schema.last_synced_at is not None) is destinations_only_snapshot
+        assert self.schema.initial_sync_complete is destinations_only_snapshot
+        assert self.post_import.called is destinations_only_snapshot
+
+    def test_a_retried_batch_writes_only_to_the_destination_that_missed_it(self) -> None:
+        a, b = self._destination("a"), self._destination("b")
+        job = self._job([a, b], destinations_only_snapshot=True)
+        message = self._message(job, batch_index=0, is_final=False, writes_warehouse=False)
+
+        RecordingWriter.fail_for = {"b"}
+        with self.assertRaises(DestinationDeliveryError):
+            process_message(message)
+        RecordingWriter.fail_for = set()
+        process_message(message, attempt=2)
+
+        assert sorted(self._writes()) == ["a", "b"]
+
+    @parameterized.expand([("recorded_by_the_producer", True), ("resolved_from_the_set", None)])
+    def test_a_run_that_includes_the_warehouse_still_loads_delta(
+        self, _name: str, writes_warehouse: bool | None
+    ) -> None:
+        destinations = [get_or_create_warehouse_destination(self.team.pk), self._destination("a")]
+        job = self._job(destinations, destinations_only_snapshot=False)
+
+        with self.assertRaises(_DeltaTouched):
+            process_message(self._message(job, batch_index=0, is_final=False, writes_warehouse=writes_warehouse))
+
+        assert RecordingWriter.calls == []

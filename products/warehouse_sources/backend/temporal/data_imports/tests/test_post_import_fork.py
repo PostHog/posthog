@@ -661,25 +661,34 @@ def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team,
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "source_type, superseded, job_status, expect_step",
+    "source_type, superseded, job_status, destinations_only, expect_step",
     [
-        pytest.param("FileUpload", True, "Completed", True, id="replaced_upload_waits"),
-        pytest.param("FileUpload", False, "Completed", False, id="nothing_replaced"),
+        pytest.param("FileUpload", True, "Completed", False, True, id="replaced_upload_waits"),
+        pytest.param("FileUpload", False, "Completed", False, False, id="nothing_replaced"),
         # The old file must outlive a failed sync of the new one.
-        pytest.param("FileUpload", True, "Failed", False, id="failed_sync_keeps_the_old_file"),
-        pytest.param("Stripe", True, "Completed", False, id="other_sources_never_clean_up"),
+        pytest.param("FileUpload", True, "Failed", False, False, id="failed_sync_keeps_the_old_file"),
+        pytest.param("Stripe", True, "Completed", False, False, id="other_sources_never_clean_up"),
+        # The cleanup reads no warehouse table, so a run that made none still runs it.
+        pytest.param("FileUpload", True, "Completed", True, True, id="destinations_only_run_still_cleans_up"),
     ],
 )
 def test_source_cleanup_runs_only_when_the_source_has_work(
-    team, source_type, superseded, job_status, expect_step, _no_close_old_connections
+    team, source_type, superseded, job_status, destinations_only, expect_step, _no_close_old_connections
 ):
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        DUCKLAKE_COPY_STEP,
         SOURCE_CLEANUP_STEP,
+        TABLE_SIZE_STEP,
         PostImportWorkflowInputs,
         resolve_post_import_context_activity,
     )
 
-    source, schema, job = _create_job(team, status=job_status, schema_snapshot={}, schema_last_synced_at=None)
+    source, schema, job = _create_job(
+        team,
+        status=job_status,
+        schema_snapshot={"destinations_only": True} if destinations_only else {},
+        schema_last_synced_at=None,
+    )
     source.source_type = source_type
     source.connection_metadata = {
         "file_upload": {
@@ -703,6 +712,10 @@ def test_source_cleanup_runs_only_when_the_source_has_work(
     )
 
     assert (SOURCE_CLEANUP_STEP in (ctx.steps or [])) is expect_step
+    if job_status == "Completed":
+        # Both steps read the Delta table, which a destinations-only run never writes.
+        table_steps = {TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP} & set(ctx.steps or [])
+        assert bool(table_steps) is not destinations_only
 
 
 @pytest.mark.django_db

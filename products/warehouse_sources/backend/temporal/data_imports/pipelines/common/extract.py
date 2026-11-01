@@ -559,7 +559,13 @@ async def handle_reset_or_full_refresh(
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     webhook_only: bool = False,
+    delete_table: bool = True,
 ) -> None:
+    """Delete the table and reset the schema's sync state for a reset or a full refresh.
+
+    `delete_table=False` resets only the sync state. A run that does not write the warehouse uses
+    it, because it has no table to delete.
+    """
     from products.warehouse_sources.backend.models.external_data_schema import (
         ExternalDataSchema,
         update_sync_type_config_keys,
@@ -586,14 +592,16 @@ async def handle_reset_or_full_refresh(
             schema.sync_type_config.pop("column_type_widened", None)
     elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
-        await delta_table_ref.reset_table()
+        if delete_table:
+            await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
             promote_pending_repartition=True
         )
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
         # Avoid schema mismatches from existing data about to be overwritten
         await logger.adebug("Deleting existing table due to sync being full refresh")
-        await delta_table_ref.reset_table()
+        if delete_table:
+            await delta_table_ref.reset_table()
         # Keep the initial_sync_complete latch: this branch runs on every scheduled full-refresh
         # sync, and a run that extracts zero rows never reaches post-load to re-set it.
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(

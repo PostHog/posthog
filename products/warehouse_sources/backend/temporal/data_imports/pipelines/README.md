@@ -71,7 +71,11 @@ Gated by the `warehouse-multi-destination` flag, evaluated once in `create_exter
 - **One job, one run.** The resolved destination ids are snapshotted onto `ExternalDataJob.destination_ids` when the run starts and travel with every batch, so a config change mid-run cannot alter where an in-flight run lands or what it bills.
 - **One consumer.** There is no second deployment. `run_warehouse_sources_load` writes the batch to Delta as it always has, then `destinations_load/delivery.py` writes the same batch to every other destination in turn.
 - **All destinations share one lifecycle.** A batch is done only when every destination has taken it, and a destination that fails fails the batch, which is retried in full. Each destination has its own idempotency key, so a retry skips the ones that already took the batch. The failing destination's name is prefixed onto the job's `latest_error`.
-- **A run that lists destinations but not the warehouse** never touches Delta: no table registration, no post-import.
+- **A run that lists destinations but not the warehouse** never writes Delta in the loader: no table registration, no post-import.
+- **A destinations-only run** goes further. With the `warehouse-destinations-only-runs` flag on, job creation marks such a run in `schema_snapshot["destinations_only"]` (never for CDC).
+  The extraction then skips the corrupt-log revive, the table delete of a reset or full refresh, pre-write maintenance and the repartition activity.
+  The loader still does the sync bookkeeping and starts post-import, which runs only the steps that need no warehouse table.
+  The producer records `writes_warehouse` on each batch, so the loader does not query the destinations per batch.
 - **The cursor** is unchanged from before destinations existed. A batch is either delivered everywhere or retried, so it advances exactly as it always has.
 - **Billing** multiplies the run's rows by the number of destinations it snapshotted (`billable_destination_multiplier`). Runs that predate destinations carry an empty list and bill as one.
 - **Falling behind** is bounded by queue retention, not by patience: past that the staged parquet is gone and the run must be re-extracted. Alert on `oldest_eligible_age_seconds`.

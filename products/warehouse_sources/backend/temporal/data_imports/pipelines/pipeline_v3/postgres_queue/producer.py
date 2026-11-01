@@ -95,6 +95,7 @@ class PostgresProducer:
         workflow_run_id: str | None = None,
         destination_ids: list[str] | None = None,
         external_destination_ids: list[str] | None = None,
+        writes_warehouse: bool | None = None,
         continued_job_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
@@ -124,6 +125,9 @@ class PostgresProducer:
         self._external_destination_ids: list[str] | None = (
             None if external_destination_ids is None else list(external_destination_ids)
         )
+        # Resolved once per run for the same reason: the loader would otherwise ask the database
+        # for every batch whether the run writes the warehouse.
+        self._writes_warehouse = writes_warehouse
 
         self._replace_scope: ReplaceScopeRef | None = None
         self._continued_job_ids: list[str] = list(continued_job_ids or [])
@@ -353,6 +357,8 @@ class PostgresProducer:
             metadata["arrow_bytes"] = batch_result.arrow_bytes
         if self._external_destination_ids is not None:
             metadata["external_destination_ids"] = self._external_destination_ids
+        if self._writes_warehouse is not None:
+            metadata["writes_warehouse"] = self._writes_warehouse
         if loaded_prefix_cursor is not None:
             metadata[LOADED_PREFIX_CURSOR_KEY] = loaded_prefix_cursor
         if self._replace_scope is not None:

@@ -18,12 +18,14 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
     ExternalDataSourceDestination,
+    get_or_create_warehouse_destination,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    DESTINATIONS_ONLY_SNAPSHOT_KEY,
     NO_ACTIVE_DESTINATIONS_MESSAGE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
@@ -44,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
+ENABLEMENT = "products.warehouse_sources.backend.temporal.data_imports.destinations.enablement"
 CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 
@@ -712,3 +715,53 @@ class TestCreateJobActivityPrepareRunOutputs:
         )
 
         assert result.source_templates_needed is expected
+
+    @parameterized.expand(
+        [
+            ("external_destinations_only", False, True),
+            ("warehouse_included", True, False),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    @patch(f"{MODULE}.repartition_activity_has_work", return_value=True)
+    @patch(f"{MODULE}.is_multi_destination_enabled", return_value=True)
+    @patch(f"{ENABLEMENT}.is_schema_flag_enabled", return_value=True)
+    def test_a_destinations_only_run_turns_off_the_work_that_needs_a_warehouse_table(
+        self,
+        _name: str,
+        includes_warehouse: bool,
+        expect_destinations_only: bool,
+        _mock_flag: MagicMock,
+        _mock_multi_destination: MagicMock,
+        _mock_repartition: MagicMock,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        mock_activity.info.return_value.start_to_close_timeout = None
+        team = _team()
+        schema = _schema(team, _table(team))
+        destinations = [
+            ExternalDataDestination.objects.for_team(team.id).create(
+                team_id=team.id, type=ExternalDataDestination.Type.SNOWFLAKE, name="snowflake"
+            )
+        ]
+        if includes_warehouse:
+            destinations.append(get_or_create_warehouse_destination(team.id))
+        for destination in destinations:
+            ExternalDataSourceDestination.objects.for_team(team.id).create(
+                team_id=team.id, source=schema.source, destination=destination
+            )
+
+        result = create_external_data_job_model_activity(
+            CreateExternalDataJobModelActivityInputs(
+                team_id=team.id, schema_id=schema.id, source_id=schema.source_id, billable=False
+            )
+        )
+
+        job = ExternalDataJob.objects.get(id=result.job_id)
+        assert (job.schema_snapshot.get(DESTINATIONS_ONLY_SNAPSHOT_KEY) is True) is expect_destinations_only
+        assert result.repartition_needed is not expect_destinations_only
+        assert result.statistics_needed is not expect_destinations_only
