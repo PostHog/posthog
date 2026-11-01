@@ -522,17 +522,22 @@ class TestGetRun(BaseTest):
 
 
 class TestRunReadsSkipTaskRunPayload(BaseTest):
-    @parameterized.expand(["search_recent_runs", "recent_runs_per_scout", "get_run"])
+    @parameterized.expand(["search_recent_runs", "search_recent_runs_text", "recent_runs_per_scout", "get_run"])
     def test_reads_task_run_columns_in_one_query_without_json_payload(self, reader: str) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
-        runs = [_create_run(self.team), _create_run(self.team, task_run_status=TaskRun.Status.FAILED)]
+        runs = [
+            _create_run(self.team, summary="checkout errors"),
+            _create_run(self.team, task_run_status=TaskRun.Status.FAILED, summary="checkout failed"),
+        ]
         TaskRun.objects.filter(id=runs[1].task_run_id).update(error_message="boom")
 
         hits: list[RunSummary] | list[RunDetail]
         with CaptureQueriesContext(connection) as captured:
             if reader == "search_recent_runs":
                 hits = search_recent_runs(team_id=self.team.id)
+            elif reader == "search_recent_runs_text":
+                hits = search_recent_runs(team_id=self.team.id, text="checkout")
             elif reader == "recent_runs_per_scout":
                 hits = recent_runs_per_scout(team_id=self.team.id)
             else:
@@ -544,6 +549,9 @@ class TestRunReadsSkipTaskRunPayload(BaseTest):
         assert '"total_spend"' in task_run_queries[0]
         for column in ("output", "artifacts", "state"):
             assert f'"posthog_task_run"."{column}"' not in task_run_queries[0]
+        if reader.startswith("search_recent_runs"):
+            assert '"signals_signalscoutrun"."id" IN (' in task_run_queries[0]
+            assert "LIKE" not in task_run_queries[0]
         failed = next(hit for hit in hits if hit.run_id == str(runs[1].id))
         assert (failed.status, failed.error, failed.task_run_id) == ("failed", "boom", str(runs[1].task_run_id))
 
