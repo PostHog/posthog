@@ -461,9 +461,13 @@ class TestActivitySummaryQueue(BaseTest):
         assert set(mcp_buffer_team_ids(config, enrolled)) == {teams[name].id for name in expected}
 
     def test_a_higher_mcp_buffer_percentage_keeps_the_teams_of_a_lower_one(self) -> None:
+        # These ids have rollout buckets on both sides of every percentage below.
         teams = [
-            Team.objects.create(organization=Organization.objects.create(name=f"Org {index}"), name=f"Team {index}")
-            for index in range(20)
+            Team.objects.create(
+                organization=Organization.objects.create(id=uuid.UUID(int=index), name=f"Org {index}"),
+                name=f"Team {index}",
+            )
+            for index in range(1, 9)
         ]
         lowest = min(teams, key=lambda team: organization_rollout_bucket(team.organization_id))
         config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True, mcp_buffer_enabled=True)
