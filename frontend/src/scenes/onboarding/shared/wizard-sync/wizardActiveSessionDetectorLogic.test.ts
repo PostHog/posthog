@@ -159,6 +159,18 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ hasActiveSession: true })
     })
 
+    it('drops a poll that resolves after the detector unmounts', async () => {
+        let resolvePoll: (session: WizardSessionDTOApi | null) => void = () => {}
+        mockLatestRetrieve.mockReturnValue(new Promise((resolve) => (resolvePoll = resolve)))
+        const poll = logic.asyncActions.check()
+
+        logic.unmount()
+        resolvePoll(null)
+
+        await expect(poll).resolves.toBeUndefined()
+        logic.mount()
+    })
+
     describe('hasResolvedSessionState', () => {
         it('starts unresolved and resolves on a settled poll, in either direction', async () => {
             expect(logic.values.hasResolvedSessionState).toBe(false)
