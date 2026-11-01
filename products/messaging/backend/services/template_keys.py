@@ -8,6 +8,7 @@ from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.models.message_template import KEY_CONSTRAINT
 from products.messaging.backend.services.template_ownership import check_write, patches_only
 from products.messaging.backend.services.template_saves import WorkflowEditorCheck, lock_template
+from products.messaging.backend.services.transactional_email import known_key
 
 
 class KeyedTemplate(Protocol):
@@ -19,11 +20,15 @@ def is_adoption(intent: TemplateWriteIntent) -> bool:
     return patches_only(intent, "key")
 
 
+def check_key_kept(template: KeyedTemplate, intent: TemplateWriteIntent) -> None:
+    if template.key and "key" in intent.payload and intent.payload["key"] != template.key:
+        raise _key_already_set(template.key)
+
+
 def check_key_unchanged(template: KeyedTemplate, intent: TemplateWriteIntent) -> None:
+    check_key_kept(template, intent)
     if "key" not in intent.payload or intent.payload["key"] == template.key:
         return
-    if template.key:
-        raise _key_already_set(template.key)
     raise TemplateKeyRefused(
         code="invalid_request",
         detail="`key` can't be set together with other fields.",
@@ -48,6 +53,7 @@ def adopt_template(
                 require_workflow_editor(template.transactional_hog_flow_id)
             if template.key:
                 raise _key_already_set(template.key)
+            _require_editor_of_the_key_workflow(team_id, key, require_workflow_editor)
             template.key = key
             template.save(update_fields=["key", "updated_at"])
     except IntegrityError as error:
@@ -55,6 +61,12 @@ def adopt_template(
             raise
         raise _key_in_use(key) from error
     return template
+
+
+def _require_editor_of_the_key_workflow(team_id: int, key: str, require_workflow_editor: WorkflowEditorCheck) -> None:
+    key_workflow = known_key(team_id, key)
+    if key_workflow is not None:
+        require_workflow_editor(key_workflow.hog_flow_id)
 
 
 def _key_already_set(key: str) -> TemplateKeyRefused:

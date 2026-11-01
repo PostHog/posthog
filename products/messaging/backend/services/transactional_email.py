@@ -49,6 +49,7 @@ from products.messaging.backend.facade.contracts import (
 from products.messaging.backend.models import MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.models.transactional_email_key import TRANSACTIONAL_EMAIL_KEY_CONSTRAINT
+from products.messaging.backend.services.content_hash import email_content_hash
 from products.messaging.backend.services.html_text import text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
@@ -241,6 +242,11 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
         from_name=sender.get("name") or "",
         reply_to=email.get("replyTo") or "",
     )
+
+
+def sent_email_hash(template: MessageTemplate) -> str:
+    email = template.content["email"]
+    return email_content_hash({**email, "text": _sent_text(template, email)})
 
 
 def _sent_text(template: MessageTemplate, email: dict[str, Any]) -> str:
