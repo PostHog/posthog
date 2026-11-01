@@ -111,11 +111,7 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
 
 const sceneRenderedListeners = new Set<() => void>()
 
-/**
- * Calls `listener` once, when the first scene of the page load renders. Calls it at once when that has already
- * happened or when boot timing does not run. Returns a function that removes the listener.
- * App code uses `sceneRenderedLogic`, which also covers a page that never renders a scene.
- */
+/** Calls `listener` once on the first scene render, or at once if that happened or boot timing does not run. */
 export function onFirstSceneRendered(listener: () => void): () => void {
     if (phaseTimes.entry === undefined || phaseTimes.scene_rendered !== undefined) {
         listener()

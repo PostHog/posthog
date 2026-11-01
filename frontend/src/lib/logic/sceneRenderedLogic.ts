@@ -21,12 +21,8 @@ export interface sceneRenderedLogicActions {
 export type sceneRenderedLogicType = MakeLogicType<sceneRenderedLogicValues, sceneRenderedLogicActions>
 
 /**
- * Tells shell logics when the first scene of the page load has rendered, so that a request the first paint does
- * not need does not compete with the scene's own requests.
- *
- * A consumer listens for `sceneRendered` and also checks `sceneHasRendered` in `afterMount`, because it can mount
- * after the first render. On a page that never renders a scene, such as an error page, `sceneRendered` fires
- * after `SCENE_RENDERED_MAX_WAIT_MS`. Where boot timing does not run, as in tests and Storybook, it fires at mount.
+ * Lets a request the first paint does not need wait for the first scene. A consumer listens for `sceneRendered`
+ * and checks `sceneHasRendered` in `afterMount`. A page with no scene fires it after the maximum wait.
  */
 export const sceneRenderedLogic = kea<sceneRenderedLogicType>([
     path(['lib', 'logic', 'sceneRenderedLogic']),

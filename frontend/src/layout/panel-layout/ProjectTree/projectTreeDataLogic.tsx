@@ -115,6 +115,10 @@ function applyOrder(shortcuts: FileSystemEntry[], orderedIds: string[]): FileSys
     return [...reordered, ...trailing]
 }
 
+function hasFolderEntry(entries: FileSystemEntry[] | undefined, field: 'path' | 'ref', value: string): boolean {
+    return !!entries?.some((entry) => entry.type === 'folder' && entry[field] === value)
+}
+
 type DeleteFolderDialogContentProps = {
     folderName: string
     folderPath: string
@@ -1813,27 +1817,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 actions.reloadIfHomeFolderMissing()
             }
         },
-        // The first home folder request creates the folder and its shortcut. The boot loads of the root folder
-        // and the shortcuts run at the same time, so reload only a list that does not show the folder yet.
-        // Each list is checked on its own, so a slow request for one list does not hold back the other.
+        // The first home folder request creates the folder and its shortcut, while the boot loads of both lists
+        // run. Each list reloads only if it does not show the folder, and a slow list does not hold back the other.
         reloadIfHomeFolderMissing: () => {
             const path = values.homeFolder?.path
             if (cache.homeShortcutCheckPending && !values.shortcutDataLoading) {
                 cache.homeShortcutCheckPending = false
-                if (
-                    path &&
-                    !values.shortcutData.some((shortcut) => shortcut.type === 'folder' && shortcut.ref === path)
-                ) {
+                if (path && !hasFolderEntry(values.shortcutData, 'ref', path)) {
                     actions.loadShortcuts()
                 }
             }
             if (cache.homeRootCheckPending && values.folderStates[''] !== 'loading') {
                 cache.homeRootCheckPending = false
-                const topFolder = path ? splitPath(path)[0] : null
-                if (
-                    topFolder &&
-                    !(values.folders[''] ?? []).some((entry) => entry.type === 'folder' && entry.path === topFolder)
-                ) {
+                if (path && !hasFolderEntry(values.folders[''], 'path', splitPath(path)[0])) {
                     actions.loadFolder('', true)
                 }
             }
