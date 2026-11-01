@@ -287,7 +287,6 @@ def is_transactional(template: MessageTemplate) -> bool:
 
 
 def check_still_sendable(template: MessageTemplate) -> None:
-    """Raise when a written but unsaved template could no longer send as a transactional email."""
     # A link to a deleted workflow no longer restricts the template. The sync after the save clears it.
     if template.deleted or not is_transactional(template):
         return

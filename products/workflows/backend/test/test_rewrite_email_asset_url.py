@@ -184,3 +184,30 @@ class TestRewriteEmailAssetUrl(BaseTest):
         assert workflow.version == 2
         assert NEW in json.dumps(workflow.actions)
         assert OLD not in json.dumps(workflow.actions)
+
+    def test_a_failed_template_leaves_its_workflow_for_a_rerun_to_version(self) -> None:
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        template = create_message_template_for_test(
+            team_id=self.team.id,
+            name="Welcome",
+            content={"email": {"subject": "Welcome", "html": f'<img src="{OLD}?w=960px" />'}},
+        )
+        workflow_id = make_transactional(self.team.id, template, user_id=self.user.id, from_integration_id=None)
+        rewrite = ["rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id)]
+
+        sender.config = {"verified": False}
+        sender.save()
+        with self.assertRaises(CommandError):
+            call_command(*rewrite)
+        stalled = HogFlow.objects.get(id=workflow_id)
+
+        sender.config = {"verified": True}
+        sender.save()
+        call_command(*rewrite)
+        recovered = HogFlow.objects.get(id=workflow_id)
+
+        assert (stalled.version, OLD in json.dumps(stalled.actions)) == (1, True)
+        assert (recovered.version, NEW in json.dumps(recovered.actions)) == (2, True)

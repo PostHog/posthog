@@ -106,11 +106,6 @@ def save_template_fields(
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
-    """Set validated fields and save the template with its workflow. `message_category` holds a category id or None.
-
-    Raises TransactionalEmailError when the template could no longer send. `require_workflow_editor` gets the id of
-    the template's workflow, under the row lock, and raises to refuse the save.
-    """
     return _to_contract(
         template_saves.save_fields(
             team_id, template_id, fields, user_id=user_id, require_workflow_editor=require_workflow_editor
@@ -119,7 +114,6 @@ def save_template_fields(
 
 
 def save_template_tags(team_id: int, template_id: UUID, tags: list[str]) -> MessageTemplateRow:
-    """Replace only the template's tags. Sends never read them, so the template row and its workflow stay as they are."""
     return _to_contract(templates_service.save_tags(team_id, template_id, tags))
 
 
@@ -131,10 +125,6 @@ def save_template_content(
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
-    """Replace the template's content with `edit(content)` and save it as `save_template_fields` does.
-
-    `edit` gets a copy of the stored content, under the row lock. An exception from it rolls the change back.
-    """
     return _to_contract(
         template_saves.save_template(
             team_id,
@@ -149,6 +139,4 @@ def save_template_content(
 def rewrite_template_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
-    """Apply `rewrite` to a template's content and its draft under a row lock, and write the new content to its
-    transactional workflow in the same transaction. Returns the number of occurrences it replaced."""
     return template_saves.rewrite_content(template_id, rewrite, team_ids=team_ids, dry_run=dry_run)

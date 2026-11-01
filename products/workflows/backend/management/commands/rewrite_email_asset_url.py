@@ -12,7 +12,7 @@ from django.utils import timezone
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.messaging.backend.facade.api import find_template_ids_containing
+from products.messaging.backend.facade.api import find_template_ids_containing, find_transactional_workflow_ids
 from products.messaging.backend.facade.templates import rewrite_template_content
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
@@ -73,7 +73,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--from-url", required=True, help="URL (or URL prefix) to replace")
         parser.add_argument("--to-url", required=True, help="Replacement URL")
-        parser.add_argument("--dry-run", action="store_true", help="Report what would change, write nothing")
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Report what would change, write nothing. Skips the check that a transactional template can still send.",
+        )
         parser.add_argument(
             "--team-id",
             type=int,
@@ -133,7 +137,9 @@ class Command(BaseCommand):
 
         totals = RewriteCounts()
         for target in targets:
-            counts = self._process_target(target, from_url, to_url, options)
+            counts = self._process_target(
+                target, from_url, to_url, options, rewrites_templates=MESSAGE_TEMPLATES in targets
+            )
             totals.rows_scanned += counts.rows_scanned
             totals.rows_changed += counts.rows_changed
             totals.occurrences += counts.occurrences
@@ -150,12 +156,19 @@ class Command(BaseCommand):
         if totals.errors:
             raise CommandError(f"{totals.errors} row(s) failed to rewrite - see the errors above and re-run")
 
-    def _process_target(self, target: str, from_url: str, to_url: str, options: dict[str, Any]) -> RewriteCounts:
+    def _process_target(
+        self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, rewrites_templates: bool
+    ) -> RewriteCounts:
         counts = RewriteCounts()
         if target == MESSAGE_TEMPLATES:
             row_ids, rewrite_row = self._message_template_rows(from_url, to_url, options)
         else:
-            row_ids, rewrite_row = self._model_rows(target, from_url, to_url, options)
+            template_owned = (
+                find_transactional_workflow_ids(options.get("team_id"))
+                if target == "hog_flows" and rewrites_templates
+                else set()
+            )
+            row_ids, rewrite_row = self._model_rows(target, from_url, to_url, options, template_owned=template_owned)
 
         self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
         if not row_ids:
@@ -198,7 +211,7 @@ class Command(BaseCommand):
         return row_ids, rewrite_row
 
     def _model_rows(
-        self, target: str, from_url: str, to_url: str, options: dict[str, Any]
+        self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, template_owned: set[Any]
     ) -> tuple[list[Any], RowRewrite]:
         model, field_timestamps = MODEL_TARGETS[target]
         fields = tuple(field_timestamps)
@@ -228,7 +241,7 @@ class Command(BaseCommand):
             return self._rewrite_row(
                 base_queryset,
                 row_id,
-                field_timestamps,
+                {"draft": field_timestamps["draft"]} if row_id in template_owned else field_timestamps,
                 WORKER_RELOADS.get(target),
                 from_url,
                 to_url,

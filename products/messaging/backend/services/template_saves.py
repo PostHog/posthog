@@ -1,7 +1,3 @@
-"""The one path that saves a template's content. Sends use the workflow's copy of the content, so the template and
-the new version of its transactional workflow are written in one transaction, under the template's row lock. The
-lock keeps a concurrent make_transactional from linking a workflow in between."""
-
 from collections.abc import Callable
 from typing import Any
 from uuid import UUID
@@ -24,11 +20,12 @@ def save_template(
     user_id: int | None,
     require_workflow_editor: WorkflowEditorCheck,
 ) -> MessageTemplate:
-    """Apply `write` to the locked template and save it. An exception from `write` or from the workflow sync rolls
-    the whole save back, so the template and its workflow never disagree."""
     with transaction.atomic():
-        template = lock_template(team_id, template_id)
-        save_locked_template(template, write, user_id=user_id, require_workflow_editor=require_workflow_editor)
+        template = MessageTemplate.objects.select_for_update().get(team_id=team_id, id=template_id, deleted=False)
+        if template.transactional_hog_flow_id:
+            require_workflow_editor(template.transactional_hog_flow_id)
+        write(template)
+        save_locked_template(template, user_id=user_id)
     return template
 
 
@@ -40,8 +37,6 @@ def save_fields(
     user_id: int | None,
     require_workflow_editor: WorkflowEditorCheck,
 ) -> MessageTemplate:
-    """`save_template` for validated serializer fields. Tags live on their own rows, so they are written after the
-    template, and only when they change."""
     fields = dict(fields)
     tags = fields.pop("tags", None)
     with transaction.atomic():
@@ -56,68 +51,30 @@ def save_fields(
     return template
 
 
-def lock_template(team_id: int, template_id: UUID) -> MessageTemplate:
-    return MessageTemplate.objects.select_for_update().get(team_id=team_id, id=template_id, deleted=False)
-
-
-def save_locked_template(
-    template: MessageTemplate,
-    write: TemplateWrite,
-    *,
-    user_id: int | None,
-    require_workflow_editor: WorkflowEditorCheck,
-) -> None:
-    """`save_template` for a template the caller locked in its own transaction."""
-    hog_flow_id = template.transactional_hog_flow_id
-    # The template's own access rules don't cover the workflow it sends through, which can carry its own.
-    if hog_flow_id:
-        require_workflow_editor(hog_flow_id)
-    write(template)
-    syncs_workflow = hog_flow_id is not None and not template.deleted
+def save_locked_template(template: MessageTemplate, *, user_id: int | None) -> None:
+    syncs_workflow = template.transactional_hog_flow_id is not None and not template.deleted
     if syncs_workflow:
         check_still_sendable(template)
     template.save()
     if syncs_workflow:
         sync_transactional_workflow(template.team_id, template.id, user_id=user_id)
-        # The sync unlinks the template when its workflow was deleted.
         template.refresh_from_db()
 
 
 def rewrite_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
-    """Apply `rewrite` to a template's content and its draft, deleted or not, and save it with its workflow. Returns
-    the number of occurrences it replaced."""
-    if dry_run:
-        template = templates_of(team_ids).get(pk=template_id)
-        return rewrite(template.content)[1] + rewrite(template.draft_content)[1]
-
     with transaction.atomic():
-        # Read the row again under the lock, so a concurrent save is not overwritten with a stale blob.
-        template = templates_of(team_ids).select_for_update().get(pk=template_id)
+        templates = templates_of(team_ids)
+        template = templates.get(pk=template_id) if dry_run else templates.select_for_update().get(pk=template_id)
         new_content, content_occurrences = rewrite(template.content)
         new_draft, draft_occurrences = rewrite(template.draft_content)
+        template.draft_content = new_draft
+        if dry_run:
+            return content_occurrences + draft_occurrences
         if content_occurrences:
-            save_locked_template(
-                template,
-                lambda locked: _set_contents(locked, new_content, new_draft),
-                user_id=None,
-                require_workflow_editor=_operators_edit_every_workflow,
-            )
+            template.content = new_content
+            save_locked_template(template, user_id=None)
         elif draft_occurrences:
-            _save_draft_without_workflow_sync(template, new_draft)
+            template.save(update_fields=["draft_content", "updated_at"])
     return content_occurrences + draft_occurrences
-
-
-def _save_draft_without_workflow_sync(template: MessageTemplate, draft_content: Any) -> None:
-    template.draft_content = draft_content
-    template.save(update_fields=["draft_content", "updated_at"])
-
-
-def _set_contents(template: MessageTemplate, content: Any, draft_content: Any) -> None:
-    template.content = content
-    template.draft_content = draft_content
-
-
-def _operators_edit_every_workflow(_hog_flow_id: UUID) -> None:
-    pass

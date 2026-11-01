@@ -47,7 +47,6 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
     queryset = templates_of(team_ids)
     if template_id:
         queryset = queryset.filter(id=template_id)
-    # The text casts stay in the WHERE clause, so the scan never returns a full copy of each content blob.
     return list(
         queryset.annotate(
             _text_content=Cast("content", models.TextField()),
@@ -57,6 +56,11 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
         .order_by("id")
         .values_list("id", flat=True)
     )
+
+
+def transactional_workflow_ids(team_ids: list[int] | None) -> set[UUID]:
+    linked = templates_of(team_ids).filter(deleted=False).values_list("transactional_hog_flow_id", flat=True)
+    return {hog_flow_id for hog_flow_id in linked if hog_flow_id is not None}
 
 
 def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[MessageTemplate]:
