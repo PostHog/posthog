@@ -133,16 +133,23 @@ def _series(key: str, starts: list[datetime]) -> ScoredSeries:
     )
 
 
+_MISSING_OR_MALFORMED_PAYLOADS: list[tuple[str, Any]] = [
+    ("missing", None),
+    ("not_an_object", "enabled"),
+    ("no_enabled", {"organization_ids": [ORGANIZATION_ID]}),
+    ("enabled_not_bool", {"enabled": "true", "organization_ids": [ORGANIZATION_ID]}),
+    ("disabled", {"enabled": False, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": [2]}),
+    ("allowlist_not_a_list", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": 2}),
+    ("allowlist_null", {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": None}),
+    (
+        "allowlist_only_invalid_ids",
+        {"enabled": True, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": ["2", True]},
+    ),
+]
+
+
 class TestTickConfig(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("missing", None),
-            ("not_an_object", "enabled"),
-            ("no_enabled", {"organization_ids": [ORGANIZATION_ID]}),
-            ("enabled_not_bool", {"enabled": "true", "organization_ids": [ORGANIZATION_ID]}),
-            ("disabled", {"enabled": False, "organization_ids": [ORGANIZATION_ID], "allow_team_ids": [2]}),
-        ]
-    )
+    @parameterized.expand(_MISSING_OR_MALFORMED_PAYLOADS)
     def test_a_missing_or_malformed_payload_does_no_work(self, _name: str, payload: Any) -> None:
         with (
             patch("products.signals.backend.anomaly_scores.config.read_flag_payload", return_value=payload),
@@ -186,6 +193,14 @@ class TestTickConfig(SimpleTestCase):
             IntervalType.MONTH: 3,
         }
         assert config.active_window_days == 90
+
+    @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
+    def test_an_absent_or_empty_allowlist_enrolls_every_team_of_the_listed_organizations(
+        self, _name: str, allowlist: dict[str, Any]
+    ) -> None:
+        config = parse_config({"enabled": True, "organization_ids": [ORGANIZATION_ID], **allowlist})
+
+        assert (config.enabled, config.allow_team_ids) == (True, ())
 
     @parameterized.expand(
         [
