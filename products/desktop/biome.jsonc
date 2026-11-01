@@ -101,10 +101,7 @@
     },
     {
       // Files using unknownAtRules
-      "includes": [
-        "packages/ui/src/styles/globals.css",
-        "apps/mobile/global.css"
-      ],
+      "includes": ["packages/ui/src/styles/globals.css"],
       "linter": {
         "enabled": false
       }
