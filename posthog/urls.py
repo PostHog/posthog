@@ -7,6 +7,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
+    ai_gateway_reload,
     api_not_found,
     authentication,
     github,
@@ -266,6 +267,7 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/account_audience",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_account_audience"})),
     ),
+    path("api/internal/ai_gateway/reload", csrf_exempt(ai_gateway_reload.AIGatewayReloadView.as_view())),
     path(
         "api/internal/hog_flows/process_due_schedules",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),

@@ -1965,6 +1965,132 @@ class TestRequestWithPostFallback(BaseTest):
         mock_post.assert_not_called()
 
 
+class TestAICreditSettingsFromBillingStatus(BaseTest):
+    PERIOD = {"current_period_start": "2026-10-01T00:00:00Z", "current_period_end": "2026-11-01T00:00:00Z"}
+
+    def _license(self) -> License:
+        return super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+    def _apply(self, **settings: Any) -> dict[str, Any]:
+        billing_status = {
+            "customer": {
+                "usage_summary": {"events": {"usage": 1, "limit": None}, "recordings": {"usage": 0, "limit": None}},
+                "billing_period": self.PERIOD,
+                **settings,
+            }
+        }
+        BillingManager(self._license()).update_org_details(self.organization, cast(BillingStatus, billing_status))
+        self.organization.refresh_from_db()
+        return dict(self.organization.usage or {})
+
+    @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
+    @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
+    def test_keeps_the_settings_and_rewrites_the_gateway_entries(self, project: MagicMock):
+        usage = self._apply(
+            ai_monthly_spend_limit_usd="250", ai_low_balance_threshold_usd="5.5", ai_automatic_reload_enabled=True
+        )
+
+        assert usage["ai_monthly_spend_limit_usd"] == "250.00"
+        assert usage["ai_low_balance_threshold_usd"] == "5.50"
+        assert usage["ai_automatic_reload_enabled"] is True
+        project.assert_called_once_with(str(self.organization.id))
+
+    @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
+    @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
+    def test_reload_turning_off_alone_rewrites_the_gateway_entries(self, project: MagicMock):
+        self._apply(ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True)
+        project.reset_mock()
+
+        usage = self._apply(ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=False)
+
+        assert "ai_automatic_reload_enabled" not in usage
+        project.assert_called_once_with(str(self.organization.id))
+
+    @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
+    @patch("posthog.tasks.team_llm_gateway_org.update_organization_llm_gateway_org_cache_task.delay")
+    def test_the_same_status_again_rewrites_nothing(self, project: MagicMock):
+        self._apply(ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00")
+        project.reset_mock()
+
+        self._apply(ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00")
+
+        project.assert_not_called()
+
+    def test_a_status_without_the_settings_keeps_them(self):
+        self._apply(
+            ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True
+        )
+
+        usage = self._apply()
+
+        assert usage["ai_monthly_spend_limit_usd"] == "250.00"
+        assert usage["ai_low_balance_threshold_usd"] == "5.00"
+        assert usage["ai_automatic_reload_enabled"] is True
+
+    def test_a_null_setting_clears_it(self):
+        self._apply(ai_monthly_spend_limit_usd="250.00", ai_low_balance_threshold_usd="5.00")
+
+        usage = self._apply(ai_monthly_spend_limit_usd=None, ai_low_balance_threshold_usd="5.00")
+
+        assert "ai_monthly_spend_limit_usd" not in usage
+        assert usage["ai_low_balance_threshold_usd"] == "5.00"
+
+    def test_an_organization_without_settings_gains_no_keys(self):
+        usage = self._apply(
+            ai_monthly_spend_limit_usd=None, ai_low_balance_threshold_usd=None, ai_automatic_reload_enabled=False
+        )
+
+        assert "ai_monthly_spend_limit_usd" not in usage
+        assert "ai_low_balance_threshold_usd" not in usage
+        assert "ai_automatic_reload_enabled" not in usage
+
+
+class TestReloadAIBalance(BaseTest):
+    def _license(self) -> License:
+        return super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+    @patch(
+        "ee.billing.billing_manager.http_session.post",
+        return_value=MagicMock(
+            status_code=200, json=MagicMock(return_value={"result": "charged", "amount_usd": "45.90"})
+        ),
+    )
+    def test_posts_the_reload_with_the_service_action_and_the_key(self, billing_post_request_mock: MagicMock):
+        result = BillingManager(self._license()).reload_ai_balance(
+            self.organization, idempotency_key="low-balance-1", balance_usd="4.10"
+        )
+
+        assert result == {"result": "charged", "amount_usd": "45.90"}
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/ai-credits/reload")
+        assert call_args[1]["json"] == {"balance_usd": "4.10"}
+        assert call_args[1]["headers"]["Idempotency-Key"] == "low-balance-1"
+        token = call_args[1]["headers"]["Authorization"].removeprefix("Bearer ")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        assert decoded["service_action"] == "ai_credit_reload"
+        assert decoded["organization_id"] == str(self.organization.id)
+        assert "organization_role" not in decoded
+        assert "distinct_id" not in decoded
+
+    @parameterized.expand([("reload_running", 409), ("not_deployed", 404), ("auth_failure", 401)])
+    def test_raises_on_any_answer_but_200(self, _name, status_code):
+        response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
+        with patch("ee.billing.billing_manager.http_session.post", return_value=response):
+            with self.assertRaises(BillingServiceResponseError) as context:
+                BillingManager(self._license()).reload_ai_balance(
+                    self.organization, idempotency_key="low-balance-1", balance_usd="4.10"
+                )
+        assert context.exception.status_code == status_code
+
+
 class TestDisputeSignalsPr(BaseTest):
     def _license(self) -> License:
         return super(LicenseManager, cast(LicenseManager, License.objects)).create(
