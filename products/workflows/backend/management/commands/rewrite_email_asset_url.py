@@ -42,7 +42,7 @@ MODEL_TARGETS: Final[dict[str, tuple[type[models.Model], dict[str, str]]]] = {
 }
 # Message templates belong to messaging, which finds and rewrites its own rows (content, draft_content, updated_at).
 MESSAGE_TEMPLATES: Final = "message_templates"
-TARGETS: Final[tuple[str, ...]] = ("hog_flows", "hog_flow_templates", MESSAGE_TEMPLATES, "hog_functions")
+TARGETS: Final[tuple[str, ...]] = (MESSAGE_TEMPLATES, "hog_flows", "hog_flow_templates", "hog_functions")
 
 
 @dataclass(frozen=False)
@@ -99,7 +99,7 @@ class Command(BaseCommand):
         from_url: str = options["from_url"]
         to_url: str = options["to_url"]
         dry_run: bool = options["dry_run"]
-        targets = [t.strip() for t in options["targets"].split(",") if t.strip()]
+        requested_targets = {t.strip() for t in options["targets"].split(",") if t.strip()}
 
         team_ids: list[int] | None = options.get("team_id")
         all_teams: bool = options["all_teams"]
@@ -116,9 +116,10 @@ class Command(BaseCommand):
         # keep nesting it. Refuse rather than produce a mangled URL on a re-run.
         if from_url in to_url:
             raise CommandError("--from-url must not be a substring of --to-url (the rewrite would not be idempotent)")
-        unknown = set(targets) - set(TARGETS)
+        unknown = requested_targets - set(TARGETS)
         if unknown:
             raise CommandError(f"Unknown target(s): {', '.join(sorted(unknown))}. Valid: {', '.join(TARGETS)}")
+        targets = [target for target in TARGETS if target in requested_targets]
         # 0 makes range() raise mid-run and a negative step yields no batches at all, which reads as
         # a clean "nothing to do" while every matched row keeps the old URL.
         if options["batch_size"] < 1:

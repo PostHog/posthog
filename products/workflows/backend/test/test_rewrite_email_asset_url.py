@@ -9,10 +9,13 @@ from django.core.management.base import CommandError
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.messaging.backend.facade.api import get_template_email_content
 from products.messaging.backend.facade.templates import get_template
 from products.messaging.backend.facade.testing import create_message_template_for_test
+from products.messaging.backend.facade.transactional_email import make_transactional
+from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.management.commands import rewrite_email_asset_url
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -144,3 +147,40 @@ class TestRewriteEmailAssetUrl(BaseTest):
         flow.refresh_from_db()
         assert f"{NEW}?w=960px" in json.dumps(flow.actions)
         assert json.dumps(flow.actions).count(NEW) == 2
+
+    @parameterized.expand(
+        [
+            ("default_targets", []),
+            ("workflows_named_first", ["--targets", "hog_flows,message_templates"]),
+        ]
+    )
+    def test_a_run_writes_one_new_version_of_a_transactional_templates_workflow(
+        self, _name: str, target_args: list[str]
+    ) -> None:
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        template = create_message_template_for_test(
+            team_id=self.team.id,
+            name="Welcome",
+            content={"email": {"subject": "Welcome", "html": f'<img src="{OLD}?w=960px" />'}},
+        )
+        workflow_id = make_transactional(self.team.id, template, user_id=self.user.id, from_integration_id=None)
+
+        for _ in range(2):
+            call_command(
+                "rewrite_email_asset_url",
+                "--from-url",
+                OLD,
+                "--to-url",
+                NEW,
+                "--team-id",
+                str(self.team.id),
+                *target_args,
+            )
+
+        workflow = HogFlow.objects.get(id=workflow_id)
+        assert workflow.version == 2
+        assert NEW in json.dumps(workflow.actions)
+        assert OLD not in json.dumps(workflow.actions)
