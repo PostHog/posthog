@@ -464,6 +464,8 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The frontend `report-test-signals` job checks out only its reporter, the current and legacy owners packages, and all `owners.yaml` and `product.yaml` files.
+It keeps the trusted base ref and the old-base availability checks. Ownership resolution reads these files without needing test source files.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
