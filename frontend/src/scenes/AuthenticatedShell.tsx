@@ -34,12 +34,10 @@ import { sceneLogic } from './sceneLogic'
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
 )
-// Off the eager path, so the shell skips the palette's search code on first paint.
 const importCommand = (): Promise<typeof import('lib/components/Command/Command')> =>
     import('lib/components/Command/Command')
 const Command = lazyWithRetry(() => importCommand().then(({ Command }) => ({ default: Command })))
-// Fetched when the browser is idle, so the first shortcut press opens the palette without a network wait.
-// A failed preload is ignored, because the lazy component retries the import on the first open.
+// Off the eager path but fetched on idle, so the first open skips the network. The lazy component retries a failed import.
 function preloadCommand(withCommandKSearch: boolean): void {
     void importCommand().catch(() => {})
     if (withCommandKSearch) {

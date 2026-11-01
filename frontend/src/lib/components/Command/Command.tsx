@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, useCallback } from 'react'
+import { Suspense, useCallback, useEffect } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -24,10 +24,16 @@ const TODAY_PHONE_SHEET =
     'max-md:top-0 max-md:h-dvh max-md:w-screen max-md:max-w-none max-md:max-h-none max-md:supports-[max-height:1dvh]:max-h-none max-md:rounded-none max-md:border-0'
 
 export function Command(): JSX.Element {
-    const { isCommandOpen } = useValues(commandLogic)
+    const { isCommandOpen, pendingText } = useValues(commandLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    const { closeCommand } = useActions(commandLogic)
+    const { closeCommand, commandInputReady } = useActions(commandLogic)
     const newCommandKSearch = useFeatureFlag('NEW_COMMAND_K_SEARCH')
+
+    useEffect(() => {
+        if (!newCommandKSearch) {
+            commandInputReady()
+        }
+    }, [newCommandKSearch, commandInputReady])
 
     const handleItemSelect = useCallback(
         (item: SearchItem, openInNewTab?: boolean) => {
@@ -79,6 +85,7 @@ export function Command(): JSX.Element {
             <Search.Root
                 logicKey="command"
                 isActive={isCommandOpen}
+                defaultSearchValue={pendingText}
                 onItemSelect={handleItemSelect}
                 onAskAiClick={handleAskAiClick}
                 showAskAiLink
