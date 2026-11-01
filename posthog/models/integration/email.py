@@ -26,6 +26,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
+from posthog.utils import flag_identity
 
 from . import model
 
@@ -39,14 +40,33 @@ DEFAULT_MAIL_FROM_SUBDOMAIN = "feedback"
 EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
 
 
-def email_from_code_enabled(team: Team, acting_user: User | None) -> bool:
+def email_flag_enabled(flag: str, team: Team, acting_user: User | None) -> bool:
+    if acting_user is None:
+        return feature_enabled_or_false(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": team.id, "uuid": str(team.uuid)},
+            },
+            send_feature_flag_events=False,
+        )
+    identity = flag_identity(acting_user, team, team.organization)
+    if identity is None:
+        return False
     return feature_enabled_or_false(
-        EMAIL_FROM_CODE_FLAG,
-        str(acting_user.distinct_id) if acting_user else str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-        group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.uuid)}},
+        flag,
+        identity.distinct_id,
+        groups=identity.groups,
+        person_properties=identity.person_properties,
+        group_properties=identity.group_properties,
         send_feature_flag_events=False,
     )
+
+
+def email_from_code_enabled(team: Team, acting_user: User | None) -> bool:
+    return email_flag_enabled(EMAIL_FROM_CODE_FLAG, team, acting_user)
 
 
 @frozen

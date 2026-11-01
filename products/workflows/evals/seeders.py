@@ -1,18 +1,3 @@
-"""Seeders for the email domain setup eval cases.
-
-Each case sends from its own subdomain of a reserved example domain, so the records one
-case publishes never answer for another. The addresses are module constants because the
-prompt, the seeder and the scorers all have to mean the same sender.
-
-PostHog refuses a sending domain that another organization already uses, and every case
-runs in a new organization in a database that outlives the run. So each address carries
-a label that is new for every run, and a domain from an earlier run never blocks this one.
-
-Seeders that change a policy verify it took effect before returning. A policy that did
-not apply would turn its case into a hollow pass, while raising marks the case an infra
-error, which the harness keeps out of score averages.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -88,8 +73,6 @@ def _seeded(context: CustomPromptSandboxContext, sender: str, **extra: Any) -> d
 
 
 def seed_new_sender(sender: str) -> Callable[[CustomPromptSandboxContext], dict[str, Any]]:
-    """A seeder for a case that starts from an empty project and needs only its team recorded."""
-
     def seed(context: CustomPromptSandboxContext) -> dict[str, Any]:
         return _seeded(context, sender)
 
@@ -170,4 +153,5 @@ def seed_member_without_admin(context: CustomPromptSandboxContext) -> dict[str, 
     user = User.objects.get(id=context.user_id)
     if UserPermissions(user).team(team).effective_membership_level != OrganizationMembership.Level.MEMBER:
         raise RuntimeError("The case user still has admin access to the project, so this case would test nothing")
+    SIMULATED_EMAIL_DOMAINS.publish(ses_records(domain_of(MEMBER_SENDER), "feedback"))
     return _seeded(context, MEMBER_SENDER)

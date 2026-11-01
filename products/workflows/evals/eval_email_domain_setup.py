@@ -1,27 +1,3 @@
-"""Can an agent set up a Workflows email sending domain with the setting-up-an-email-domain skill?
-
-The agent drives the real email integration API through MCP. SES, DNS and Domain Connect
-are simulated (see ``simulated_email_domains.py``), so each case controls which records
-are already published and every status follows from that.
-
-The cases cover the three ways records get published, then the rules that keep an
-existing setup intact and the errors an agent has to relay instead of working around:
-
-* ``domain_connect_link`` and ``manual_records`` are the two hand-offs on a new domain.
-* ``already_verified_sender`` and ``second_sender_on_shared_domain`` must reuse what exists.
-* ``existing_dmarc_kept``, ``existing_spf_merged`` and ``mail_from_label_taken`` must not
-  break records the domain already uses.
-* ``free_mailbox_domain``, ``domain_claimed_by_another_org`` and ``member_cannot_verify``
-  must end with the person knowing what to do next.
-
-Each case runs once per run. PostHog refuses a sending domain that another organization
-uses, and every trial runs in its own organization, so a second trial of a case could
-not create its sender.
-
-To run:
-    flox activate -- bash -c "hogli evals eval_email_domain_setup"
-"""
-
 from __future__ import annotations
 
 from products.posthog_ai.eval_harness.base import SandboxedEval

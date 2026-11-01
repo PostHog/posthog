@@ -148,7 +148,7 @@ const integrationsDomainConnectCheckRetrieve = (): ToolBase<
 
 const IntegrationsEmailCreateSchema = () => {
     const IntegrationsCreateBody = orvalSchemas.IntegrationsCreateBody()
-    return IntegrationsCreateBody
+    return IntegrationsCreateBody.extend({ config: EmailSenderConfigSchema })
 }
 
 const integrationsEmailCreate = (): ToolBase<

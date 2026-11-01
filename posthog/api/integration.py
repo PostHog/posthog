@@ -143,7 +143,7 @@ from posthog.models.integration import (
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.auth_types import rows_without_source_marker_q
-from posthog.models.integration.email import EMAIL_FROM_CODE_FLAG, email_from_code_enabled
+from posthog.models.integration.email import EMAIL_FROM_CODE_FLAG, email_flag_enabled, email_from_code_enabled
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
@@ -157,7 +157,6 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     get_authenticator_scopes,
 )
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
@@ -2882,16 +2881,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         if not any(
-            feature_enabled_or_false(
-                flag,
-                str(cast(User, request.user).distinct_id),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.uuid)},
-                },
-                send_feature_flag_events=False,
-            )
+            email_flag_enabled(flag, self.team, cast(User, request.user))
             for flag in ("workflows-email-domain-wizard", EMAIL_FROM_CODE_FLAG)
         ):
             raise NotFound()

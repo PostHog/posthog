@@ -1,12 +1,3 @@
-"""Simulated SES, DNS and Domain Connect for the email domain eval suite.
-
-The agent drives the real API through MCP, and the real SES provider code builds the
-DNS records and statuses it reads. Only the network edges are replaced: the boto3
-clients, DNS answers for the reserved example domains, and the Domain Connect provider
-settings. Each case publishes its own records, so every status the agent sees follows
-from what the case seeded, the same way it follows from a real DNS zone.
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -102,7 +93,6 @@ def _mail_from_mx_record(mail_from_domain: str) -> DnsRecord:
 
 
 def ses_records(domain: str, mail_from_subdomain: str = "feedback") -> list[DnsRecord]:
-    """Every record SES asks for, with the values the simulated SES issues for `domain`."""
     mail_from_domain = f"{mail_from_subdomain}.{domain}"
     return [
         _ownership_record(domain),
@@ -123,13 +113,6 @@ def _tenant_name(team_id: int) -> str:
 
 
 class SimulatedEmailDomains:
-    """The DNS zones and SES tenant ownership every simulated call reads.
-
-    Seeders write it and the live server's request threads read it, so access is locked.
-    Tenant ownership is keyed by team, so a case only owns the identities its own team
-    created, the way SES tenants scope them.
-    """
-
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._records: dict[tuple[str, str], set[str]] = {}
@@ -281,8 +264,6 @@ class _SimulatedSts:
 
 
 class SimulatedSESProvider(SESProvider):
-    """The real SES provider logic on top of simulated AWS clients."""
-
     def __init__(self, domains: SimulatedEmailDomains) -> None:
         self._simulated_v2 = _SimulatedSesV2(domains)
         self.sts_client = cast(Any, _SimulatedSts())
@@ -328,14 +309,7 @@ def _simulated_answers(domains: SimulatedEmailDomains, qname: Any, rdtype: Any) 
 
 @contextmanager
 def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOMAINS) -> Iterator[None]:
-    """Route SES, DNS and Domain Connect calls for the example domains through `domains`.
-
-    Lookups for any other name reach the real resolver, so suites running alongside this
-    one in the same process keep working. Their Domain Connect lookups use a fresh cache
-    while this runs, which costs a repeated lookup and nothing else.
-    """
     original_resolver_method = dns.resolver.Resolver.resolve
-    original_resolve = dns.resolver.resolve
     original_fetch_settings = domain_connect._fetch_provider_settings
     original_signing_key = domain_connect.get_signing_key
     eval_signing_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -347,13 +321,6 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
             return _simulated_answers(domains, qname, rdtype)
         return original_resolver_method(resolver, qname, rdtype, *args, **kwargs)
 
-    def resolve(
-        qname: Any, rdtype: Any = "A", *args: Any, **kwargs: Any
-    ) -> list[dns.rdata.Rdata] | dns.resolver.Answer:
-        if domains.covers(str(qname)):
-            return _simulated_answers(domains, qname, rdtype)
-        return original_resolve(qname, rdtype, *args, **kwargs)
-
     def fetch_provider_settings(endpoint: str, domain: str) -> dict | None:
         if domains.covers(domain):
             return {"providerName": "Cloudflare", "urlSyncUX": DOMAIN_CONNECT_SYNC_UX}
@@ -362,7 +329,6 @@ def simulated_email_domains(domains: SimulatedEmailDomains = SIMULATED_EMAIL_DOM
     with ExitStack() as stack:
         stack.enter_context(patch.object(providers, "SESProvider", lambda: SimulatedSESProvider(domains)))
         stack.enter_context(patch.object(dns.resolver.Resolver, "resolve", resolver_method))
-        stack.enter_context(patch.object(dns.resolver, "resolve", resolve))
         stack.enter_context(patch.object(domain_connect, "_fetch_provider_settings", fetch_provider_settings))
         stack.enter_context(
             patch.object(domain_connect, "get_signing_key", lambda: original_signing_key() or eval_signing_key)
