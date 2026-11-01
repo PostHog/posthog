@@ -9,12 +9,14 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from posthog.schema import (
     CompareFilter,
     DateRange,
     EventPropertyFilter,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     SessionTableVersion,
     WebGoalsQuery,
 )
@@ -164,6 +166,15 @@ class TestWebGoalsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ["Visited Web Analytics", (0, 0), (0, 0), (0, 0)],
             ["Clicked Pay", (0, 0), (0, 0), (0, 0)],
         ]
+
+    def test_no_crash_when_query_returns_no_rows(self):
+        self._create_actions()
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_goals.execute_hogql_query",
+            return_value=HogQLQueryResponse(results=[]),
+        ):
+            results = self._run_web_goals_query("2024-11-01", None).results
+        assert results == []
 
     def test_no_comparison(self):
         self._create_actions()
