@@ -206,8 +206,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        // 2026-11-01: 6.85 MiB, stable CSS included. ~3% headroom.
-        budgetBytes: 7_400_000,
+        // 2026-11-01: 6.49 MiB, stable CSS included. ~1% headroom.
+        budgetBytes: 6_880_000,
         forbidden: [
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
