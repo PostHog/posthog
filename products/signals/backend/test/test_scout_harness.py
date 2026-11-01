@@ -4106,7 +4106,7 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 )
 @pytest.mark.parametrize(
     "workflow_origin_key,trial_launch_id,timeout_minutes",
-    [("job:step:1", None, 36), (None, None, 36), (None, "11111111-1111-1111-1111-111111111111", 51)],
+    [("job:step:1", None, 46), (None, None, 46), (None, "11111111-1111-1111-1111-111111111111", 51)],
 )
 async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(
     outcome, workflow_origin_key, trial_launch_id, timeout_minutes
