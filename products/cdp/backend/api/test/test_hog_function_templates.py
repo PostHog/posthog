@@ -228,6 +228,10 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert updated_response.json()["name"] == "Updated Slack"
         assert updated_response.json()["description"] == "This template was updated"
 
+        list_response = self.client.get("/api/projects/@current/hog_function_templates/?limit=100")
+        slack_rows = [row for row in list_response.json()["results"] if row["id"] == "template-slack"]
+        assert [row["name"] for row in slack_rows] == ["Updated Slack"]
+
     def test_public_hog_function_templates_are_sorted_by_usage(self):
         for i in range(10):
             HogFunction.objects.create(
@@ -253,6 +257,16 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert results[0]["id"] == "template-slack"
         assert results[1]["id"] == "template-test-2"
         assert results[2]["id"] == "template-test-0"
+
+        # The catalog is sorted before it is paginated, so paging through it returns every template
+        # once, in the same order.
+        paged_ids: list[str] = []
+        for offset in range(0, len(results), 2):
+            page = self.client.get(f"/api/public_hog_function_templates/?limit=2&offset={offset}")
+            assert page.status_code == status.HTTP_200_OK, page.json()
+            paged_ids.extend(template["id"] for template in page.json()["results"])
+
+        assert paged_ids == [template["id"] for template in results]
 
     @parameterized.expand(
         [
