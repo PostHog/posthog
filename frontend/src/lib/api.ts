@@ -19,6 +19,7 @@ import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
+import { HogQLQueryString } from 'lib/utils/hogql'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
@@ -69,7 +70,7 @@ import {
     SpanTreeNode,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,

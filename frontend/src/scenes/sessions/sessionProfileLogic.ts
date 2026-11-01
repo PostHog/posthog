@@ -2,9 +2,9 @@ import { MakeLogicType, actions, connect, events, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { hogql } from 'lib/utils/hogql'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { SessionEventType } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../types'

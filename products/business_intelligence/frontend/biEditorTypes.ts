@@ -1,4 +1,10 @@
 import { dayjs } from 'lib/dayjs'
+import {
+    escapeDottedHogQLIdentifier,
+    escapeHogQLString,
+    escapePropertyAsHogQLIdentifier,
+    escapeRawPropertyAsHogQLIdentifier,
+} from 'lib/utils/hogql'
 
 import { getAutoBoxPlotSettings } from '~/queries/nodes/DataVisualization/Components/Charts/sqlBoxPlotAdapter'
 import {
@@ -22,12 +28,6 @@ import {
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import {
-    escapeDottedHogQLIdentifier,
-    escapeHogQLString,
-    escapePropertyAsHogQLIdentifier,
-    escapeRawPropertyAsHogQLIdentifier,
-} from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import {

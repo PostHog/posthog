@@ -5,11 +5,11 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
