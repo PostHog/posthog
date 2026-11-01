@@ -472,6 +472,14 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         notebook = Notebook.objects.get(team=self.team, short_id="abcd")
         assert notebook.title == "From Artifact"
 
+        duplicate = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "From Artifact again", "short_id": "abcd"},
+            format="json",
+        )
+        assert duplicate.status_code == status.HTTP_409_CONFLICT, duplicate.json()
+        assert Notebook.objects.filter(team=self.team, short_id="abcd").count() == 1
+
     def test_create_notebook_without_short_id_auto_generates(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
