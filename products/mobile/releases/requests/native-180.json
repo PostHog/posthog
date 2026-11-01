@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "native-180",
+  "kind": "native",
+  "runtimeVersion": "1.8.0",
+  "previousRelease": "native-170",
+  "notes": "Report links from Slack and other web sources open in the app on iOS and Android. Verify that a report link opens the report screen with the app installed, and the browser without it."
+}

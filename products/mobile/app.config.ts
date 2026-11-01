@@ -41,6 +41,8 @@ const ICONS: Record<AppVariant, { png: string; adaptive: string }> = {
     production: { png: './assets/icon.png', adaptive: './assets/adaptive-icon.png' },
 }
 
+const APP_LINK_HOSTS = ['us.posthog.com', 'eu.posthog.com']
+
 export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     const variant = readVariant()
     const { name, idSuffix, scheme } = variantTable.variants[variant]
@@ -59,7 +61,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.7.0',
+        version: '1.8.0',
         orientation: 'portrait',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
@@ -68,6 +70,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             // variants use their PNG, which keeps their band visible on the home screen.
             icon: variant === 'production' ? './assets/app.icon' : icons.png,
             bundleIdentifier: appId,
+            // The server lists the matching paths in posthog/mobile_app_links.py.
+            associatedDomains: APP_LINK_HOSTS.map((host) => `applinks:${host}`),
             // Local device builds sign automatically with this team; EAS builds carry their own credentials.
             appleTeamId: process.env.APPLE_TEAM_ID,
             supportsTablet: false,
@@ -113,6 +117,19 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         },
         android: {
             package: androidPackage,
+            // Keep pathPattern in sync with APP_LINK_PATHS in posthog/mobile_app_links.py.
+            intentFilters: [
+                {
+                    action: 'VIEW',
+                    autoVerify: true,
+                    data: APP_LINK_HOSTS.map((host) => ({
+                        scheme: 'https',
+                        host,
+                        pathPattern: '/project/.*/inbox/reports/.*',
+                    })),
+                    category: ['BROWSABLE', 'DEFAULT'],
+                },
+            ],
             googleServicesFile: googleServicesFile(projectRoot),
             adaptiveIcon: {
                 foregroundImage: icons.adaptive,
