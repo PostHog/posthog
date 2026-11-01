@@ -196,7 +196,7 @@ const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | 
     if (!from || from.isDefault) {
         return undefined
     }
-    return from.email ? { email: from.email, name: from.name } : from
+    return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
 }
 
 export class CdpApi {
