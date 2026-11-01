@@ -2,26 +2,24 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonButton,
-    LemonCollapse,
-    LemonInput,
-    LemonLabel,
-    LemonSegmentedButton,
-    LemonSelect,
-    LemonSwitch,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 
+import { AxisLabelOption } from 'lib/components/ChartOptions/AxisLabelOption'
+import { AxisScaleOption } from 'lib/components/ChartOptions/AxisScaleOption'
+import { BeginAtZeroOption } from 'lib/components/ChartOptions/BeginAtZeroOption'
+import { ChartOptionGroup } from 'lib/components/ChartOptions/ChartOptionGroup'
+import { ChartOptionSelect } from 'lib/components/ChartOptions/ChartOptionSelect'
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
+import { ChartOptionTextInput } from 'lib/components/ChartOptions/ChartOptionTextInput'
+import { ChartOptionToggleGroup } from 'lib/components/ChartOptions/ChartOptionToggleGroup'
+import { ExcludeOutliersOption } from 'lib/components/ChartOptions/ExcludeOutliersOption'
+import { LegendOption } from 'lib/components/ChartOptions/LegendOption'
+import { LineStyleOption } from 'lib/components/ChartOptions/LineStyleOption'
+import { MetricOptions } from 'lib/components/ChartOptions/MetricOptions'
+import { PercentOfTotalOption } from 'lib/components/ChartOptions/PercentOfTotalOption'
+import { PieTotalOption } from 'lib/components/ChartOptions/PieTotalOption'
+import { ValuesOnSeriesOption } from 'lib/components/ChartOptions/ValuesOnSeriesOption'
 import { GoalLinesList } from 'lib/components/GoalLinesList'
-import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
-import {
-    METRIC_COLOR_BY_DIRECTION_DEFAULT,
-    METRIC_DEFAULT_DECREASE_COLOR,
-    METRIC_DEFAULT_INCREASE_COLOR,
-    METRIC_SHOW_CHANGE_DEFAULT,
-    type MetricSummary,
-} from 'lib/components/Metric/metricSummary'
 import { PART_OF_WHOLE_DISPLAY_TYPES, PIE_DISPLAY_TYPES } from 'lib/constants'
 
 import { ChartDisplayType } from '~/types'
@@ -30,6 +28,7 @@ import { dataVisualizationLogic } from '../dataVisualizationLogic'
 import { displayLogic } from '../displayLogic'
 import { buildPieSlices, partOfWholeChartData, showsLegendByDefault, showsPieTotal } from './Charts/sqlPieGraphAdapter'
 import { SQL_METRIC_SUMMARY_DEFAULT } from './Charts/useSqlMetricModel'
+import { DisplayTabPanel, DisplayTabPanels } from './DisplayTabPanels'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const PIE_SLICE_CONTENT_OPTIONS: { value: 'labels' | 'values' | 'none'; label: string }[] = [
@@ -43,22 +42,26 @@ const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: stri
     { value: 'percentage', label: 'Percentage' },
 ]
 
-const LEGEND_POSITION_OPTIONS: { value: 'top' | 'bottom' | 'left' | 'right'; label: string }[] = [
-    { value: 'top', label: 'Top' },
-    { value: 'bottom', label: 'Bottom' },
-    { value: 'left', label: 'Left' },
-    { value: 'right', label: 'Right' },
+const VALUE_POSITION_OPTIONS: { value: 'end' | 'center'; label: string }[] = [
+    { value: 'end', label: 'At the end' },
+    { value: 'center', label: 'Inside' },
 ]
 
-const METRIC_SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
-    { value: 'latest', label: 'Latest' },
-    { value: 'total', label: 'Total' },
-    { value: 'average', label: 'Average' },
+const FONT_SIZE_OPTIONS = [8, 10, 12, 14, 16, 20, 24, 32].map((value) => ({ value, label: `${value}px` }))
+
+const ROTATION_OPTIONS = [0, -45, -90, 45, 90].map((value) => ({ value, label: `${value}°` }))
+
+// A select value can't be null, so "Automatic" stands in for an unset rotation.
+const TICK_ROTATION_OPTIONS: { value: number | 'auto'; label: string }[] = [
+    { value: 'auto', label: 'Automatic' },
+    ...ROTATION_OPTIONS,
 ]
 
-const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
-    { value: 'smooth', label: 'Smooth' },
-    { value: 'linear', label: 'Straight' },
+const BAR_GAP_OPTIONS = [
+    { value: 0, label: 'None' },
+    { value: 0.1, label: 'Small' },
+    { value: 0.2, label: 'Medium' },
+    { value: 0.4, label: 'Large' },
 ]
 
 export const DisplayTab = (): JSX.Element => {
@@ -106,588 +109,327 @@ export const DisplayTab = (): JSX.Element => {
 
         return (
             <>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Axis label</LemonLabel>
-                    <LemonInput
-                        data-attr={`data-visualization-${name === 'leftYAxisSettings' ? 'left' : 'right'}-y-axis-label-input`}
-                        value={chartSettings[name]?.label ?? ''}
-                        placeholder={labelPlaceholder}
-                        onChange={(value) => {
-                            updateChartSettings({ [name]: { label: value } })
-                        }}
-                    />
-                </div>
-                <div className="flex gap-2 items-center justify-between">
-                    <span className="font-medium">Scale</span>
-                    <LemonSelect
-                        size="xsmall"
-                        value={chartSettings[name]?.scale ?? 'linear'}
-                        options={[
-                            { value: 'linear', label: 'Linear' },
-                            { value: 'logarithmic', label: 'Logarithmic' },
-                        ]}
-                        onChange={(value) => {
-                            updateChartSettings({ [name]: { scale: value } })
-                        }}
-                    />
-                </div>
-                <LemonSwitch
-                    className="flex-1 w-full"
+                <AxisLabelOption
+                    data-attr={`data-visualization-${name === 'leftYAxisSettings' ? 'left' : 'right'}-y-axis-label-input`}
+                    value={chartSettings[name]?.label}
+                    placeholder={labelPlaceholder}
+                    onChange={(label) => updateChartSettings({ [name]: { label } })}
+                />
+                <AxisScaleOption
+                    value={chartSettings[name]?.scale === 'logarithmic' ? 'log' : 'linear'}
+                    onChange={(scale) =>
+                        updateChartSettings({ [name]: { scale: scale === 'log' ? 'logarithmic' : 'linear' } })
+                    }
+                />
+                <ChartOptionSwitch
                     label="Show tick labels"
                     checked={chartSettings[name]?.showTicks ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { showTicks: value } })
-                    }}
+                    onChange={(showTicks) => updateChartSettings({ [name]: { showTicks } })}
                 />
-
                 {!isBoxPlot && (
-                    <LemonSwitch
-                        className="flex-1 w-full"
-                        label="Begin at zero"
+                    <BeginAtZeroOption
                         checked={
                             chartSettings[name]?.startAtZero ??
                             (isScatterPlot ? false : (chartSettings.yAxisAtZero ?? true))
                         }
-                        onChange={(value) => {
-                            updateChartSettings({ [name]: { startAtZero: value } })
-                        }}
+                        onChange={(startAtZero) => updateChartSettings({ [name]: { startAtZero } })}
                     />
                 )}
-                <LemonSwitch
-                    className="flex-1 w-full"
+                <ChartOptionSwitch
                     label="Show grid lines"
                     checked={chartSettings[name]?.showGridLines ?? true}
-                    onChange={(value) => {
-                        updateChartSettings({ [name]: { showGridLines: value } })
-                    }}
+                    onChange={(showGridLines) => updateChartSettings({ [name]: { showGridLines } })}
                 />
             </>
         )
     }
 
     if (isMetric) {
-        const metric = chartSettings.metric ?? {}
-        const showChange = metric.showChange ?? METRIC_SHOW_CHANGE_DEFAULT
-        const colorByDirection = metric.colorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT
-
         return (
-            <div className="flex flex-col w-full">
-                <LemonCollapse
-                    embedded
-                    defaultActiveKeys={['metric']}
-                    multiple
-                    panels={[
-                        {
-                            key: 'metric',
-                            header: 'Metric',
-                            className: 'p-2 flex flex-col gap-2',
-                            content: (
-                                <>
-                                    <div className="flex flex-col gap-1">
-                                        <LemonLabel>Headline value</LemonLabel>
-                                        <LemonSelect
-                                            className="w-full"
-                                            data-attr="data-visualization-metric-summary"
-                                            value={metric.summary ?? SQL_METRIC_SUMMARY_DEFAULT}
-                                            options={METRIC_SUMMARY_OPTIONS}
-                                            onChange={(value) => updateChartSettings({ metric: { summary: value } })}
-                                            fullWidth
-                                        />
-                                    </div>
-                                    <LemonSwitch
-                                        className="flex-1 w-full"
-                                        label="Show change"
-                                        checked={showChange}
-                                        onChange={(value) => updateChartSettings({ metric: { showChange: value } })}
-                                    />
-                                    {showChange && (
-                                        <MetricDirectionColorPickers
-                                            className="gap-2"
-                                            increaseColor={metric.changeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
-                                            decreaseColor={metric.changeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
-                                            onIncrease={(color) =>
-                                                updateChartSettings({ metric: { changeIncreaseColor: color } })
-                                            }
-                                            onDecrease={(color) =>
-                                                updateChartSettings({ metric: { changeDecreaseColor: color } })
-                                            }
-                                        />
-                                    )}
-                                    <LemonSwitch
-                                        className="flex-1 w-full"
-                                        label="Color by trend"
-                                        checked={colorByDirection}
-                                        onChange={(value) =>
-                                            updateChartSettings({ metric: { colorByDirection: value } })
-                                        }
-                                    />
-                                    {colorByDirection && (
-                                        <MetricDirectionColorPickers
-                                            className="gap-2"
-                                            increaseColor={metric.lineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
-                                            decreaseColor={metric.lineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
-                                            onIncrease={(color) =>
-                                                updateChartSettings({ metric: { lineIncreaseColor: color } })
-                                            }
-                                            onDecrease={(color) =>
-                                                updateChartSettings({ metric: { lineDecreaseColor: color } })
-                                            }
-                                        />
-                                    )}
-                                </>
-                            ),
-                        },
-                    ]}
-                />
-            </div>
-        )
-    }
-
-    return (
-        <div className="flex flex-col w-full">
-            <LemonCollapse
-                embedded
-                defaultActiveKeys={['general']}
-                multiple
+            <DisplayTabPanels
+                defaultOpenKeys={['general']}
                 panels={[
                     {
                         key: 'general',
                         header: 'General',
-                        className: 'p-2 flex flex-col gap-2',
                         content: (
-                            <>
-                                <LemonSwitch
-                                    className="flex-1 w-full"
-                                    label="Show legend"
-                                    checked={showLegend}
-                                    onChange={(value) => {
-                                        updateChartSettings({ showLegend: value })
-                                    }}
-                                />
-                                <div className="flex items-center justify-between gap-2">
-                                    <LemonLabel>Legend position</LemonLabel>
-                                    <LemonSelect
-                                        size="xsmall"
-                                        value={
-                                            chartSettings.legendPosition ??
-                                            (isProportionBar ? 'bottom' : isPieChart ? 'right' : 'top')
-                                        }
-                                        options={LEGEND_POSITION_OPTIONS}
-                                        disabledReason={
-                                            showLegend ? undefined : 'Turn the legend on to set its position'
-                                        }
-                                        onChange={(value) => updateChartSettings({ legendPosition: value })}
-                                    />
-                                </div>
-                                {isBoxPlot && (
-                                    <LemonSwitch
-                                        className="flex-1 w-full"
-                                        label="Exclude outliers"
-                                        checked={chartSettings.boxPlot?.excludeOutliers !== false}
-                                        onChange={(value) => {
-                                            updateChartSettings({ boxPlot: { excludeOutliers: value } })
-                                        }}
-                                    />
-                                )}
-                                {supportsAnnotations && (
-                                    <LemonSwitch
-                                        className="flex-1 w-full"
-                                        data-attr="data-visualization-show-annotations"
-                                        label="Show annotations"
-                                        disabledReason={
-                                            !isDateXAxis && 'Annotations need a Date or DateTime column on the X-axis'
-                                        }
-                                        checked={isDateXAxis && (chartSettings.showAnnotations ?? false)}
-                                        onChange={(value) => {
-                                            updateChartSettings({ showAnnotations: value })
-                                        }}
-                                    />
-                                )}
-                                {isPartOfWholeChart ? (
-                                    <>
-                                        {isPieChart && (
-                                            <>
-                                                <div className="flex flex-col gap-1">
-                                                    <LemonLabel>Show on slices</LemonLabel>
-                                                    <LemonSegmentedButton
-                                                        className="w-full"
-                                                        value={chartSettings.pie?.sliceContent ?? 'values'}
-                                                        onChange={(value) =>
-                                                            updateChartSettings({ pie: { sliceContent: value } })
-                                                        }
-                                                        options={PIE_SLICE_CONTENT_OPTIONS}
-                                                        fullWidth
-                                                    />
-                                                </div>
-                                                <div className="flex flex-col gap-1">
-                                                    <LemonLabel>Show values as</LemonLabel>
-                                                    <LemonSegmentedButton
-                                                        className="w-full"
-                                                        value={chartSettings.pie?.valueDisplay ?? 'absolute'}
-                                                        onChange={(value) =>
-                                                            updateChartSettings({ pie: { valueDisplay: value } })
-                                                        }
-                                                        options={PIE_VALUE_DISPLAY_OPTIONS}
-                                                        fullWidth
-                                                    />
-                                                </div>
-                                            </>
-                                        )}
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label={isDonutChart ? 'Show total in center' : 'Show total below chart'}
-                                            checked={showsPieTotal(chartSettings, isProportionBar)}
-                                            onChange={(value) => {
-                                                updateChartSettings({ pie: { showTotal: value } })
-                                            }}
-                                        />
-                                    </>
-                                ) : (
-                                    <>
-                                        {isScatterPlot && (
-                                            <LemonSwitch
-                                                className="flex-1 w-full"
-                                                label="Show line of best fit"
-                                                checked={chartSettings.scatter?.showBestFit ?? false}
-                                                onChange={(value) => {
-                                                    updateChartSettings({ scatter: { showBestFit: value } })
-                                                }}
-                                            />
-                                        )}
-                                        {!isSingleAxisChart && (
-                                            <>
-                                                <LemonSwitch
-                                                    className="flex-1 w-full"
-                                                    label="Show total row"
-                                                    checked={chartSettings.showTotalRow ?? true}
-                                                    onChange={(value) => {
-                                                        updateChartSettings({ showTotalRow: value })
-                                                    }}
-                                                />
-                                                <LemonSwitch
-                                                    className="flex-1 w-full"
-                                                    label="Show nulls as zero"
-                                                    checked={chartSettings.showNullsAsZero ?? false}
-                                                    onChange={(value) => {
-                                                        updateChartSettings({ showNullsAsZero: value })
-                                                    }}
-                                                />
-                                                <LemonSwitch
-                                                    className="flex-1 w-full"
-                                                    label="Show values on series"
-                                                    checked={chartSettings.showValuesOnSeries ?? false}
-                                                    onChange={(value) => {
-                                                        updateChartSettings({ showValuesOnSeries: value })
-                                                    }}
-                                                />
-                                            </>
-                                        )}
-                                        {chartSettings.showValuesOnSeries && !isSingleAxisChart && (
-                                            <>
-                                                {!isLineChart && (
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <LemonLabel>Value position</LemonLabel>
-                                                        <LemonSelect
-                                                            size="xsmall"
-                                                            value={chartSettings.valueLabelPosition ?? 'end'}
-                                                            options={[
-                                                                { value: 'end', label: 'At the end' },
-                                                                { value: 'center', label: 'Inside' },
-                                                            ]}
-                                                            onChange={(valueLabelPosition) =>
-                                                                updateChartSettings({ valueLabelPosition })
-                                                            }
-                                                        />
-                                                    </div>
-                                                )}
-                                                <LemonSwitch
-                                                    label="Value background"
-                                                    checked={chartSettings.valueLabelBackground ?? true}
-                                                    onChange={(valueLabelBackground) =>
-                                                        updateChartSettings({ valueLabelBackground })
-                                                    }
-                                                />
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <LemonLabel>Value font size</LemonLabel>
-                                                    <LemonSelect
-                                                        size="xsmall"
-                                                        value={chartSettings.valueLabelFontSize ?? 12}
-                                                        options={[8, 10, 12, 14, 16, 20, 24, 32].map((value) => ({
-                                                            value,
-                                                            label: `${value}px`,
-                                                        }))}
-                                                        onChange={(valueLabelFontSize) =>
-                                                            updateChartSettings({ valueLabelFontSize })
-                                                        }
-                                                    />
-                                                </div>
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <LemonLabel>Value rotation</LemonLabel>
-                                                    <LemonSelect
-                                                        size="xsmall"
-                                                        value={chartSettings.valueLabelRotation ?? 0}
-                                                        options={[0, -45, -90, 45, 90].map((value) => ({
-                                                            value,
-                                                            label: `${value}°`,
-                                                        }))}
-                                                        onChange={(valueLabelRotation) =>
-                                                            updateChartSettings({ valueLabelRotation })
-                                                        }
-                                                    />
-                                                </div>
-                                            </>
-                                        )}
-                                        {(isStackedBarChart ||
-                                            isHorizontalBarChart ||
-                                            effectiveVisualizationType === ChartDisplayType.ActionsBar) && (
-                                            <div className="flex items-center justify-between gap-2">
-                                                <LemonLabel>Bar spacing</LemonLabel>
-                                                <LemonSelect
-                                                    size="xsmall"
-                                                    value={chartSettings.barGap ?? 0.2}
-                                                    options={[
-                                                        { value: 0, label: 'None' },
-                                                        { value: 0.1, label: 'Small' },
-                                                        { value: 0.2, label: 'Medium' },
-                                                        { value: 0.4, label: 'Large' },
-                                                    ]}
-                                                    onChange={(barGap) => updateChartSettings({ barGap })}
-                                                />
-                                            </div>
-                                        )}
-                                        {isDateXAxis && (
-                                            <div className="flex flex-col gap-1">
-                                                <LemonLabel>Date format</LemonLabel>
-                                                <LemonInput
-                                                    value={chartSettings.xAxisDateFormat ?? ''}
-                                                    placeholder="Automatic"
-                                                    onChange={(xAxisDateFormat) =>
-                                                        updateChartSettings({
-                                                            xAxisDateFormat: xAxisDateFormat || undefined,
-                                                        })
-                                                    }
-                                                    data-attr="chart-date-format"
-                                                />
-                                                <span className="text-xs text-secondary">
-                                                    For example, YYYY-MM-DD, MMM YYYY, or DD/MM/YYYY.
-                                                </span>
-                                            </div>
-                                        )}
-                                        {!isSingleAxisChart && (
-                                            <div className="flex items-center justify-between gap-2">
-                                                <LemonLabel>Tick label rotation</LemonLabel>
-                                                <LemonSelect
-                                                    size="xsmall"
-                                                    value={chartSettings.xAxisTickRotation ?? null}
-                                                    options={[
-                                                        { value: null, label: 'Automatic' },
-                                                        ...[0, -45, -90, 45, 90].map((value) => ({
-                                                            value,
-                                                            label: `${value}°`,
-                                                        })),
-                                                    ]}
-                                                    onChange={(xAxisTickRotation) =>
-                                                        updateChartSettings({
-                                                            xAxisTickRotation: xAxisTickRotation ?? undefined,
-                                                        })
-                                                    }
-                                                />
-                                            </div>
-                                        )}
-                                        {isLineChart && (
-                                            <div className="flex flex-col gap-1">
-                                                <LemonLabel>Line style</LemonLabel>
-                                                <LemonSegmentedButton
-                                                    className="w-full"
-                                                    data-attr="data-visualization-line-style"
-                                                    value={chartSettings.chartStyle?.curve ?? 'smooth'}
-                                                    onChange={(value) =>
-                                                        updateChartSettings({ chartStyle: { curve: value } })
-                                                    }
-                                                    options={LINE_STYLE_OPTIONS}
-                                                    fullWidth
-                                                />
-                                            </div>
-                                        )}
-                                        <div className="flex flex-col gap-1">
-                                            <LemonLabel>
-                                                {isHorizontalBarChart ? 'Y-axis label' : 'X-axis label'}
-                                            </LemonLabel>
-                                            <LemonInput
-                                                data-attr="data-visualization-x-axis-label-input"
-                                                value={chartSettings.xAxisLabel ?? ''}
-                                                placeholder={isHorizontalBarChart ? 'Y-axis label' : 'X-axis label'}
-                                                onChange={(value) => {
-                                                    updateChartSettings({ xAxisLabel: value })
-                                                }}
-                                            />
-                                        </div>
-                                        <LemonSwitch
-                                            className="flex-1 w-full"
-                                            label={
-                                                isHorizontalBarChart
-                                                    ? 'Show Y-axis tick labels'
-                                                    : 'Show X-axis tick labels'
-                                            }
-                                            checked={chartSettings.showXAxisTicks ?? true}
-                                            onChange={(value) => {
-                                                updateChartSettings({ showXAxisTicks: value })
-                                            }}
-                                        />
-                                        {/* Quill's scatter draws both axis lines together, so a
-                                            per-edge toggle can't be honored there. */}
-                                        {!isScatterPlot && (
-                                            <>
-                                                <LemonSwitch
-                                                    className="flex-1 w-full"
-                                                    label={
-                                                        isHorizontalBarChart
-                                                            ? 'Show Y-axis border'
-                                                            : 'Show X-axis border'
-                                                    }
-                                                    checked={chartSettings.showXAxisBorder ?? true}
-                                                    onChange={(value) => {
-                                                        updateChartSettings({ showXAxisBorder: value })
-                                                    }}
-                                                />
-                                                <LemonSwitch
-                                                    className="flex-1 w-full"
-                                                    label={
-                                                        isHorizontalBarChart
-                                                            ? 'Show X-axis border'
-                                                            : 'Show Y-axis border'
-                                                    }
-                                                    checked={chartSettings.showYAxisBorder ?? true}
-                                                    onChange={(value) => {
-                                                        updateChartSettings({ showYAxisBorder: value })
-                                                    }}
-                                                />
-                                            </>
-                                        )}
-                                    </>
-                                )}
-                            </>
+                            <MetricOptions
+                                settings={chartSettings.metric ?? {}}
+                                defaultSummary={SQL_METRIC_SUMMARY_DEFAULT}
+                                onChange={(metric) => updateChartSettings({ metric })}
+                                summaryDataAttr="data-visualization-metric-summary"
+                            />
                         ),
                     },
-                    isScatterPlot
-                        ? {
-                              key: 'x-axis',
-                              header: 'X-axis',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: (
-                                  <>
-                                      <div className="flex gap-2 items-center justify-between">
-                                          <span className="font-medium">Scale</span>
-                                          <LemonSelect
-                                              size="xsmall"
-                                              value={chartSettings.scatter?.xScale ?? 'linear'}
-                                              options={[
-                                                  { value: 'linear', label: 'Linear' },
-                                                  { value: 'logarithmic', label: 'Logarithmic' },
-                                              ]}
-                                              onChange={(value) => {
-                                                  updateChartSettings({ scatter: { xScale: value } })
-                                              }}
-                                          />
-                                      </div>
-                                      <LemonSwitch
-                                          className="flex-1 w-full"
-                                          label="Begin at zero"
-                                          checked={chartSettings.scatter?.xStartAtZero ?? false}
-                                          onChange={(value) => {
-                                              updateChartSettings({ scatter: { xStartAtZero: value } })
-                                          }}
-                                      />
-                                  </>
-                              ),
-                          }
-                        : null,
-                    !isPartOfWholeChart
-                        ? {
-                              key: 'left-y-axis',
-                              header: isHorizontalBarChart ? 'X-axis' : supportsRightYAxis ? 'Left Y-axis' : 'Y-axis',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: renderYAxisSettings('leftYAxisSettings'),
-                          }
-                        : null,
-                    !isPartOfWholeChart && supportsRightYAxis
-                        ? {
-                              key: 'right-y-axis',
-                              header: 'Right Y-axis',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: renderYAxisSettings('rightYAxisSettings'),
-                          }
-                        : null,
-                    isStackedBarChart
-                        ? {
-                              key: 'stacked-bar-chart',
-                              header: 'Stack bars',
-                              className: 'p-2 flex flex-col gap-2',
-                              content: (
-                                  <LemonSwitch
-                                      className="flex-1"
-                                      label="Stack bars 100%"
-                                      checked={chartSettings.stackBars100 ?? false}
-                                      onChange={(value) => {
-                                          updateChartSettings({ stackBars100: value })
-                                      }}
-                                  />
-                              ),
-                          }
-                        : null,
-                    !isPartOfWholeChart && !isSingleAxisChart
-                        ? {
-                              key: 'goals',
-                              header: (
-                                  <div className="flex items-center gap-1 flex-1">
-                                      <span className="flex-1">
-                                          {query.kind === 'BIVisualizationNode' ? 'Reference lines' : 'Goals'}
-                                      </span>
-                                      {goalLines.length > 0 && (
-                                          <LemonBadge.Number status="muted" size="small" count={goalLines.length} />
-                                      )}
-                                  </div>
-                              ),
-                              className: 'p-2',
-                              content: (
-                                  <>
-                                      <GoalLinesList
-                                          allowCalculations={query.kind === 'BIVisualizationNode'}
-                                          calculationDisabledReason={
-                                              isStackedBarChart && chartSettings.stackBars100
-                                                  ? 'Calculated lines are hidden on 100% stacked charts. Use a constant or turn off percentage stacking.'
-                                                  : undefined
-                                          }
-                                          goalLines={goalLines}
-                                          removeGoalLine={removeGoalLine}
-                                          updateGoalLine={updateGoalLine}
-                                      />
-                                      <LemonButton
-                                          className="mt-1"
-                                          onClick={addGoalLine}
-                                          icon={<IconPlusSmall />}
-                                          fullWidth
-                                      >
-                                          {query.kind === 'BIVisualizationNode'
-                                              ? 'Add reference line'
-                                              : 'Add goal line'}
-                                      </LemonButton>
-                                      {query.kind === 'BIVisualizationNode' && (
-                                          <p className="text-xs text-secondary mt-2 mb-0">
-                                              Calculations use returned marks on the left axis after aggregation and
-                                              table calculations. Per series adds a line for each color group or
-                                              measure. Result limits apply.
-                                              {isStackedBarChart && chartSettings.stackBars100 && (
-                                                  <span> Calculated lines are hidden on 100% stacked charts.</span>
-                                              )}
-                                          </p>
-                                      )}
-                                  </>
-                              ),
-                          }
-                        : null,
                 ]}
             />
-        </div>
+        )
+    }
+
+    const generalOptions = (
+        <>
+            <LegendOption
+                showLegend={showLegend}
+                onShowLegendChange={(value) => updateChartSettings({ showLegend: value })}
+                position={chartSettings.legendPosition ?? (isProportionBar ? 'bottom' : isPieChart ? 'right' : 'top')}
+                onPositionChange={(legendPosition) => updateChartSettings({ legendPosition })}
+            />
+            {isBoxPlot && (
+                <ExcludeOutliersOption
+                    checked={chartSettings.boxPlot?.excludeOutliers !== false}
+                    onChange={(excludeOutliers) => updateChartSettings({ boxPlot: { excludeOutliers } })}
+                />
+            )}
+            {supportsAnnotations && (
+                <ChartOptionSwitch
+                    label="Show annotations"
+                    data-attr="data-visualization-show-annotations"
+                    disabledReason={
+                        !isDateXAxis ? 'Annotations need a Date or DateTime column on the X-axis' : undefined
+                    }
+                    checked={isDateXAxis && (chartSettings.showAnnotations ?? false)}
+                    onChange={(showAnnotations) => updateChartSettings({ showAnnotations })}
+                />
+            )}
+            {isPartOfWholeChart ? (
+                <>
+                    {isPieChart && (
+                        <>
+                            <ChartOptionToggleGroup
+                                label="Show on slices"
+                                value={chartSettings.pie?.sliceContent ?? 'values'}
+                                options={PIE_SLICE_CONTENT_OPTIONS}
+                                onChange={(sliceContent) => updateChartSettings({ pie: { sliceContent } })}
+                            />
+                            <ChartOptionToggleGroup
+                                label="Show values as"
+                                value={chartSettings.pie?.valueDisplay ?? 'absolute'}
+                                options={PIE_VALUE_DISPLAY_OPTIONS}
+                                onChange={(valueDisplay) => updateChartSettings({ pie: { valueDisplay } })}
+                            />
+                        </>
+                    )}
+                    <PieTotalOption
+                        isDonut={isDonutChart}
+                        checked={showsPieTotal(chartSettings, isProportionBar)}
+                        onChange={(showTotal) => updateChartSettings({ pie: { showTotal } })}
+                    />
+                </>
+            ) : (
+                <>
+                    {isScatterPlot && (
+                        <ChartOptionSwitch
+                            label="Show line of best fit"
+                            checked={chartSettings.scatter?.showBestFit ?? false}
+                            onChange={(showBestFit) => updateChartSettings({ scatter: { showBestFit } })}
+                        />
+                    )}
+                    {isStackedBarChart && (
+                        <PercentOfTotalOption
+                            checked={chartSettings.stackBars100 ?? false}
+                            onChange={(stackBars100) => updateChartSettings({ stackBars100 })}
+                        />
+                    )}
+                    {!isSingleAxisChart && (
+                        <>
+                            <ChartOptionSwitch
+                                label="Show total row"
+                                checked={chartSettings.showTotalRow ?? true}
+                                onChange={(showTotalRow) => updateChartSettings({ showTotalRow })}
+                            />
+                            <ChartOptionSwitch
+                                label="Show nulls as zero"
+                                checked={chartSettings.showNullsAsZero ?? false}
+                                onChange={(showNullsAsZero) => updateChartSettings({ showNullsAsZero })}
+                            />
+                            <ValuesOnSeriesOption
+                                checked={chartSettings.showValuesOnSeries ?? false}
+                                onChange={(showValuesOnSeries) => updateChartSettings({ showValuesOnSeries })}
+                            />
+                        </>
+                    )}
+                    {chartSettings.showValuesOnSeries && !isSingleAxisChart && (
+                        <>
+                            {!isLineChart && (
+                                <ChartOptionSelect
+                                    label="Value position"
+                                    value={chartSettings.valueLabelPosition ?? 'end'}
+                                    options={VALUE_POSITION_OPTIONS}
+                                    onChange={(valueLabelPosition) => updateChartSettings({ valueLabelPosition })}
+                                />
+                            )}
+                            <ChartOptionSwitch
+                                label="Value background"
+                                checked={chartSettings.valueLabelBackground ?? true}
+                                onChange={(valueLabelBackground) => updateChartSettings({ valueLabelBackground })}
+                            />
+                            <ChartOptionSelect
+                                label="Value font size"
+                                value={chartSettings.valueLabelFontSize ?? 12}
+                                options={FONT_SIZE_OPTIONS}
+                                onChange={(valueLabelFontSize) => updateChartSettings({ valueLabelFontSize })}
+                            />
+                            <ChartOptionSelect
+                                label="Value rotation"
+                                value={chartSettings.valueLabelRotation ?? 0}
+                                options={ROTATION_OPTIONS}
+                                onChange={(valueLabelRotation) => updateChartSettings({ valueLabelRotation })}
+                            />
+                        </>
+                    )}
+                    {(isStackedBarChart ||
+                        isHorizontalBarChart ||
+                        effectiveVisualizationType === ChartDisplayType.ActionsBar) && (
+                        <ChartOptionSelect
+                            label="Bar spacing"
+                            value={chartSettings.barGap ?? 0.2}
+                            options={BAR_GAP_OPTIONS}
+                            onChange={(barGap) => updateChartSettings({ barGap })}
+                        />
+                    )}
+                </>
+            )}
+        </>
     )
+
+    // The horizontal bar chart swaps its axes, so the category axis is the Y-axis there.
+    const categoryAxisName = isHorizontalBarChart ? 'Y-axis' : 'X-axis'
+    const valueAxisName = isHorizontalBarChart ? 'X-axis' : 'Y-axis'
+    const axesOptions = (
+        <>
+            <ChartOptionGroup title={categoryAxisName}>
+                <AxisLabelOption
+                    data-attr="data-visualization-x-axis-label-input"
+                    value={chartSettings.xAxisLabel}
+                    placeholder={`${categoryAxisName} label`}
+                    onChange={(xAxisLabel) => updateChartSettings({ xAxisLabel })}
+                />
+                {isScatterPlot && (
+                    <>
+                        <AxisScaleOption
+                            value={chartSettings.scatter?.xScale === 'logarithmic' ? 'log' : 'linear'}
+                            onChange={(scale) =>
+                                updateChartSettings({
+                                    scatter: { xScale: scale === 'log' ? 'logarithmic' : 'linear' },
+                                })
+                            }
+                        />
+                        <BeginAtZeroOption
+                            checked={chartSettings.scatter?.xStartAtZero ?? false}
+                            onChange={(xStartAtZero) => updateChartSettings({ scatter: { xStartAtZero } })}
+                        />
+                    </>
+                )}
+                {isDateXAxis && (
+                    <ChartOptionTextInput
+                        label="Date format"
+                        info="For example, YYYY-MM-DD, MMM YYYY, or DD/MM/YYYY."
+                        value={chartSettings.xAxisDateFormat}
+                        placeholder="Automatic"
+                        onChange={(xAxisDateFormat) => updateChartSettings({ xAxisDateFormat })}
+                        data-attr="chart-date-format"
+                    />
+                )}
+                {!isSingleAxisChart && (
+                    <ChartOptionSelect
+                        label="Tick label rotation"
+                        value={chartSettings.xAxisTickRotation ?? 'auto'}
+                        options={TICK_ROTATION_OPTIONS}
+                        onChange={(rotation) =>
+                            updateChartSettings({ xAxisTickRotation: rotation === 'auto' ? undefined : rotation })
+                        }
+                    />
+                )}
+                <ChartOptionSwitch
+                    label="Show tick labels"
+                    checked={chartSettings.showXAxisTicks ?? true}
+                    onChange={(showXAxisTicks) => updateChartSettings({ showXAxisTicks })}
+                />
+                {/* Quill's scatter draws both axis lines together, so a per-edge toggle can't be honored there. */}
+                {!isScatterPlot && (
+                    <ChartOptionSwitch
+                        label="Show border"
+                        checked={chartSettings.showXAxisBorder ?? true}
+                        onChange={(showXAxisBorder) => updateChartSettings({ showXAxisBorder })}
+                    />
+                )}
+            </ChartOptionGroup>
+            <ChartOptionGroup title={supportsRightYAxis ? `Left ${valueAxisName}` : valueAxisName}>
+                {renderYAxisSettings('leftYAxisSettings')}
+                {!isScatterPlot && (
+                    <ChartOptionSwitch
+                        label="Show border"
+                        checked={chartSettings.showYAxisBorder ?? true}
+                        onChange={(showYAxisBorder) => updateChartSettings({ showYAxisBorder })}
+                    />
+                )}
+            </ChartOptionGroup>
+            {supportsRightYAxis && (
+                <ChartOptionGroup title={`Right ${valueAxisName}`}>
+                    {renderYAxisSettings('rightYAxisSettings')}
+                </ChartOptionGroup>
+            )}
+        </>
+    )
+
+    const isBIVisualization = query.kind === 'BIVisualizationNode'
+    const goalLinesOptions = (
+        <>
+            <GoalLinesList
+                allowCalculations={isBIVisualization}
+                calculationDisabledReason={
+                    isStackedBarChart && chartSettings.stackBars100
+                        ? 'Calculated lines are hidden on 100% stacked charts. Use a constant or turn off percentage stacking.'
+                        : undefined
+                }
+                goalLines={goalLines}
+                removeGoalLine={removeGoalLine}
+                updateGoalLine={updateGoalLine}
+            />
+            <LemonButton onClick={addGoalLine} icon={<IconPlusSmall />} fullWidth>
+                {isBIVisualization ? 'Add reference line' : 'Add goal line'}
+            </LemonButton>
+            {isBIVisualization && (
+                <p className="text-xs text-secondary mb-0">
+                    Calculations use returned marks on the left axis after aggregation and table calculations. Per
+                    series adds a line for each color group or measure. Result limits apply.
+                    {isStackedBarChart && chartSettings.stackBars100 && (
+                        <span> Calculated lines are hidden on 100% stacked charts.</span>
+                    )}
+                </p>
+            )}
+        </>
+    )
+
+    const panels: DisplayTabPanel[] = [{ key: 'general', header: 'General', content: generalOptions }]
+    if (!isPartOfWholeChart) {
+        panels.push({ key: 'axes', header: 'Axes', content: axesOptions })
+    }
+    if (isLineChart) {
+        panels.push({
+            key: 'lines',
+            header: 'Lines',
+            content: (
+                <LineStyleOption
+                    data-attr="data-visualization-line-style"
+                    value={chartSettings.chartStyle?.curve ?? 'smooth'}
+                    onChange={(curve) => updateChartSettings({ chartStyle: { curve } })}
+                />
+            ),
+        })
+    }
+    if (!isPartOfWholeChart && !isSingleAxisChart) {
+        panels.push({
+            key: 'goals',
+            header: (
+                <div className="flex items-center gap-1 flex-1">
+                    <span className="flex-1">{isBIVisualization ? 'Reference lines' : 'Goal lines'}</span>
+                    {goalLines.length > 0 && <LemonBadge.Number status="muted" size="small" count={goalLines.length} />}
+                </div>
+            ),
+            content: goalLinesOptions,
+        })
+    }
+
+    return <DisplayTabPanels defaultOpenKeys={['general']} panels={panels} />
 }

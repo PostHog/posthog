@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
+import { PieTotalOption } from 'lib/components/ChartOptions/PieTotalOption'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -27,16 +26,10 @@ export function ShowPieTotalFilter(): JSX.Element | null {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowTotal}
+        <PieTotalOption
+            isDonut={display === ChartDisplayType.ActionsDonut}
             checked={showTotal}
-            label={
-                <span className="font-normal">
-                    {display === ChartDisplayType.ActionsDonut ? 'Show total in center' : 'Show total below chart'}
-                </span>
-            }
-            size="small"
+            onChange={toggleShowTotal}
         />
     )
 }

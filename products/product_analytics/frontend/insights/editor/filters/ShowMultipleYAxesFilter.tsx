@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -15,12 +14,10 @@ export function ShowMultipleYAxesFilter(): JSX.Element {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={toggleShowMultipleYAxes}
+        <ChartOptionSwitch
+            label="Show multiple Y-axes"
             checked={!!showMultipleYAxes}
-            label={<span className="font-normal">Show multiple Y-axes</span>}
-            size="small"
+            onChange={toggleShowMultipleYAxes}
         />
     )
 }

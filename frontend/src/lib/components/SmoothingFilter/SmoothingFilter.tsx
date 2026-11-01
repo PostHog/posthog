@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPulse } from '@posthog/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
-
+import { ChartOptionSelect } from 'lib/components/ChartOptions/ChartOptionSelect'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -15,45 +13,19 @@ export function SmoothingFilter(): JSX.Element | null {
     const { isTrends, interval, trendsFilter } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    if (!isTrends || !interval) {
-        return null
-    }
-
-    const { smoothingIntervals } = trendsFilter || {}
-
-    // Put a little icon next to the selected item
-    const options = smoothingOptions[interval].map(({ value, label }) => ({
-        value,
-        label:
-            value === smoothingIntervals ? (
-                <>
-                    <IconPulse className="mr-1.5 text-secondary" />
-                    {label}
-                </>
-            ) : (
-                label
-            ),
-        labelInMenu: label,
-    }))
-
-    if (!options.length) {
+    if (!isTrends || !interval || !smoothingOptions[interval].length) {
         return null
     }
 
     return (
-        <LemonSelect
+        <ChartOptionSelect
             key={interval}
-            value={smoothingIntervals || 1}
-            fullWidth
-            onChange={(key) => {
-                updateInsightFilter({
-                    smoothingIntervals: key,
-                })
-            }}
-            data-attr="smoothing-filter"
-            options={options}
-            size="small"
+            label="Smoothing"
+            value={trendsFilter?.smoothingIntervals || 1}
+            options={smoothingOptions[interval]}
+            onChange={(smoothingIntervals) => updateInsightFilter({ smoothingIntervals })}
             disabledReason={editingDisabledReason}
+            data-attr="smoothing-filter"
         />
     )
 }

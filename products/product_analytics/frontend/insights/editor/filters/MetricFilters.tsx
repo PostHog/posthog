@@ -1,101 +1,42 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
-
-import { MetricDirectionColorPickers } from 'lib/components/Metric/MetricDirectionColorPickers'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { MetricOptions } from 'lib/components/ChartOptions/MetricOptions'
+import { METRIC_SUMMARY_DEFAULT } from 'lib/components/Metric/metricSummary'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import {
-    METRIC_COLOR_BY_DIRECTION_DEFAULT,
-    METRIC_DEFAULT_DECREASE_COLOR,
-    METRIC_DEFAULT_INCREASE_COLOR,
-    METRIC_SHOW_CHANGE_DEFAULT,
-    METRIC_SUMMARY_DEFAULT,
-    type MetricSummary,
-} from 'products/product_analytics/frontend/insights/trends/Metric/Metric.utils'
+import type { MetricChartSettings, TrendsFilter } from '~/queries/schema/schema-general'
 
-export function MetricSummaryFilter(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
-
-    const summary = trendsFilter?.metricSummary ?? METRIC_SUMMARY_DEFAULT
-
-    return (
-        <div className="flex items-center justify-between gap-2 p-1 px-2">
-            <span className="font-normal">Headline value</span>
-            <LemonSelect<MetricSummary>
-                size="small"
-                value={summary}
-                onChange={(value) => updateInsightFilter({ metricSummary: value })}
-                options={[
-                    { value: 'total', label: 'Total' },
-                    { value: 'average', label: 'Average' },
-                    { value: 'latest', label: 'Latest' },
-                ]}
-            />
-        </div>
-    )
+function toTrendsFilter(changes: Partial<MetricChartSettings>): Partial<TrendsFilter> {
+    return {
+        ...('summary' in changes && { metricSummary: changes.summary }),
+        ...('showChange' in changes && { metricShowChange: changes.showChange }),
+        ...('changeIncreaseColor' in changes && { metricChangeIncreaseColor: changes.changeIncreaseColor }),
+        ...('changeDecreaseColor' in changes && { metricChangeDecreaseColor: changes.changeDecreaseColor }),
+        ...('colorByDirection' in changes && { metricColorByDirection: changes.colorByDirection }),
+        ...('lineIncreaseColor' in changes && { metricLineIncreaseColor: changes.lineIncreaseColor }),
+        ...('lineDecreaseColor' in changes && { metricLineDecreaseColor: changes.lineDecreaseColor }),
+    }
 }
 
-export function MetricShowChangeFilter(): JSX.Element {
+export function MetricFilters(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const showChange = trendsFilter?.metricShowChange ?? METRIC_SHOW_CHANGE_DEFAULT
-
     return (
-        <div className="flex flex-col">
-            <LemonCheckbox
-                className="p-1 px-2"
-                checked={showChange}
-                onChange={() => updateInsightFilter({ metricShowChange: !showChange })}
-                label={<span className="font-normal">Show change</span>}
-                size="small"
-            />
-            {showChange && (
-                <MetricDirectionColorPickers
-                    className="gap-1 pl-5"
-                    rowClassName="p-1 px-2"
-                    increaseColor={trendsFilter?.metricChangeIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
-                    decreaseColor={trendsFilter?.metricChangeDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
-                    onIncrease={(color) => updateInsightFilter({ metricChangeIncreaseColor: color })}
-                    onDecrease={(color) => updateInsightFilter({ metricChangeDecreaseColor: color })}
-                />
-            )}
-        </div>
-    )
-}
-
-export function MetricColorFilter(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
-
-    const colorByDirection = trendsFilter?.metricColorByDirection ?? METRIC_COLOR_BY_DIRECTION_DEFAULT
-
-    return (
-        <div className="flex flex-col">
-            <LemonCheckbox
-                className="p-1 px-2"
-                checked={colorByDirection}
-                onChange={() => updateInsightFilter({ metricColorByDirection: !colorByDirection })}
-                label={<span className="font-normal">Color by trend</span>}
-                size="small"
-            />
-            {colorByDirection && (
-                <MetricDirectionColorPickers
-                    className="gap-1 pl-5"
-                    rowClassName="p-1 px-2"
-                    increaseColor={trendsFilter?.metricLineIncreaseColor ?? METRIC_DEFAULT_INCREASE_COLOR}
-                    decreaseColor={trendsFilter?.metricLineDecreaseColor ?? METRIC_DEFAULT_DECREASE_COLOR}
-                    onIncrease={(color) => updateInsightFilter({ metricLineIncreaseColor: color })}
-                    onDecrease={(color) => updateInsightFilter({ metricLineDecreaseColor: color })}
-                />
-            )}
-        </div>
+        <MetricOptions
+            settings={{
+                summary: trendsFilter?.metricSummary,
+                showChange: trendsFilter?.metricShowChange,
+                changeIncreaseColor: trendsFilter?.metricChangeIncreaseColor,
+                changeDecreaseColor: trendsFilter?.metricChangeDecreaseColor,
+                colorByDirection: trendsFilter?.metricColorByDirection,
+                lineIncreaseColor: trendsFilter?.metricLineIncreaseColor,
+                lineDecreaseColor: trendsFilter?.metricLineDecreaseColor,
+            }}
+            defaultSummary={METRIC_SUMMARY_DEFAULT}
+            onChange={(changes) => updateInsightFilter(toTrendsFilter(changes))}
+        />
     )
 }

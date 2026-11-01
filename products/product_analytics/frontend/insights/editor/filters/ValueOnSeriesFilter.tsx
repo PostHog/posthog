@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { ValuesOnSeriesOption } from 'lib/components/ChartOptions/ValuesOnSeriesOption'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -10,14 +10,9 @@ export function ValueOnSeriesFilter(): JSX.Element {
     const { showValuesOnSeries } = useValues(insightVizDataLogic(insightProps))
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <ValuesOnSeriesOption
             checked={!!showValuesOnSeries}
-            onChange={() => {
-                updateInsightFilter({ showValuesOnSeries: !showValuesOnSeries })
-            }}
-            label={<span className="font-normal">Show values on series</span>}
-            size="small"
+            onChange={(checked) => updateInsightFilter({ showValuesOnSeries: checked })}
         />
     )
 }

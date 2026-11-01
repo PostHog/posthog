@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { ReactNode } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { ChartOptionNumberInput } from 'lib/components/ChartOptions/ChartOptionNumberInput'
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
+import { ExcludeOutliersOption } from 'lib/components/ChartOptions/ExcludeOutliersOption'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
@@ -20,11 +22,7 @@ import { AxisLabelFilter } from 'products/product_analytics/frontend/insights/ed
 import { HideIncompleteConversionWindowPeriodsFilter } from 'products/product_analytics/frontend/insights/editor/filters/HideIncompleteConversionWindowPeriodsFilter'
 import { LegendOptionsFilter } from 'products/product_analytics/frontend/insights/editor/filters/LegendOptionsFilter'
 import { LineStylePicker } from 'products/product_analytics/frontend/insights/editor/filters/LineStylePicker'
-import {
-    MetricColorFilter,
-    MetricShowChangeFilter,
-    MetricSummaryFilter,
-} from 'products/product_analytics/frontend/insights/editor/filters/MetricFilters'
+import { MetricFilters } from 'products/product_analytics/frontend/insights/editor/filters/MetricFilters'
 import { PercentStackViewFilter } from 'products/product_analytics/frontend/insights/editor/filters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'products/product_analytics/frontend/insights/editor/filters/ResultCustomizationByPicker'
 import { ScalePicker } from 'products/product_analytics/frontend/insights/editor/filters/ScalePicker'
@@ -61,37 +59,20 @@ function useLineGraphState(): { isLineGraph: boolean; isLinearScale: boolean } {
     }
 }
 
-function Smoothing(): JSX.Element {
-    return (
-        <div className="px-2 pb-1.5 w-full">
-            <SmoothingFilter />
-        </div>
-    )
-}
-
 function ExcludeOutliers(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { querySource, trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     return (
-        <LemonCheckbox
-            label={
-                <span className="font-normal">
-                    Exclude outliers{' '}
-                    <Tooltip title="When enabled, whiskers are clipped to 1.5x the interquartile range, making it easier to see differences between the quartiles. When disabled, the y-axis extends to show the full range including extreme values.">
-                        <IconInfo className="relative top-0.5 text-lg text-secondary" />
-                    </Tooltip>
-                </span>
-            }
-            className="p-1 px-2"
-            size="small"
+        <ExcludeOutliersOption
             checked={trendsFilter?.excludeBoxPlotOutliers !== false}
             onChange={(checked) => {
                 if (isTrendsQuery(querySource)) {
-                    const newQuery = { ...querySource }
-                    newQuery.trendsFilter = { ...trendsFilter, excludeBoxPlotOutliers: checked }
-                    updateQuerySource(newQuery)
+                    updateQuerySource({
+                        ...querySource,
+                        trendsFilter: { ...trendsFilter, excludeBoxPlotOutliers: checked },
+                    })
                 }
             }}
         />
@@ -106,10 +87,8 @@ function ConfidenceInterval(): JSX.Element {
     const { isLineGraph, isLinearScale } = useLineGraphState()
 
     return (
-        <LemonCheckbox
-            label={<span className="font-normal">Show confidence intervals</span>}
-            className="p-1 px-2"
-            size="small"
+        <ChartOptionSwitch
+            label="Show confidence intervals"
             checked={showConfidenceIntervals}
             disabledReason={
                 !isLineGraph
@@ -120,9 +99,10 @@ function ConfidenceInterval(): JSX.Element {
             }
             onChange={(checked) => {
                 if (isTrendsQuery(querySource)) {
-                    const newQuery = { ...querySource }
-                    newQuery.trendsFilter = { ...trendsFilter, showConfidenceIntervals: checked }
-                    updateQuerySource(newQuery)
+                    updateQuerySource({
+                        ...querySource,
+                        trendsFilter: { ...trendsFilter, showConfidenceIntervals: checked },
+                    })
                 }
             }}
         />
@@ -137,10 +117,8 @@ function MovingAverage(): JSX.Element {
     const { isLineGraph, isLinearScale } = useLineGraphState()
 
     return (
-        <LemonCheckbox
-            label={<span className="font-normal">Show moving average</span>}
-            className="p-1 px-2"
-            size="small"
+        <ChartOptionSwitch
+            label="Show moving average"
             checked={showMovingAverage}
             disabledReason={
                 !isLineGraph
@@ -151,9 +129,10 @@ function MovingAverage(): JSX.Element {
             }
             onChange={(checked) => {
                 if (isTrendsQuery(querySource)) {
-                    const newQuery = { ...querySource }
-                    newQuery.trendsFilter = { ...trendsFilter, showMovingAverage: checked }
-                    updateQuerySource(newQuery)
+                    updateQuerySource({
+                        ...querySource,
+                        trendsFilter: { ...trendsFilter, showMovingAverage: checked },
+                    })
                 }
             }}
         />
@@ -165,26 +144,17 @@ function DecimalPrecision(): JSX.Element {
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const reportChange = useDebouncedCallback(() => {
-        posthog.capture('decimal places changed', {
-            decimal_places: trendsFilter?.decimalPlaces,
-        })
-    }, 500)
-
     return (
-        <LemonInput
-            type="number"
-            size="small"
-            step={1}
+        <ChartOptionNumberInput
+            label="Decimal places"
+            value={trendsFilter?.decimalPlaces}
             min={0}
             max={9}
-            defaultValue={DEFAULT_DECIMAL_PLACES}
-            value={trendsFilter?.decimalPlaces}
-            onChange={(value) => {
-                updateInsightFilter({ decimalPlaces: value })
-                reportChange()
+            placeholder={String(DEFAULT_DECIMAL_PLACES)}
+            onChange={(decimalPlaces) => {
+                updateInsightFilter({ decimalPlaces })
+                posthog.capture('decimal places changed', { decimal_places: decimalPlaces })
             }}
-            className="mx-2 mb-1.5"
         />
     )
 }
@@ -216,13 +186,11 @@ export function SectionHeader({
 // Every insight display toggle, keyed so the Options panel is assembled by referencing
 // `DisplayOptions.X` instead of importing each filter component.
 export const DisplayOptions = {
-    Smoothing,
+    Smoothing: SmoothingFilter,
     Legend: ShowLegendFilter,
     LegendOptions: LegendOptionsFilter,
     ExcludeOutliers,
-    MetricSummary: MetricSummaryFilter,
-    MetricShowChange: MetricShowChangeFilter,
-    MetricColor: MetricColorFilter,
+    Metric: MetricFilters,
     LifecycleStacking: LifecycleStackingFilter,
     LifecyclePercentages: LifecyclePercentagesFilter,
     ValueLabels: ValueOnSeriesFilter,

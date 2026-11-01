@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -26,13 +25,11 @@ export function RetentionMeanLineToggle(): JSX.Element | null {
               : undefined
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
+        <ChartOptionSwitch
+            label="Show mean line"
             checked={!disabledReason && !!retentionFilter?.showMeanLine}
-            onChange={(showMeanLine) => updateInsightFilter({ showMeanLine })}
             disabledReason={disabledReason}
-            label={<span className="font-normal">Show mean line</span>}
-            size="small"
+            onChange={(showMeanLine) => updateInsightFilter({ showMeanLine })}
         />
     )
 }
