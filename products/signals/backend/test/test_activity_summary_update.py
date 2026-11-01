@@ -225,6 +225,7 @@ class TestUpdateActivitySummary(BaseTest):
         }
         stored = self._stored()
         assert stored is not None and stored.input_watermark == newest
+        assert stored.computed is not None
         assert stored.computed["mcp_sessions"] == [{"ref": "m1", "last_at": "2026-10-18"}]
 
         self._changes(3, days_ago=0.5)

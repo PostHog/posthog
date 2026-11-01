@@ -44,6 +44,7 @@ from products.signals.backend.activity_summary.render import (
     activity_units,
     build_input,
     burst_cap,
+    cap_line,
     clean_text,
     mcp_units,
     sample_units,
@@ -847,6 +848,35 @@ def test_build_input_numbers_the_task_refs_that_survive_the_budget_from_one() ->
     assert rendered.text == expected
     assert rendered.task_refs == (LineRef(ref="t1", last_at="2026-10-18"),)
     assert rendered.drops[Drop.SECTIONS_BUDGET] == 1
+
+
+def test_build_input_stays_inside_the_budget_when_a_shorter_ref_would_fit_another_word() -> None:
+    goal = f"check the revenue report {'w' * 40}"
+    tasks = [
+        *[
+            _task(topic, summary=f"Asked: why did {topic} change?", days_ago=index + 2)
+            for index, topic in enumerate(
+                ("signups", "churn", "pricing", "invoices", "retention", "referrals", "trials", "refunds", "upgrades")
+            )
+        ],
+        _task("newest", summary=f"Asked: {goal}", days_ago=1),
+    ]
+    line_chars = len(f"- t1 2026-10-18 {goal}")
+    cut_line = cap_line(f"- t10 2026-10-18 {goal}", line_chars)
+    # Each of the four sections adds a two-character separator to the budget, empty or not.
+    budget = len(f"{TASKS_HEADER}\n{cut_line}") + 2 * 4
+
+    rendered = build_input(
+        tasks,
+        [],
+        as_of=AS_OF,
+        seed=1,
+        limits=RenderLimits(task_line_chars=line_chars, task_lines=10, sections_max_chars=budget),
+    )
+
+    assert rendered is not None
+    assert rendered.task_refs == (LineRef(ref="t1", last_at="2026-10-18"),)
+    assert rendered.text == f"{TASKS_HEADER}\n{cut_line.replace('- t10', '- t1', 1)}"
 
 
 def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() -> None:

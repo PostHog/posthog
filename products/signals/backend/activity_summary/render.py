@@ -107,6 +107,7 @@ _WORD_RUN = re.compile(r"[\w-]{24,}")
 _DIGIT = re.compile(r"\d")
 _LETTER = re.compile(r"[A-Za-z]")
 _WHITESPACE = re.compile(r"\s+")
+_LINE_REF = re.compile(r"^- [tm]\d+")
 
 # Inbox onboarding creates a scout config for each canonical scout, named after its skill.
 ONBOARDING_CONFIG_SCOPES: frozenset[str] = frozenset({"SignalScoutConfig"})
@@ -1177,6 +1178,14 @@ def _with_refs(units: Sequence[Unit], prefix: str, max_chars: int) -> list[Unit]
     ]
 
 
+def _renumbered(units: Sequence[Unit], prefix: str) -> list[Unit]:
+    """The units numbered from 1, with the text they had. A new cut could keep one more word than the budget measured."""
+    return [
+        dataclasses.replace(unit, text=_LINE_REF.sub(f"- {prefix}{index}", unit.text, count=1))
+        for index, unit in enumerate(units, start=1)
+    ]
+
+
 def _line_refs(units: Sequence[Unit], prefix: str) -> tuple[LineRef, ...]:
     return tuple(
         LineRef(ref=f"{prefix}{index}", last_at=_day(unit.at).isoformat()) for index, unit in enumerate(units, start=1)
@@ -1226,10 +1235,8 @@ def build_input(
         (VIEWS_HEADER, view_lines),
     ]
     enforce_budget(sections, drops, limits.sections_max_chars)
-    kept_tasks = chosen_tasks[len(chosen_tasks) - len(sections[0][1]) :]
-    kept_mcp = chosen_mcp[len(chosen_mcp) - len(sections[2][1]) :]
-    sections[0] = (TASKS_HEADER, _with_refs(kept_tasks, "t", limits.task_line_chars))
-    sections[2] = (MCP_HEADER, _with_refs(kept_mcp, "m", limits.mcp_line_chars))
+    sections[0] = (TASKS_HEADER, _renumbered(sections[0][1], "t"))
+    sections[2] = (MCP_HEADER, _renumbered(sections[2][1], "m"))
     sections[3] = (VIEWS_HEADER, sorted(sections[3][1], key=lambda unit: unit.text))
     rendered = [_section(header, units) for header, units in sections]
     text = "\n\n".join(part for part in rendered if part)
@@ -1251,6 +1258,6 @@ def build_input(
         n_mcp_lines=len(sections[2][1]),
         mcp_chars=len(rendered[2]),
         mcp_pool=len(mcp_pool),
-        task_refs=_line_refs(kept_tasks, "t"),
-        mcp_refs=_line_refs(kept_mcp, "m"),
+        task_refs=_line_refs(sections[0][1], "t"),
+        mcp_refs=_line_refs(sections[2][1], "m"),
     )
