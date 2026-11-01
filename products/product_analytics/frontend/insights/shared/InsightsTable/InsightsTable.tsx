@@ -18,7 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-import { hasBreakdownFilter } from '~/queries/utils'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'

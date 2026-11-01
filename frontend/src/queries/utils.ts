@@ -3,38 +3,48 @@ import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } 
 import { escapePropertyAsHogQLIdentifier, isQuoted } from 'lib/utils/hogql'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
-import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
+import { getDisplay, getBreakdown } from '~/queries/schema/node-accessors'
+import {
+    isNodeWithSource,
+    isEventsNode,
+    isActionsNode,
+    isDataWarehouseNode,
+    isPersonsNode,
+    isActorsQuery,
+    isDataTableNode,
+    isDataTableNodeWithHogQLQuery,
+    isDataVisualizationNode,
+    isInsightVizNode,
+    isHogQLQuery,
+    isWebOverviewQuery,
+    isWebStatsTableQuery,
+    isTrendsQuery,
+    isFunnelsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isLifecycleQuery,
+    isInsightQueryNode,
+    hasBreakdownFilter,
+} from '~/queries/schema/node-guards'
 import {
     AccountsQuery,
     AccountsTableQuery,
-    ActionsNode,
     ActorsQuery,
-    AnyDataWarehouseNode,
-    AnyEntityNode,
-    BreakdownFilter,
-    CompareFilter,
-    DataTableNode,
     DataVisualizationNode,
-    VisualizationNode,
-    DataWarehouseNode,
     DataWarehouseSourceUsage,
     DatabaseSchemaQuery,
-    DateRange,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingIssueEventsQuery,
     ErrorTrackingQuery,
-    EventsNode,
     EventsQuery,
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
-    FunnelsDataWarehouseNode,
     FunnelsQuery,
     GoalLine,
-    GroupNode,
     GroupsQuery,
     HogQLMetadata,
     HogQLQuery,
@@ -43,18 +53,12 @@ import {
     InsightFilter,
     InsightFilterProperty,
     InsightQueryNode,
-    InsightVizNode,
-    LifecycleDataWarehouseNode,
-    LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
     MetricsHistogramQuery,
-    MetricsQuery,
     Node,
     NodeKind,
-    PathsQuery,
-    PathsV2Query,
     PersonsNode,
     ProductAnalyticsInsightQueryNode,
     QuerySchema,
@@ -78,7 +82,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { AnnotationScope, BaseMathType, ChartDisplayType, FunnelVizType, GroupTypeIndex, IntervalType } from '~/types'
+import { AnnotationScope, BaseMathType, ChartDisplayType, GroupTypeIndex } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -92,24 +96,6 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
     )
 }
 
-export function isNodeWithSource(
-    node?: Record<string, any> | null
-): node is DataTableNode | VisualizationNode | InsightVizNode {
-    if (!node) {
-        return false
-    }
-
-    return isDataTableNode(node) || isDataVisualizationNode(node) || isInsightVizNode(node)
-}
-
-export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
-    return node?.kind === NodeKind.EventsNode
-}
-
-export function isGroupNode(node?: Record<string, any> | null): node is GroupNode {
-    return node?.kind === NodeKind.GroupNode
-}
-
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
 }
@@ -118,62 +104,8 @@ export function isSessionsQuery(node?: Record<string, any> | null): node is Sess
     return node?.kind === NodeKind.SessionsQuery
 }
 
-export function isActionsNode(node?: Record<string, any> | null): node is ActionsNode {
-    return node?.kind === NodeKind.ActionsNode
-}
-
-export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
-    return node?.kind === NodeKind.DataWarehouseNode
-}
-
-export function isFunnelsDataWarehouseNode(node?: Record<string, any> | null): node is FunnelsDataWarehouseNode {
-    return node?.kind === NodeKind.FunnelsDataWarehouseNode
-}
-
-export function isLifecycleDataWarehouseNode(node?: Record<string, any> | null): node is LifecycleDataWarehouseNode {
-    return node?.kind === NodeKind.LifecycleDataWarehouseNode
-}
-
-export function isAnyDataWarehouseNode(node?: Record<string, any> | null): node is AnyDataWarehouseNode {
-    return isDataWarehouseNode(node) || isFunnelsDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
-}
-
-/** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
-export function isPersonsNode(node?: Record<string, any> | null): node is PersonsNode {
-    return node?.kind === NodeKind.PersonsNode
-}
-
-export function isActorsQuery(node?: Record<string, any> | null): node is ActorsQuery {
-    return node?.kind === NodeKind.ActorsQuery
-}
-
 export function isInsightActorsQuery(node?: Record<string, any> | null): node is InsightActorsQuery {
     return node?.kind === NodeKind.InsightActorsQuery
-}
-
-export function isDataTableNode(node?: Record<string, any> | null): node is DataTableNode {
-    return node?.kind === NodeKind.DataTableNode
-}
-
-/** Previously SQL queries by default were `DataTableNode`s. However now new SQL queries are `DataVisualizationNode`s */
-export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null): node is DataTableNode & {
-    source: HogQLQuery
-} {
-    return isDataTableNode(node) && isHogQLQuery(node.source)
-}
-
-export function isBIVisualizationNode(node?: Record<string, any> | null): node is BIVisualizationNode {
-    return node?.kind === NodeKind.BIVisualizationNode
-}
-
-export function isDataVisualizationNode(node?: Record<string, any> | null): node is VisualizationNode {
-    return node?.kind === NodeKind.DataVisualizationNode || isBIVisualizationNode(node)
-}
-
-export function isDataVisualizationNodeWithHogQLQuery(
-    node?: Record<string, any> | null
-): node is VisualizationNode & { source: HogQLQuery } {
-    return isDataVisualizationNode(node) && isHogQLQuery(node.source)
 }
 
 export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
@@ -218,24 +150,12 @@ export function isSavedInsightNode(node?: Record<string, any> | null): node is S
     return node?.kind === NodeKind.SavedInsightNode
 }
 
-export function isInsightVizNode(node?: Record<string, any> | null): node is InsightVizNode {
-    return node?.kind === NodeKind.InsightVizNode
-}
-
 export function isHogQuery(node?: Record<string, any> | null): node is HogQuery {
     return node?.kind === NodeKind.HogQuery
 }
 
-export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {
-    return node?.kind === NodeKind.HogQLQuery
-}
-
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
-}
-
-export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
-    return node?.kind === NodeKind.MetricsQuery
 }
 
 export function isMetricsHistogramQuery(node?: Record<string, any> | null): node is MetricsHistogramQuery {
@@ -258,14 +178,6 @@ export function isEndpointsUsageQuery(
     node?: Record<string, any> | null
 ): node is EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery {
     return isEndpointsUsageOverviewQuery(node) || isEndpointsUsageTableQuery(node) || isEndpointsUsageTrendsQuery(node)
-}
-
-export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {
-    return node?.kind === NodeKind.WebOverviewQuery
-}
-
-export function isWebStatsTableQuery(node?: Record<string, any> | null): node is WebStatsTableQuery {
-    return node?.kind === NodeKind.WebStatsTableQuery
 }
 
 export function isWebAnalyticsInsightQuery(
@@ -346,67 +258,10 @@ export function isErrorTrackingIssueEventsQuery(
     return node?.kind === NodeKind.ErrorTrackingIssueEventsQuery
 }
 
-export function containsHogQLQuery(node?: Record<string, any> | null): boolean {
-    if (!node) {
-        return false
-    }
-    return isHogQLQuery(node) || (isNodeWithSource(node) && isHogQLQuery(node.source))
-}
-
-/*
- * Insight Queries
- */
-
-export function isTrendsQuery(node?: Record<string, any> | null): node is TrendsQuery {
-    return node?.kind === NodeKind.TrendsQuery
-}
-
-export function isFunnelsQuery(node?: Record<string, any> | null): node is FunnelsQuery {
-    return node?.kind === NodeKind.FunnelsQuery
-}
-
-export function isRetentionQuery(node?: Record<string, any> | null): node is RetentionQuery {
-    return node?.kind === NodeKind.RetentionQuery
-}
-
-export function isPathsQuery(node?: Record<string, any> | null): node is PathsQuery {
-    return node?.kind === NodeKind.PathsQuery
-}
-
-export function isPathsV2Query(node?: Record<string, any> | null): node is PathsV2Query {
-    return node?.kind === NodeKind.PathsV2Query
-}
-
-export function isStickinessQuery(node?: Record<string, any> | null): node is StickinessQuery {
-    return node?.kind === NodeKind.StickinessQuery
-}
-
-export function isLifecycleQuery(node?: Record<string, any> | null): node is LifecycleQuery {
-    return node?.kind === NodeKind.LifecycleQuery
-}
-
 export function isInsightQueryWithDisplay(
     node?: Record<string, any> | null
 ): node is TrendsQuery | RetentionQuery | StickinessQuery {
     return isTrendsQuery(node) || isStickinessQuery(node) || isRetentionQuery(node)
-}
-
-export function isInsightQueryWithBreakdown(
-    node?: Record<string, any> | null
-): node is TrendsQuery | FunnelsQuery | RetentionQuery {
-    return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
-}
-
-export function isInsightQueryWithCompare(
-    node?: Record<string, any> | null
-): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery | FunnelsQuery {
-    return (
-        isTrendsQuery(node) ||
-        isStickinessQuery(node) ||
-        isWebStatsTableQuery(node) ||
-        isWebOverviewQuery(node) ||
-        isFunnelsQuery(node)
-    )
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
@@ -439,147 +294,9 @@ export function shouldQueryBeAsync(query: Node): boolean {
     )
 }
 
-export function isInsightQueryWithSeries(
-    node?: Node
-): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
-    return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
-}
-
-export function isInsightQueryNode(node?: Record<string, any> | null): node is InsightQueryNode {
-    return (
-        isTrendsQuery(node) ||
-        isFunnelsQuery(node) ||
-        isRetentionQuery(node) ||
-        isPathsQuery(node) ||
-        isPathsV2Query(node) ||
-        isStickinessQuery(node) ||
-        isLifecycleQuery(node) ||
-        isWebStatsTableQuery(node) ||
-        isWebOverviewQuery(node)
-    )
-}
-
-export function dateRangeFor(node?: Node): DateRange | undefined {
-    if (isInsightVizNode(node)) {
-        return node.source.dateRange
-    } else if (isInsightQueryNode(node)) {
-        return node.dateRange
-    } else if (isActionsNode(node)) {
-        return undefined
-    } else if (isEventsNode(node)) {
-        return undefined
-    } else if (isPersonsNode(node)) {
-        return undefined
-    } else if (isDataTableNode(node)) {
-        return undefined
-    }
-
-    return undefined
-}
-
-export const getInterval = (query: InsightQueryNode): IntervalType | undefined => {
-    if (isInsightQueryWithSeries(query)) {
-        return query.interval
-    }
-    if (isWebStatsTableQuery(query) || isWebOverviewQuery(query)) {
-        return query.interval ?? 'day'
-    }
-    return undefined
-}
-
-// For trends/stickiness, ActionsStackedBar is a deprecated alias of ActionsBar (which renders stacked):
-// the UI never emits it, but the API and MCP accept it. Normalizing here — the point all `display`
-// selectors derive from — makes such insights behave exactly like their UI-created equivalents.
-export const normalizeDisplay = (display: ChartDisplayType | undefined): ChartDisplayType | undefined =>
-    display === ChartDisplayType.ActionsStackedBar ? ChartDisplayType.ActionsBar : display
-
-export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefined => {
-    if (isStickinessQuery(query)) {
-        return normalizeDisplay(query.stickinessFilter?.display)
-    } else if (isTrendsQuery(query)) {
-        return normalizeDisplay(query.trendsFilter?.display)
-    }
-    return undefined
-}
-
 export const isMetricInsightQuery = (query?: Record<string, any> | null): boolean =>
     (isDataVisualizationNode(query) && query.display === ChartDisplayType.Metric) ||
     (isInsightVizNode(query) && isTrendsQuery(query.source) && getDisplay(query.source) === ChartDisplayType.Metric)
-
-// Display types whose viz paints to a <canvas> (Chart.js / quill-charts), which repaints on every resize
-// frame. Everything else renders as DOM/SVG and is cheap to keep mounted while a tile is resized.
-const CANVAS_CHART_DISPLAY_TYPES = new Set<ChartDisplayType>([
-    ChartDisplayType.Auto,
-    ChartDisplayType.ActionsLineGraph,
-    ChartDisplayType.ActionsLineGraphCumulative,
-    ChartDisplayType.ActionsAreaGraph,
-    ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsUnstackedBar,
-    ChartDisplayType.ActionsStackedBar,
-    ChartDisplayType.ActionsBarValue,
-    ChartDisplayType.ActionsPie,
-    ChartDisplayType.ActionsDonut,
-    ChartDisplayType.ActionsProportionBar,
-    ChartDisplayType.Metric,
-    ChartDisplayType.BoxPlot,
-    ChartDisplayType.SlopeGraph,
-    ChartDisplayType.TwoDimensionalHeatmap,
-    ChartDisplayType.ScatterPlot,
-])
-
-type QueryVizCanvasClassification = 'canvas' | 'non-canvas' | 'unknown'
-
-function classifyQueryVizCanvas(query?: Node | null): QueryVizCanvasClassification {
-    if (isDataTableNode(query)) {
-        return 'non-canvas'
-    }
-    if (isDataVisualizationNode(query)) {
-        if (!query.display) {
-            return 'non-canvas'
-        }
-        if (query.display === ChartDisplayType.Auto) {
-            return 'unknown'
-        }
-        return CANVAS_CHART_DISPLAY_TYPES.has(query.display) ? 'canvas' : 'non-canvas'
-    }
-    if (isInsightVizNode(query)) {
-        const source = query.source
-        if (isRetentionQuery(source) || isPathsQuery(source)) {
-            return 'non-canvas'
-        }
-        if (isFunnelsQuery(source)) {
-            // Steps (default) and Trends paint to canvas; Flow (Sankey) is SVG and TimeToConvert is a DOM table.
-            const vizType = source.funnelsFilter?.funnelVizType
-            return vizType !== FunnelVizType.Flow && vizType !== FunnelVizType.TimeToConvert ? 'canvas' : 'non-canvas'
-        }
-        return CANVAS_CHART_DISPLAY_TYPES.has(getDisplay(source) ?? ChartDisplayType.Auto) ? 'canvas' : 'non-canvas'
-    }
-    return 'unknown'
-}
-
-/**
- * Whether an insight's viz may paint to a <canvas>. Unknown visualizations count as canvas so resize throttling
- * remains conservative.
- */
-export function queryVizRendersToCanvas(query?: Node | null): boolean {
-    return classifyQueryVizCanvas(query) !== 'non-canvas'
-}
-
-/** Whether an insight's viz is definitely canvas-backed and safe to unmount when the page is hidden. */
-export function queryVizDefinitelyRendersToCanvas(query?: Node | null): boolean {
-    return classifyQueryVizCanvas(query) === 'canvas'
-}
-
-export const getFormula = (query: InsightQueryNode | null): string | undefined => {
-    if (isTrendsQuery(query)) {
-        return (
-            query.trendsFilter?.formulaNodes?.[0]?.formula ||
-            query.trendsFilter?.formulas?.[0] ||
-            query.trendsFilter?.formula
-        )
-    }
-    return undefined
-}
 
 export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
     if (isTrendsQuery(query)) {
@@ -603,27 +320,6 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
-    if (isInsightQueryWithSeries(query)) {
-        return query.series
-    }
-    return undefined
-}
-
-/** Client-side check: does this query have a data-warehouse-backed series (insight surface)?
- * For raw SQL / HogQL queries the client can't know without the backend — use
- * `dataWarehouseSourcesFromResponse` on the query response instead. */
-export function queryUsesDataWarehouse(query?: Record<string, any> | null): boolean {
-    if (!query) {
-        return false
-    }
-    const source = isInsightVizNode(query) ? query.source : query
-    if (isInsightQueryNode(source)) {
-        return !!getSeries(source)?.some((entity) => isAnyDataWarehouseNode(entity))
-    }
-    return false
-}
-
 /** Extract the connector-synced warehouse sources a query touched from its response, if the
  * backend populated them (currently HogQL / SQL-editor responses). Always returns an array. */
 export function dataWarehouseSourcesFromResponse(response: unknown): DataWarehouseSourceUsage[] {
@@ -631,20 +327,6 @@ export function dataWarehouseSourcesFromResponse(response: unknown): DataWarehou
         return (response as any).used_data_warehouse_sources
     }
     return []
-}
-
-export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
-    if (isInsightQueryWithBreakdown(query)) {
-        return query.breakdownFilter
-    }
-    return undefined
-}
-
-export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undefined => {
-    if (isInsightQueryWithCompare(query)) {
-        return query.compareFilter
-    }
-    return undefined
 }
 
 export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
@@ -909,30 +591,6 @@ export function isHogQLAggregation(hogQl: string): boolean {
         hogQl.includes('min(') ||
         hogQl.includes('max(')
     )
-}
-
-type SingleBreakdownFilter = BreakdownFilter & {
-    breakdown: NonNullable<BreakdownFilter['breakdown']>
-}
-
-type MultiBreakdownFilter = BreakdownFilter & {
-    breakdowns: NonNullable<BreakdownFilter['breakdowns']>
-}
-
-type PopulatedBreakdownFilter = SingleBreakdownFilter | MultiBreakdownFilter
-
-export function hasSingleBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is SingleBreakdownFilter {
-    return breakdownFilter?.breakdown != null
-}
-
-export function hasMultiBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is MultiBreakdownFilter {
-    return (breakdownFilter?.breakdowns?.length ?? 0) > 0
-}
-
-export function hasBreakdownFilter(
-    breakdownFilter?: BreakdownFilter | null
-): breakdownFilter is PopulatedBreakdownFilter {
-    return hasSingleBreakdown(breakdownFilter) || hasMultiBreakdown(breakdownFilter)
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {

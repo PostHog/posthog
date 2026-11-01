@@ -32,6 +32,7 @@ import {
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from '~/queries/nodes/InsightViz/queryUtils'
+import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/schema/node-guards'
 import { FunnelExclusion, FunnelExclusionEventsNode, FunnelExclusionSteps } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import type {
@@ -53,7 +54,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
     EntityType,

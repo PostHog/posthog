@@ -5,8 +5,8 @@ import { baseObjectType } from 'scenes/library/libraryUtils'
 import { todayNumber } from 'scenes/project-homepage/today/todayNumbers'
 
 import type { Noun } from '~/models/groupsModel'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
-import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { type Experiment, ExperimentStatus, type FeatureFlagConfig } from '~/types'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'

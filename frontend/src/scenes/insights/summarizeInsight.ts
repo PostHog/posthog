@@ -12,15 +12,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { groupsModelType } from '~/models/groupsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import {
-    Breakdown,
-    BreakdownFilter,
-    InsightQueryNode,
-    MultipleBreakdownType,
-    Node,
-} from '~/queries/schema/schema-general'
-import {
     isDataTableNode,
-    isEventsQuery,
     isFunnelsQuery,
     isHogQLQuery,
     isInsightVizNode,
@@ -33,7 +25,15 @@ import {
     isTrendsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import {
+    Breakdown,
+    BreakdownFilter,
+    InsightQueryNode,
+    MultipleBreakdownType,
+    Node,
+} from '~/queries/schema/schema-general'
+import { isEventsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
