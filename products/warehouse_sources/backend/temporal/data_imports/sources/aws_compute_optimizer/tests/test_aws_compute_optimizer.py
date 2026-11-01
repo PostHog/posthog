@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 from botocore.loaders import Loader
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_compute_optimizer import (
@@ -32,13 +33,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsComputeOptimizerSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "fake-secret")
+
 
 def config(region: str | None = "eu-west-1", token: str | None = None) -> AwsComputeOptimizerSourceConfig:
-    return AwsComputeOptimizerSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="fake-secret",
-        aws_session_token=token,
-        region=region,
+    return AwsComputeOptimizerSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "fake-secret",
+            "aws_session_token": token,
+            "region": region,
+        }
     )
 
 
@@ -83,7 +88,9 @@ def test_signed_json_request(region: str | None, token: str | None, host: str) -
             ScriptedResponse(status=302, headers={"Location": "https://example.com/redirect"}),
         ]
     ) as network:
-        client = AwsComputeOptimizerClient(config(region, token), "2019-11-01")
+        client = AwsComputeOptimizerClient(
+            config(region, token), Credentials("AKIAEXAMPLE", "fake-secret", token), "2019-11-01"
+        )
         assert client.request("GetEnrollmentStatus", {}) == {"status": "Active"}
         with pytest.raises(AwsComputeOptimizerError, match="HTTP 302"):
             client.request("GetEnrollmentStatus", {})
@@ -173,7 +180,7 @@ def test_full_refresh_pagination(
         response({key: [item], "nextToken": None}),
     ]
     resume = manager()
-    source = aws_compute_optimizer_source(config(), endpoint, resume)
+    source = aws_compute_optimizer_source(config(), CREDENTIALS, endpoint, resume)
     rows = list(cast(Iterable[Any], source.items()))
     assert len(rows) == 2
     assert all(rows[0][0][column] for column in primary_keys)
@@ -331,7 +338,7 @@ def test_completed_resume_does_not_refetch() -> None:
 def test_resume_is_staged_before_batch_and_not_cleared_early(session: MagicMock) -> None:
     session.post.return_value = response({"instanceRecommendations": [{"instanceArn": "example"}], "nextToken": "next"})
     resume = manager()
-    source = aws_compute_optimizer_source(config(), "ec2_instance_recommendations", resume)
+    source = aws_compute_optimizer_source(config(), CREDENTIALS, "ec2_instance_recommendations", resume)
     iterator = cast(Generator[list[dict[str, Any]]], source.items())
     assert next(iterator) == [{"instance_arn": "example", "region": "eu-west-1"}]
     resume.save_state.assert_called_once_with(AwsComputeOptimizerResumeConfig(next_token="next"))
@@ -343,7 +350,7 @@ def test_resume_is_staged_before_batch_and_not_cleared_early(session: MagicMock)
 def test_repeated_token_fails_without_marking_complete(session: MagicMock) -> None:
     session.post.return_value = response({"nextToken": "same"})
     resume = manager(AwsComputeOptimizerResumeConfig(next_token="same"))
-    source = aws_compute_optimizer_source(config(), "ec2_instance_recommendations", resume)
+    source = aws_compute_optimizer_source(config(), CREDENTIALS, "ec2_instance_recommendations", resume)
     with pytest.raises(ValueError, match="repeated a pagination token"):
         list(cast(Iterable[Any], source.items()))
     resume.save_state.assert_not_called()
@@ -381,7 +388,7 @@ def test_normalization_preserves_options_and_converts_timestamp() -> None:
 def test_only_body_throttling_has_application_retries(code: str, status: int, attempts: int) -> None:
     answer = ScriptedResponse(status=status, json={"__type": f"com.amazonaws.computeoptimizer#{code}"})
     with scripted_network(always(answer)) as network:
-        client = AwsComputeOptimizerClient(config())
+        client = AwsComputeOptimizerClient(config(), CREDENTIALS)
         with pytest.raises(AwsComputeOptimizerError) as raised:
             client.request("GetEnrollmentStatus", {})
         client.close()
@@ -412,7 +419,7 @@ def test_partial_error_does_not_commit_incomplete_data(session: MagicMock) -> No
         }
     )
     resume = manager()
-    source = aws_compute_optimizer_source(config(), "ec2_instance_recommendations", resume)
+    source = aws_compute_optimizer_source(config(), CREDENTIALS, "ec2_instance_recommendations", resume)
     with pytest.raises(AwsComputeOptimizerError, match="AccessDeniedException"):
         list(cast(Iterable[Any], source.items()))
     resume.save_state.assert_not_called()
@@ -422,7 +429,7 @@ def test_partial_error_does_not_commit_incomplete_data(session: MagicMock) -> No
 @pytest.mark.parametrize("schema,valid", [(None, True), ("ec2_instance_recommendations", False)])
 def test_missing_permission_at_creation_and_per_table(session: MagicMock, schema: str | None, valid: bool) -> None:
     session.post.return_value = response({"__type": "AccessDeniedException"}, 400)
-    result, message = validate_credentials(config(), schema)
+    result, message = validate_credentials(config(), CREDENTIALS, schema)
     assert result is valid
     if schema is None:
         assert message is None
@@ -457,7 +464,7 @@ def test_projected_metrics_validation_probes_metrics_permission(
 ) -> None:
     script = [ScriptedResponse(json={"instanceRecommendations": listing}), *([metrics] if metrics else [])]
     with scripted_network(script) as network:
-        result, message = validate_credentials(config(), "ec2_recommendation_projected_metrics")
+        result, message = validate_credentials(config(), CREDENTIALS, "ec2_recommendation_projected_metrics")
     assert result is valid
     assert (message is None) is valid
     if not valid:
@@ -468,7 +475,7 @@ def test_projected_metrics_validation_probes_metrics_permission(
 @pytest.mark.parametrize("status,valid", [("Active", True), ("Inactive", False), ("Pending", False), ("Failed", False)])
 def test_enrollment_validation(status: str, valid: bool) -> None:
     with scripted_network([ScriptedResponse(json={"status": status})]) as network:
-        result, message = validate_credentials(config())
+        result, message = validate_credentials(config(), CREDENTIALS)
     assert result is valid
     assert (message is None) is valid
     assert len(network.requests_log) == 1
@@ -487,7 +494,7 @@ def test_enrollment_validation(status: str, valid: bool) -> None:
 )
 def test_credentials_and_sync_errors_are_actionable(code: str, expected: str) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": code})]) as network:
-        valid, message = validate_credentials(config())
+        valid, message = validate_credentials(config(), CREDENTIALS)
     assert not valid
     assert message and expected in message
     assert len(network.requests_log) == 1
@@ -498,7 +505,10 @@ def test_credentials_and_sync_errors_are_actionable(code: str, expected: str) ->
 @pytest.mark.parametrize("error", [requests.Timeout(), ValueError("invalid JSON")])
 def test_validation_network_or_response_failure(session: MagicMock, error: Exception) -> None:
     session.post.side_effect = error
-    assert validate_credentials(config()) == (False, "Could not reach the AWS Compute Optimizer API. Try again.")
+    assert validate_credentials(config(), CREDENTIALS) == (
+        False,
+        "Could not reach the AWS Compute Optimizer API. Try again.",
+    )
     session.close.assert_called_once()
 
 
@@ -507,14 +517,14 @@ def test_validation_network_or_response_failure(session: MagicMock, error: Excep
 )
 def test_rejects_invalid_region_before_request(region: str) -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config(region)) == (False, "Enter an AWS region, such as us-east-1.")
+        assert validate_credentials(config(region), CREDENTIALS) == (False, "Enter an AWS region, such as us-east-1.")
     assert network.requests_log == []
 
 
 def test_unknown_schema_and_version_rejected() -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config(), "unknown")[0] is False
-        assert validate_credentials(config(), api_version="2000-01-01")[0] is False
+        assert validate_credentials(config(), CREDENTIALS, "unknown")[0] is False
+        assert validate_credentials(config(), CREDENTIALS, api_version="2000-01-01")[0] is False
     result = driver().run("unknown", [])
     assert isinstance(result.raised, ValueError)
     assert "Unknown AWS Compute Optimizer table" in str(result.raised)

@@ -5,7 +5,6 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
@@ -19,6 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspec
     INCREMENTAL_FIELDS,
     INSPECTOR_API_VERSION,
     AwsInspectorEndpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -90,27 +93,20 @@ def error_message(error: AwsInspectorError) -> str | None:
 
 
 class AwsInspectorClient:
-    def __init__(self, config: AwsInspectorSourceConfig, api_version: str = INSPECTOR_API_VERSION) -> None:
+    def __init__(
+        self, config: AwsInspectorSourceConfig, credentials: Credentials, api_version: str = INSPECTOR_API_VERSION
+    ) -> None:
         if api_version != INSPECTOR_API_VERSION:
             raise ValueError(f"Unsupported AWS Inspector API version: {api_version}")
         if not re.fullmatch(r"[a-z]{2}(?:-[a-z]+)+-\d+", config.region):
             raise ValueError("Enter an AWS region code, such as us-east-1.")
-        if not config.aws_access_key_id or not config.aws_secret_access_key:
-            raise ValueError("Enter both an AWS access key ID and a secret access key.")
         suffix = "amazonaws.com.cn" if config.region.startswith("cn-") else "amazonaws.com"
         self._base_url = f"https://inspector2.{config.region}.{suffix}"
-        self._signer = SigV4Auth(
-            Credentials(config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token or None),
-            "inspector2",
-            config.region,
-        )
+        self._signing_region = config.region
+        self._credentials = credentials
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (config.aws_access_key_id, config.aws_secret_access_key, config.aws_session_token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -120,7 +116,7 @@ class AwsInspectorClient:
         body = json.dumps(payload).encode("utf-8")
         url = self._base_url + endpoint.path
         request = AWSRequest(method="POST", url=url, data=body, headers={"Content-Type": "application/json"})
-        self._signer.add_auth(request)
+        sign_aws_request(request, self._credentials, "inspector2", self._signing_region)
         response = self._session.post(url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False)
         if response.status_code != 200:
             raise error_for_response(response)
@@ -188,6 +184,7 @@ def normalize_row(endpoint: AwsInspectorEndpoint, item: dict[str, Any], region: 
 
 def get_rows(
     config: AwsInspectorSourceConfig,
+    credentials: Credentials,
     endpoint: AwsInspectorEndpoint,
     manager: ResumableSourceManager[AwsInspectorResumeConfig],
     updated_after: float | None,
@@ -198,7 +195,7 @@ def get_rows(
         return
     next_token = state.next_token if state else None
     payload = request_payload(endpoint, state.updated_after if state else updated_after)
-    client = AwsInspectorClient(config, api_version)
+    client = AwsInspectorClient(config, credentials, api_version)
     try:
         while True:
             request_body = dict(payload)
@@ -303,6 +300,7 @@ def list_cis_scans(
 
 def get_cis_scan_result_details(
     config: AwsInspectorSourceConfig,
+    credentials: Credentials,
     endpoint: AwsInspectorEndpoint,
     manager: ResumableSourceManager[AwsInspectorResumeConfig],
     scans_after: float | None,
@@ -313,7 +311,7 @@ def get_cis_scan_result_details(
     if state is not None and state.completed:
         return
     scans_after = state.updated_after if state else scans_after
-    client = AwsInspectorClient(config, api_version)
+    client = AwsInspectorClient(config, credentials, api_version)
     try:
         scans = list_cis_scans(client, manager, scans_after, incremental)
         arns = [scan["scanArn"] for scan in scans]
@@ -377,6 +375,7 @@ def get_cis_scan_result_details(
 
 def get_clusters_for_image(
     config: AwsInspectorSourceConfig,
+    credentials: Credentials,
     endpoint: AwsInspectorEndpoint,
     manager: ResumableSourceManager[AwsInspectorResumeConfig],
     api_version: str,
@@ -402,7 +401,7 @@ def get_clusters_for_image(
         )
 
     assert endpoint.parent is not None
-    client = AwsInspectorClient(config, api_version)
+    client = AwsInspectorClient(config, credentials, api_version)
     try:
         yield from fan_out(
             client,
@@ -422,6 +421,7 @@ def get_clusters_for_image(
 
 def validate_credentials(
     config: AwsInspectorSourceConfig,
+    credentials: Credentials,
     schema_name: str | None = None,
     api_version: str = INSPECTOR_API_VERSION,
 ) -> tuple[bool, str | None]:
@@ -432,7 +432,7 @@ def validate_credentials(
     while probe.parent is not None:
         probe = probe.parent
     try:
-        client = AwsInspectorClient(config, api_version)
+        client = AwsInspectorClient(config, credentials, api_version)
     except ValueError as error:
         return False, str(error)
     payload = request_payload(probe)
@@ -456,6 +456,7 @@ def validate_credentials(
 
 def aws_inspector_source(
     config: AwsInspectorSourceConfig,
+    credentials: Credentials,
     endpoint: str,
     manager: ResumableSourceManager[AwsInspectorResumeConfig],
     should_use_incremental_field: bool,
@@ -473,12 +474,12 @@ def aws_inspector_source(
     items: Callable[[], Iterator[list[dict[str, Any]]]]
     if endpoint_config.operation == "GetCisScanResultDetails":
         items = lambda: get_cis_scan_result_details(
-            config, endpoint_config, manager, updated_after, should_use_incremental_field, api_version
+            config, credentials, endpoint_config, manager, updated_after, should_use_incremental_field, api_version
         )
     elif endpoint_config.operation == "GetClustersForImage":
-        items = lambda: get_clusters_for_image(config, endpoint_config, manager, api_version)
+        items = lambda: get_clusters_for_image(config, credentials, endpoint_config, manager, api_version)
     else:
-        items = lambda: get_rows(config, endpoint_config, manager, updated_after, api_version)
+        items = lambda: get_rows(config, credentials, endpoint_config, manager, updated_after, api_version)
     return SourceResponse(
         name=endpoint,
         items=items,

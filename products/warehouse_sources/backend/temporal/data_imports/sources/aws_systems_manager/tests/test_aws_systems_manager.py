@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 import structlog
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_systems_manager import (
     aws_systems_manager as transport,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     AwsSystemsManagerSourceConfig,
 )
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "fake-secret", "fake-token")
+
 
 def response(body: object, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
     result = requests.Response()
@@ -56,11 +59,13 @@ def driver(config: AwsSystemsManagerSourceConfig) -> SourceDriver:
 
 @pytest.fixture
 def config() -> AwsSystemsManagerSourceConfig:
-    return AwsSystemsManagerSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="fake-secret",
-        aws_region="eu-west-1",
-        aws_session_token="fake-token",
+    return AwsSystemsManagerSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "fake-secret",
+            "aws_region": "eu-west-1",
+            "aws_session_token": "fake-token",
+        }
     )
 
 
@@ -92,11 +97,10 @@ def test_signs_serialized_body_for_selected_region(
     config: AwsSystemsManagerSourceConfig, region: str, host: str, token: str | None
 ) -> None:
     config.aws_region = region
-    config.aws_session_token = token
     with scripted_network(
         [ScriptedResponse(status=302, json={}, headers={"Location": "https://example.com/"})]
     ) as network:
-        client = SystemsManagerClient(config, API_VERSION)
+        client = SystemsManagerClient(config, Credentials("AKIAEXAMPLE", "fake-secret", token), API_VERSION)
         assert client.request("DescribeInstanceInformation", {"MaxResults": 5}) == {}
         client.close()
     assert len(network.requests_log) == 1
@@ -112,7 +116,7 @@ def test_signs_serialized_body_for_selected_region(
     assert "x-amz-target" in headers["authorization"]
     assert headers["x-amz-date"]
     assert request.read_timeout == 60
-    assert config.aws_secret_access_key in network.session_options[0]["redact_values"]
+    assert "fake-secret" in network.session_options[0]["redact_values"]
     if token:
         assert token in network.session_options[0]["redact_values"]
 
@@ -123,14 +127,14 @@ def test_signs_serialized_body_for_selected_region(
 def test_rejects_region_before_sending_credentials(config: AwsSystemsManagerSourceConfig, region: str) -> None:
     config.aws_region = region
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config, API_VERSION)
+        valid, reason = validate_credentials(config, CREDENTIALS, API_VERSION)
     assert not valid and reason and "valid AWS region" in reason
     assert network.requests_log == []
 
 
 def test_rejects_unsupported_model_version(config: AwsSystemsManagerSourceConfig) -> None:
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config, "2099-01-01")
+        valid, reason = validate_credentials(config, CREDENTIALS, "2099-01-01")
     assert not valid and reason and "Unsupported" in reason
     assert network.requests_log == []
 
@@ -198,7 +202,7 @@ def test_paginates_empty_and_terminal_pages(
         response({key: [], "NextToken": "next"}),
         response({key: [item], "NextToken": terminal_token}),
     ]
-    source = aws_systems_manager_source(config, name, API_VERSION, manager)
+    source = aws_systems_manager_source(config, CREDENTIALS, name, API_VERSION, manager)
     rows = [row for batch in iter_batches(source) for row in batch]
     assert len(rows) == 1
     assert rows[0][expected_key] == next(iter(item.values()))
@@ -229,7 +233,7 @@ def test_resume_state_is_staged_before_yield(
     http.post.return_value = response({"Associations": [{"AssociationId": "a-example"}], "NextToken": "later"})
     rows = cast(
         Generator[list[dict[str, Any]]],
-        aws_systems_manager_source(config, "associations", API_VERSION, manager).items(),
+        aws_systems_manager_source(config, CREDENTIALS, "associations", API_VERSION, manager).items(),
     )
     assert next(rows)[0]["association_id"] == "a-example"
     assert json.loads(http.post.call_args.kwargs["data"]) == {"MaxResults": 50, "NextToken": "saved"}
@@ -307,7 +311,7 @@ def test_authentication_errors_are_terminal_and_actionable(
 ) -> None:
     body = {"__type": f"com.amazonaws.ssm#{code}", "message": "Rejected"}
     with scripted_network([ScriptedResponse(status=400, json=body)]) as network:
-        valid, reason = validate_credentials(config, API_VERSION)
+        valid, reason = validate_credentials(config, CREDENTIALS, API_VERSION)
     assert not valid and reason and fragment in reason
     error = error_for_response(response(body, 400))
     matches = [
@@ -325,7 +329,7 @@ def test_permission_denial_only_allows_source_creation(
     config: AwsSystemsManagerSourceConfig, code: str, schema: str | None, expected: bool
 ) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": code, "Message": "Access denied"})]) as network:
-        valid, reason = validate_credentials(config, API_VERSION, schema)
+        valid, reason = validate_credentials(config, CREDENTIALS, API_VERSION, schema)
     assert valid is expected
     assert reason is None if expected else reason == "Grant ssm:GetInventory to read this table."
     assert len(network.requests_log) == 1
@@ -342,7 +346,7 @@ def test_permission_denial_only_allows_source_creation(
 def test_validation_uses_one_small_request(
     config: AwsSystemsManagerSourceConfig, http: MagicMock, schema: str | None, operation: str, size: int
 ) -> None:
-    assert validate_credentials(config, API_VERSION, schema) == (True, None)
+    assert validate_credentials(config, CREDENTIALS, API_VERSION, schema) == (True, None)
     assert http.post.call_count == 1
     assert json.loads(http.post.call_args.kwargs["data"])["MaxResults"] == size
     assert http.post.call_args.kwargs["headers"]["X-Amz-Target"] == f"AmazonSSM.{operation}"
@@ -351,9 +355,9 @@ def test_validation_uses_one_small_request(
 
 @pytest.mark.parametrize("field", ["aws_access_key_id", "aws_secret_access_key"])
 def test_missing_credentials_do_not_send_request(config: AwsSystemsManagerSourceConfig, field: str) -> None:
-    setattr(config, field, "")
+    setattr(config.aws_auth, field, "")
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config, API_VERSION)
+        valid, reason = AwsSystemsManagerSource().validate_credentials(config, team_id=1)
     assert not valid and reason and "Enter both" in reason
     assert network.requests_log == []
 
@@ -362,7 +366,7 @@ def test_unknown_table_fails_before_request(
     config: AwsSystemsManagerSourceConfig,
 ) -> None:
     with scripted_network([]) as network:
-        valid, reason = validate_credentials(config, API_VERSION, "unknown")
+        valid, reason = validate_credentials(config, CREDENTIALS, API_VERSION, "unknown")
     assert not valid and reason and "Unknown" in reason
     result = driver(config).run("unknown", [])
     assert isinstance(result.raised, ValueError)
@@ -391,7 +395,7 @@ def test_retries_body_throttling(config: AwsSystemsManagerSourceConfig, code: st
     with scripted_network(
         [ScriptedResponse(status=400, json={"__type": code}), ScriptedResponse(json={"Associations": []})]
     ) as network:
-        client = SystemsManagerClient(config, API_VERSION)
+        client = SystemsManagerClient(config, CREDENTIALS, API_VERSION)
         assert client.request("ListAssociations", {"MaxResults": 50}) == {"Associations": []}
         client.close()
     assert len(network.requests_log) == 2
@@ -400,7 +404,7 @@ def test_retries_body_throttling(config: AwsSystemsManagerSourceConfig, code: st
 @pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
 def test_status_retries_belong_only_to_tracked_transport(config: AwsSystemsManagerSourceConfig, status: int) -> None:
     with scripted_network(always(ScriptedResponse(status=status, json={"__type": "InternalServerError"}))) as network:
-        client = SystemsManagerClient(config, API_VERSION)
+        client = SystemsManagerClient(config, CREDENTIALS, API_VERSION)
         with pytest.raises(SystemsManagerError):
             client.request("ListAssociations", {"MaxResults": 50})
         client.close()
@@ -903,7 +907,7 @@ def test_fan_out_validation_probes_real_parents_before_placeholders(
     expected: tuple[bool, str | None],
 ) -> None:
     with scripted_network(script) as network:
-        assert validate_credentials(config, API_VERSION, schema) == expected
+        assert validate_credentials(config, CREDENTIALS, API_VERSION, schema) == expected
     assert [
         (request.headers["x-amz-target"].removeprefix("AmazonSSM."), request.json()) for request in network.requests_log
     ] == expected_requests
