@@ -1033,6 +1033,26 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs['code-quality']?.steps.find((step) => step.name === 'Save mypy cache')?.runs).toBe(runs)
     })
 
+    it.each([
+        ['PR', pullRequest(), false, true],
+        ['merge queue', mergeQueue(), false, true],
+        ['push', push(), false, true],
+        ['manual full rebuild', workflowDispatch(), false, false],
+        ['all-crate change', pullRequest(), true, false],
+    ] as const)('Rust change resolver on %s', (name, github, allCrates, runs) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                changes: { filter: pathsFilter({ rust: true, all_crates: allCrates }) },
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
+    })
+
     it.each(['success', 'failure'] as const)(
         'sccache counters survive a %s build without changing its verdict',
         (outcome) => {
