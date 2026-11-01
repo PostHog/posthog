@@ -51,6 +51,8 @@ class WhopEndpointConfig:
     latest_path: str | None = None
     # The versions the endpoint is verified on. None means every supported version.
     versions: tuple[str, ...] | None = None
+    # The versions whose webhook payloads match the endpoint's rows. None means every supported version.
+    webhook_versions: tuple[str, ...] | None = None
 
     def path_for(self, api_version: str) -> str:
         if api_version == WHOP_API_VERSION_2025_01_01:
@@ -95,11 +97,14 @@ WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
         supports_direction=True,
         supports_created_after=True,
     ),
+    # From 2026-10-24 the list returns receipt-backed `pay_` invoices, while Whop documents `invoice.*`
+    # payloads only for the legacy invoice object. Webhook rows would not match the polled rows.
     "invoices": WhopEndpointConfig(
         path="/invoices",
         supports_created_at_order=True,
         supports_direction=True,
         supports_created_after=True,
+        webhook_versions=(WHOP_API_VERSION_2025_01_01, WHOP_API_VERSION_2026_10_13_1),
     ),
     "refunds": WhopEndpointConfig(
         path="/refunds",
@@ -236,7 +241,18 @@ SCHEMA_TO_WEBHOOK_EVENTS: dict[str, list[str]] = {
 
 WEBHOOK_SCHEMA_NAMES = tuple(SCHEMA_TO_WEBHOOK_EVENTS.keys())
 
-ALL_WEBHOOK_EVENTS = sorted({event for events in SCHEMA_TO_WEBHOOK_EVENTS.values() for event in events})
+
+def webhook_schema_names_for(api_version: str) -> tuple[str, ...]:
+    return tuple(
+        name
+        for name in WEBHOOK_SCHEMA_NAMES
+        if WHOP_ENDPOINTS[name].webhook_versions is None or api_version in WHOP_ENDPOINTS[name].webhook_versions
+    )
+
+
+def webhook_events_for(api_version: str) -> list[str]:
+    return sorted({event for name in webhook_schema_names_for(api_version) for event in SCHEMA_TO_WEBHOOK_EVENTS[name]})
+
 
 # Schema name -> the resource prefix shared by its event types. Whop names events
 # `<resource>.<action>` (e.g. `payment.succeeded`), so the hog template splits on the first dot and

@@ -36,12 +36,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.setti
     MERGE_ONLY_ENDPOINTS,
     RESOURCE_TO_EVENT_PREFIX,
     SCHEMA_TO_WEBHOOK_EVENTS,
-    WEBHOOK_SCHEMA_NAMES,
     WHOP_API_KEYS_URL,
     WHOP_API_VERSION_2025_01_01,
     WHOP_API_VERSION_2026_10_29_8,
     WHOP_API_VERSIONS,
     endpoints_for,
+    webhook_schema_names_for,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop import WhopResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -209,12 +209,13 @@ class WhopSource(
     ) -> list[SourceSchema]:
         # Endpoints with no `created_at` sort option page newest-first and stop at the watermark,
         # which re-yields boundary rows that only a merge on `id` can dedupe.
+        pinned = self._api_version_date(api_version)
         return build_endpoint_schemas(
-            endpoints_for(self._api_version_date(api_version)),
+            endpoints_for(pinned),
             INCREMENTAL_FIELDS,
             names,
             merge_only=MERGE_ONLY_ENDPOINTS,
-            supports_webhooks=WEBHOOK_SCHEMA_NAMES,
+            supports_webhooks=webhook_schema_names_for(pinned),
         )
 
     def validate_credentials(

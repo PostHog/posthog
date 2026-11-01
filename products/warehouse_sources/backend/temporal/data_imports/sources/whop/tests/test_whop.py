@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.whop import WhopSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
-    ALL_WEBHOOK_EVENTS,
     BASE_URL,
     ENDPOINTS,
     PAGE_SIZE,
@@ -125,11 +124,13 @@ class TestApiVersion:
         assert request.param(filter_param) == COMPANY_ID
 
     @pytest.mark.parametrize("pinned, served", [(LEGACY, False), ("v1", False), (PREVIOUS, True), (LATEST, True)])
-    def test_external_accounts_is_only_discovered_where_whop_documents_it(self, pinned, served):
+    def test_discovery_follows_what_each_version_documents(self, pinned, served):
         schemas = WhopSource().get_schemas(
             WhopSourceConfig(api_key="test-api-key", company_id=COMPANY_ID), team_id=1, api_version=pinned
         )
         assert ("external_accounts" in {schema.name for schema in schemas}) is served
+        invoices = next(schema for schema in schemas if schema.name == "invoices")
+        assert invoices.supports_webhooks is (pinned != LATEST)
 
     def test_a_table_the_pin_does_not_serve_fails_before_any_request(self):
         result = _driver().run("external_accounts", [], api_version=LEGACY)
@@ -229,16 +230,19 @@ WEBHOOK_URL = "https://ph.example/webhook"
 
 class TestCreateWebhook:
     @pytest.mark.parametrize(
-        "api_version, version_fields",
+        "api_version, version_fields, registers_invoice_events",
         [
             # An unpinned v1 webhook delivers the "2025-01-01" shape the legacy pulls return.
-            (LEGACY, {"api_version": "v1"}),
+            (LEGACY, {"api_version": "v1"}, True),
             # Later versions reject `api_version` with a 400, and the pin keeps deliveries in the
             # shape the latest pulls return.
-            (LATEST, {"api_version_date": LATEST}),
+            (PREVIOUS, {"api_version_date": PREVIOUS}, True),
+            # Receipt-backed invoices have no documented `invoice.*` payload, so webhook rows would
+            # not match the polled ones.
+            (LATEST, {"api_version_date": LATEST}, False),
         ],
     )
-    def test_returns_the_generated_signing_secret(self, api_version, version_fields):
+    def test_returns_the_generated_signing_secret(self, api_version, version_fields, registers_invoice_events):
         with scripted_network(
             [ScriptedResponse(status=201, json={"id": "hook_1", "webhook_secret": "whsec_abc"})]
         ) as network:
@@ -247,13 +251,10 @@ class TestCreateWebhook:
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "whsec_abc"}
         payload = network.requests_log[0].json()
-        assert payload == {
-            "url": WEBHOOK_URL,
-            "events": ALL_WEBHOOK_EVENTS,
-            "resource_id": COMPANY_ID,
-            "enabled": True,
-            **version_fields,
-        }
+        events = payload.pop("events")
+        assert payload == {"url": WEBHOOK_URL, "resource_id": COMPANY_ID, "enabled": True, **version_fields}
+        assert "payment.succeeded" in events
+        assert ("invoice.paid" in events) is registers_invoice_events
 
     @pytest.mark.parametrize("status_code", [401, 403, 422, 500])
     def test_non_success_falls_back_to_manual_setup(self, status_code):
