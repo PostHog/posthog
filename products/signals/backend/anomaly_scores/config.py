@@ -161,6 +161,10 @@ class AnomalyScoringConfig:
     due_list: bool = False
     # Each enrolled team's due list refreshes about this often.
     due_list_refresh_hours: int = 6
+    # ClickHouse CPU seconds of scoring queries per UTC day, read from the query log, see `spend.py`. Zero is off.
+    # A project at its limit gets no picks until the next UTC day. Near the fleet limit, train picks stop first.
+    max_cpu_seconds_per_project_per_day: int = 0
+    max_fleet_cpu_seconds_per_day: int = 0
 
 
 DISABLED = AnomalyScoringConfig()
@@ -319,6 +323,12 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         due_list_refresh_hours=min(
             _positive_int(payload.get("due_list_refresh_hours"), defaults.due_list_refresh_hours),
             MAX_DUE_LIST_REFRESH_HOURS,
+        ),
+        max_cpu_seconds_per_project_per_day=_positive_int(
+            payload.get("max_cpu_seconds_per_project_per_day"), defaults.max_cpu_seconds_per_project_per_day
+        ),
+        max_fleet_cpu_seconds_per_day=_positive_int(
+            payload.get("max_fleet_cpu_seconds_per_day"), defaults.max_fleet_cpu_seconds_per_day
         ),
     )
 

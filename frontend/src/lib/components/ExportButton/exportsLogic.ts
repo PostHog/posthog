@@ -17,7 +17,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { delay } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
-import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
+import { retryImport } from 'lib/utils/retryImport'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -383,6 +383,14 @@ export const exportsLogic = kea<exportsLogicType>([
             const toastId = 'toast-' + Math.random()
             try {
                 lemonToast.info('Saving cohort...', { toastId, autoClose: false })
+                // The toast pulls in the workflows audience code, so it loads on demand. A failed load
+                // must not stop the save or report a saved cohort as a failure.
+                const toastModule = retryImport(() => import('scenes/cohorts/cohortSavedToast')).catch(
+                    (error: unknown) => {
+                        posthog.captureException(error)
+                        return null
+                    }
+                )
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
                 const cohort: CohortType = await api.create('api/cohort', {
                     is_static: true,
@@ -392,7 +400,12 @@ export const exportsLogic = kea<exportsLogicType>([
                 cohortsModel.findMounted()?.actions.cohortCreated(cohort)
                 await delay(500) // just in case the toast is too fast
                 lemonToast.dismiss(toastId)
-                cohortSavedToast(cohort, 'query_results', `${toastId}-success`)
+                const savedToast = await toastModule
+                if (savedToast) {
+                    savedToast.cohortSavedToast(cohort, 'query_results', `${toastId}-success`)
+                } else {
+                    lemonToast.success('Cohort saved', { toastId: `${toastId}-success` })
+                }
             } catch {
                 lemonToast.dismiss(toastId)
                 lemonToast.error('Cohort save failed')
