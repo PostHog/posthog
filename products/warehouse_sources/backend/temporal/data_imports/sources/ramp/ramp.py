@@ -54,7 +54,7 @@ def _token_url(environment: str) -> str:
     return f"{_api_base_url(environment)}/token"
 
 
-def _make_auth(environment: str, client_id: str, client_secret: str) -> OAuth2Auth:
+def _make_auth(environment: str, client_id: str, client_secret: str, scopes: str = TOKEN_SCOPES) -> OAuth2Auth:
     """Ramp uses OAuth2 client-credentials with HTTP Basic client auth.
 
     Tokens last ~10 days; the framework mints one lazily, caches it for the run, and re-mints
@@ -64,7 +64,7 @@ def _make_auth(environment: str, client_id: str, client_secret: str) -> OAuth2Au
         client_id=client_id,
         client_secret=client_secret,
         grant_type="client_credentials",
-        scopes=TOKEN_SCOPES,
+        scopes=scopes,
         client_auth_method="basic",
     )
 
@@ -121,6 +121,26 @@ def validate_credentials(environment: str, client_id: str, client_secret: str) -
     return True, None
 
 
+def check_endpoint_access(environment: str, client_id: str, client_secret: str, endpoint: str) -> str | None:
+    """Report why the app can't sync an endpoint that mints its own scopes, or None when it can.
+
+    Validation only mints TOKEN_SCOPES, so an app created without an endpoint's extra scope still
+    connects; probe that scope here so the table starts deselected instead of failing every sync."""
+    scopes = RAMP_ENDPOINTS[endpoint].scopes
+    if scopes is None:
+        return None
+    auth = _make_auth(environment, client_id, client_secret, scopes)
+    probe = Request(method="GET", url=_api_base_url(environment)).prepare()
+    try:
+        auth(probe)
+    except OAuth2AuthRequestError as e:
+        if e.is_permanent:
+            return f"Your Ramp developer app needs the `{scopes}` scope to sync this table."
+    except requests.RequestException:
+        pass
+    return None
+
+
 def ramp_source(
     environment: str,
     client_id: str,
@@ -133,7 +153,7 @@ def ramp_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = RAMP_ENDPOINTS[endpoint]
-    auth = _make_auth(environment, client_id, client_secret)
+    auth = _make_auth(environment, client_id, client_secret, config.scopes or TOKEN_SCOPES)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 

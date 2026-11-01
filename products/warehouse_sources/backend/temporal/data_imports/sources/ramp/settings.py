@@ -19,6 +19,9 @@ class RampEndpointConfig:
     incremental_param: Optional[str] = None
     # Stable event-time field used for datetime partitioning.
     partition_key: Optional[str] = None
+    # Scopes minted for this endpoint instead of TOKEN_SCOPES. Ramp rejects a token request for a
+    # scope the app lacks, so a newer endpoint asks only for its own scope and existing apps keep working.
+    scopes: Optional[str] = None
 
 
 RAMP_ENDPOINTS: dict[str, RampEndpointConfig] = {
@@ -54,6 +57,11 @@ RAMP_ENDPOINTS: dict[str, RampEndpointConfig] = {
     "departments": RampEndpointConfig(
         name="departments",
         path="/departments",
+    ),
+    "billing_statements": RampEndpointConfig(
+        name="billing_statements",
+        path="/billing/statements",
+        scopes="billing_statements:read",
     ),
 }
 
