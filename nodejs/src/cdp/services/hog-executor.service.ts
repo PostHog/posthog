@@ -35,10 +35,6 @@ export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
 
-function capturedEventsLimit(type: HogFunctionType['type']): number {
-    return type === 'source_webhook' ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS : 1
-}
-
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
@@ -227,7 +223,8 @@ export class HogExecutorService {
 
             try {
                 let hogLogs = 0
-                const maxCapturedEvents = capturedEventsLimit(invocation.hogFunction.type)
+                const maxCapturedEvents =
+                    invocation.hogFunction.type === 'source_webhook' ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS : 1
                 let droppedCaptures = 0
 
                 const asyncFunctions = (options.asyncFunctionsNames ?? []).reduce(

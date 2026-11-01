@@ -309,6 +309,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             }
 
+            if (functionResult.capturedPostHogEvents.length > 1) {
+                addLog(
+                    'warn',
+                    `Only the first of ${functionResult.capturedPostHogEvents.length} captured events starts the workflow. The rest were ignored.`
+                )
+            }
+
             const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
             // Add all logs to the result
 
