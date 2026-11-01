@@ -32,7 +32,10 @@ export function EvaluationModelPanel(): JSX.Element | null {
                 </p>
             </div>
             {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_JUDGE_IMAGES] && !usesDecisionModel && (
-                <LemonField.Pure label="Attachments">
+                <LemonField.Pure
+                    label="Attachments"
+                    info="If the judge can't take an attachment, it judges the text without it. This happens when the judge's model can't read the file type, when there are more than 20 attachments, or when the provider rejects a file, such as a PDF with too many pages."
+                >
                     <LemonSwitch
                         checked={includeMedia}
                         onChange={setIncludeMedia}
