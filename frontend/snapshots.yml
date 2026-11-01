@@ -1560,6 +1560,10 @@ snapshots:
         hash: v1.k794b7964.3ceedb6cc4e7e7dc732c2781243e1dc1b05c72c682d62b9d017dcec77f6cd78f.sZVdza2_lkTWkS4oLl4BbOOlXlqNQJZn7YpCtGLVhzI
     components-hogcharts-timeserieslinechart--moving-average--light:
         hash: v1.k794b7964.5d8436f60a589ebed40e1034af7ac05cdc4994622ccdf2ec5a6cd290d151442a.yioWrIx2NnH4Qdc_fz_voZKN_eGDOEQtPmv-_XFqiew
+    components-hogcharts-timeserieslinechart--stacking--dark:
+        hash: v1.k794b7964.07f8c1f45fd90d00433d47cd44cddc24c12f8fa19dc5e0492454ec1dc3feef03.yIpS9K7W2ulrWjrCY3_pt6CciSbmoBr30yojg5MilPM
+    components-hogcharts-timeserieslinechart--stacking--light:
+        hash: v1.k794b7964.556b4527792cf8c7a84d0e99af8e22d9dba40533843e09baf2ed49ab4517cdf0.v9uapTOefI1za9WYgD73NlTsfQkSLp_-bmwI85nYAIk
     components-hogcharts-timeserieslinechart--start-at-zero--dark:
         hash: v1.k794b7964.8b96c539f190a68acd91a3f45b064fb35c287eb42c026c252d54dc7518be21e4.Ma8lGNVFpVb_79Fs5pUDBJQWJb4HSlfOKnoNFPbEFXo
     components-hogcharts-timeserieslinechart--start-at-zero--light:

@@ -48,6 +48,9 @@ export interface TimeSeriesLineChartConfig {
     comparisonOf?: Record<string, string>
     /** Render area-fill series as a 100% stacked view; y-axis becomes 0–100%. */
     percentStackView?: boolean
+    /** Stack the series. Omit to stack only when two or more series set `fill`. See
+     *  {@link LineChartConfig.stacked}. */
+    stacked?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
@@ -112,6 +115,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         trendLines,
         comparisonOf,
         percentStackView,
+        stacked,
         showCrosshair,
         showGrid,
         showAxisLines,
@@ -168,6 +172,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showTickMarks,
         curve,
         percentStackView,
+        stacked,
         showCrosshair,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
