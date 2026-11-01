@@ -1,11 +1,13 @@
 import dataclasses
-from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Iterator
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
@@ -14,9 +16,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.railway.settings import (
+    CREATED_AT,
+    METRICS_INITIAL_LOOKBACK_DAYS,
+    METRICS_MEASUREMENTS,
+    METRICS_SAMPLE_RATE_SECONDS,
+    METRICS_WINDOW_DAYS,
     RAILWAY_API_URL,
     RAILWAY_ENDPOINTS,
     RAILWAY_PAGE_SIZE,
+    USAGE_INITIAL_LOOKBACK_DAYS,
+    USAGE_MEASUREMENTS,
+    USAGE_PAGE_SIZE,
     VALIDATION_QUERY,
     RailwayEndpointConfig,
 )
@@ -28,7 +38,7 @@ class RailwayRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RailwayResumeConfig:
     # Relay cursor (`pageInfo.endCursor`) to resume the current connection from. None means
     # "start the connection at its first page".
@@ -37,6 +47,16 @@ class RailwayResumeConfig:
     # (not a positional index) so projects created/deleted between a crash and the retry can't
     # resume us into the wrong project. None for the top-level `projects` endpoint.
     project_id: str | None = None
+    # ISO start of the time window to resume from, for the windowed `usage` and `metrics` endpoints.
+    window_start: str | None = None
+    # ISO end of the interrupted run's last window. A retry ends there too, so every parent of a
+    # partial window covers the same interval. The next incremental sync reads what came after.
+    window_end: str | None = None
+    # The parent to resume at inside the current page or window: a deployment for `deployment_events`,
+    # a workspace or project for the windowed endpoints.
+    parent_id: str | None = None
+    # Cursor of the parent's own connection, such as the deployment's events.
+    child_cursor: str | None = None
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -186,12 +206,28 @@ def _iter_connection_pages(
         cursor = next_cursor
 
 
-def _iter_project_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
+def _list_projects(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
+) -> list[dict[str, Any]]:
     projects_config = RAILWAY_ENDPOINTS["projects"]
-    ids: list[str] = []
+    projects: list[dict[str, Any]] = []
     for rows, _ in _iter_connection_pages(session, headers, logger, projects_config, {}, None):
-        ids.extend(row["id"] for row in rows)
-    return ids
+        projects.extend(rows)
+    return projects
+
+
+def _iter_project_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
+    return [project["id"] for project in _list_projects(session, headers, logger)]
+
+
+def _iter_workspace_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
+    # Usage is reported per workspace. A token can reach several, so take every workspace that owns
+    # a visible project.
+    workspace_ids: dict[str, None] = {}
+    for project in _list_projects(session, headers, logger):
+        if project.get("workspaceId"):
+            workspace_ids[project["workspaceId"]] = None
+    return list(workspace_ids)
 
 
 def _get_top_level_rows(
@@ -275,6 +311,314 @@ def _get_fan_out_rows(
             resumable_source_manager.save_state(RailwayResumeConfig(cursor=None, project_id=remaining[index + 1]))
 
 
+def _get_deployment_event_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: RailwayEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+    watermark: datetime | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk each project's deployments newest-first and read the events of each deployment.
+
+    Before each batch, the resume state moves to the position after it, so a resumed run reads
+    no batch twice. A full refresh appends, so a replayed batch would duplicate rows.
+    """
+    deployments_config = RAILWAY_ENDPOINTS["deployments"]
+    project_ids = _iter_project_ids(session, headers, logger)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = project_ids
+    if resume is not None and resume.project_id is not None and resume.project_id in project_ids:
+        remaining = project_ids[project_ids.index(resume.project_id) :]
+    else:
+        resume = None
+
+    for project_index, project_id in enumerate(remaining):
+        next_project_id = remaining[project_index + 1] if project_index + 1 < len(remaining) else None
+        page_cursor = resume.cursor if resume is not None else None
+        seek_id = resume.parent_id if resume is not None else None
+        seek_events_cursor = resume.child_cursor if resume is not None else None
+        resume = None
+        while True:
+            for deployments, next_page_cursor in _iter_connection_pages(
+                session, headers, logger, deployments_config, {"projectId": project_id}, page_cursor
+            ):
+                page_predates_watermark = (
+                    watermark is not None
+                    and bool(deployments)
+                    and _page_predates_watermark(deployments, CREATED_AT, watermark)
+                )
+                start_index, events_cursor = 0, None
+                if seek_id is not None:
+                    deployment_ids = [deployment["id"] for deployment in deployments]
+                    if seek_id not in deployment_ids:
+                        # Deployments created since the interrupted run push the saved one onto a
+                        # later page.
+                        if page_predates_watermark:
+                            seek_id = None
+                            break
+                        page_cursor = next_page_cursor
+                        continue
+                    start_index, events_cursor = deployment_ids.index(seek_id), seek_events_cursor
+                    seek_id = None
+
+                for index in range(start_index, len(deployments)):
+                    deployment = deployments[index]
+                    created_at = _as_utc_datetime(deployment.get(CREATED_AT))
+                    # An event is never older than its deployment. The 24h incremental lookback covers
+                    # events that a deployment created before the watermark still emits later.
+                    if watermark is not None and created_at is not None and created_at < watermark:
+                        continue
+                    context = {
+                        "deployment_id": deployment["id"],
+                        "project_id": project_id,
+                        "service_id": deployment.get("serviceId"),
+                        "environment_id": deployment.get("environmentId"),
+                    }
+                    for events, next_events_cursor in _iter_connection_pages(
+                        session, headers, logger, endpoint_config, {"deploymentId": deployment["id"]}, events_cursor
+                    ):
+                        if next_events_cursor is not None:
+                            position: RailwayResumeConfig | None = RailwayResumeConfig(
+                                cursor=page_cursor,
+                                project_id=project_id,
+                                parent_id=deployment["id"],
+                                child_cursor=next_events_cursor,
+                            )
+                        elif index + 1 < len(deployments):
+                            position = RailwayResumeConfig(
+                                cursor=page_cursor, project_id=project_id, parent_id=deployments[index + 1]["id"]
+                            )
+                        elif next_page_cursor is not None:
+                            position = RailwayResumeConfig(cursor=next_page_cursor, project_id=project_id)
+                        elif next_project_id is not None:
+                            position = RailwayResumeConfig(project_id=next_project_id)
+                        else:
+                            # The last page of the run. A position without a project would restart the walk.
+                            position = None
+                        if position is not None:
+                            resumable_source_manager.save_state(position)
+                        if events:
+                            yield [{**context, **event} for event in events]
+                        else:
+                            resumable_source_manager.safe_point()
+                    events_cursor = None
+                if page_predates_watermark:
+                    break
+                page_cursor = next_page_cursor
+            if seek_id is None:
+                break
+            logger.debug(f"Railway: saved deployment {seek_id} not found in project {project_id}, rereading it")
+            page_cursor, seek_id, seek_events_cursor = None, None, None
+
+
+@frozen
+class _Window:
+    start: datetime
+    end: datetime
+
+
+def _iter_windows(start: datetime, end: datetime, size: timedelta) -> Iterator[_Window]:
+    while start < end:
+        yield _Window(start=start, end=min(start + size, end))
+        start += size
+
+
+def _get_windowed_rows(
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+    start: datetime,
+    end: datetime,
+    window_size: timedelta,
+    parent_ids: list[str],
+    fetch_page: Callable[[str, datetime, datetime, str | None], Iterator[tuple[list[dict[str, Any]], str | None]]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read every parent for each time window, oldest window first.
+
+    Before each page, the resume state moves to the position after it. A resumed run rebuilds
+    its windows from the saved window start and end, because both depend on the current time
+    and would shift between attempts.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_from = _as_utc_datetime(resume.window_start) if resume is not None and resume.window_start else None
+    if resume is not None and resume_from is not None:
+        start = resume_from
+        resume_end = _as_utc_datetime(resume.window_end) if resume.window_end else None
+        if resume_end is not None:
+            end = resume_end
+    else:
+        resume = None
+
+    run_end = end.isoformat()
+    windows = list(_iter_windows(start, end, window_size))
+    for window_index, window in enumerate(windows):
+        window_start, window_end = window.start, window.end
+        parents, cursor = parent_ids, None
+        if resume is not None:
+            if resume.parent_id in parent_ids:
+                parents, cursor = parent_ids[parent_ids.index(resume.parent_id) :], resume.cursor
+            resume = None
+
+        for parent_index, parent_id in enumerate(parents):
+            for rows, next_cursor in fetch_page(parent_id, window_start, window_end, cursor):
+                if next_cursor is not None:
+                    position: RailwayResumeConfig | None = RailwayResumeConfig(
+                        window_start=window_start.isoformat(),
+                        window_end=run_end,
+                        parent_id=parent_id,
+                        cursor=next_cursor,
+                    )
+                elif parent_index + 1 < len(parents):
+                    position = RailwayResumeConfig(
+                        window_start=window_start.isoformat(), window_end=run_end, parent_id=parents[parent_index + 1]
+                    )
+                elif window_index + 1 < len(windows):
+                    position = RailwayResumeConfig(
+                        window_start=windows[window_index + 1].start.isoformat(), window_end=run_end
+                    )
+                else:
+                    # The last page of the run. Keep the staged position: resuming past the end
+                    # would start a window that is not aligned to the bucket size.
+                    position = None
+                if position is not None:
+                    resumable_source_manager.save_state(position)
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+            cursor = None
+
+
+def _usage_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: RailwayEndpointConfig,
+    workspace_id: str,
+    window_start: datetime,
+    window_end: datetime,
+    cursor: str | None,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    while True:
+        data = _execute(
+            session,
+            headers,
+            endpoint_config.query,
+            {
+                "workspaceId": workspace_id,
+                "startDate": window_start.isoformat(),
+                "endDate": window_end.isoformat(),
+                "measurements": USAGE_MEASUREMENTS,
+                "first": USAGE_PAGE_SIZE,
+                "after": cursor,
+            },
+            logger,
+        )
+        page = _dig(data, endpoint_config.data_path) or {}
+        rows = []
+        for item in page.get("usage") or []:
+            tags = item.get("tags") or {}
+            project_id, service_id, environment_id = (
+                tags.get("projectId"),
+                tags.get("serviceId"),
+                tags.get("environmentId"),
+            )
+            key_parts = (window_start.date().isoformat(), project_id, service_id, environment_id, item["measurement"])
+            rows.append(
+                {
+                    # Tags are null when usage is not attributed to a service, so build a non-null key.
+                    "id": ":".join(part or "" for part in key_parts),
+                    "date": window_start,
+                    "workspace_id": workspace_id,
+                    "projectId": project_id,
+                    "serviceId": service_id,
+                    "environmentId": environment_id,
+                    "measurement": item["measurement"],
+                    "value": item.get("value"),
+                }
+            )
+        page_info = page.get("pageInfo") or {}
+        cursor = page_info.get("endCursor") if page_info.get("hasNextPage") else None
+        yield rows, cursor
+        if cursor is None:
+            return
+
+
+def _metrics_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: RailwayEndpointConfig,
+    project_id: str,
+    window_start: datetime,
+    window_end: datetime,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    data = _execute(
+        session,
+        headers,
+        endpoint_config.query,
+        {
+            "projectId": project_id,
+            "startDate": window_start.isoformat(),
+            "endDate": window_end.isoformat(),
+            "measurements": METRICS_MEASUREMENTS,
+            "sampleRateSeconds": METRICS_SAMPLE_RATE_SECONDS,
+        },
+        logger,
+    )
+    rows = []
+    for result in _dig(data, endpoint_config.data_path) or []:
+        tags = result.get("tags") or {}
+        service_id, environment_id = tags.get("serviceId"), tags.get("environmentId")
+        for sample in result.get("values") or []:
+            ts = sample["ts"]
+            # Keep the window end exclusive, so a sample on the boundary is not read twice in one run.
+            if ts >= window_end.timestamp():
+                continue
+            rows.append(
+                {
+                    "id": f"{project_id}:{service_id or ''}:{environment_id or ''}:{result['measurement']}:{ts}",
+                    "project_id": project_id,
+                    "serviceId": service_id,
+                    "environmentId": environment_id,
+                    "measurement": result["measurement"],
+                    "ts": ts,
+                    "timestamp": datetime.fromtimestamp(ts, tz=UTC),
+                    "value": sample.get("value"),
+                }
+            )
+    yield rows, None
+
+
+def _get_estimated_usage_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: RailwayEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[RailwayResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    for workspace_id in _iter_workspace_ids(session, headers, logger):
+        data = _execute(
+            session,
+            headers,
+            endpoint_config.query,
+            {"workspaceId": workspace_id, "measurements": USAGE_MEASUREMENTS},
+            logger,
+        )
+        rows = [{"workspace_id": workspace_id, **item} for item in _dig(data, endpoint_config.data_path) or []]
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _window_start(watermark: datetime | None, now: datetime, initial_lookback: timedelta, unit: timedelta) -> datetime:
+    start = watermark if watermark is not None else now - initial_lookback
+    # Align to the bucket size so re-reading the last, partial bucket reproduces the same row ids.
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    return epoch + ((start - epoch) // unit) * unit
+
+
 def get_rows(
     api_token: str,
     endpoint: str,
@@ -293,7 +637,45 @@ def get_rows(
         watermark = _as_utc_datetime(db_incremental_field_last_value)
 
     try:
-        if endpoint_config.fan_out_over_projects:
+        if endpoint == "deployment_events":
+            yield from _get_deployment_event_rows(
+                session, headers, logger, endpoint_config, resumable_source_manager, watermark
+            )
+        elif endpoint == "estimated_usage":
+            yield from _get_estimated_usage_rows(session, headers, logger, endpoint_config, resumable_source_manager)
+        elif endpoint == "usage":
+            now = datetime.now(UTC)
+            day = timedelta(days=1)
+            start = _window_start(watermark, now, timedelta(days=USAGE_INITIAL_LOOKBACK_DAYS), day)
+            yield from _get_windowed_rows(
+                resumable_source_manager,
+                start,
+                now,
+                day,
+                _iter_workspace_ids(session, headers, logger),
+                lambda workspace_id, window_start, window_end, cursor: _usage_rows(
+                    session, headers, logger, endpoint_config, workspace_id, window_start, window_end, cursor
+                ),
+            )
+        elif endpoint == "metrics":
+            now = datetime.now(UTC)
+            start = _window_start(
+                watermark,
+                now,
+                timedelta(days=METRICS_INITIAL_LOOKBACK_DAYS),
+                timedelta(seconds=METRICS_SAMPLE_RATE_SECONDS),
+            )
+            yield from _get_windowed_rows(
+                resumable_source_manager,
+                start,
+                now,
+                timedelta(days=METRICS_WINDOW_DAYS),
+                _iter_project_ids(session, headers, logger),
+                lambda project_id, window_start, window_end, _cursor: _metrics_rows(
+                    session, headers, logger, endpoint_config, project_id, window_start, window_end
+                ),
+            )
+        elif endpoint_config.fan_out_over_projects:
             yield from _get_fan_out_rows(
                 session,
                 headers,
@@ -335,7 +717,7 @@ def railway_source(
         # Railway's connections return newest-first and have no server-side time filter, so the
         # incremental watermark must persist only at successful job end — a partial run's max
         # says nothing about older pages (or other projects) it never reached.
-        sort_mode="desc",
+        sort_mode=endpoint_config.sort_mode,
         partition_count=1 if endpoint_config.partition_keys else None,
         partition_size=1 if endpoint_config.partition_keys else None,
         partition_mode="datetime" if endpoint_config.partition_keys else None,
