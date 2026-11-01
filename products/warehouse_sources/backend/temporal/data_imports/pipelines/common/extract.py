@@ -559,7 +559,10 @@ async def handle_reset_or_full_refresh(
     delta_table_ref: DeltaTableRef,
     logger: FilteringBoundLogger,
     webhook_only: bool = False,
+    keeps_table: bool = False,
 ) -> None:
+    """`keeps_table` marks a table that holds the only copy of its data, such as a history table. Its
+    reset starts the sync position over and leaves the table alone."""
     from products.warehouse_sources.backend.models.external_data_schema import (
         ExternalDataSchema,
         update_sync_type_config_keys,
@@ -585,8 +588,11 @@ async def handle_reset_or_full_refresh(
             schema.sync_type_config.pop("reset_pipeline", None)
             schema.sync_type_config.pop("column_type_widened", None)
     elif reset_pipeline and not should_resume:
-        await logger.adebug("Deleting existing table due to reset_pipeline being set")
-        await delta_table_ref.reset_table()
+        if keeps_table:
+            await logger.adebug("Keeping the table through the reset; only its sync position starts over")
+        else:
+            await logger.adebug("Deleting existing table due to reset_pipeline being set")
+            await delta_table_ref.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)(
             promote_pending_repartition=True
         )

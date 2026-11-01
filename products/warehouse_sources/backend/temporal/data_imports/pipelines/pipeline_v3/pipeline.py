@@ -623,6 +623,9 @@ class PipelineV3(Generic[ResumableData]):
         except Exception:
             await self._logger.aexception("V3 Pipeline: Failed to record the table rebuild")
 
+    def _keeps_table_on_reset(self) -> bool:
+        return False
+
     def _maintains_companion_table(self) -> bool:
         """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
 
@@ -930,6 +933,7 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     webhook_only=self._resource.webhook_only,
+                    keeps_table=self._keeps_table_on_reset(),
                 )
                 # A reset drops the earliest value of the table it deletes. No reloaded row is older than
                 # that value, so a run that kept it would never stage an earliest value of its own.
