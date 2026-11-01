@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/integrations/api'
-import { EmailSenderConfigSchema } from '@/schema/tool-inputs'
+import { EmailSenderConfigSchema, EmailSenderCreateConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -148,7 +148,7 @@ const integrationsDomainConnectCheckRetrieve = (): ToolBase<
 
 const IntegrationsEmailCreateSchema = () => {
     const IntegrationsCreateBody = orvalSchemas.IntegrationsCreateBody()
-    return IntegrationsCreateBody.extend({ config: EmailSenderConfigSchema })
+    return IntegrationsCreateBody.extend({ config: EmailSenderCreateConfigSchema })
 }
 
 const integrationsEmailCreate = (): ToolBase<

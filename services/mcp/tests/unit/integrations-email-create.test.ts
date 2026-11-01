@@ -18,6 +18,8 @@ describe('integrations-email-create', () => {
 
         expect(request).toHaveBeenCalledWith(
             expect.objectContaining({
+                method: 'POST',
+                path: '/api/projects/42/integrations/',
                 body: {
                     kind: 'email',
                     config: expect.objectContaining({

@@ -155,6 +155,10 @@ export const EmailSenderConfigSchema = IntegrationsEmailPartialUpdateBody()
     })
     .describe('Email sender config.')
 
+export const EmailSenderCreateConfigSchema = EmailSenderConfigSchema.omit({ setup_method: true }).describe(
+    'Email sender config.'
+)
+
 export const BillingSpendBreakdownsSchema = z
     .array(z.enum(['type', 'team']))
     .nullish()
