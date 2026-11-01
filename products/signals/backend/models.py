@@ -4296,8 +4296,9 @@ class UserActivitySummaryQueueCursor(models.Model):
 class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     """One build of one person's ranked inbox list, from `personal_ranking/logic.py`.
 
-    Append-only: every build writes one row, so later readers can reuse the latest row while its
-    `input_hash` still matches the current inputs.
+    Every build writes one row, so later readers can reuse the latest row while its `input_hash`
+    still matches the current inputs. A build then deletes the person's rows past the newest
+    `max_rows_per_person`.
     """
 
     class Status(models.TextChoices):
