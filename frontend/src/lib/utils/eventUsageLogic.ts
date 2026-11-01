@@ -6,6 +6,7 @@ import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'l
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
+import { retryImport } from 'lib/utils/retryImport'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
@@ -2029,9 +2030,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
             if (isBIVisualizationNode(insight?.query)) {
                 // Dynamic import keeps the BI editor runtime out of the eager shell bundle
-                const { captureBIWorksheetAction } =
-                    await import('products/business_intelligence/frontend/biEditorAnalytics')
-                captureBIWorksheetAction('added_to_dashboard', insight.query.config, { insight_id: insight.id })
+                const biEditorAnalytics = await retryImport(
+                    () => import('products/business_intelligence/frontend/biEditorAnalytics')
+                ).catch(() => null)
+                if (biEditorAnalytics) {
+                    biEditorAnalytics.captureBIWorksheetAction('added_to_dashboard', insight.query.config, {
+                        insight_id: insight.id,
+                    })
+                } else {
+                    // The chunk did not load, so send the action without the config properties rather than drop it
+                    posthog.capture('bi-worksheet-action', { action: 'added_to_dashboard', insight_id: insight.id })
+                }
             }
         },
         reportRemovedInsightFromDashboard: async ({ insight, dashboardId }) => {

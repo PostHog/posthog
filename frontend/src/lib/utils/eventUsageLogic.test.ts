@@ -52,22 +52,36 @@ describe('eventUsageLogic', () => {
     })
 
     describe('saved insight to dashboard', () => {
+        const biQuery = {
+            kind: NodeKind.BIVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+            config: DEFAULT_BI_CONFIG,
+        }
+
+        afterEach(() => {
+            jest.dontMock('products/business_intelligence/frontend/biEditorAnalytics')
+        })
+
         it.each([
+            ['a BI insight', biQuery, false, ['saved insight to dashboard', 'bi-worksheet-action']],
             [
-                'a BI insight',
-                {
-                    kind: NodeKind.BIVisualizationNode,
-                    source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
-                    config: DEFAULT_BI_CONFIG,
-                },
+                'a BI insight when the BI chunk fails',
+                biQuery,
+                true,
                 ['saved insight to dashboard', 'bi-worksheet-action'],
             ],
             [
                 'a trends insight',
                 { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery, series: [] } },
+                false,
                 ['saved insight to dashboard'],
             ],
-        ])('captures the dashboard events for %s', async (_, query, expectedEvents) => {
+        ])('captures the dashboard events for %s', async (_, query, chunkFails, expectedEvents) => {
+            if (chunkFails) {
+                jest.doMock('products/business_intelligence/frontend/biEditorAnalytics', () => {
+                    throw new Error('chunk failed to load')
+                })
+            }
             initKeaTests()
             eventUsageLogic.mount()
             const capture = jest.spyOn(posthog, 'capture').mockImplementation()
