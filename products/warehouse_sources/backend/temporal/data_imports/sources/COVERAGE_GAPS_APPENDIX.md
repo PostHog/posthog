@@ -9990,10 +9990,10 @@ Today (6): `deployments`, `environments`, `project_members`, `projects`, `servic
 
 Diffed against: <https://backboard.railway.com/graphql/v2>
 
-- [ ] `usage / projectServiceUsage / estimatedUsage` — Railway's headline metric - cost and resource usage per project/service/workspace; currently no spend data at all (high)
-- [ ] `events` — Project event/activity stream - the audit-style timeline of what changed and when (high)
-- [ ] `metrics` — CPU/memory/network/disk metrics per project, environment and service - core observability data (high)
-- [ ] `deploymentEvents` — State-transition history for each deployment we already sync, enabling deploy-duration and failure analysis (high)
+- [x] `usage / projectServiceUsage / estimatedUsage` — Railway's headline metric - cost and resource usage per project/service/workspace; currently no spend data at all (high)
+- [x] `events` — Project event/activity stream - the audit-style timeline of what changed and when (high)
+- [x] `metrics` — CPU/memory/network/disk metrics per project, environment and service - core observability data (high)
+- [x] `deploymentEvents` — State-transition history for each deployment we already sync, enabling deploy-duration and failure analysis (high)
 - [ ] `serviceInstance` — Lookup resolving the service x environment pair that deployments already carry IDs for (high)
 - [ ] `auditLogs` — Workspace-level audit trail of who did what, for compliance and change analysis (medium)
 - [ ] `httpMetrics / httpMetricsGroupedByStatus / httpDurationMetrics` — Request volume, status-code breakdown and latency percentiles per service (medium)
