@@ -9,7 +9,7 @@ import pytest
 from openai import APIConnectionError
 from parameterized import parameterized
 
-from products.signals.backend.activity_summary.computed import compute_fields
+from products.signals.backend.activity_summary.computed import MAX_OWNED, compute_fields
 from products.signals.backend.activity_summary.prompt import (
     MAX_LABEL_CHARS,
     MAX_RECENT_SHIFT_CHARS,
@@ -185,7 +185,7 @@ def test_activity_units_filter_collapse_and_rank_creates_first() -> None:
 
     assert [unit.text for unit in units] == [
         '- 2026-10-16 created Dashboard "Growth overview"',
-        '- 2026-10-18 updated Notebook "Pricing notes" (x2)',
+        '- 2026-10-17 to 2026-10-18 updated Notebook "Pricing notes" (x2)',
     ]
     assert dict(drops) == {
         Drop.NOISY_SCOPE: 1,
@@ -230,10 +230,29 @@ def _bulk(count: int, spacing_days: float, intent: str | None = None) -> list[Ac
             {Drop.API_KEY_CHANGE: 1},
         ),
         (
-            "an integration with a key-like name is kept",
-            [_change("Integration", "created", "CI deploy key")],
-            ['- 2026-10-18 created Integration "CI deploy key"'],
+            "a setup change is dropped",
+            [
+                _change("Integration", "created", "Slack"),
+                _change("SignalTeamConfig", "updated", "Inbox settings"),
+                _change("Person", "deleted", "Test user"),
+            ],
+            [],
+            {Drop.SETUP_SCOPE: 3},
+        ),
+        (
+            "a setup change with an intent is kept",
+            [_change("Integration", "created", "Slack", intent="Send alerts to the team channel")],
+            ['- 2026-10-18 created Integration "Slack" (agent: Send alerts to the team channel)'],
             {},
+        ),
+        (
+            "an object named only by a token or digits is dropped",
+            [
+                _change("Insight", "created", "12345"),
+                _change("Insight", "created", "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"),
+            ],
+            [],
+            {Drop.UNNAMED_OBJECT: 2},
         ),
         (
             "an annotation written through a personal API key is dropped",
@@ -251,6 +270,15 @@ def _bulk(count: int, spacing_days: float, intent: str | None = None) -> list[Ac
             "repeated team settings updates without an intent are dropped",
             [
                 _change("Team", "updated", "Default project", days_ago=1),
+                _change("Team", "updated", "Default project", days_ago=2),
+            ],
+            [],
+            {Drop.TEAM_SETTINGS: 2},
+        ),
+        (
+            "repeated project settings updates without an intent are dropped",
+            [
+                _change("Project", "updated", "Default project", days_ago=1),
                 _change("Team", "updated", "Default project", days_ago=2),
             ],
             [],
@@ -313,7 +341,7 @@ def test_activity_units_drop_automated_activity(
         (
             "collapsed rows carry their intents newest first",
             ["Add a breakdown", None, "Split the funnel by plan"],
-            '- 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown; Split the funnel by plan)',
+            '- 2026-10-17 to 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown; Split the funnel by plan)',
         ),
         (
             "an intent keeps only the host of a link",
@@ -469,7 +497,9 @@ def test_a_group_line_lists_the_names_that_fit_and_marks_the_rest() -> None:
 
     [unit] = activity_units(items, Counter(), parents)
 
-    assert unit.text.startswith('- 2026-10-18 created 12 Insights on Dashboard "Quality review": "Insight number 0')
+    assert unit.text.startswith(
+        '- 2026-10-17 to 2026-10-18 created 12 Insights on Dashboard "Quality review": "Insight number 0'
+    )
     assert unit.text.endswith('", …')
     assert len(unit.text) <= ACTIVITY_LINE_CHARS
 
@@ -529,6 +559,21 @@ def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
         ("an angle-bracketed slack link", "See <https://example.com/a/b> now", "See [link example.com] now"),
         ("credentials in a url are gone", "Use https://user:pass@db.example.com/x", "Use [link db.example.com]"),
         ("token-like string", "Use key phx_9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c", "Use key <token>"),
+        ("uuid", "Run 3f2b8c1e-9a4d-4e7f-b6c5-1d2e3f4a5b6c failed", "Run <token> failed"),
+        ("hex hash", "Commit 4e1f9a7c2b8d3e6f0a5c9b1d7e2f8a4c6b3d0e9f", "Commit <token>"),
+        ("sk-style key", "Use sk-live-Zq8xW2vR7tY4uP1oL6kJ3h", "Use <token>"),
+        (
+            "jwt",
+            "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0dXNlcjEyMyJ9.c2lnbmF0dXJlMTIzNDU2Nzg5",
+            "Bearer <token>.<token>.<token>",
+        ),
+        ("short numeric segments of a key", "Use botx-123456789012-1234567890123456-abcdef", "Use <token>"),
+        ("evenly split key", "Use abcd-1234-efgh-5678-ijkl-9012", "Use <token>"),
+        ("url-safe key with short segments", "Use phx_aB3d-Xy9kQ_w2eRt-Lm8nP_zT4v-Hj6s", "Use <token>"),
+        ("a hyphenated name is kept", "checkout-redesign-test-2026", "checkout-redesign-test-2026"),
+        ("a capitalized name is kept", "Q4-Revenue-Forecast-Review-2026", "Q4-Revenue-Forecast-Review-2026"),
+        ("a snake case name is kept", "activity_summary_mcp_pairs_v2", "activity_summary_mcp_pairs_v2"),
+        ("a name with a quarter is kept", "new-onboarding-flow-q4-2026", "new-onboarding-flow-q4-2026"),
         ("multiline text folds onto one line", "First line\n\n  second\tline ", "First line second line"),
         (
             "ordinary text is untouched",
@@ -601,6 +646,9 @@ def test_build_input_renders_the_four_sections_in_order() -> None:
     assert rendered.input_chars == len(rendered.text)
     assert build_input([_task("root cause")], [], as_of=AS_OF, seed=1) is None
     assert build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "Settings")]) is None
+    pages_only = build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "ErrorTracking", days=3)])
+    assert pages_only is not None
+    assert (pages_only.text, pages_only.units) == ("", 1)
 
 
 def test_mcp_units_assemble_each_session_in_order_and_cap_a_long_chain() -> None:
@@ -610,17 +658,41 @@ def test_mcp_units_assemble_each_session_in_order_and_cap_a_long_chain() -> None
         _mcp("s2", "check error rates", days_ago=0, minutes=-8),
         _mcp("s1", "Why signups dropped", days_ago=0, minutes=-5),
         *(_mcp("s3", f"step {n}", days_ago=2, minutes=n) for n in range(1, 9)),
+        _mcp("s4", "list the export failures", days_ago=3),
+        _mcp("s4", "query the export rows", days_ago=3, minutes=1),
+        _mcp("s4", "draft the weekly report", days_ago=3, minutes=120),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; read the logs", days_ago=5),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; query the table", days_ago=5, minutes=1),
+        _mcp("s5", "Goal: investigate a failed export for the billing team; read the logs", days_ago=5, minutes=2),
+    ]
+    long_records = [
+        _mcp("s6", f"{'long ' if n in (3, 5) else ''}intent {n} " + "word " * 30, days_ago=6, minutes=n)
+        for n in range(1, 8)
     ]
     drops: Counter[str] = Counter()
 
     units = mcp_units(records, [], drops, RenderLimits(mcp_chain_max_intents=3))
+    long_chain = mcp_units(long_records, [], Counter())[0].text
 
     assert [unit.text for unit in units] == [
+        "- 2026-10-14, 3 calls: investigate a failed export for the billing team; read the logs --> query the table",
+        "- 2026-10-16, 2 calls: list the export failures --> query the export rows",
+        "- 2026-10-16, 1 call: draft the weekly report",
         "- 2026-10-17, 8 calls: step 1 --> step 2 --> … --> step 8",
         "- 2026-10-18, 1 call: check error rates",
         "- 2026-10-19, 3 calls: why signups dropped --> signups by country",
     ]
     assert drops == Counter()
+    assert long_chain.startswith("- 2026-10-13, 7 calls: intent 1 word")
+    assert [part.split(" word")[0] for part in long_chain.split(" --> ")[1:]] == [
+        "…",
+        "long intent 3",
+        "…",
+        "long intent 5",
+        "…",
+        "intent 7",
+    ]
+    assert len(long_chain) <= DEFAULT_LIMITS.mcp_line_chars
 
 
 KEEPER = _mcp("k", "why signups dropped", days_ago=3)
@@ -659,6 +731,13 @@ KEEPER = _mcp("k", "why signups dropped", days_ago=3)
             [],
             {Drop.MCP_REPEATED_CHAIN: 4},
         ),
+        (
+            "a scheduled job in one long session is still a scheduled job",
+            [_mcp("job", f"refresh digest {n}", days_ago=1, minutes=60 * n) for n in range(1, 5)],
+            [],
+            [],
+            {Drop.MCP_REPEATED_CHAIN: 4},
+        ),
     ]
 )
 def test_mcp_units_drop_rules(
@@ -677,7 +756,7 @@ def test_mcp_units_drop_rules(
     assert dict(drops) == expected_drops
 
 
-def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> None:
+def test_view_units_leave_pages_out_count_edits_and_drop_what_says_nothing() -> None:
     drops: Counter[str] = Counter()
     views = [
         _view("scene", "ErrorTrackingIssue", days=2),
@@ -698,11 +777,10 @@ def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> No
     units = view_units(views, activity, drops)
 
     assert sorted(unit.text for unit in units) == [
-        "- Error tracking pages: opened 4 days, last 2026-10-18",
         '- Feature flag "new-checkout": opened 2 days, last 2026-10-18, edited 2 days',
         '- Insight "Weekly signups": opened 5 days, last 2026-10-18, not theirs',
     ]
-    assert dict(drops) == {Drop.GENERIC_SCENE: 2, Drop.AUTO_NAMED_OBJECT: 1, Drop.UNNAMED_OBJECT: 1}
+    assert dict(drops) == {Drop.AUTO_NAMED_OBJECT: 1, Drop.UNNAMED_OBJECT: 1}
 
 
 def test_compute_fields_split_owned_watched_and_visited() -> None:
@@ -739,6 +817,15 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
             },
             {
                 "ref": "o2",
+                "type": "dashboard",
+                "id": "9",
+                "name": "Growth overview",
+                "edit_days": 1,
+                "last_at": "2026-10-17",
+                "created": True,
+            },
+            {
+                "ref": "o3",
                 "type": "insight",
                 "id": "abc",
                 "name": "Weekly signups",
@@ -748,7 +835,7 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
             },
             *(
                 {
-                    "ref": f"o{n + 2}",
+                    "ref": f"o{n + 3}",
                     "type": "ticket",
                     "id": f"t{n}",
                     "name": f"Ticket #{n}",
@@ -758,19 +845,10 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
                 }
                 for n in (1, 2, 3)
             ),
-            {
-                "ref": "o6",
-                "type": "dashboard",
-                "id": "9",
-                "name": "Growth overview",
-                "edit_days": 1,
-                "last_at": "2026-10-17",
-                "created": True,
-            },
         ],
         "watched": [
             {
-                "ref": "o2",
+                "ref": "o3",
                 "type": "insight",
                 "id": "abc",
                 "name": "Weekly signups",
@@ -785,6 +863,36 @@ def test_compute_fields_split_owned_watched_and_visited() -> None:
             "visits": ["session_replay"],
         },
         "task_count": 1,
+    }
+
+
+def test_compute_fields_cap_one_type_and_merge_objects_with_the_same_name() -> None:
+    insights = [
+        _change("Insight", "created", f"Tile {n}", days_ago=1 - n / 1000, item_id=str(n)) for n in range(MAX_OWNED)
+    ]
+    flags = [_change("FeatureFlag", "updated", f"flag-{n}", days_ago=3, item_id=f"f{n}") for n in range(4)]
+    copies = [
+        _change("Notebook", "updated", "Pricing notes", days_ago=4, item_id="n1"),
+        _change("Notebook", "updated", "pricing notes", days_ago=2, item_id="n2"),
+    ]
+    same_day_copies = [
+        _change("Subscription", "created", "Weekly report", days_ago=1.2, item_id=f"s{n}") for n in range(3)
+    ]
+    dashboard = [_change("Dashboard", "created", "Quality review", days_ago=1.5, item_id="d1")]
+
+    owned = compute_fields([], insights + flags + copies + same_day_copies + dashboard, []).as_json()["owned"]
+
+    assert len(owned) == MAX_OWNED
+    assert [(item["type"], item["id"], item["edit_days"]) for item in owned[:2]] == [
+        ("notebook", "n2", 1),
+        ("dashboard", "d1", 1),
+    ]
+    assert Counter(item["type"] for item in owned) == {
+        "insight": MAX_OWNED - 7,
+        "feature_flag": 4,
+        "notebook": 1,
+        "subscription": 1,
+        "dashboard": 1,
     }
 
 
@@ -847,7 +955,7 @@ PREVIOUS = {
     "modes": ["building"],
     "recent_shift": "Moved from flags to funnels.",
 }
-COMPUTED = {
+COMPUTED: dict[str, Any] = {
     "schema_version": 1,
     "owned": [
         {
@@ -901,12 +1009,23 @@ def test_user_message_sends_only_the_rendered_input_and_the_previous_summary(
 
 
 def test_user_message_lists_the_computed_objects_and_pages_with_their_refs() -> None:
-    message = user_message("- a line", None, datetime.date(2026, 10, 18), computed=COMPUTED)
+    visits = [f"product_{n}_with_a_long_key" for n in range(8)]
+    computed = COMPUTED | {
+        "owned": [*COMPUTED["owned"], {**COMPUTED["owned"][0], "ref": "o3", "name": "Churn", "edit_days": 1}],
+        "watched": [
+            *COMPUTED["watched"],
+            {**COMPUTED["watched"][0], "ref": "o1", "name": "Signup funnel", "open_days": 9, "last_at": "2026-10-18"},
+        ],
+        "pages": [*COMPUTED["pages"], {"ref": "p2", "product": "surveys", "open_days": 1, "last_at": "2026-10-18"}],
+        "products": {"works_in": ["product_analytics"], "visits": ["session_replay", *visits]},
+    }
+    message = user_message("- a line", None, datetime.date(2026, 10, 18), computed=computed)
     assert (
         "Objects and pages:\n"
         "Products they work in: Product analytics\n"
-        "Products they only visit: Session replay\n"
-        '- o1 insight "Signup funnel": edited on 3 days, last 2026-10-16, created\n'
+        f"Products they only visit: Session replay, {', '.join(visits)}\n"
+        '- o1 insight "Signup funnel": edited on 3 days, opened on 9 days, last 2026-10-18, created\n'
+        '- o3 insight "Churn": edited on 1 day, last 2026-10-16, created\n'
         '- o2 dashboard "Growth overview": opened on 4 days, last 2026-10-17, not theirs\n'
         "- p1 Session replay pages: opened on 2 days, last 2026-10-18\n\n"
     ) in message

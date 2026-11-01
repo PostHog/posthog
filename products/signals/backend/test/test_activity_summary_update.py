@@ -150,10 +150,10 @@ class TestUpdateActivitySummary(BaseTest):
         assert result.rendered_input is not None
         assert '- Insight "Weekly signups": opened 1 day, last 2026-10-17, not theirs' in result.rendered_input
         assert '- Insight "Churn by plan": opened 1 day, last 2026-10-18\n' in result.rendered_input
-        assert "- Experiments pages: opened 1 day, last 2026-10-18" in result.rendered_input
+        assert "Experiments pages" not in result.rendered_input
         stored = self._stored()
         assert stored is not None
-        assert stored.inputs_used["view_lines"] == 3
+        assert (stored.inputs_used["view_lines"], stored.inputs_used["page_units"]) == (2, 1)
         assert stored.inputs_used["drops"] == {"generic_scene": 1}
         assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
 
