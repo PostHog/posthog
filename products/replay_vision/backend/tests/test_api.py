@@ -220,23 +220,43 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["sampling_rate"], value)
 
-    def test_create_without_ai_consent_returns_tagged_400(self) -> None:
+    @parameterized.expand([("create",), ("turn_on",)])
+    def test_without_ai_consent_returns_tagged_400(self, action: str) -> None:
         # The code is a contract the experiment wizard reads to keep this expected 400 out of error
         # tracking, so it must stay stable, not just the status.
+        scanner = self._create_scanner(enabled=False)
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
-        resp = self.client.post(
-            self.scanners_url,
-            data={
-                "name": "needs-consent",
-                "scanner_type": ScannerType.MONITOR,
-                "scanner_config": {"prompt": "p"},
-                "model": ScannerModel.GEMINI_3_8_FLASH,
-            },
-            format="json",
-        )
+        if action == "create":
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "needs-consent",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_8_FLASH,
+                },
+                format="json",
+            )
+        else:
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
+
+    @parameterized.expand([("creator_left_org", True), ("creator_still_member", False)])
+    def test_turning_on_hands_a_scanner_over_only_when_its_creator_lost_access(
+        self, _name: str, creator_left: bool
+    ) -> None:
+        creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+        if not creator_left:
+            self.organization.members.add(creator)
+        scanner = self._create_scanner(enabled=False, created_by=creator)
+
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.created_by, self.user if creator_left else creator)
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")

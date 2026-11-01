@@ -326,19 +326,24 @@ class TestFindScannerCandidatesActivity:
         )
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
-    def test_returns_empty_when_creator_lost_session_recording_access(self) -> None:
-        from posthog.models import User
+    @parameterized.expand([("creator_left_org",), ("no_ai_consent",)])
+    def test_a_scanner_that_cannot_spend_is_turned_off_before_any_read(self, case: str) -> None:
+        scanner = _make_scanner()
+        if case == "creator_left_org":
+            scanner.created_by = User.objects.create_user(email="departed@example.com", password="x", first_name="d")
+            scanner.save(update_fields=["created_by"])
+        else:
+            Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
 
-        creator = User.objects.create_user(email="demoted@example.com", password="x", first_name="d")
-        scanner = _make_scanner(created_by=creator)
-        with patch(
-            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.UserAccessControl.check_access_level_for_resource",
-            return_value=False,
-        ):
+        with _patched_queries() as (fast_query, deep_query):
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
+
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+        assert not fast_query.called and not deep_query.called
+        scanner.refresh_from_db()
+        assert not scanner.enabled
 
     def test_targeted_scanner_with_no_creator_skips_instead_of_failing(self) -> None:
         # The exposure filter refuses userless principals, so a deleted creator would otherwise

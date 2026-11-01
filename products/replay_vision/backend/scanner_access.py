@@ -34,6 +34,15 @@ def is_uuid(value: str) -> bool:
     return True
 
 
+def creator_can_scan(scanner: ReplayScanner) -> bool:
+    """Whether the sweep, which reads recordings as the scanner's creator, can still read them."""
+    if scanner.created_by is None:
+        return True
+    return UserAccessControl(user=scanner.created_by, team=scanner.team).check_access_level_for_resource(
+        "session_recording", required_level="viewer"
+    )
+
+
 def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]":
     """Every scanner whose observations can be read, inline scans included.
 
