@@ -5,6 +5,7 @@ import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
@@ -501,6 +502,28 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified"] is False
         assert response.json()["verified_by"] is None
         assert response.json()["verified_at"] is None
+
+    def test_list_reads_enterprise_columns_while_base_copies_are_empty(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        definition = EnterprisePropertyDefinition.objects.create(
+            team=self.team, name="billing_plan_tier", description="Paid tier", verified=True
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE posthog_propertydefinition SET description = NULL, verified = NULL WHERE id = %s",
+                [definition.pk],
+            )
+
+        response = self.client.get(
+            "/api/projects/@current/property_definitions/?verified=true&search=billing_plan_tier"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [(row["name"], row["description"], row["verified"]) for row in response.json()["results"]] == [
+            ("billing_plan_tier", "Paid tier", True)
+        ]
 
     def test_list_property_definitions_verified_ordering(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

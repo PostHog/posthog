@@ -48,6 +48,9 @@ class EventDefinition(Taggable, UUIDTModel):
     # DB column kept as `promoted_property` to avoid a Postgres column rename.
     primary_property = models.CharField(max_length=400, null=True, blank=True, db_column="promoted_property")
 
+    # The table also has columns that copy the enterprise fields (description, owner_id, verified, and
+    # others). Django does not track them yet; see enterprise_copies.py.
+
     class Meta:
         db_table = "posthog_eventdefinition"
         indexes = [
