@@ -450,6 +450,12 @@ def _build_unparsable_response_skip_result(
 _IMAGE_REJECTION_STATUSES = frozenset({400, 413, 415, 422})
 
 
+_ATTACHMENTS_NOT_SENT_NOTE = (
+    "The model provider rejected the attachments in this transcript, so none are attached. "
+    "Judge from the text only, and don't guess what an attachment contains."
+)
+
+
 class JudgeAttachmentsRejectedError(Exception):
     """Reported without the provider's message, which can quote a live presigned link."""
 
@@ -899,7 +905,9 @@ def call_llm_judge(
                     capture_exception(
                         JudgeAttachmentsRejectedError(f"Provider rejected judge attachments ({status})"), context
                     )
-                response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
+                # Without the note a judge reads the transcript's [image] or [file] and guesses what it shows.
+                retry_prompt = f"{_ATTACHMENTS_NOT_SENT_NOTE}\n\n{user_prompt}"
+                response = client.complete(replace(request, messages=[{"role": "user", "content": retry_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
