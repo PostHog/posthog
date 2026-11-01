@@ -727,7 +727,11 @@ class TestTransactionalEmail(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (response.json()["code"], response.json()["attr"]) == ("sender_not_verified", "from")
+        assert (response.json()["type"], response.json()["code"], response.json()["attr"]) == (
+            "invalid_request",
+            "sender_not_verified",
+            "from",
+        )
         assert not TransactionalEmailKey.objects.for_team(self.team.id).exists()
         assert capture.call_args.kwargs["properties"]["error_code"] == "sender_not_verified"
         mock_post.assert_not_called()
@@ -738,7 +742,11 @@ class TestTransactionalEmail(APIBaseTest):
         response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (response.json()["code"], response.json()["attr"]) == ("sender_not_verified", None)
+        assert (response.json()["type"], response.json()["code"], response.json()["attr"]) == (
+            "invalid_request",
+            "sender_not_verified",
+            None,
+        )
         mock_post.assert_not_called()
 
     @parameterized.expand(
