@@ -2,7 +2,7 @@
 and an exit. The message template it was made from owns the content, so each content change writes a new version
 of the workflow through the same write path as the workflows UI, with its revision history."""
 
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -52,6 +52,24 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
         text=content.text,
         html=content.html,
     )
+
+
+def code_sends_paused(team_id: int, hog_flow_id: UUID) -> bool:
+    flow = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).only("status", "email_sending_paused_at").first()
+    return flow is not None and (flow.status != HogFlow.State.ACTIVE or flow.email_sending_paused_at is not None)
+
+
+def transactional_email_workflow_email(team_id: int, hog_flow_id: UUID) -> dict[str, Any]:
+    actions = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values_list("actions", flat=True).first()
+    email_step = next(
+        (
+            action
+            for action in actions or []
+            if isinstance(action, dict) and action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID
+        ),
+        {},
+    )
+    return ((email_step.get("config") or {}).get("inputs") or {}).get("email", {}).get("value") or {}
 
 
 def code_email_actions(key: str) -> list[dict]:

@@ -144,6 +144,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+    releaseTemplate: 'products.workflows.frontend.messageTemplateLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -308,6 +309,9 @@ export function initKea({
                 const isSelfHandledValidationError =
                     error?.status === 400 &&
                     isOwnedByLogic(VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
+                const isSelfHandledCodeManagedRefusal =
+                    error?.code === 'immutable' &&
+                    isOwnedByLogic(CODE_MANAGED_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     !isErrorSelfHandledByLogic(actionKey, logic.pathString) &&
@@ -333,9 +337,6 @@ export function initKea({
                         error.code === 'has_dependents' && HAS_DEPENDENTS_SELF_HANDLED.has(String(actionKey))
                     const isSelfHandledFieldError =
                         error.status === 400 && !!FIELD_ERROR_SELF_HANDLED[String(actionKey)]?.has(error.attr)
-                    const isSelfHandledCodeManagedRefusal =
-                        error.code === 'immutable' &&
-                        isOwnedByLogic(CODE_MANAGED_REFUSAL_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -387,7 +388,8 @@ export function initKea({
                     shouldReportApiFailure(error) &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
-                    !isSelfHandledValidationError
+                    !isSelfHandledValidationError &&
+                    !isSelfHandledCodeManagedRefusal
                 ) {
                     posthog.captureException(error)
                 }

@@ -554,8 +554,8 @@ def refuse_unknown_fields(sent: Iterable[str], known: Mapping[str, Any]) -> None
         )
 
 
-CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
 RENDERED_CONTENT_FIELDS = ("subject", "html", "text")
+TEMPLATE_ID_REFUSED_FIELDS = ("template_key", *RENDERED_CONTENT_FIELDS, "from", "reply_to")
 
 
 class SendEmailSerializer(SendTransactionalEmailSerializer):
@@ -567,7 +567,7 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         r"^[a-zA-Z0-9_-]+$",
         max_length=400,
         required=False,
-        help_text="Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs "
+        help_text="Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs "
         "and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` "
         "and `html` or `text`. PostHog sends the content as is and never stores it as a template. Once you upload a "
         "template under this key, these sends run through that template's workflow, so their metrics and logs group "
@@ -594,22 +594,22 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
     )
     from_address = serializers.CharField(
         required=False,
-        help_text="Sender of the email your code rendered, as `security@example.com` or "
-        "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender.",
+        help_text="Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified "
+        "domain of the project. Without it, a send with `template_key` goes out from the project's default sender, "
+        "and a send by `template.key` from its template's sender. A send by `template.id` doesn't take it.",
     )
     reply_to = serializers.ListField(
         child=serializers.EmailField(),
         required=False,
         allow_empty=False,
         max_length=10,
-        help_text="Addresses replies to the email your code rendered go to.",
+        help_text="Addresses replies to the email go to. A send by `template.id` doesn't take it.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
-        help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
-        "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
-        "engagement capture off captures nothing, whatever the send says.",
+        help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are "
+        "captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement "
+        "capture off captures nothing, whatever the send says.",
     )
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -649,9 +649,18 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
             raise serializers.ValidationError(
                 {"template": "Name the template with either `key`, and an optional `hash`, or `id`."}
             )
-        refused = CODE_SEND_FIELDS if "id" in template else RENDERED_CONTENT_FIELDS
-        if code_field := next((field for field in refused if field in sent), None):
-            raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
+        refused = TEMPLATE_ID_REFUSED_FIELDS if "id" in template else RENDERED_CONTENT_FIELDS
+        if field := next((field for field in refused if field in sent), None):
+            raise serializers.ValidationError({field: _refusal_on_a_template_send(field)})
+
+
+def _refusal_on_a_template_send(field: str) -> str:
+    if field in ("from", "reply_to"):
+        return (
+            "A template made in PostHog sends with its own settings. Send by `template.key` to set this field on a "
+            "template uploaded from code."
+        )
+    return "Only a send with `template_key` takes this field."
 
 
 def _is_sender_address(address: str) -> bool:
@@ -709,7 +718,7 @@ class TemplateKeyNotFound(exceptions.NotFound):
     default_code = "template_not_found"
 
 
-class TransactionalEmailRejected(exceptions.APIException):
+class TransactionalEmailRejected(exceptions.ValidationError):
     STATUS_BY_CODE = {
         "template_outdated": 409,
         "quota_limited": 429,
@@ -725,13 +734,7 @@ class TransactionalEmailRejected(exceptions.APIException):
 
     def __init__(self, error: TransactionalEmailError) -> None:
         self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
-        super().__init__(detail=str(error), code=error.code)
-
-
-def _rejection(error: TransactionalEmailError) -> exceptions.APIException:
-    if error.attr:
-        return exceptions.ValidationError({error.attr: [str(error)]}, code=error.code)
-    return TransactionalEmailRejected(error)
+        super().__init__(detail={error.attr: [str(error)]} if error.attr else str(error), code=error.code)
 
 
 class TransactionalEmailUnavailable(exceptions.APIException):
@@ -742,7 +745,8 @@ class TransactionalEmailUnavailable(exceptions.APIException):
 
 class UnconfirmedEmailSend(TransactionalEmailUnavailable):
     default_detail = (
-        "The email pipeline did not confirm the send. The email may still go out, so check before you send it again."
+        "The email pipeline did not confirm the send, so the email may still go out. To retry, send it again with the "
+        "same Idempotency-Key, which never sends it twice. A retry without that key may send it twice."
     )
 
 
@@ -906,7 +910,9 @@ class TransactionalEmailSendMixin:
     def _require_transactional_email_flag(self) -> None:
         require_transactional_email_api(self.team)
 
-    def _queue_transactional_email(self, request: Any, template: MessageTemplateRow, *, route: str) -> Response:
+    def _queue_transactional_email(
+        self, request: Any, template: MessageTemplateRow, *, route: str, options: TemplateSendOptions | None = None
+    ) -> Response:
         with transactional_email_stage("workflow_access"):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
@@ -920,6 +926,7 @@ class TransactionalEmailSendMixin:
                 distinct_id=_distinct_id(data),
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
+                options=options,
             ),
             route=route,
             addressed={"template_id": str(template.id)},
@@ -946,7 +953,7 @@ class TransactionalEmailSendMixin:
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
-            raise _rejection(e)
+            raise TransactionalEmailRejected(e)
         except DeliveryUnavailable:
             outcome["outcome"] = "unavailable"
             raise unavailable() from None
@@ -1647,7 +1654,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             except MessageTemplateMissing:
                 raise NotFound()
             self.check_object_permissions(request, template)
-        return self._queue_transactional_email(request, template, route="send_email")
+        return self._queue_transactional_email(
+            request, template, route="send_email", options=_template_send_options(request.data, request.validated_data)
+        )
 
     def _send_template_by_key(self, request: Any) -> Response:
         with transactional_email_stage("feature_flag"):
@@ -1686,10 +1695,11 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             send,
             route="send_email",
             addressed={
-                "addressed_by": "template_key",
+                "addressed_by": "template.key",
                 "template_id": str(template.id),
                 "hash_state": str(found.hash_state),
             },
+            unavailable=UnconfirmedEmailSend,
             warnings=[TEMPLATE_SUPERSEDED_WARNING] if found.hash_state == ContentHashState.SUPERSEDED else [],
         )
 
