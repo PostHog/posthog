@@ -2,6 +2,7 @@ import { useValues } from 'kea'
 import { Suspense, useEffect, useState } from 'react'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -13,24 +14,27 @@ const ImpersonationNotice = lazyWithRetry(() =>
 
 export function ImpersonationNoticeSlot(): JSX.Element | null {
     const { user } = useValues(userLogic)
+    const isImpersonated = !!user?.is_impersonated
     // Stays true after the session ends, so the notice can still show its expired-session overlay.
-    const [wasImpersonated, setWasImpersonated] = useState(false)
+    const [wasImpersonated, setWasImpersonated] = useState(isImpersonated)
 
     useEffect(() => {
-        if (user?.is_impersonated) {
+        if (isImpersonated) {
             setWasImpersonated(true)
         }
-    }, [user?.is_impersonated])
+    }, [isImpersonated])
 
-    if (!wasImpersonated) {
+    if (!isImpersonated && !wasImpersonated) {
         return null
     }
 
     return (
         <ErrorBoundary>
-            <Suspense fallback={null}>
-                <ImpersonationNotice />
-            </Suspense>
+            <ChunkLoadErrorBoundary>
+                <Suspense fallback={null}>
+                    <ImpersonationNotice />
+                </Suspense>
+            </ChunkLoadErrorBoundary>
         </ErrorBoundary>
     )
 }

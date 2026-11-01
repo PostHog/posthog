@@ -632,7 +632,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        actions: [supportTicketsSceneLogic, ['loadTickets'], tagsModel, ['loadTags']],
+        actions: [
+            supportTicketsSceneLogic,
+            ['loadTickets'],
+            tagsModel,
+            ['loadTags'],
+            impersonationNoticeLogic,
+            ['setTicketContext'],
+        ],
         values: [
             teamLogic,
             ['currentTeam'],
@@ -1351,7 +1358,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicket(ticket)
                 actions.loadMessages()
 
-                impersonationNoticeLogic.findMounted()?.actions.setTicketContext(getImpersonationTicketContext(ticket))
+                actions.setTicketContext(getImpersonationTicketContext(ticket))
 
                 // Load session context data
                 actions.loadPerson()
@@ -1813,9 +1820,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             actions.loadTicket()
         }
     }),
-    beforeUnmount(() => {
+    beforeUnmount(({ actions }) => {
         // The message poller is registered through cache.disposables, which the plugin tears down.
-        impersonationNoticeLogic.findMounted()?.actions.setTicketContext(null)
+        actions.setTicketContext(null)
     }),
     beforeUnload(({ values, actions, cache }) => ({
         enabled: (newLocation) => {
