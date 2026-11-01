@@ -1,13 +1,20 @@
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
 import psycopg
 
 from posthog.persons_db import persons_db_connection
-from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, update_seed_person
+from posthog.persons_seed import (
+    insert_seed_distinct_id,
+    insert_seed_group,
+    insert_seed_group_type_mapping,
+    insert_seed_person,
+    update_seed_person,
+)
 
 # Sentinel team id used only by these tests. The seed helpers write through a raw
 # psycopg connection that commits independently of Django's test transaction, so each
@@ -24,6 +31,36 @@ def _cleanup(conn: psycopg.Connection[Any]) -> None:
 
 
 class TestPersonsSeedHelpers:
+    @pytest.mark.parametrize(
+        "write",
+        [
+            lambda conn: insert_seed_person(conn, team_id=SEED_TEST_TEAM_ID, properties={}),
+            lambda conn: insert_seed_distinct_id(conn, team_id=SEED_TEST_TEAM_ID, person_id=1, distinct_id="d"),
+            lambda conn: insert_seed_group(
+                conn, team_id=SEED_TEST_TEAM_ID, group_key="g", group_type_index=0, group_properties={}
+            ),
+            lambda conn: insert_seed_group_type_mapping(
+                conn, project_id=SEED_TEST_TEAM_ID, team_id=SEED_TEST_TEAM_ID, group_type="org", group_type_index=0
+            ),
+            lambda conn: update_seed_person(
+                conn,
+                team_id=SEED_TEST_TEAM_ID,
+                uuid="00000000-0000-0000-0000-000000000001",
+                properties={},
+                is_identified=False,
+            ),
+        ],
+        ids=["insert_person", "insert_distinct_id", "insert_group", "insert_group_type_mapping", "update_person"],
+    )
+    def test_writes_refuse_on_deployed_cloud(self, write):
+        conn = MagicMock()
+        with (
+            patch("posthog.settings.CLOUD_DEPLOYMENT", "US"),
+            pytest.raises(RuntimeError, match="deployed PostHog Cloud"),
+        ):
+            write(conn)
+        conn.cursor.assert_not_called()
+
     def test_insert_person_persists_fields_and_sets_required_columns(self):
         with persons_db_connection(writer=True) as conn:
             try:
