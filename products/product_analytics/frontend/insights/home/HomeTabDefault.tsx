@@ -6,9 +6,8 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { dateMapping } from 'lib/utils/dateFilters'
+import { CUSTOM_OPTION_KEY, dateMapping } from 'lib/utils/dateFilters'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
