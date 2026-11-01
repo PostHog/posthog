@@ -471,6 +471,8 @@ The large Python and frontend test jobs do not use it. Their checkout is complet
 
 OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
 
+The API CLI release-bundle job also retains the MCP sources and workspace dependencies, both copied prompt files, notebook helpers, and chart serialization helpers. Compare its full and sparse release bundles byte-for-byte when changing the checkout boundary.
+
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout. Source files do not need to exist in the PR worktree for this job.
