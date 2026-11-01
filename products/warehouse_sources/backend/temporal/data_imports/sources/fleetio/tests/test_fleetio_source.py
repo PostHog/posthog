@@ -28,6 +28,7 @@ class TestFleetioSource:
         # rows keep syncing unchanged.
         assert self.source.default_version == "2025-05-05"
         assert set(self.source.supported_versions) == {"v1", "2025-05-05"}
+        assert [(d.version, d.sunset_at) for d in self.source.deprecated_versions] == [("v1", None)]
 
     @pytest.mark.parametrize("probe_result,expected_valid", [(True, True), (False, False)])
     def test_validate_credentials(self, probe_result: bool, expected_valid: bool, monkeypatch: Any) -> None:
