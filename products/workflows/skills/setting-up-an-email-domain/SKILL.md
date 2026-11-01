@@ -15,15 +15,15 @@ These tools exist only when the project has the email from code feature enabled.
 If `integrations-email-create` or `integrations-email-status-retrieve` is missing, stop and tell the person the tools are not available to them yet.
 Do not fall back to `integrations-create` or other integration tools.
 
-| Step                       | Tool                                           |
-| -------------------------- | ---------------------------------------------- |
-| Find existing senders      | `integrations-list` with `kind=email`          |
-| Create the sender          | `integrations-email-create`                    |
-| Get records, poll them     | `integrations-email-status-retrieve`           |
-| Mark the sender verified   | `integrations-email-verify-create`             |
-| One-click DNS support?     | `integrations-domain-connect-check-retrieve`   |
-| One-click DNS URL          | `integrations-domain-connect-apply-url-create` |
-| Rename, change MAIL FROM   | `integrations-email-partial-update`            |
+| Step                     | Tool                                           |
+| ------------------------ | ---------------------------------------------- |
+| Find existing senders    | `integrations-list` with `kind=email`          |
+| Create the sender        | `integrations-email-create`                    |
+| Get records, poll them   | `integrations-email-status-retrieve`           |
+| Mark the sender verified | `integrations-email-verify-create`             |
+| One-click DNS support?   | `integrations-domain-connect-check-retrieve`   |
+| One-click DNS URL        | `integrations-domain-connect-apply-url-create` |
+| Rename, change MAIL FROM | `integrations-email-partial-update`            |
 
 Listing, reading the status, checking and creating need project membership.
 Verifying, updating and the Domain Connect URL need project admin access, so a member can create a sender but not verify it.
