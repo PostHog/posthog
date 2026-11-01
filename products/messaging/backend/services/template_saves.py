@@ -105,10 +105,13 @@ def rewrite_content(
                 require_workflow_editor=_operators_edit_every_workflow,
             )
         elif draft_occurrences:
-            # Sends never read the draft, so a draft-only rewrite leaves the workflow as it is.
-            template.draft_content = new_draft
-            template.save(update_fields=["draft_content", "updated_at"])
+            _save_draft_without_workflow_sync(template, new_draft)
     return content_occurrences + draft_occurrences
+
+
+def _save_draft_without_workflow_sync(template: MessageTemplate, draft_content: Any) -> None:
+    template.draft_content = draft_content
+    template.save(update_fields=["draft_content", "updated_at"])
 
 
 def _set_contents(template: MessageTemplate, content: Any, draft_content: Any) -> None:
