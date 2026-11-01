@@ -7,13 +7,13 @@ import {
     hasTrendsFormula,
 } from 'lib/components/ChartFilter/chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
 import type { Node, TrendsQuery } from '~/queries/schema/schema-general'

@@ -1,14 +1,15 @@
 import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, Node, NodeKind, TrendsFilter, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightType } from '~/types'
 
 import {
     compareDataNodeQuery,
     compareQuery,
     filterVariablesReferencedInQuery,
-    isBoxPlotMissingProperty,
     isDraftQueryWorthSaving,
+    isFunnelWithEnoughSteps,
+    isFunnelWithIncompleteDataWarehouseStep,
     syncSelectedVariablesToQuery,
     validateQuery,
 } from './queryUtils'
@@ -125,30 +126,6 @@ describe('validateQuery', () => {
     })
 })
 
-describe('isBoxPlotMissingProperty', () => {
-    it('returns true when there are no series', () => {
-        expect(isBoxPlotMissingProperty([])).toBe(true)
-    })
-
-    it('returns true when a series is missing math_property', () => {
-        expect(
-            isBoxPlotMissingProperty([
-                { kind: NodeKind.EventsNode, event: '$pageview', math_property: 'duration' },
-                { kind: NodeKind.EventsNode, event: '$signup' },
-            ])
-        ).toBe(true)
-    })
-
-    it('returns false when all series have math_property', () => {
-        expect(
-            isBoxPlotMissingProperty([
-                { kind: NodeKind.EventsNode, event: '$pageview', math_property: 'duration' },
-                { kind: NodeKind.EventsNode, event: '$signup', math_property: 'revenue' },
-            ])
-        ).toBe(false)
-    })
-})
-
 describe('compareQuery', () => {
     const makeTrendsQuery = (trendsFilter: TrendsFilter = {}): TrendsQuery => ({
         kind: NodeKind.TrendsQuery,
@@ -253,5 +230,85 @@ describe('compareDataNodeQuery', () => {
         // throw here crashed propsChanged before loadData and left tables permanently empty.
         const query = { kind: NodeKind.HogQLQuery, query: 'select 1' } as Node
         expect(compareDataNodeQuery(query, undefined as unknown as Node)).toBe(false)
+    })
+})
+
+describe('isFunnelWithEnoughSteps', () => {
+    it.each([
+        { scenario: 'no steps', series: [], expected: false },
+        { scenario: 'one step', series: [{ kind: NodeKind.EventsNode }], expected: false },
+        {
+            scenario: 'two steps',
+            series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithEnoughSteps(series as FunnelsQuery['series'])).toBe(expected)
+    })
+})
+
+describe('isFunnelWithIncompleteDataWarehouseStep', () => {
+    it.each([
+        {
+            scenario: 'no steps',
+            series: [],
+            expected: false,
+        },
+        {
+            scenario: 'non-funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.DataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    distinct_id_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'complete funnel data warehouse step',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                    aggregation_target_field: 'customer_id',
+                },
+            ],
+            expected: false,
+        },
+        {
+            scenario: 'missing aggregation target field',
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    name: '$pageview',
+                    event: '$pageview',
+                },
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'created_at',
+                    id_field: 'order_id',
+                },
+            ],
+            expected: true,
+        },
+    ])('returns $expected for $scenario', ({ series, expected }) => {
+        expect(isFunnelWithIncompleteDataWarehouseStep(series as FunnelsQuery['series'])).toBe(expected)
     })
 })

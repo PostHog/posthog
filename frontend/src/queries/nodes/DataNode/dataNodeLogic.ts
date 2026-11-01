@@ -27,7 +27,6 @@ import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -38,6 +37,11 @@ import { hasInvalidRegexFilter } from '~/queries/nodes/DataNode/hasInvalidRegexF
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
 import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    compareDataNodeQuery,
+    haveVariablesOrFiltersChanged,
+    validateQuery,
+} from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
 import {
     AccountsQuery,
