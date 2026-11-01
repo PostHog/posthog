@@ -975,10 +975,10 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     api_version: str,
+    skip_full_listing: bool = False,
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
-    skip_full_listing: bool = False,
 ):
     new_client = _client_factory(api_key, account_id, api_version)
     client = new_client(None)
@@ -1580,10 +1580,10 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
+            skip_full_listing=webhook_unregistered,
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,
-            skip_full_listing=webhook_unregistered,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
