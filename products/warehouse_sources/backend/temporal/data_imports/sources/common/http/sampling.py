@@ -80,6 +80,7 @@ _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
         "x-ck-api-key",
         "x-auth-token",
         "x-amz-access-token",
+        "x-amz-security-token",
         "x-metabase-session",
         "ob-token-v1",
         "kalshi-access-signature",
