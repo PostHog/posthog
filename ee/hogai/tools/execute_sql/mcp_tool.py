@@ -85,13 +85,14 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             try:
                 validated = await self._validate_hogql_query(args.query)
             except PydanticOutputParserException as e:
-                message = f"Query validation failed: {e.validation_message}"
                 suggestion = await self._maybe_unknown_table_suggestion(
                     e.validation_message
                 ) or build_compatibility_hint(e.validation_message)
-                if suggestion:
-                    message = f"{message}\n\n{suggestion}"
-                raise MaxToolRetryableError(message, error_code=hogql_error_code(e.__cause__)) from e
+                raise MaxToolRetryableError(
+                    f"Query validation failed: {e.validation_message}",
+                    error_code=hogql_error_code(e.__cause__),
+                    hint=suggestion,
+                ) from e
 
             variables = await self._abuild_query_variables(validated.query)
             query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
@@ -114,12 +115,15 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
                 prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
             )
         except MaxToolRetryableError as e:
-            # A connection query defers validation to the runner, so the compatibility rejections
-            # the local validator would have enriched above surface here instead.
+            # ClickHouse rejections, and the validation a connection query defers to the runner,
+            # surface here rather than through the local validator above. A raw query never went
+            # through HogQL, so HogQL rewrite advice would send the caller the wrong way.
+            if args.sendRawQuery:
+                raise
             hint = build_compatibility_hint(str(e))
             if not hint:
                 raise
-            raise MaxToolRetryableError(f"{e}\n\n{hint}", error_type=e.error_type, error_code=e.error_code) from e
+            raise MaxToolRetryableError(e.args[0], error_type=e.error_type, error_code=e.error_code, hint=hint) from e
 
         return MCPToolResult(
             content=_prepend_taxonomy_warnings(results, taxonomy_warnings),
