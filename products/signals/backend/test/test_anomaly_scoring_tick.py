@@ -594,7 +594,8 @@ class TestCaptureCensus(SimpleTestCase):
                 capture_census(census, now)
 
         sent = [
-            (call.kwargs["properties"]["day"], call.kwargs["properties"]["team_id"]) for call in capture.call_args_list
+            (call.kwargs["properties"]["census_date"], call.kwargs["properties"]["team_id"])
+            for call in capture.call_args_list
         ]
         assert sent == [("2026-10-22", 901), ("2026-10-22", 902), ("2026-10-23", 901), ("2026-10-23", 902)]
 
