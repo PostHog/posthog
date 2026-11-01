@@ -1,10 +1,16 @@
 """Tests for the native email-sending integration."""
 
+import time
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.db import DatabaseError, connection, connections, transaction
+from django.test import TransactionTestCase
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
@@ -343,6 +349,77 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 created_by=self.user,
             )
         assert "not supported" in str(exc.value)
+
+
+class TestEmailIntegrationConcurrentLabelEdits(TransactionTestCase):
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_a_shared_label_edit_waits_for_a_lower_sender_before_locking_its_own_row(self, _update, _reload):
+        _organization, _membership, team = Organization.objects.bootstrap(None)
+        lower, edited = (
+            Integration.objects.create(
+                team=team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": "example.com", "mail_from_subdomain": "feedback", "provider": "ses"},
+            )
+            for email in ["lower@example.com", "edited@example.com"]
+        )
+        holding_lower = Event()
+        release_lower = Event()
+
+        def hold_lower() -> None:
+            try:
+                with transaction.atomic():
+                    Integration.objects.select_for_update().get(pk=lower.pk)
+                    holding_lower.set()
+                    release_lower.wait(timeout=10)
+            finally:
+                connections["default"].close()
+
+        def edit() -> None:
+            try:
+                EmailIntegration(Integration.objects.get(pk=edited.pk)).update_native_integration(
+                    {"mail_from_subdomain": "bounce"}, team_id=team.id
+                )
+            finally:
+                connections["default"].close()
+
+        def edited_row_is_free() -> bool:
+            try:
+                with transaction.atomic():
+                    Integration.objects.select_for_update(nowait=True).get(pk=edited.pk)
+                return True
+            except DatabaseError:
+                return False
+            finally:
+                connections["default"].close()
+
+        with patch("posthoganalytics.feature_enabled", return_value=True), ThreadPoolExecutor(max_workers=3) as pool:
+            holder = pool.submit(hold_lower)
+            assert holding_lower.wait(timeout=10)
+            editor = pool.submit(edit)
+            _wait_for_a_row_lock_wait()
+            free = pool.submit(edited_row_is_free).result(timeout=10)
+            release_lower.set()
+            holder.result(timeout=10)
+            editor.result(timeout=15)
+
+        assert free
+        assert {sender.config["mail_from_subdomain"] for sender in Integration.objects.filter(team=team)} == {"bounce"}
+
+
+def _wait_for_a_row_lock_wait() -> None:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()"
+            )
+            if cursor.fetchone()[0]:
+                return
+        time.sleep(0.05)
+    raise AssertionError("No query waited for a row lock")
 
 
 class TestEmailIntegrationSESCleanupOnDelete(BaseTest):

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, models, transaction
+from django.db.models import Q
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -250,11 +251,12 @@ class EmailIntegration:
             changes["setup_method"] = setup_method
         # The row is reread under a lock so a concurrent verification write is not overwritten.
         with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
+            locked, domain_senders = self._lock_edited_sender(domain)
             locked.config.update(changes)
             locked.save(update_fields=["config"])
-            if self._shares_domain_label:
-                self._share_mail_from_subdomain_with_domain_senders(domain, mail_from_subdomain)
+            for sender in domain_senders:
+                sender.config["mail_from_subdomain"] = mail_from_subdomain
+                sender.save(update_fields=["config"])
         self.integration.config = locked.config
         self._after_domain_guard(
             lambda: reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
@@ -271,20 +273,19 @@ class EmailIntegration:
             return requested_subdomain or self.mail_from_subdomain
         return self.mail_from_subdomain if requested_subdomain is None else requested_subdomain
 
-    def _share_mail_from_subdomain_with_domain_senders(self, domain: str, mail_from_subdomain: str) -> None:
-        domain_senders = (
+    def _lock_edited_sender(self, domain: str) -> tuple[model.Integration, list[model.Integration]]:
+        if not self._shares_domain_label:
+            return model.Integration.objects.select_for_update().get(id=self.integration.id), []
+        senders = list(
             model.Integration.objects.select_for_update(of=("self",))
             .filter(
-                kind="email",
-                config__domain=domain,
-                team__organization_id=self.integration.team.organization_id,
+                Q(pk=self.integration.pk)
+                | Q(kind="email", config__domain=domain, team__organization_id=self.integration.team.organization_id)
             )
-            .exclude(pk=self.integration.pk)
             .order_by("id")
         )
-        for sender in domain_senders:
-            sender.config["mail_from_subdomain"] = mail_from_subdomain
-            sender.save(update_fields=["config"])
+        edited = next(sender for sender in senders if sender.pk == self.integration.pk)
+        return edited, [sender for sender in senders if sender.pk != edited.pk]
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         with self._domain_guard():
