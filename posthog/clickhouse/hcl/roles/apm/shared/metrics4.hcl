@@ -168,6 +168,22 @@ database "posthog" {
     }
   }
 
+  # Consumer-lag bookkeeping for the metrics Kafka consumer, one row per partition.
+  table "writable_metrics_kafka_metrics" {
+    column "_partition" { type = "UInt32" }
+    column "_topic" { type = "String" }
+    column "max_offset" { type = "SimpleAggregateFunction(max, UInt64)" }
+    column "max_observed_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(9))" }
+    column "max_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(9))" }
+    column "max_created_at" { type = "SimpleAggregateFunction(max, DateTime64(9))" }
+    column "max_lag" { type = "SimpleAggregateFunction(max, UInt64)" }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics_kafka_metrics"
+    }
+  }
+
   materialized_view "kafka_metrics_avro4_mv" {
     to_table = "posthog.metrics4_input"
     query    = file("sql/kafka_metrics_avro4_mv.sql")
@@ -284,5 +300,17 @@ database "posthog" {
     column "attribute_value" { type = "String" }
     column "attribute_type" { type = "LowCardinality(String)" }
     column "attribute_count" { type = "SimpleAggregateFunction(sum, UInt64)" }
+  }
+
+  materialized_view "metrics4_input_to_metrics_kafka_metrics" {
+    to_table = "posthog.writable_metrics_kafka_metrics"
+    query    = file("sql/metrics4_input_to_metrics_kafka_metrics.sql")
+    column "_partition" { type = "UInt32" }
+    column "_topic" { type = "String" }
+    column "max_offset" { type = "SimpleAggregateFunction(max, UInt64)" }
+    column "max_observed_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
+    column "max_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
+    column "max_created_at" { type = "SimpleAggregateFunction(max, DateTime)" }
+    column "max_lag" { type = "SimpleAggregateFunction(max, UInt64)" }
   }
 }
