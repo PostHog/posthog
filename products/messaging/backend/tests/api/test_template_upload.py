@@ -147,9 +147,11 @@ class TestTemplateUpload(APIBaseTest):
             edited.call_args.kwargs["updated_at"] == MessageTemplate.objects.get(id=first["id"]).updated_at.isoformat()
         )
 
-    def _edit_the_workflow_outside_the_template(self, hog_flow_id: str) -> None:
+    def _edit_the_workflow_outside_the_template(
+        self, hog_flow_id: str, field: str = "html", value: Any = "<p>Edited in the workflow</p>"
+    ) -> None:
         workflow = HogFlow.objects.get(team=self.team, id=hog_flow_id)
-        workflow.actions[1]["config"]["inputs"]["email"]["value"]["html"] = "<p>Edited in the workflow</p>"
+        workflow.actions[1]["config"]["inputs"]["email"]["value"][field] = value
         HogFlow.objects.filter(team=self.team, id=hog_flow_id).update(actions=workflow.actions)
 
     @parameterized.expand(
@@ -162,6 +164,12 @@ class TestTemplateUpload(APIBaseTest):
                 "workflow_edited_outside_the_template",
                 lambda test, upload: test._edit_the_workflow_outside_the_template(upload["transactional_hog_flow_id"]),
             ),
+            (
+                "recipient_edited_outside_the_template",
+                lambda test, upload: test._edit_the_workflow_outside_the_template(
+                    upload["transactional_hog_flow_id"], "to", {"email": "someone@example.com", "name": ""}
+                ),
+            ),
         ]
     )
     def test_an_upload_repairs_what_no_longer_matches_the_uploaded_content(self, _post, _flag, _capture, _name, drift):
@@ -173,6 +181,7 @@ class TestTemplateUpload(APIBaseTest):
         assert (repaired["result"], repaired["content_hash"]) == ("updated", WELCOME_HASH)
         assert self._template(first["id"])["content_hash"] == WELCOME_HASH
         assert self._sent_email(first["transactional_hog_flow_id"])["html"] == WELCOME["html"]
+        assert self._sent_email(first["transactional_hog_flow_id"])["to"]["email"] == "{{ event.properties.to | raw }}"
 
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):
