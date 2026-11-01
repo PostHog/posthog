@@ -14,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { AvailableSourcesError } from 'products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'
 import { SourceCatalog } from 'products/data_warehouse/frontend/scenes/NewSourceScene/SourceCatalog'
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 
@@ -118,8 +119,10 @@ export function DataPipelinesNewScene(): JSX.Element {
             ) : kind === 'site_app' ? (
                 <HogFunctionTemplateList type="site_app" />
             ) : kind === 'source' ? (
-                availableSourcesLoading || availableSources === null ? (
+                availableSourcesLoading ? (
                     <LemonSkeleton className="h-64" />
+                ) : availableSources === null ? (
+                    <AvailableSourcesError />
                 ) : (
                     <BindLogic logic={sourceWizardLogic} props={{ availableSources }}>
                         <SourceCatalog />
