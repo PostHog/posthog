@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Sequence
 from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
@@ -113,6 +114,37 @@ tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
+
+
+def _contains_raw_bytes(value: object) -> bool:
+    if value is None or isinstance(value, str):
+        return False
+    if isinstance(value, bytes):
+        return True
+    if isinstance(value, list):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, tuple):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_raw_bytes(key) or _contains_raw_bytes(item) for key, item in value.items())
+    return False
+
+
+def _raise_for_raw_bytes_in_string_results(rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]]) -> None:
+    """Reject raw bytes in String results because query responses and their cache use JSON."""
+    columns_with_bytes: list[str] = []
+    for column, (column_name, column_type) in enumerate(types):
+        if "String" not in column_type:
+            continue
+        if any(_contains_raw_bytes(row[column]) for row in rows):
+            columns_with_bytes.append(column_name)
+
+    if columns_with_bytes:
+        column_names = ", ".join(repr(column_name) for column_name in columns_with_bytes)
+        raise QueryError(
+            f"Query result column(s) {column_names} contain raw bytes that cannot be returned as JSON. "
+            "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes."
+        )
 
 
 @frozen
@@ -568,8 +600,8 @@ class HogQLQueryExecutor:
         if self._references_information_schema(direct_context):
             return None
 
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
-            transpile_hogql_to_trino_with_database,
+        from posthog.hogql.transforms.trino.manifest import (
+            transpile_hogql_to_trino_with_database,  # noqa: PLC0415 -- load the optional backend only for Trino queries
         )
 
         transpiled = transpile_hogql_to_trino_with_database(
@@ -1021,6 +1053,7 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
+                _raise_for_raw_bytes_in_string_results(self.results, self.types)
             except Exception as e:
                 if self.debug:
                     self.results = []
