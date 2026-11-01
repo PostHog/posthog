@@ -104,9 +104,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-10-30: 6.75 MiB eager output, stable CSS included. ~0.3% headroom.
-        // 2026-10-31: lowered by the 156 KiB that re2js shipped before it left the shell.
-        budgetBytes: 6_940_000,
+        // 2026-11-01: 5.55 MiB eager output, stable CSS included. ~0.3% headroom.
+        budgetBytes: 5_840_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'products/product_analytics/frontend/insights/activityDescriptions',
@@ -178,9 +177,8 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        // 2026-10-30: 6.94 MiB, stable CSS included. ~0.3% headroom.
-        // 2026-10-31: lowered by the 156 KiB that re2js shipped before it left the shell.
-        budgetBytes: 7_140_000,
+        // 2026-11-01: 5.99 MiB, stable CSS included. ~0.3% headroom.
+        budgetBytes: 6_300_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
