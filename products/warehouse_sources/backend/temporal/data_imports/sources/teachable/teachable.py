@@ -37,8 +37,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.settings import (
     DEFAULT_PAGE_SIZE,
+    TEACHABLE_API_VERSION_V2,
+    TEACHABLE_API_VERSIONS,
     TEACHABLE_BASE_URL,
     TEACHABLE_ENDPOINTS,
+    V2_PAGE_SIZE,
     TeachableEndpointConfig,
 )
 
@@ -173,17 +176,43 @@ class TeachableUsersPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+def _v2_page_paginator() -> PageNumberPaginator:
+    return PageNumberPaginator(base_page=1, page_param="page", total_path="meta.total_pages")
+
+
+def _v2_list_params(config: TeachableEndpointConfig) -> dict[str, Any]:
+    # An explicit ascending sort keeps page boundaries stable while rows are added mid-sync.
+    return {"per_page": V2_PAGE_SIZE, "sort_by": config.v2_sort_by, "sort_direction": "asc"}
+
+
+def _require_supported_version(api_version: str) -> None:
+    if api_version not in TEACHABLE_API_VERSIONS:
+        raise ValueError(f"Unsupported Teachable API version: {api_version!r}")
+
+
+def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
+    _require_supported_version(api_version)
+    if api_version == TEACHABLE_API_VERSION_V2:
+        path, params = "/v2/products/courses", {"per_page": 1}
+    else:
+        path, params = "/v1/courses", {"per": 1}
     response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
-        f"{TEACHABLE_BASE_URL}/v1/courses",
+        f"{TEACHABLE_BASE_URL}{path}",
         headers={"apiKey": api_key, "Accept": "application/json"},
-        params={"per": 1},
+        params=params,
         timeout=10,
     )
     if response.status_code == 200:
         return True, None
     if response.status_code == 401:
         return False, "Invalid Teachable API key"
+    if response.status_code == 403 and api_version == TEACHABLE_API_VERSION_V2:
+        return (
+            False,
+            "Teachable rejected the API key. Check that the key is active and can read courses, users and "
+            "enrollments, and that your school is on the Growth plan or higher. Teachable API v2 is in beta, "
+            "so you may also need to ask Teachable Support to turn on API v2 for your school.",
+        )
     if response.status_code == 403:
         return (
             False,
@@ -427,6 +456,91 @@ def _course_progress_rows(client: RESTClient, safe_point: SafePoint) -> NestedRo
                 yield [{**progress, "course_id": course_id, "user_id": user_id}]
 
 
+def _ref_id(value: Any) -> Optional[int]:
+    if isinstance(value, dict) and isinstance(value.get("id"), int):
+        return value["id"]
+    return None
+
+
+def _iter_v2_course_ids(client: RESTClient, safe_point: SafePoint) -> Iterator[int]:
+    config = TEACHABLE_ENDPOINTS["courses"]
+    for courses in client.paginate(
+        path=cast(str, config.v2_path),
+        params=_v2_list_params(config),
+        paginator=_v2_page_paginator(),
+        data_selector="data",
+        data_selector_required=True,
+    ):
+        safe_point()
+        for course_id in (_ref_id(course) for course in courses):
+            if course_id is not None:
+                yield course_id
+
+
+def _iter_v2_course_pages(
+    client: RESTClient, endpoint: str, course_id: int, safe_point: SafePoint
+) -> Iterator[list[dict[str, Any]]]:
+    config = TEACHABLE_ENDPOINTS[endpoint]
+    for page in client.paginate(
+        path=cast(str, config.v2_path).format(course_id=course_id),
+        params=_v2_list_params(config),
+        paginator=_v2_page_paginator(),
+        data_selector="data",
+        data_selector_required=True,
+        hooks=_IGNORE_NOT_FOUND,
+    ):
+        safe_point()
+        yield [row for row in page if isinstance(row, dict)]
+
+
+def _v2_enrollment_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
+    for course_id in _iter_v2_course_ids(client, safe_point):
+        for enrollments in _iter_v2_course_pages(client, "course_enrollments", course_id, safe_point):
+            # v2 nests the user and sale references, so their ids are lifted out for the primary key.
+            rows = [
+                {
+                    **enrollment,
+                    "course_id": course_id,
+                    "user_id": _ref_id(enrollment.get("user")),
+                    "sale_id": _ref_id(enrollment.get("sale")),
+                }
+                for enrollment in enrollments
+            ]
+            if rows:
+                yield rows
+
+
+def _v2_course_progress_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
+    path_template = cast(str, TEACHABLE_ENDPOINTS["course_progress"].v2_path)
+    for course_id in _iter_v2_course_ids(client, safe_point):
+        seen_user_ids: set[int] = set()
+        for enrollments in _iter_v2_course_pages(client, "course_enrollments", course_id, safe_point):
+            for user_id in (_ref_id(enrollment.get("user")) for enrollment in enrollments):
+                if user_id is None or user_id in seen_user_ids:
+                    continue
+                seen_user_ids.add(user_id)
+                path = path_template.format(course_id=course_id, user_id=user_id)
+                body = _get_object(client, path)
+                if body is None:
+                    safe_point()
+                    continue
+                yield [{**_required(body, "data", path), "course_id": course_id, "user_id": user_id}]
+
+
+def _v2_lecture_rows(client: RESTClient, safe_point: SafePoint) -> NestedRows:
+    for course_id in _iter_v2_course_ids(client, safe_point):
+        for lectures in _iter_v2_course_pages(client, "lectures", course_id, safe_point):
+            if lectures:
+                yield [{**lecture, "course_id": course_id} for lecture in lectures]
+
+
+V2_NESTED_ROWS: dict[str, Callable[[RESTClient, SafePoint], NestedRows]] = {
+    "course_enrollments": _v2_enrollment_rows,
+    "course_progress": _v2_course_progress_rows,
+    "lectures": _v2_lecture_rows,
+}
+
+
 # These tables sit two or more levels under /v1/courses, which the dependent-resource helper
 # can't express. Nothing is resumable: a hand-off restarts the walk, and every request is
 # followed by a yield or a safe point.
@@ -443,12 +557,13 @@ def _make_source_response(
     items_fn: Callable[[], Iterable[Any]],
     sort_mode: SortMode = "asc",
     supports_resume: bool = True,
+    primary_keys: list[str] | None = None,
 ) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
         items=items_fn,
         supports_resume=supports_resume,
-        primary_keys=endpoint_config.primary_key,
+        primary_keys=primary_keys or endpoint_config.primary_key,
         sort_mode=sort_mode,
         partition_count=1,
         partition_size=1,
@@ -458,17 +573,93 @@ def _make_source_response(
     )
 
 
+def _teachable_v2_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: Optional[ResumableSourceManager[TeachableResumeConfig]],
+) -> SourceResponse:
+    endpoint_config = TEACHABLE_ENDPOINTS[endpoint]
+    primary_keys = endpoint_config.v2_primary_key or endpoint_config.primary_key
+
+    nested_rows = V2_NESTED_ROWS.get(endpoint)
+    if nested_rows is not None:
+        client = _rest_client(api_key)
+        safe_point: SafePoint = (
+            resumable_source_manager.safe_point if resumable_source_manager is not None else lambda: None
+        )
+        return _make_source_response(
+            endpoint_config,
+            lambda: nested_rows(client, safe_point),
+            supports_resume=False,
+            primary_keys=primary_keys,
+        )
+
+    config: RESTAPIConfig = {
+        "client": _rest_api_client_config(api_key),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint_config.name,
+                "table_name": endpoint_config.name,
+                "write_disposition": "replace",
+                "endpoint": {
+                    "path": cast(str, endpoint_config.v2_path),
+                    "params": _v2_list_params(endpoint_config),
+                    "data_selector": "data",
+                    "data_selector_required": True,
+                    "paginator": _v2_page_paginator(),
+                },
+                "table_format": "delta",
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
+    if resumable_source_manager is not None:
+        if resumable_source_manager.can_resume():
+            resume_config = resumable_source_manager.load_state()
+            # A `search_after` cursor comes from the v1 /users walk and means nothing to v2 paging.
+            if resume_config is not None and resume_config.page is not None:
+                initial_paginator_state = {"page": resume_config.page}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if resumable_source_manager is None or not state or state.get("page") is None:
+                return
+            resumable_source_manager.save_state(TeachableResumeConfig(page=state["page"]))
+
+        resume_hook = save_checkpoint
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=resume_hook,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return _make_source_response(endpoint_config, lambda: resource, primary_keys=primary_keys)
+
+
 def teachable_source(
     api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
+    api_version: str,
     resumable_source_manager: Optional[ResumableSourceManager[TeachableResumeConfig]] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
+    _require_supported_version(api_version)
     endpoint_config = TEACHABLE_ENDPOINTS[endpoint]
+
+    # Every table on the v2 wire is full refresh, so the incremental inputs only reach v1 paths.
+    if api_version == TEACHABLE_API_VERSION_V2 and endpoint_config.v2_path is not None:
+        return _teachable_v2_source(api_key, endpoint, team_id, job_id, resumable_source_manager)
 
     nested_rows = NESTED_FANOUT_ROWS.get(endpoint)
     if nested_rows is not None:

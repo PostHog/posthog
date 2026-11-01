@@ -8,6 +8,10 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 TEACHABLE_BASE_URL = "https://developers.teachable.com"
 
+TEACHABLE_API_VERSION_V1 = "v1"
+TEACHABLE_API_VERSION_V2 = "v2"
+TEACHABLE_API_VERSIONS = (TEACHABLE_API_VERSION_V1, TEACHABLE_API_VERSION_V2)
+
 # Teachable documents a 20-row default page size (5 for /pricing_plans). We request more via
 # `per`; if the server clamps it, pagination still terminates correctly because the paginators
 # stop on `meta.number_of_pages` / `meta.has_more_results` / an empty page, never on the
@@ -18,6 +22,9 @@ DEFAULT_PAGE_SIZE = 100
 # `start` filter is exclusive of the given instant — re-read a trailing window on each
 # incremental sync so late-arriving boundary rows aren't skipped (the merge dedupes on `id`).
 TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS = 300
+
+# v2 pages with `page`/`per_page` and caps `per_page` at 100.
+V2_PAGE_SIZE = 100
 
 
 @dataclass
@@ -31,6 +38,11 @@ class TeachableEndpointConfig:
     partition_key: str | None = None
     page_size: int = DEFAULT_PAGE_SIZE
     fanout: DependentEndpointConfig | None = None
+    # Path on the v2 wire. None keeps the table on its v1 path under a v2 pin: v2 marks those
+    # endpoints beta and a school may not have access to them yet.
+    v2_path: str | None = None
+    v2_sort_by: str | None = None
+    v2_primary_key: list[str] | None = None
 
 
 TEACHABLE_ENDPOINTS: dict[str, TeachableEndpointConfig] = {
@@ -41,6 +53,8 @@ TEACHABLE_ENDPOINTS: dict[str, TeachableEndpointConfig] = {
         primary_key=["id"],
         # The list response only carries id/name/email — no timestamp to filter or partition
         # on, so full refresh with no partitioning.
+        v2_path="/v2/users",
+        v2_sort_by="id",
     ),
     "courses": TeachableEndpointConfig(
         name="courses",
@@ -48,6 +62,8 @@ TEACHABLE_ENDPOINTS: dict[str, TeachableEndpointConfig] = {
         data_selector="courses",
         primary_key=["id"],
         # Course rows have no timestamp field and no server-side change filter — full refresh.
+        v2_path="/v2/products/courses",
+        v2_sort_by="created_at",
     ),
     "course_enrollments": TeachableEndpointConfig(
         name="course_enrollments",
@@ -69,6 +85,11 @@ TEACHABLE_ENDPOINTS: dict[str, TeachableEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "course_id"},
         ),
+        v2_path="/v2/products/courses/{course_id}/enrollments",
+        v2_sort_by="enrolled_at",
+        # v2 returns one enrollment per sale, so a user can hold several in the same course.
+        # `sale_id` is null for an enrollment that no sale granted.
+        v2_primary_key=["course_id", "user_id", "sale_id"],
     ),
     "transactions": TeachableEndpointConfig(
         name="transactions",
@@ -96,6 +117,7 @@ TEACHABLE_ENDPOINTS: dict[str, TeachableEndpointConfig] = {
         data_selector="course_progress",
         primary_key=["course_id", "user_id"],
         partition_key="enrolled_at",
+        v2_path="/v2/products/courses/{course_id}/users/{user_id}/progress",
     ),
     "lectures": TeachableEndpointConfig(
         name="lectures",
@@ -103,6 +125,9 @@ TEACHABLE_ENDPOINTS: dict[str, TeachableEndpointConfig] = {
         path="/v1/courses/{course_id}/lectures/{lecture_id}",
         data_selector="lecture",
         primary_key=["course_id", "id"],
+        # v2 has a lecture list endpoint, so the course curriculum walk is not needed there.
+        v2_path="/v2/products/courses/{course_id}/lectures",
+        v2_sort_by="created_at",
     ),
     "quizzes": TeachableEndpointConfig(
         name="quizzes",

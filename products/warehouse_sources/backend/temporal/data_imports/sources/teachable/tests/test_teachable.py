@@ -16,6 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teachable import (
     TeachableSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.settings import (
+    TEACHABLE_API_VERSION_V1 as V1,
+    TEACHABLE_API_VERSION_V2 as V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.source import TeachableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.teachable import (
     TeachableResumeConfig,
@@ -44,6 +48,15 @@ _COURSE_11_DETAIL = ScriptedResponse(
     }
 )
 _NOT_FOUND = ScriptedResponse(status=404, json={"error": "not found"})
+_V2_COURSES_PAGE = ScriptedResponse(
+    json={"data": [{"id": 11}, {"id": 12}], "meta": {"page": 1, "per_page": 100, "total_pages": 1, "total_count": 2}}
+)
+
+
+def _v2_page(rows: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={"data": rows, "meta": {"page": 1, "per_page": 100, "total_pages": 1, "total_count": len(rows)}}
+    )
 
 
 def _users_response(meta: dict[str, Any]) -> Mock:
@@ -126,15 +139,20 @@ class TestTeachableTransport:
 
     @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid Teachable API key"),
-            (403, False, "Growth plan"),
-            (500, False, "unexpected status code"),
+            (V1, 200, True, None, "/v1/courses"),
+            (V1, 401, False, "Invalid Teachable API key", "/v1/courses"),
+            (V1, 403, False, "Growth plan", "/v1/courses"),
+            (V1, 500, False, "unexpected status code", "/v1/courses"),
+            (V2, 200, True, None, "/v2/products/courses"),
+            # v2 is in beta and granted per school, so a 403 points at the access request.
+            (V2, 403, False, "turn on API v2", "/v2/products/courses"),
         ]
     )
-    def test_validate_credentials_status_mapping(self, status, expected_valid, message_fragment) -> None:
+    def test_validate_credentials_status_mapping(
+        self, api_version, status, expected_valid, message_fragment, expected_path
+    ) -> None:
         with scripted_network(always(ScriptedResponse(status=status))) as network:
-            is_valid, message = validate_credentials("teachable-key")
+            is_valid, message = validate_credentials("teachable-key", api_version)
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -143,7 +161,7 @@ class TestTeachableTransport:
             assert message is not None and message_fragment in message
 
         request = network.requests_log[0]
-        assert request.origin + request.path == "https://developers.teachable.com/v1/courses"
+        assert request.origin + request.path == f"https://developers.teachable.com{expected_path}"
         assert request.headers["apikey"] == "teachable-key"
         # The validation session must refuse redirects so a 3xx can't replay the apiKey off-host.
         assert network.session_options[0]["allow_redirects"] is False
@@ -170,6 +188,7 @@ class TestTeachableTransport:
                     ],
                 }
             ),
+            api_version=V1,
         )
 
         assert result.rows == [{"user_id": 7, "enrolled_at": "2026-01-01T00:00:00Z", "course_id": 11}]
@@ -181,15 +200,20 @@ class TestTeachableTransport:
 
     @parameterized.expand(
         [
-            ("page_endpoint", "courses", TeachableResumeConfig(page=5), "page", "5"),
-            ("users_endpoint", "users", TeachableResumeConfig(search_after=99), "search_after", "99"),
+            ("page_endpoint", V1, "courses", TeachableResumeConfig(page=5), "page", "5"),
+            ("users_endpoint", V1, "users", TeachableResumeConfig(search_after=99), "search_after", "99"),
+            ("v2_page_endpoint", V2, "users", TeachableResumeConfig(page=5), "page", "5"),
+            # A v1 /users cursor has no meaning on v2 paging, so the walk starts over.
+            ("v2_ignores_v1_users_cursor", V2, "users", TeachableResumeConfig(search_after=99), "search_after", None),
         ]
     )
-    def test_resume_state_seeds_paginator(self, _name, endpoint, saved_state, param, expected) -> None:
+    def test_resume_state_seeds_paginator(self, _name, api_version, endpoint, saved_state, param, expected) -> None:
+        body: dict[str, Any] = {
+            "data" if api_version == V2 else endpoint: [{"id": 100}],
+            "meta": {"number_of_pages": 5, "total_pages": 5, "per_page": 100},
+        }
         result = _driver().run(
-            endpoint,
-            [ScriptedResponse(json={endpoint: [{"id": 100}], "meta": {"number_of_pages": 5, "per_page": 100}})],
-            resume_state=saved_state,
+            endpoint, [ScriptedResponse(json=body)], resume_state=saved_state, api_version=api_version
         )
 
         assert result.requests[0].param(param) == expected
@@ -201,6 +225,7 @@ class TestTeachableTransport:
                 ScriptedResponse(json={"courses": [{"id": 1}], "meta": {"number_of_pages": 2}}),
                 ScriptedResponse(json={"courses": [{"id": 2}], "meta": {"number_of_pages": 2}}),
             ],
+            api_version=V1,
         )
 
         # The cursor is saved while another page remains, and not after the last page.
@@ -359,7 +384,7 @@ class TestTeachableNestedFanout:
         ]
     )
     def test_nested_fanout_walk(self, endpoint, routes, expected_rows) -> None:
-        result = _driver().run(endpoint, route(routes))
+        result = _driver().run(endpoint, route(routes), api_version=V1)
 
         assert result.raised is None
         assert result.rows == expected_rows
@@ -386,6 +411,7 @@ class TestTeachableNestedFanout:
                     "/v1/courses/11/progress": [progress, progress],
                 }
             ),
+            api_version=V1,
         )
 
         assert [row["user_id"] for row in result.rows] == [7, 8]
@@ -408,7 +434,136 @@ class TestTeachableNestedFanout:
         }
         routes[broken_path] = [ScriptedResponse(json=broken_body)]
 
-        result = _driver().run(endpoint, route(routes))
+        result = _driver().run(endpoint, route(routes), api_version=V1)
 
         assert isinstance(result.raised, ValueError)
         assert key in str(result.raised)
+
+
+class TestTeachableV2:
+    @parameterized.expand(
+        [
+            ("users", "/v2/users", "id"),
+            ("courses", "/v2/products/courses", "created_at"),
+        ]
+    )
+    def test_list_walk_pages_to_total_pages(self, endpoint, path, sort_by) -> None:
+        meta = {"per_page": 1, "total_pages": 2, "total_count": 2}
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"data": [{"id": 1}], "meta": {**meta, "page": 1}}),
+                ScriptedResponse(json={"data": [{"id": 2}], "meta": {**meta, "page": 2}}),
+            ],
+            api_version=V2,
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 1}, {"id": 2}]
+        assert result.paths == [path, path]
+        assert result.params("page") == ["1", "2"]
+        assert {(r.param("per_page"), r.param("sort_by"), r.param("sort_direction")) for r in result.requests} == {
+            ("100", sort_by, "asc")
+        }
+
+    @parameterized.expand(
+        [
+            ("v1_pin_keeps_v1_path", "courses", V1, "/v1/courses", {"courses": [], "meta": {"number_of_pages": 1}}),
+            # v2 marks /v2/transactions beta, so a v2 pin keeps reading the v1 endpoint.
+            (
+                "beta_table_stays_on_v1_under_v2",
+                "transactions",
+                V2,
+                "/v1/transactions",
+                {"transactions": [], "meta": {"number_of_pages": 1}},
+            ),
+            (
+                "unpinned_resolves_to_v2",
+                "courses",
+                None,
+                "/v2/products/courses",
+                {"data": [], "meta": {"total_pages": 1}},
+            ),
+        ]
+    )
+    def test_request_path_follows_pin(self, _name, endpoint, api_version, expected_path, body) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(json=body)), api_version=api_version)
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
+
+    @parameterized.expand(
+        [
+            (
+                # Course 12 was deleted after the course listing. User 7 holds one enrollment from a
+                # sale and one granted without a sale.
+                "course_enrollments",
+                {
+                    "/v2/products/courses": [_V2_COURSES_PAGE],
+                    "/v2/products/courses/11/enrollments": [
+                        _v2_page(
+                            [
+                                {"user": {"id": 7, "href": "u7"}, "sale": {"id": 3, "href": "s3"}, "status": "active"},
+                                {"user": {"id": 7, "href": "u7"}, "sale": None, "status": "expired"},
+                            ]
+                        )
+                    ],
+                    "/v2/products/courses/12/enrollments": [_NOT_FOUND],
+                },
+                [
+                    {
+                        "user": {"id": 7, "href": "u7"},
+                        "sale": {"id": 3, "href": "s3"},
+                        "status": "active",
+                        "course_id": 11,
+                        "user_id": 7,
+                        "sale_id": 3,
+                    },
+                    {
+                        "user": {"id": 7, "href": "u7"},
+                        "sale": None,
+                        "status": "expired",
+                        "course_id": 11,
+                        "user_id": 7,
+                        "sale_id": None,
+                    },
+                ],
+                ["course_id", "user_id", "sale_id"],
+            ),
+            (
+                # User 7 appears twice but is fetched once; user 8 was unenrolled after the listing.
+                "course_progress",
+                {
+                    "/v2/products/courses": [_V2_COURSES_PAGE],
+                    "/v2/products/courses/11/enrollments": [
+                        _v2_page([{"user": {"id": 7}}, {"user": {"id": 8}}, {"user": {"id": 7}}])
+                    ],
+                    "/v2/products/courses/12/enrollments": [_v2_page([])],
+                    "/v2/products/courses/11/users/7/progress": [
+                        ScriptedResponse(json={"data": {"id": 70, "percent_complete": 40, "sections": []}})
+                    ],
+                    "/v2/products/courses/11/users/8/progress": [_NOT_FOUND],
+                },
+                [{"id": 70, "percent_complete": 40, "sections": [], "course_id": 11, "user_id": 7}],
+                ["course_id", "user_id"],
+            ),
+            (
+                "lectures",
+                {
+                    "/v2/products/courses": [_V2_COURSES_PAGE],
+                    "/v2/products/courses/11/lectures": [_v2_page([{"id": 5, "name": "Intro", "section": {"id": 1}}])],
+                    "/v2/products/courses/12/lectures": [_NOT_FOUND],
+                },
+                [{"id": 5, "name": "Intro", "section": {"id": 1}, "course_id": 11}],
+                ["course_id", "id"],
+            ),
+        ]
+    )
+    def test_nested_walk(self, endpoint, routes, expected_rows, expected_primary_keys) -> None:
+        result = _driver().run(endpoint, route(routes), api_version=V2)
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.response is not None
+        assert result.response.primary_keys == expected_primary_keys
+        assert len(result.requests) == sum(len(answers) for answers in routes.values())
