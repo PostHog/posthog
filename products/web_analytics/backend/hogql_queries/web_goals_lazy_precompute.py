@@ -134,6 +134,9 @@ def _check_eligible(runner: "WebGoalsQueryRunner") -> None:
         modifiers=query.modifiers,
         properties=query.properties or [],
         resolve_date_range=lambda: (runner.query_date_range.date_from(), runner.query_date_range.date_to()),
+        resolve_compare_date_from=lambda: (
+            runner.query_compare_to_date_range.date_from() if runner.query_compare_to_date_range is not None else None
+        ),
     )
 
     # We need at least one action — without any, the live runner raises

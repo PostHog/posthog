@@ -39,7 +39,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     ceil_utc_day,
     floor_utc_day,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import handle_stale_served
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_stale_served,
+    range_reaches_retention_floor,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     _READ_SETTINGS,
@@ -457,6 +460,11 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
         if time_range_start >= time_range_end:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
             return None
+        # Interval alignment can move the first bucket before `date_from`, so the shared gate
+        # on the inner runner does not cover this start.
+        if range_reaches_retention_floor(team, time_range_start):
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="retention_floor").inc()
+            return None
 
         result = ensure_web_overview_precomputed(
             runner=inner_runner,
@@ -493,6 +501,9 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
             prev_end_utc = prev_to.astimezone(UTC)
             prev_range_start = floor_utc_day(prev_start_utc)
             prev_range_end = ceil_utc_day(prev_end_utc)
+            if range_reaches_retention_floor(team, prev_range_start):
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="retention_floor").inc()
+                return None
             if prev_range_start < prev_range_end:
                 prev_result = ensure_web_overview_precomputed(
                     runner=inner_runner,
