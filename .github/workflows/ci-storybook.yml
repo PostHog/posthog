@@ -682,16 +682,13 @@ jobs:
               # (no global install) and cd's into the package — `dist` is relative to common/storybook.
               run: |
                   retries=5
-                  max_timeout=30
+                  max_timeout=30000
                   pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
                   server_pid=$!
                   echo "Started http-server with PID: $server_pid"
 
-                  # Give the server a moment to start
-                  sleep 2
-
                   while [ $retries -gt 0 ]; do
-                      echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}s)..."
+                      echo "Checking if Storybook is available (retries left: $retries, timeout: ${max_timeout}ms)..."
                       if pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout $max_timeout; then
                           echo "✅ Storybook is available at http://127.0.0.1:6006"
                           break
@@ -705,7 +702,6 @@ jobs:
                               pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
                               server_pid=$!
                               echo "Restarted http-server with PID: $server_pid"
-                              sleep 2
                           fi
                       fi
                   done
