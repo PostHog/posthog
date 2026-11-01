@@ -50,8 +50,8 @@ export function SupportPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.E
                     <div className="SupportPreview__row SupportPreview__row--new">
                         <span className="SupportPreview__num">#482</span>
                         <span className="SupportPreview__who">
-                            <span className="SupportPreview__person">Mia Chen</span>
-                            <span className="SupportPreview__subject">The export button isn't working</span>
+                            <span className="SupportPreview__person">Marie Curie</span>
+                            <span className="SupportPreview__subject">Example: testing the chat widget</span>
                         </span>
                         <span className="SupportPreview__status SupportPreview__status--new">New</span>
                         <span className="SupportPreview__sla">SLA 4h</span>
@@ -63,7 +63,7 @@ export function SupportPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.E
                         </span>
                         <span className="SupportPreview__who">
                             <span className="SupportPreview__person">Albert Einstein</span>
-                            <span className="SupportPreview__subject">Can't invite teammates</span>
+                            <span className="SupportPreview__subject">Example: can't invite teammates</span>
                         </span>
                         <span className="SupportPreview__status SupportPreview__status--open">Open</span>
                         <span className="SupportPreview__sla SupportPreview__sla--due">1h left</span>
@@ -72,7 +72,7 @@ export function SupportPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.E
                         <span className="SupportPreview__num">#479</span>
                         <span className="SupportPreview__who">
                             <span className="SupportPreview__person">Nikola Tesla</span>
-                            <span className="SupportPreview__subject">Question about billing seats</span>
+                            <span className="SupportPreview__subject">Example: question about seats</span>
                         </span>
                         <span className="SupportPreview__status">Pending</span>
                         <span className="SupportPreview__sla">SLA met</span>
@@ -81,7 +81,7 @@ export function SupportPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.E
                         <span className="SupportPreview__num">#476</span>
                         <span className="SupportPreview__who">
                             <span className="SupportPreview__person">Niels Bohr</span>
-                            <span className="SupportPreview__subject">Feature request: dark mode</span>
+                            <span className="SupportPreview__subject">Example: dark mode request</span>
                         </span>
                         <span className="SupportPreview__status SupportPreview__status--solved">Solved</span>
                         <span className="SupportPreview__sla">SLA met</span>
@@ -102,7 +102,7 @@ export function SupportPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.E
                     {/* Draft and sent variants stacked in one slot and crossfaded. */}
                     <div className="SupportPreview__swap">
                         <span className="SupportPreview__draft SupportPreview__when-off">
-                            The export button isn't working
+                            Example: testing the chat widget
                             <span className="SupportPreview__typing" aria-hidden="true">
                                 <span />
                                 <span />
@@ -110,7 +110,7 @@ export function SupportPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.E
                             </span>
                         </span>
                         <span className="SupportPreview__bubble SupportPreview__bubble--user SupportPreview__when-on">
-                            The export button isn't working
+                            Example: testing the chat widget
                         </span>
                     </div>
                     <div className="SupportPreview__widget-foot">
