@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coingecko.
     COINGECKO_ENDPOINTS,
     DEFAULT_HISTORY_DAYS,
     EXCHANGE_RATES_ENDPOINT,
+    FEAR_AND_GREED_CHART_ENDPOINT,
     GLOBAL_CHART_DAYS_OPTIONS,
     GLOBAL_MARKET_CAP_CHART_ENDPOINT,
     MARKET_CHART_ENDPOINT,
@@ -267,6 +268,23 @@ def _global_market_cap_chart_rows(page: list[Any]) -> list[dict[str, Any]]:
     return _zip_series(body, _GLOBAL_CHART_SERIES, {})
 
 
+def _fear_and_greed_rows(page: list[Any]) -> list[dict[str, Any]]:
+    """Map each ``[timestamp, value, sentiment]`` point onto a row.
+
+    The ``fear_and_greed`` envelope holds a bare array of points, which is the page itself."""
+    rows: list[dict[str, Any]] = []
+    for point in page:
+        if not isinstance(point, list):
+            raise ValueError("Required a fear and greed array of points. The API response shape may have changed.")
+        if len(point) < 3:
+            continue
+        timestamp = _from_millis(point[0])
+        if timestamp is None:
+            continue
+        rows.append({"timestamp": timestamp, "value": point[1], "sentiment": point[2]})
+    return sorted(rows, key=lambda row: row["timestamp"])
+
+
 def _exchange_rate_rows(page: list[Any]) -> list[dict[str, Any]]:
     """Flatten the ``rates`` object, which is keyed by currency code rather than being a row list,
     into a row per currency with the code as its id."""
@@ -316,6 +334,7 @@ _CHART_ROW_BUILDERS: dict[str, Callable[[list[Any], str], list[dict[str, Any]]]]
 # that reshapes it. Membership also routes them away from the declarative top-level path.
 _TOP_LEVEL_ROW_BUILDERS: dict[str, Callable[[list[Any]], list[dict[str, Any]]]] = {
     GLOBAL_MARKET_CAP_CHART_ENDPOINT: _global_market_cap_chart_rows,
+    FEAR_AND_GREED_CHART_ENDPOINT: _fear_and_greed_rows,
     EXCHANGE_RATES_ENDPOINT: _exchange_rate_rows,
 }
 

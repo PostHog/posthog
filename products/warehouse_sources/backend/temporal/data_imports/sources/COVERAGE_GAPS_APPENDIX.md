@@ -3039,7 +3039,7 @@ Note: docs.coinapi.io is behind a Cloudflare interstitial and returns 403 to cur
 
 ## CoinGecko — gaps
 
-Today (20): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_market_chart`, `coins_markets`, `coins_ohlc`, `coins_tickers`, `derivatives_exchanges`, `derivatives_tickers`, `exchange_rates`, `exchanges`, `exchanges_list`, `global_market_cap_chart`, `global_market_data`, `insights`, `nfts_markets`, `rwas_issuers_list`, `rwas_list`, `rwas_markets`
+Today (21): `asset_platforms`, `coins_categories`, `coins_categories_list`, `coins_list`, `coins_market_chart`, `coins_markets`, `coins_ohlc`, `coins_tickers`, `derivatives_exchanges`, `derivatives_tickers`, `exchange_rates`, `exchanges`, `exchanges_list`, `global_fear_and_greed_chart`, `global_market_cap_chart`, `global_market_data`, `insights`, `nfts_markets`, `rwas_issuers_list`, `rwas_list`, `rwas_markets`
 
 Diffed against: <https://docs.coingecko.com/llms.txt>
 
@@ -3047,6 +3047,7 @@ Diffed against: <https://docs.coingecko.com/llms.txt>
 - [x] `/coins/{id}/ohlc/range` — OHLC candles per coin over an arbitrary range, needed for any price analysis (high)
 - [x] `/global` — total crypto market cap, active coins and BTC dominance - CoinGecko's flagship market-wide metric (high)
 - [x] `/global/market_cap_chart` — historical global market cap and volume, the time series behind the above (high)
+- [x] `/global/fear_and_greed_chart` — daily Fear & Greed index history from 2024-08-14 onwards (Pro, Analyst plan and above) (medium)
 - [x] `/coins/{id}/tickers` — market pairs per coin on CEX and DEX - the join that resolves coins_list against exchanges_list, which we sync but cannot currently link (high)
 - [ ] `/exchanges/{id}/tickers` — trading pairs per exchange; the other half of the coin-to-exchange lookup (medium)
 - [ ] `/exchanges/{id}/volume_chart/range` — historical exchange volume for ranking exchanges over time (medium)

@@ -390,6 +390,31 @@ class TestGlobalMarketCapChart:
         assert result.params("days") == [expected_days]
 
 
+class TestFearAndGreedChart:
+    def test_maps_each_point_onto_a_row_in_ascending_order(self) -> None:
+        result = _driver(plan=PLAN_PRO).run(
+            "global_fear_and_greed_chart",
+            [
+                ScriptedResponse(
+                    json={
+                        "fear_and_greed": [
+                            [1792368000000, 72, "extreme_greed"],
+                            [1792281600000, 44, "fear"],
+                            ["not-a-timestamp", 50, "neutral"],
+                        ]
+                    }
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"timestamp": datetime.fromtimestamp(1792281600, tz=UTC), "value": 44, "sentiment": "fear"},
+            {"timestamp": datetime.fromtimestamp(1792368000, tz=UTC), "value": 72, "sentiment": "extreme_greed"},
+        ]
+        assert result.params("days") == ["max"]
+
+
 class TestReshapedEndpointsFailLoud:
     @parameterized.expand(
         [
@@ -401,6 +426,12 @@ class TestReshapedEndpointsFailLoud:
                 "global_market_cap_chart",
                 {"market_cap_chart": []},
                 "global market cap chart object",
+            ),
+            (
+                "fear and greed, wrong inner type",
+                "global_fear_and_greed_chart",
+                {"fear_and_greed": {"unexpected": "object"}},
+                "fear and greed array",
             ),
         ]
     )
