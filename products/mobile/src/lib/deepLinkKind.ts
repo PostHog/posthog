@@ -27,6 +27,7 @@ const KINDS: Record<string, DeepLinkKind> = {
 }
 
 const PROJECT_KINDS: Record<string, DeepLinkKind> = {
+    inbox: 'inbox',
     error_tracking: 'error_tracking',
     'error-tracking': 'error_tracking',
     replay: 'replay',
@@ -104,6 +105,13 @@ function sessionPath(sessionId: string, query: string): string {
 
 export function webLinkTarget(path: string): string | null {
     const { segments, web, query } = linkParts(path)
+    const [inbox, reports, reportId, ...rest] = segments
+    if (web && inbox === 'inbox' && reports === 'reports' && reportId !== undefined && rest.length === 0) {
+        if (!SAFE_ID.test(reportId)) {
+            return null
+        }
+        return `/report/${reportId}?from=${queryParam(query, 'link_source') === 'slack' ? 'slack' : 'link'}`
+    }
     const [section, id, ...more] = segments
     if (!web || more.length > 0 || (id !== undefined && !SAFE_ID.test(id))) {
         return null
