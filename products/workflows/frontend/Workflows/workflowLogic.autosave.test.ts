@@ -780,6 +780,33 @@ describe('workflowLogic auto-save', () => {
             await new Promise((resolve) => setTimeout(resolve, 300))
         })
 
+        it.each([2, 3])('keeps the latest edit when %i saves queue behind a slow one', async (saves) => {
+            for (let i = 1; i <= saves; i++) {
+                logic.actions.setWorkflowValue('name', `Edit ${i}`)
+                logic.actions.markAutoSave(true)
+                logic.actions.saveWorkflow(logic.values.workflow)
+                if (i === 1) {
+                    await firstPatchSeen
+                }
+            }
+
+            releaseFirstPatch?.()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            // The first response carries "Edit 1" only. Resetting the form to it puts that stale
+            // copy back on the canvas, which the live email editor then reloads.
+            expect(logic.values.workflow.name).toBe(`Edit ${saves}`)
+
+            // Once the queue drains, the form matches what was saved, so no further save starts.
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            expect({
+                name: logic.values.workflow.name,
+                rejected,
+                patches: events.filter((event) => event === 'patch').length,
+                workflowChanged: logic.values.workflowChanged,
+            }).toEqual({ name: `Edit ${saves}`, rejected: 0, patches: saves, workflowChanged: false })
+        })
+
         it('keeps the form submitting until the queued manual save lands', async () => {
             logic.actions.setWorkflowValue('name', 'Renamed by me')
             await expectLogic(logic).toDispatchActions(['saveWorkflow'])
