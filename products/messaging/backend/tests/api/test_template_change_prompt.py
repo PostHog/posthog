@@ -23,8 +23,8 @@ PERSONALIZATION = (
 HOW_IT_GOES_LIVE = (
     "- Publish only after the change is reviewed and merged, because an upload replaces the published template at "
     "once. If the app sends the file with `posthog.emails.templateFile()`, its first send after the release uploads "
-    "the changed file. If the app sends it by the key `welcome`, upload the file again after the merge "
-    "(PUT /api/projects/@current/messaging_templates/by_key/welcome/ or the PostHog MCP upload tool)."
+    "the changed file. If the app sends it by the key `welcome`, run the app's upload code for that key again after "
+    "the merge, so the subject, preview text and plain-text body go up with the HTML."
 )
 LOADED_OR_UPLOADED = " The app loads it with `posthog.emails.templateFile()` or uploads it by that key."
 WITH_PATH = "In `emails/welcome.html`, change "

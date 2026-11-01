@@ -173,6 +173,6 @@ def _how_it_goes_live(key: str) -> str:
     return (
         "Publish only after the change is reviewed and merged, because an upload replaces the published template at "
         "once. If the app sends the file with `posthog.emails.templateFile()`, its first send after the release "
-        f"uploads the changed file. If the app sends it by the key `{key}`, upload the file again after the merge "
-        f"(PUT /api/projects/@current/messaging_templates/by_key/{key}/ or the PostHog MCP upload tool)."
+        f"uploads the changed file. If the app sends it by the key `{key}`, run the app's upload code for that key "
+        "again after the merge, so the subject, preview text and plain-text body go up with the HTML."
     )

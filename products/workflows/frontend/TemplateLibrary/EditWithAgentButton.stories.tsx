@@ -14,7 +14,7 @@ import { MessageTemplate } from './types'
 const TEMPLATE_ID = '01a148c7-7912-0000-f7e3-d9ac5081d0c6'
 
 const HOW_IT_GOES_LIVE =
-    '- Publish only after the change is reviewed and merged, because an upload replaces the published template at once. If the app sends the file with `posthog.emails.templateFile()`, its first send after the release uploads the changed file. If the app sends it by the key `welcome`, upload the file again after the merge (PUT /api/projects/@current/messaging_templates/by_key/welcome/ or the PostHog MCP upload tool).\n' +
+    "- Publish only after the change is reviewed and merged, because an upload replaces the published template at once. If the app sends the file with `posthog.emails.templateFile()`, its first send after the release uploads the changed file. If the app sends it by the key `welcome`, run the app's upload code for that key again after the merge, so the subject, preview text and plain-text body go up with the HTML.\n" +
     `- The template in PostHog: https://us.posthog.com/project/997/workflows/library/templates/${TEMPLATE_ID}`
 
 const FILE_CONTRACT_AND_VARIABLES =
