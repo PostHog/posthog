@@ -12,7 +12,7 @@ from products.signals.backend.activity_summary.read import ActivitySummaryStatus
 from products.signals.backend.personal_ranking.candidates import Candidate, NeedsYouKind
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -94,7 +94,7 @@ The person block is an activity summary built from their recent PostHog activity
 - Themes are their recent areas of work. A strong theme seen recently counts more than a weak or old one.
 - Owns lists objects they made or keep changing. Watches lists objects they keep opening. A report about an object they own matters more than one they only watch.
 - Works in lists the PostHog products they use most.
-When no activity summary is available, rank on the needs-you facts, priority and the model's lift.
+When no activity summary is available, rank on the needs-you facts and the model's lift.
 
 The `model` line of a report holds the ranking model's predictions for three outcomes:
 - `open`: someone opens the report.
@@ -106,13 +106,13 @@ Read every candidate. Rank only the best {config.rank_top}, fold the duplicates,
 To pick and order the best {config.rank_top}:
 - Put first the reports that need this person: waiting on their input, claimed by them, or naming them as suggested reviewer.
 - Then the reports that match their themes, the objects they own or watch, and the products they work in.
-- Use priority and the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
+- Use the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
 - Old reports with no activity and reports far from their work go last.
 - When the person has a focus, it outranks their usual themes.
 
 Output:
 - `ranked`: at most {config.rank_top} entries, the best candidates that you do not fold, with `ref` (such as "c3"), `rank` (1 is first, no gaps, no repeats) and `tier`.
-- `tier`: "top" for the few they should look at today, "worth_a_look" for the rest of the useful reports, "later" for the rest. A lower rank never has a better tier.
+- `tier`: "top" for at most {config.top_max} reports they should look at today. A "top" report needs a needs-you fact, a match to one of their themes, an object they own, or the focus. "worth_a_look" for at most {config.worth_a_look_max} other useful reports. "later" for the rest. A lower rank never has a better tier.
 - `reason`: why this rank, in plain words. Name the theme, object, product or needs-you fact that matched. Never quote the profile. At most {reasons.top} characters for "top", {reasons.worth_a_look} for "worth_a_look", {reasons.later} for "later". Every entry needs a reason.
 - `matched`: the theme label that matched (as written in the person block) and the needs-you kinds that apply, or null when nothing matched.
 - `next_step`: one short action for ranks 1 to {min(limit, config.rank_top)}, at most {config.next_step_max_chars} characters, else null.
@@ -152,7 +152,7 @@ def _works_in(computed: dict[str, Any] | None) -> list[str]:
 
 def render_person(summary: ActivitySummaryView | None, config: PersonalRankingConfig) -> str:
     if summary is None or summary.status != ActivitySummaryStatus.READY:
-        return "No activity summary for this person. Rank on the needs-you facts, priority and the ranking model."
+        return "No activity summary for this person. Rank on the needs-you facts and the ranking model."
     lines = []
     if summary.headline:
         lines.append(f"Headline: {summary.headline}")
