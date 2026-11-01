@@ -477,15 +477,6 @@ Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It k
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 
-### Skip checkout when every work step skips
-
-The Dockerfile lint job keeps its required-check result but gates checkout with the same change output as Hadolint ([#126704](https://github.com/PostHog/posthog/pull/126704)).
-`hogli lint:workflows --check WF018` rejects an unconditional first checkout when every later step shares the same `needs.<job>.outputs.<output> == 'true'` condition.
-The rule accepts optional expression wrappers and whitespace around the comparison.
-It skips jobs that expose outputs, jobs with a job-level condition, and steps with different conditions or checkout-dependent expressions.
-Apply the condition to the checkout step so that the required check still reports success when no files match.
-This rule does not require sparse checkout or infer which files a command reads.
-
 ### Drop `filter: blob:none` from a deep checkout
 
 **Verdict: rejected** · Sep 2026 · [run](https://github.com/PostHog/posthog/actions/runs/35789980165)
