@@ -90,12 +90,13 @@ describe('projectTreeDataLogic', () => {
         expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads.includes('root') ? 1 : 0)
     })
 
-    it('waits for the boot loads before it checks the home folder', async () => {
+    it('checks each list once its own boot load ends', async () => {
         useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
         logic.actions.loadFolderStart('')
 
         await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
         expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
 
         logic.actions.loadFolderSuccess('', [{ id: 'users', path: 'Users', type: 'folder' }], false, 1)
 

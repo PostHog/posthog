@@ -436,9 +436,6 @@ export interface projectTreeDataLogicActions {
     loadShortcuts: () => {
         value: true
     }
-    reloadIfHomeFolderMissing: () => {
-        value: true
-    }
     loadShortcutsFailure: (
         error: string,
         errorObject?: any
@@ -554,6 +551,9 @@ export interface projectTreeDataLogicActions {
             action: ProjectTreeAction
             projectTreeLogicKey: string
         }
+    }
+    reloadIfHomeFolderMissing: () => {
+        value: true
     }
     removeQueuedAction: (action: ProjectTreeAction) => {
         action: ProjectTreeAction
@@ -1797,7 +1797,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.loadShortcuts()
         },
         loadHomeFolderSuccess: () => {
-            cache.homeFolderCheckPending = true
+            cache.homeShortcutCheckPending = true
+            cache.homeRootCheckPending = true
             actions.reloadIfHomeFolderMissing()
         },
         loadShortcutsSuccess: () => actions.reloadIfHomeFolderMissing(),
@@ -1814,21 +1815,27 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         },
         // The first home folder request creates the folder and its shortcut. The boot loads of the root folder
         // and the shortcuts run at the same time, so reload only a list that does not show the folder yet.
+        // Each list is checked on its own, so a slow request for one list does not hold back the other.
         reloadIfHomeFolderMissing: () => {
-            if (!cache.homeFolderCheckPending || values.shortcutDataLoading || values.folderStates[''] === 'loading') {
-                return
-            }
-            cache.homeFolderCheckPending = false
             const path = values.homeFolder?.path
-            if (!path) {
-                return
+            if (cache.homeShortcutCheckPending && !values.shortcutDataLoading) {
+                cache.homeShortcutCheckPending = false
+                if (
+                    path &&
+                    !values.shortcutData.some((shortcut) => shortcut.type === 'folder' && shortcut.ref === path)
+                ) {
+                    actions.loadShortcuts()
+                }
             }
-            if (!values.shortcutData.some((shortcut) => shortcut.type === 'folder' && shortcut.ref === path)) {
-                actions.loadShortcuts()
-            }
-            const topFolder = splitPath(path)[0]
-            if (!(values.folders[''] ?? []).some((entry) => entry.type === 'folder' && entry.path === topFolder)) {
-                actions.loadFolder('', true)
+            if (cache.homeRootCheckPending && values.folderStates[''] !== 'loading') {
+                cache.homeRootCheckPending = false
+                const topFolder = path ? splitPath(path)[0] : null
+                if (
+                    topFolder &&
+                    !(values.folders[''] ?? []).some((entry) => entry.type === 'folder' && entry.path === topFolder)
+                ) {
+                    actions.loadFolder('', true)
+                }
             }
         },
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
