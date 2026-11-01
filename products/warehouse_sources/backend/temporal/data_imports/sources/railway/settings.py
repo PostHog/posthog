@@ -321,7 +321,7 @@ query ValidateToken {
 """
 
 
-@dataclass
+@dataclass(frozen=True)
 class RailwayEndpointConfig:
     name: str
     query: str

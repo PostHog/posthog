@@ -203,19 +203,27 @@ class TestRailway:
         assert len(result.requests) == 4
         assert _request_variables(result, 2)["deploymentId"] == "d1"
 
-    def test_deployment_events_resume_rereads_the_saved_deployments_page(self):
+    def test_deployment_events_resume_at_the_saved_deployment_and_stage_the_next_position(self):
         result = _run(
             "deployment_events",
             [
                 _projects_page(["p1", "p2"]),
-                _connection(("deployments",), [{"id": "d9", "createdAt": "2024-07-01T00:00:00Z"}]),
-                _connection(("deploymentEvents",), []),
+                _connection(("deployments",), [{"id": "d1"}, {"id": "d2"}, {"id": "d3"}]),
+                _connection(("deploymentEvents",), [{"id": "ev2"}]),
+                _connection(("deploymentEvents",), [{"id": "ev3"}]),
             ],
-            resume_state=RailwayResumeConfig(cursor="c4", project_id="p2"),
+            resume_state=RailwayResumeConfig(cursor="c4", project_id="p2", parent_id="d2", child_cursor="e1"),
         )
 
         assert _request_variables(result, 1) == {"projectId": "p2", "first": 100, "after": "c4"}
-        assert [(state.project_id, state.cursor) for state in result.saved_states] == [("p2", "c4")]
+        assert _request_variables(result, 2) == {"deploymentId": "d2", "first": 100, "after": "e1"}
+        assert _request_variables(result, 3)["after"] is None
+        assert _batch_ids(result) == [["ev2"], ["ev3"]]
+        # The state staged before each batch points past it, so a resumed full refresh appends no
+        # batch twice. The last batch keeps the earlier position rather than restarting the walk.
+        assert [(state.cursor, state.project_id, state.parent_id) for state in result.saved_states] == [
+            ("c4", "p2", "d3")
+        ]
 
     @time_machine.travel("2024-07-03T12:00:00Z", tick=False)
     def test_usage_reads_one_day_window_per_workspace_from_the_watermark_day(self):
@@ -250,10 +258,14 @@ class TestRailway:
         # Null tags must still give a non-null, stable key, or merges seed duplicate rows.
         assert _batch_ids(result) == [["2024-07-02:p1:::CPU_USAGE"], ["2024-07-02:p2:::CPU_USAGE"]]
         assert result.items[0][0]["date"] == datetime(2024, 7, 2, tzinfo=UTC)
+        assert [(state.window_start, state.parent_id, state.cursor) for state in result.saved_states] == [
+            ("2024-07-02T00:00:00+00:00", "w1", "p1"),
+            ("2024-07-03T00:00:00+00:00", None, None),
+        ]
 
-    @time_machine.travel("2024-07-10T00:30:00Z", tick=False)
-    def test_metrics_resume_skips_finished_windows_and_drops_samples_on_the_window_end(self):
-        window_end = int(datetime(2024, 7, 10, 0, 30, tzinfo=UTC).timestamp())
+    @time_machine.travel("2024-07-10T01:30:00Z", tick=False)
+    def test_metrics_retry_resumes_at_the_saved_window_and_drops_samples_on_the_window_end(self):
+        window_end = int(datetime(2024, 7, 10, 1, 30, tzinfo=UTC).timestamp())
         result = _run(
             "metrics",
             [
@@ -270,18 +282,16 @@ class TestRailway:
                     }
                 },
             ],
-            incremental_field="timestamp",
-            db_incremental_field_last_value=datetime(2024, 7, 1, 0, 15, tzinfo=UTC),
+            # A first sync that an earlier attempt, an hour and a half ago, left in its 07-08 00:00 window.
+            # The grid this attempt derives from the current time starts at 01:00, which would skip an hour.
             resume_state=RailwayResumeConfig(window_start="2024-07-08T00:00:00+00:00"),
         )
 
         assert result.raised is None
-        # Windows start at the hour-aligned watermark (07-01 00:00) and step 7 days, so the resumed
-        # run reads only the second window.
         variables = _request_variables(result, 1)
         assert (variables["startDate"], variables["endDate"]) == (
             "2024-07-08T00:00:00+00:00",
-            "2024-07-10T00:30:00+00:00",
+            "2024-07-10T01:30:00+00:00",
         )
         assert _batch_ids(result) == [[f"p1:s1:e1:CPU_USAGE:{window_end - 1800}"]]
 
