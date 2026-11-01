@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -6,7 +5,6 @@ import {
 } from "@posthog/di/logger";
 import { createGitClient } from "@posthog/git/client";
 import { deleteCheckpoint } from "@posthog/git/sagas/checkpoint";
-import { forceRemove } from "@posthog/git/utils";
 import { WorktreeManager } from "@posthog/git/worktree";
 import {
   type IWorkspaceSettings,
@@ -317,7 +315,6 @@ export class SuspensionService extends TypedEventEmitter<SuspensionServiceEvents
   ): Promise<void> {
     const manager = this.createWorktreeManager(folderPath);
     await manager.deleteWorktree(worktreePath);
-    await forceRemove(path.dirname(worktreePath));
   }
 
   private async killTaskProcesses(

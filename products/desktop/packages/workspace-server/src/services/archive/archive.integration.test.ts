@@ -368,6 +368,7 @@ describe("ArchiveService integration", () => {
         const archived = await ctx.service.archiveTask(ctx.archiveInput());
 
         expect(await pathExists(worktreePath)).toBe(false);
+        expect(await pathExists(path.dirname(worktreePath))).toBe(false);
         expect(ctx.archiveRepo.findAll()).toHaveLength(1);
         expect(archived.checkpointId).toBeTruthy();
 
@@ -517,6 +518,49 @@ describe("ArchiveService integration", () => {
 
         expect(archived.checkpointId).toBeTruthy();
         expect(await pathExists(legacyPath)).toBe(false);
+      }));
+
+    it("archive keeps the parent folder of an adopted external worktree", () =>
+      withTestContext({}, async (ctx) => {
+        const root = await fs.mkdtemp(
+          path.join(os.tmpdir(), "archive-adopted-"),
+        );
+        try {
+          const codeParent = path.join(root, "code-parent");
+          const mainRepo = path.join(codeParent, "repo");
+          const adoptedPath = path.join(codeParent, "repo.feature");
+          const siblingFile = path.join(codeParent, "other", "keep.txt");
+
+          await fs.mkdir(mainRepo, { recursive: true });
+          initializeGitRepo(mainRepo);
+          execFileSync(
+            "git",
+            ["worktree", "add", "-b", "feature", adoptedPath],
+            { cwd: mainRepo, stdio: "pipe" },
+          );
+          await fs.mkdir(path.dirname(siblingFile));
+          await fs.writeFile(siblingFile, "keep");
+
+          const repo = ctx.repositoryRepo.create({ path: mainRepo });
+          const workspace = ctx.workspaceRepo.create({
+            taskId: TASK_ID,
+            repositoryId: repo.id,
+            mode: "worktree",
+          });
+          ctx.worktreeRepo.create({
+            workspaceId: workspace.id,
+            name: "repo.feature",
+            path: adoptedPath,
+          });
+
+          await ctx.service.archiveTask(ctx.archiveInput());
+
+          expect(await pathExists(adoptedPath)).toBe(false);
+          expect(await pathExists(path.join(mainRepo, ".git"))).toBe(true);
+          expect(await pathExists(siblingFile)).toBe(true);
+        } finally {
+          await fs.rm(root, { recursive: true, force: true });
+        }
       }));
 
     it("archive succeeds when worktree was deleted externally", () =>
