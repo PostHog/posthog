@@ -19,7 +19,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.constants import METRICS_TABLE_SPARKLINE_POINTS
 from products.dashboards.backend.widget_registry import METRICS_TABLE_WIDGET_TYPE, validate_widget_config
-from products.metrics.backend.facade.contracts import MetricQueryTooManyRowsError
+from products.metrics.backend.facade.contracts import MetricPoint, MetricQueryTooManyRowsError, MetricSeries
 from products.metrics.backend.facade.testing import seed_metric, truncate_metrics_tables
 
 QUEUE_COLUMN = {"label": "Queue depth", "metricName": "queue_depth", "aggregation": "avg"}
@@ -307,3 +307,143 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
         assert [row["values"][0] for row in retried["rows"]] == pytest.approx(
             [row["values"][0] for row in full_buckets["rows"]], rel=0.25
         )
+
+    def _seed_responses(self, metric_name: str, per_minute: dict[tuple[str, str], float]) -> None:
+        for (route, status_value), step in per_minute.items():
+            seed_metric(
+                team_id=self.team.id,
+                metric_name=metric_name,
+                points=[(self.now - dt.timedelta(minutes=10 - minute), step * minute) for minute in range(10)],
+                labels={"route": route, "status": status_value},
+                metric_type="sum",
+                is_monotonic=True,
+            )
+
+    def test_counter_column_shows_zero_when_the_metric_reports_for_the_row_but_its_filter_matches_nothing(
+        self,
+    ) -> None:
+        # A status label series only exists after its first response, so /z1 has no 5xx series at all.
+        self._seed_responses("responses_total", {("/z1", "200"): 60.0, ("/z2", "200"): 60.0, ("/z2", "500"): 6.0})
+        errors_filter = [{"key": "status", "op": "regex", "value": "5.."}]
+        columns = [
+            {"label": "Requests", "metricName": "responses_total", "aggregation": "rate"},
+            {"label": "5xx", "metricName": "responses_total", "aggregation": "rate", "filters": errors_filter},
+            {
+                "label": "5xx total",
+                "metricName": "responses_total",
+                "aggregation": "increase",
+                "filters": errors_filter,
+            },
+        ]
+
+        result = self._run({"groupBy": "route", "columns": columns, "dateRange": {"date_from": "-1h"}})
+
+        rows = {row["key"]: row for row in result["rows"]}
+        assert rows["/z1"]["values"][1:] == [0, 0]
+        assert rows["/z2"]["values"][1] > 0
+        assert rows["/z2"]["values"][2] > 0
+        requests_sparkline = rows["/z1"]["sparklines"][0]
+        for sparkline in rows["/z1"]["sparklines"][1:]:
+            assert len(sparkline) == len(requests_sparkline) > 1
+            assert sparkline == [None if value is None else 0 for value in requests_sparkline]
+
+    def test_column_without_a_series_stays_empty_unless_it_is_a_counter_of_a_metric_the_row_reports(self) -> None:
+        self._seed_responses("served_total", {("/y1", "200"): 60.0, ("/y2", "200"): 60.0})
+        self._seed_responses("failed_total", {("/y2", "500"): 6.0})
+        for route in ("/y1", "/y2"):
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="served_bytes",
+                points=[(self.now - dt.timedelta(minutes=m), 1.0) for m in range(2, 6)],
+                labels={"route": route, "status": "200"},
+            )
+        columns = [
+            {"label": "Served", "metricName": "served_total", "aggregation": "rate"},
+            # Another metric, so nothing shows that /y1 reports it.
+            {"label": "Failed", "metricName": "failed_total", "aggregation": "rate"},
+            # The filter matches no row, so it may be a wrong label and is not a zero.
+            {
+                "label": "Teapots",
+                "metricName": "served_total",
+                "aggregation": "rate",
+                "filters": [{"key": "status", "op": "eq", "value": "418"}],
+            },
+            # A gauge has no count to be zero.
+            {
+                "label": "Bytes on errors",
+                "metricName": "served_bytes",
+                "aggregation": "avg",
+                "filters": [{"key": "status", "op": "eq", "value": "500"}],
+            },
+        ]
+
+        result = self._run({"groupBy": "route", "columns": columns, "dateRange": {"date_from": "-1h"}})
+
+        rows = {row["key"]: row for row in result["rows"]}
+        assert rows["/y1"]["values"][1:] == [None, None, None]
+        assert rows["/y1"]["sparklines"][1:] == [[], [], []]
+
+    def test_counter_column_stays_empty_when_the_series_cap_may_have_dropped_the_row(self) -> None:
+        # /t3 has the most requests and the fewest errors, so a cap of 2 keeps it in the requests column
+        # and drops it from the errors column. /t2 is dropped from the requests column the same way.
+        self._seed_responses(
+            "capped_responses_total",
+            {
+                ("/t1", "200"): 10.0,
+                ("/t1", "500"): 5.0,
+                ("/t2", "200"): 10.0,
+                ("/t2", "500"): 4.0,
+                ("/t3", "200"): 100.0,
+                ("/t3", "500"): 1.0,
+            },
+        )
+        columns = [
+            {"label": "Requests", "metricName": "capped_responses_total", "aggregation": "rate"},
+            {
+                "label": "5xx",
+                "metricName": "capped_responses_total",
+                "aggregation": "rate",
+                "filters": [{"key": "status", "op": "eq", "value": "500"}],
+            },
+        ]
+
+        with (
+            patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 2),
+            patch("products.dashboards.backend.widgets.metrics_table.MAX_SERIES_PER_CLAUSE", 2),
+        ):
+            result = self._run({"groupBy": "route", "columns": columns, "dateRange": {"date_from": "-1h"}})
+
+        rows = {row["key"]: row for row in result["rows"]}
+        assert rows["/t3"]["values"][0] > 0
+        assert rows["/t3"]["values"][1] is None
+        assert rows["/t2"]["values"][0] is None
+        assert rows["/t2"]["values"][1] > 0
+
+    def test_counter_column_stays_empty_when_a_series_without_the_label_fills_the_series_cap(self) -> None:
+        def counter_series(clause: str, labels: dict[str, str]) -> MetricSeries:
+            return MetricSeries(
+                labels=labels,
+                points=(MetricPoint(time=self.now.isoformat(), value=1.0),),
+                metric_name="responses_total",
+                clause=clause,
+            )
+
+        series = [
+            counter_series("c0", {}),
+            counter_series("c0", {"route": "/a"}),
+            counter_series("c1", {"route": "/a"}),
+            counter_series("c1", {"route": "/b"}),
+        ]
+        columns = [
+            {"label": "Requests", "metricName": "responses_total", "aggregation": "rate"},
+            {"label": "All", "metricName": "responses_total", "aggregation": "increase"},
+        ]
+
+        with (
+            patch("products.dashboards.backend.widgets.metrics_table.run_metric_query", return_value=series),
+            patch("products.dashboards.backend.widgets.metrics_table.MAX_SERIES_PER_CLAUSE", 2),
+        ):
+            result = self._run({"groupBy": "route", "columns": columns})
+
+        rows = {row["key"]: row for row in result["rows"]}
+        assert rows["/b"]["values"] == [None, 1.0]
