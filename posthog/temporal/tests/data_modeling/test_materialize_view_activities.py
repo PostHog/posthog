@@ -102,7 +102,11 @@ from products.data_quality.backend.facade.enums import (
 from products.data_quality.backend.facade.models import DataQualityCheckRun, DataQualitySuiteRun
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import CreateTableResult
-from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult, TrinoIncrementalWrite
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeTableResult,
+    StoredColumnType,
+    TrinoIncrementalWrite,
+)
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
 from products.warehouse_sources.backend.facade.hooks import (
     AccountPropertySourceProjection,
@@ -233,7 +237,11 @@ class TestMaterializeViewManagedWarehouseActivity:
             use_trino=True,
         )
         asaved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
-        await database_sync_to_async(asaved_query.save)(update_fields=["origin"])
+        asaved_query.columns = {
+            "flag": {"clickhouse": "UInt8", "hogql": "IntegerDatabaseField", "valid": True},
+            "verified": {"clickhouse": "Nullable(Bool)", "hogql": "BooleanDatabaseField", "valid": True},
+        }
+        await database_sync_to_async(asaved_query.save)(update_fields=["origin", "columns"])
         executable_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
 
         def execute_trino_model(**kwargs: Any) -> DuckLakeTableResult:
@@ -277,6 +285,10 @@ class TestMaterializeViewManagedWarehouseActivity:
             saved_query_id=asaved_query.id,
             source_query=executable_query,
             incremental=None,
+            stored_column_types=(
+                StoredColumnType(name="flag", clickhouse_type="UInt8"),
+                StoredColumnType(name="verified", clickhouse_type="Nullable(Bool)"),
+            ),
             on_processed_bytes=unittest.mock.ANY,
             on_cpu_milliseconds=unittest.mock.ANY,
         )
