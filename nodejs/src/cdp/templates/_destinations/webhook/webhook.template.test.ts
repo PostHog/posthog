@@ -128,4 +128,25 @@ describe('webhook template', () => {
             ]
         `)
     })
+
+    it.each([
+        [[400], 400, false],
+        [['4xx'], 404, false],
+        [['4XX'], 422, false],
+        [[409], 400, true],
+        [['5xx'], 400, true],
+    ])('with non-failure codes %j, a %i response fails: %s', async (codes, status, fails) => {
+        let response = await tester.invoke({
+            url: 'https://example.com',
+            non_failure_status_codes: codes,
+        })
+
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status,
+            body: { message: 'Already recorded' },
+        })
+
+        expect(response.finished).toBe(true)
+        expect(!!response.error).toBe(fails)
+    })
 })
