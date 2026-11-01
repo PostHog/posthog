@@ -35,7 +35,7 @@ def _template_provenance(content: TransactionalEmailContent) -> dict[str, str]:
     return {"template_uuid": str(content.message_template_id)}
 
 
-def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int) -> list[dict]:
+def transactional_email_actions(content: TransactionalEmailContent, from_integration_id: int | None) -> list[dict]:
     return _actions(
         name=content.name,
         step_config={
