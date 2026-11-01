@@ -111,7 +111,7 @@ def get_dlq_metric(
     return DeadLetterQueueMetric(
         key=key,
         metric=metric_context.get("metric"),
-        value=metric_context.get("value"),
+        value=fn_result.get("value"),
         subrows=fn_result.get("subrows"),
     )
 
