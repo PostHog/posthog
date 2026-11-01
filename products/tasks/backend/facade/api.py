@@ -7885,7 +7885,7 @@ def create_task_and_run(
         code_access_allowed=code_access_allowed,
     )
     try:
-        result = run_task(task.id, team_id, user_id, validated_data=run_data)
+        result = run_task(task.id, team_id, user_id, validated_data=run_data, client_provenance=client_provenance)
         if result is None:
             return contracts.TaskRunResult(task=task, run_error="Failed to create task run.")
         return contracts.TaskRunResult(
@@ -8114,6 +8114,14 @@ def create_task(
             if should_set_client_provenance:
                 Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
                     client_provenance=client_provenance
+                )
+            if warm_auto_publish is None:
+                warm_auto_publish = _user_auto_publish_default(
+                    team_id=team_id,
+                    user_id=user_id,
+                    origin_product=warm_task.origin_product,
+                    client_provenance=client_provenance,
+                    manual_run=True,
                 )
             try:
                 _activate_warm_run(
@@ -8754,6 +8762,28 @@ def _with_ai_run_defaults(
     updated = dict(data)
     apply_ai_run_defaults(updated, team_id, acting_user_id, runtime=runtime)
     return updated
+
+
+def _user_auto_publish_default(
+    *,
+    team_id: int,
+    user_id: int | None,
+    origin_product: str,
+    client_provenance: TaskClientProvenance | None,
+    manual_run: bool,
+) -> bool | None:
+    if user_id is None:
+        return None
+    if not manual_run:
+        return None
+    if origin_product != Task.OriginProduct.USER_CREATED:
+        return None
+    if client_provenance not in (TaskClientProvenance.POSTHOG_DESKTOP, TaskClientProvenance.POSTHOG_MOBILE):
+        return None
+    from products.tasks.backend.logic.services.task_defaults import get_user_task_defaults  # noqa: PLC0415
+
+    auto_publish = get_user_task_defaults(team_id, user_id)["auto_publish_cloud_runs"]
+    return True if auto_publish is None else auto_publish
 
 
 def _find_idling_warm_run(
@@ -9540,6 +9570,7 @@ def run_task(
     warm_retry_token: str | None = None,
     pipeline_rerun: bool = False,
     free_trial_enabled: bool | None = None,
+    client_provenance: TaskClientProvenance | None = None,
 ) -> contracts.TaskRunResult | None:
     """Return None for an inaccessible task, otherwise return its refreshed detail or a structured error.
 
@@ -9641,6 +9672,19 @@ def run_task(
             )
 
         branch = previous_branch
+
+    inherited_auto_publish = None if previous_state is None else previous_state.auto_publish
+    if validated_data.get("auto_publish") is None:
+        if inherited_auto_publish is None:
+            auto_publish_default = _user_auto_publish_default(
+                team_id=task.team_id,
+                user_id=user_id,
+                origin_product=task.origin_product,
+                client_provenance=client_provenance,
+                manual_run=run_source in (None, RunSource.MANUAL),
+            )
+            if auto_publish_default is not None:
+                validated_data = {**validated_data, "auto_publish": auto_publish_default}
 
     if branch is None and not resume_from_run_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
         # The inbox "Create PR" button sends no branch, so without this the run would target the
