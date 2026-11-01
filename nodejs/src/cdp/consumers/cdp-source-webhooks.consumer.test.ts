@@ -16,6 +16,7 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFun
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -282,11 +283,17 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it.each([
-                ['ok', 200, [['first', 'second']]],
-                ['throw', 500, []],
-                ['answer500', 500, []],
-            ])('with outcome %s, answers %s and captures %j', async (outcome, expectedStatus, expectedRequests) => {
-                const code = `
+                ['*', 'ok', 200, [['first', 'second']]],
+                ['*', 'throw', 500, []],
+                ['*', 'answer500', 500, []],
+                ['', 'ok', 200, [['first']]],
+                ['', 'throw', 500, [['first']]],
+            ])(
+                'with multi-capture teams %j and outcome %s, answers %s and captures %j',
+                async (multiCaptureTeams, outcome, expectedStatus, expectedRequests) => {
+                    api['cdpSourceWebhooksConsumer']['multiCaptureTeams'] =
+                        buildIntegerMatcherWithPercentage(multiCaptureTeams)
+                    const code = `
                         postHogCapture({'event': 'first', 'distinct_id': 'd', 'properties': {}})
                         postHogCapture({'event': 'second', 'distinct_id': 'd', 'properties': {}})
                         if (request.body.outcome == 'throw') {
@@ -296,22 +303,24 @@ describe('SourceWebhooksConsumer', () => {
                             return {'httpResponse': {'status': 500, 'body': 'retry'}}
                         }
                     `
-                const capturingFunction = await insertHogFunction(hub.postgres, team.id, {
-                    type: 'source_webhook',
-                    hog: code,
-                    bytecode: await compileHog(code),
-                })
+                    const capturingFunction = await insertHogFunction(hub.postgres, team.id, {
+                        type: 'source_webhook',
+                        hog: code,
+                        bytecode: await compileHog(code),
+                    })
 
-                const res = await doPostRequest({ webhookId: capturingFunction.id, body: { outcome } })
-                await waitForBackgroundTasks()
+                    const res = await doPostRequest({ webhookId: capturingFunction.id, body: { outcome } })
+                    await waitForBackgroundTasks()
 
-                expect(res.status).toEqual(expectedStatus)
-                expect(
-                    mockInternalFetch.mock.calls.map(([, options]) =>
-                        parseJSON(options.body).batch.map((event: { event: string }) => event.event)
-                    )
-                ).toEqual(expectedRequests)
-            })
+                    expect(res.status).toEqual(expectedStatus)
+                    expect(
+                        mockInternalFetch.mock.calls.map(([, options]) => {
+                            const body = parseJSON(options.body)
+                            return body.batch ? body.batch.map((event: { event: string }) => event.event) : [body.event]
+                        })
+                    ).toEqual(expectedRequests)
+                }
+            )
 
             it('should log custom errors', async () => {
                 const res = await doPostRequest({

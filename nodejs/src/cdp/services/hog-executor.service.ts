@@ -33,7 +33,6 @@ export interface HogExecutorConfig {
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
-export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -84,6 +83,7 @@ export type HogExecutorExecuteOptions = {
      */
     asyncFunctionsNames?: string[]
     onAsyncFunction?: HogExecutorAsyncFunctionHandler
+    maxCapturedEvents?: number
 }
 
 /**
@@ -223,8 +223,8 @@ export class HogExecutorService {
 
             try {
                 let hogLogs = 0
-                const maxCapturedEvents =
-                    invocation.hogFunction.type === 'source_webhook' ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS : 1
+                const isSourceWebhook = invocation.hogFunction.type === 'source_webhook'
+                const maxCapturedEvents = isSourceWebhook ? (options.maxCapturedEvents ?? 1) : 1
                 let droppedCaptures = 0
 
                 const asyncFunctions = (options.asyncFunctionsNames ?? []).reduce(
@@ -274,7 +274,7 @@ export class HogExecutorService {
                             }
 
                             if (result.capturedPostHogEvents.length >= maxCapturedEvents) {
-                                if (maxCapturedEvents === 1) {
+                                if (!isSourceWebhook) {
                                     throw new Error(
                                         'postHogCapture was called more than once. Only one call is allowed per function'
                                     )
@@ -319,7 +319,7 @@ export class HogExecutorService {
                 if (droppedCaptures > 0) {
                     addLog(
                         'warn',
-                        `postHogCapture was called ${maxCapturedEvents + droppedCaptures} times, but a source webhook can capture at most ${maxCapturedEvents} events. The last ${droppedCaptures} events were dropped.`
+                        `Captured ${maxCapturedEvents} of ${maxCapturedEvents + droppedCaptures} postHogCapture calls. The other ${droppedCaptures} were dropped.`
                     )
                     result.metrics.push({
                         team_id: invocation.teamId,

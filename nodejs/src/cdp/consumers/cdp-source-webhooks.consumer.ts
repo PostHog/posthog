@@ -2,12 +2,13 @@ import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import type { ModifiedRequest } from '~/common/api/router'
+import { assertRolloutFractions, buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
-import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
+import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig, ValueMatcher } from '../../types'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
@@ -26,6 +27,8 @@ import { logEntry } from '../utils'
 import { dualRead, dualWrite } from '../utils/dual-store'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
+
+export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
 
 const DISALLOWED_HEADERS = [
     'x-forwarded-for',
@@ -109,6 +112,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     private hogQueue: JobQueue
     private hogflowQueue: JobQueue
     private promiseScheduler: PromiseScheduler
+    private multiCaptureTeams: ValueMatcher<number>
 
     constructor(
         config: PluginsServerConfig,
@@ -120,6 +124,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         this.promiseScheduler = new PromiseScheduler()
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
+        assertRolloutFractions('CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS', config.CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS)
+        this.multiCaptureTeams = buildIntegerMatcherWithPercentage(config.CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS)
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -309,13 +315,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             }
 
-            if (functionResult.capturedPostHogEvents.length > 1) {
-                addLog(
-                    'warn',
-                    `Only the first of ${functionResult.capturedPostHogEvents.length} captured events starts the workflow. The rest were ignored.`
-                )
-            }
-
             const capturedPostHogEvent = functionResult.capturedPostHogEvents[0]
             // Add all logs to the result
 
@@ -445,6 +444,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         hogFunctionState: HogWatcherFunctionState | null
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+        const multiCapture = this.multiCaptureTeams(hogFunction.team_id)
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
@@ -483,7 +483,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 }
             } else {
                 // Run the initial step - this allows functions not using fetches to respond immediately
-                result = await this.hogExecutorAsync.execute(invocation)
+                result = await this.hogExecutorAsync.execute(invocation, {
+                    maxCapturedEvents: multiCapture ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS : 1,
+                })
 
                 // Queue any queued work here. This allows us to enable delayed work like fetching eventually without blocking the API.
                 if (!result.finished) {
@@ -538,7 +540,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
-        this.discardCapturesOfFailedRequest(result)
+        if (multiCapture) {
+            this.discardCapturesOfFailedRequest(result)
+        }
         await this.invocationResultsService.queueInvocationResults([result])
         return result
     }

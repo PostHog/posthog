@@ -66,3 +66,17 @@ export function buildIntegerMatcherWithPercentage(config: string | undefined): V
         return false
     }
 }
+
+export function assertRolloutFractions(name: string, config: string): void {
+    const fractions = config
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.startsWith('*:'))
+        .map((part) => part.slice(2))
+    for (const fraction of fractions) {
+        const value = Number(fraction)
+        if (fraction === '' || !Number.isFinite(value) || value < 0 || value > 1) {
+            throw new Error(`${name} takes a fraction between 0 and 1 after '*:', got '${fraction}'`)
+        }
+    }
+}
