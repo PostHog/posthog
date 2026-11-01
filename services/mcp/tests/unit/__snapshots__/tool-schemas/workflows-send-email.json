@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "capture_engagement": {
-            "description": "Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.",
+            "description": "Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.",
             "type": "boolean"
         },
         "distinct_id": {
@@ -11,7 +11,7 @@
             "type": "string"
         },
         "from": {
-            "description": "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender.",
+            "description": "Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, a send with `template_key` goes out from the project's default sender, and a send by `template.key` from its template's sender. A send by `template.id` doesn't take it.",
             "type": "string"
         },
         "html": {
@@ -19,7 +19,7 @@
             "type": "string"
         },
         "reply_to": {
-            "description": "Addresses replies to the email your code rendered go to.",
+            "description": "Addresses replies to the email go to. A send by `template.id` doesn't take it.",
             "items": {
                 "format": "email",
                 "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",

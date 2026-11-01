@@ -24,8 +24,8 @@ from products.messaging.backend.models.message_category import MessageCategory, 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.message_templates import (
-    CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
+    TEMPLATE_ID_REFUSED_FIELDS,
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
 from products.messaging.backend.services import transactional_email
@@ -518,12 +518,44 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["attr"] == attr
         mock_post.assert_not_called()
 
-    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture):
-        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, "subject": "Hi"})
+    @parameterized.expand(
+        [
+            ("subject", {"subject": "Hi"}, "template_key"),
+            ("sender", {"from": "hello@example.com"}, "template.key"),
+            ("reply_to", {"reply_to": ["help@example.com"]}, "template.key"),
+        ]
+    )
+    def test_refuses_on_a_send_by_template_id_what_its_template_sets(
+        self, mock_post, _flag, _capture, _name, fields, form_that_takes_it
+    ):
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, **fields})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "subject"
+        assert response.json()["attr"] == next(iter(fields))
+        assert f"`{form_that_takes_it}`" in response.json()["detail"]
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("by_default", {}, "transactional_email", None),
+            (
+                "without_engagement_capture",
+                {"capture_engagement": False},
+                "transactional_email/send",
+                {"tracking": {"captureEngagement": False}},
+            ),
+        ]
+    )
+    def test_a_send_by_template_id_carries_its_engagement_capture(
+        self, mock_post, _flag, _capture, _name, fields, route, sent
+    ):
+        self._cdp_accepts(mock_post)
+
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, **fields})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert mock_post.call_args.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/{route}")
+        assert mock_post.call_args.kwargs["json"].get("send") == sent
 
     def _keyed(self) -> dict[str, Any]:
         MessageTemplate.objects.filter(id=self.template.id).update(
@@ -600,7 +632,7 @@ class TestTransactionalEmail(APIBaseTest):
         else:
             assert "send" not in posted
         reported = capture.call_args.kwargs["properties"]
-        assert (reported["addressed_by"], reported["template_id"]) == ("template_key", str(self.template.id))
+        assert (reported["addressed_by"], reported["template_id"]) == ("template.key", str(self.template.id))
 
     @parameterized.expand(
         [
@@ -700,10 +732,18 @@ class TestTransactionalEmail(APIBaseTest):
         assert capture.call_args.kwargs["properties"]["error_code"] == "sender_not_verified"
         mock_post.assert_not_called()
 
-    def test_a_code_send_the_pipeline_does_not_confirm_warns_it_may_still_go_out(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [
+            ("code_send", lambda test: test._code_send()),
+            ("send_by_template_key", lambda test: test._keyed()),
+        ]
+    )
+    def test_a_send_from_code_the_pipeline_does_not_confirm_warns_it_may_still_go_out(
+        self, mock_post, _flag, _capture, _name, body
+    ):
         mock_post.side_effect = requests.ReadTimeout()
 
-        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, self._code_send(), format="json")
+        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body(self), format="json")
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
@@ -716,7 +756,11 @@ class TestTransactionalEmail(APIBaseTest):
         send_email = schema["paths"]["/api/projects/{project_id}/messaging/send/email/"]["post"]
         reference = send_email["requestBody"]["content"]["application/json"]["schema"]["$ref"]
         fields = schema["components"]["schemas"][reference.rsplit("/", 1)[-1]]["properties"]
-        assert {name: fields[name]["default"] for name in CODE_SEND_FIELDS if "default" in fields[name]} == {}
+        assert {
+            name: fields[name]["default"]
+            for name in (*TEMPLATE_ID_REFUSED_FIELDS, "capture_engagement")
+            if "default" in fields[name]
+        } == {}
 
     @parameterized.expand(
         [
