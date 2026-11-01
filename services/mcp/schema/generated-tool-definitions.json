@@ -15964,7 +15964,7 @@
         "requires_ai_consent": true
     },
     "vision-scanners-scouts-templates-list": {
-        "description": "List the ready-made scouts a scanner offers, such as a daily digest, a trend watch or a root cause scout, in the order the Replay Vision UI shows them. Each has a `key`, `title`, `description`, a default name and schedule, and the full `body` rendered for this scanner. Create one with `vision-scanners-scouts-create`, passing the `body` unchanged. The `scratch` template is a skeleton: replace every `<ALL CAPS>` placeholder in its body with what the person wants before creating it; the create call rejects a body that still has one.",
+        "description": "List the ready-made scouts a scanner offers, such as a daily digest, a trend watch or a root cause scout, in the order the Replay Vision UI shows them. Each has a `key`, `title`, `description`, a default name and schedule, and the full `body` rendered for this scanner. Create one with `vision-scanners-scouts-create`, passing the `body` unchanged. The `scratch` template is a skeleton: replace every `<ALL CAPS>` placeholder in its body with what the person wants before creating it; the create call rejects a body that still has one. For `variant-analysis`, also pass `variant_analysis: true`, which attaches the record schema the variants view reads.",
         "category": "Replay vision",
         "feature": "replay_vision",
         "summary": "List scout templates for scanner",
