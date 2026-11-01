@@ -42,6 +42,7 @@ ENDPOINTS: dict[str, FintocEndpoint] = {
             "transfer.outbound.reversed",
         ),
     ),
+    "transfer_batches": FintocEndpoint(path="/v2/transfer_batches"),
     "refunds": FintocEndpoint(
         path="/v1/refunds",
         page_size_param="per_page",

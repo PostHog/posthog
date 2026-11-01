@@ -13,6 +13,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://docs.fintoc.com/api/business-accounts-api/transfers/transfers-list",
         "columns": {"id": "Transfer identifier.", "direction": "Whether the transfer is inbound or outbound."},
     },
+    "transfer_batches": {
+        "description": "Batches of outbound transfers approved together in the Dashboard.",
+        "docs_url": "https://docs.fintoc.com/api/business-accounts-api/transfer-batches/transfer-batches-list",
+        "columns": {
+            "id": "Transfer batch identifier.",
+            "amount": "Total amount of the batch, in the smallest currency unit.",
+            "settled_amount": "Amount of the batch that has settled, in the smallest currency unit.",
+            "status": "Batch status: pending_authorization, rejected, expired, in_progress, succeeded, partially_succeeded, or failed.",
+            "transfer_count": "Number of transfers in the batch.",
+            "succeeded_count": "Number of transfers in the batch that succeeded.",
+            "created_at": "Time the batch was created.",
+        },
+    },
     "refunds": {
         "description": "Refunds of payments, including their disbursement status.",
         "docs_url": "https://docs.fintoc.com/api/payments-api/refunds/refunds-list",
