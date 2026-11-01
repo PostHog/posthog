@@ -169,8 +169,8 @@ tools:
             Append an artefact to an inbox report so it reads as a living document. Everything is append-only. Status
             judgments are consequential, not advisory: the canonical priority and actionability steer what people and
             agents pick up next, and PostHog's automation uses them to decide which reports to act on. Follow-up goals
-            live in report checks, not artefacts. Writes are attributed to your task automatically. Returns the created
-            artefact with its id.
+            live in report checks, not artefacts. Writes are attributed to your task automatically, or to the calling
+            user when no task is running. Returns the created artefact with its id.
         param_overrides:
             content:
                 description: >
@@ -179,11 +179,13 @@ tools:
                     of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository,
                     branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit
                     usually records it for you, so create one only for a commit pushed by other means, and never for an
-                    unpushed or local-only commit. `note`: note, free-form. `priority_judgment`: explanation, priority
-                    (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`:
-                    choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}.
-                    `source_suggestion`: product, reason, for a product the project does not use that would have given
-                    this report better evidence; the inbox hides it once the product is in use.
+                    unpushed or local-only commit. `note`: note, free-form, for annotating a report with context; to
+                    also steer the scouts use `scout-notes-create` with `report_id`, which records the note on the
+                    report too. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`:
+                    explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`:
+                    repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product,
+                    reason, for a product the project does not use that would have given this report better evidence;
+                    the inbox hides it once the product is in use.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true
