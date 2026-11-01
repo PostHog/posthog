@@ -139953,7 +139953,7 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Property filters to narrow which logs are scanned for attributes.
+     * Property filters to narrow which logs are scanned for attributes. Supports only log filters on "service_name" and "severity_level", and "log_resource_attribute" filters. Any other filter, such as "message", "trace_id" or a "log_attribute" filter, returns a 400. To scope by those, query the logs with a short dateRange instead.
      */
     filterGroup?: _LogPropertyFilter[];
     /**
@@ -140068,7 +140068,7 @@ export namespace Schemas {
      */
     dateRange?: _DateRange;
     /**
-     * Property filters to narrow which logs are scanned for values.
+     * Property filters to narrow which logs are scanned for values. Supports only log filters on "service_name" and "severity_level", and "log_resource_attribute" filters. Any other filter, such as "message", "trace_id" or a "log_attribute" filter, returns a 400. To scope by those, query the logs with a short dateRange instead.
      */
     filterGroup?: _LogPropertyFilter[];
     /**
