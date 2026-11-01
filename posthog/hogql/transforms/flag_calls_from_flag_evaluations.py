@@ -400,7 +400,7 @@ class EventsScan:
         collector.visit(node)
         # The resolver tries a joined table's name, a CTE and a select alias before it reads a qualifier such as
         # `posthog.events` as the name of a table.
-        scan.qualifier_shadows = ctes.union(_join_names(join.next_join), (name for name, _ in collector.aliases))
+        scan.qualifier_shadows = scan.other_tables.union(name for name, _ in collector.aliases)
         # An alias such as `e.timestamp AS timestamp` reads the column it names, so it changes no read.
         scan.shadowed = frozenset(
             name for name, expr in collector.aliases if name in _SCAN_COLUMNS and scan.column(expr) != [name]
@@ -559,8 +559,8 @@ def _join_names(join: ast.JoinExpr | None) -> Iterator[str]:
 
 
 def _folded_join_names(join: ast.JoinExpr | None, database: "Database | None") -> Iterator[str]:
-    """The lowercased name of each joined table that the resolver matches in any case. Only an external-engine
-    table does, and an explicit alias keeps its exact spelling."""
+    """The lowercased name of each joined table that the resolver matches in any case, as
+    `resolver_utils._folds_identifier_case` decides it. An explicit alias keeps its exact spelling."""
     while database is not None and join is not None:
         if isinstance(join.table, ast.Field):
             chain = [str(part) for part in join.table.chain]
@@ -570,8 +570,8 @@ def _folded_join_names(join: ast.JoinExpr | None, database: "Database | None") -
             except BaseHogQLError:
                 table = None
             if (
-                getattr(table, "case_insensitive_identifiers", False)
-                and table is not None
+                table is not None
+                and getattr(table, "case_insensitive_identifiers", False)
                 and (join.alias is None or join.alias.lower() == (table.name or "").lower())
             ):
                 yield (join.alias or name).lower()
