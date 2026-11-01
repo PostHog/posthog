@@ -112,7 +112,7 @@ class FieldDiscoveryTest(BaseTest):
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
 
-                with self.assertNumQueries(5):
+                with self.assertNumQueries(2):
                     cached_results = self._run_field_discovery()
                 self.assertEqual(cached_results, results)
 
@@ -126,7 +126,7 @@ class FieldDiscoveryTest(BaseTest):
         self.assertTrue(all(not options for options in results["static_filters"].values()))
 
         self.discovery.process_batch_for_large_org([{"scope": "Dashboard", "detail": {"name": "example"}}])
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(0):
             results = self._run_field_discovery()
         self.assertIn({"value": "Dashboard"}, results["static_filters"]["scopes"])
         self._assert_field_discovered(results, "Dashboard", "name", ["string"])
@@ -137,7 +137,7 @@ class FieldDiscoveryTest(BaseTest):
         queryset = ActivityLog.objects.filter(organization_id=self.organization.id)
 
         self.discovery.get_available_filters(queryset.filter(scope="Dashboard"))
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(2):
             results = self.discovery.get_available_filters(queryset.filter(scope="Insight"))
 
         self.assertEqual(results["static_filters"]["scopes"], [{"value": "Insight"}])
