@@ -314,6 +314,39 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('inbox-first guidance', () => {
+        it.each([
+            { name: 'tools mode', exec: false, claim: true, list: 'the `inbox-reports-list` tool' },
+            { name: 'exec mode', exec: true, claim: true, list: '`call inbox-reports-list <json_input>`' },
+            {
+                name: 'exec mode without claim',
+                exec: true,
+                claim: false,
+                list: '`call inbox-reports-list <json_input>`',
+            },
+        ])('renders the section in $name', ({ exec, claim, list }) => {
+            const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: claim }
+            const formatter = new InstructionsFormatter()
+            const rendered = exec ? formatter.buildExecCommandReference(ctx) : formatter.buildToolsInstructions(ctx)
+
+            expect(rendered).toContain('### Existing Inbox reports')
+            expect(rendered).toContain(`Look for a report with ${list}`)
+            expect(rendered.includes('inbox-reports-claim')).toBe(claim)
+            expect(rendered).not.toMatch(/\{inbox_/)
+        })
+
+        it('omits the section when it is not enabled', () => {
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions(fullCtx),
+                formatter.buildExecCommandReference(fullCtx),
+                formatter.buildExecToolDescription({ skillsEnabled: true, docsSearchEnabled: true }),
+            ]) {
+                expect(rendered).not.toContain('Existing Inbox reports')
+            }
+        })
+    })
+
     describe('buildExecCommandReference', () => {
         it.each([
             { name: 'both lookup tools', tools: ['project-get', 'execute-sql'], project: true, groups: true },
