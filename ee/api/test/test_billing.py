@@ -1,7 +1,7 @@
 import gzip
 import json
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -12,10 +12,12 @@ from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import jwt
+import httpx
+import requests
 from asgiref.sync import async_to_sync
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
@@ -55,6 +57,7 @@ from ee.api.billing import (
     _resolve_team_labels,
     _rewrite_csv_labels,
     _stream_chunks,
+    ai_spend_period,
 )
 from ee.api.test.base import APILicensedTest
 from ee.billing.billing_manager import BillingManager, BillingServiceResponseError
@@ -68,6 +71,7 @@ from ee.billing.grants import (
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
+from ee.settings import BILLING_SERVICE_URL
 
 VERCEL_BILLING_REFUSAL = {
     "error": "Billing for this organization is managed by Vercel",
@@ -1489,6 +1493,185 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
 
 
+def _billing_answer(status_code: int, body: dict[str, Any]) -> MagicMock:
+    answer = MagicMock(status_code=status_code)
+    answer.json.return_value = body
+    answer.text = json.dumps(body)
+    return answer
+
+
+GATEWAY_SPEND = {
+    "balance_usd": "118.400000",
+    "spend_usd": "302.550000",
+    "free_usd": "30.000000",
+    "products": [
+        {
+            "product": "self_driving",
+            "name": "Self-driving",
+            "spend_usd": "219.200000",
+            "free_usd": "10.000000",
+        }
+    ],
+    "days": [{"date": "2026-10-18", "spend_usd": {"self_driving": "12.400000"}}],
+}
+
+
+class TestAICreditsBillingAPI(APILicensedTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @patch("ee.billing.billing_manager.http_session.request")
+    def test_purchase_sends_billing_the_confirmed_total_and_passes_back_the_client_secret(
+        self, mock_request: MagicMock
+    ) -> None:
+        mock_request.return_value = _billing_answer(
+            200,
+            {"status": "requires_action", "payment_id": "pi_1", "total_usd": "54.13", "client_secret": "pi_1_secret"},
+        )
+
+        response = self.client.post(
+            "/api/billing/ai_credits/purchase",
+            {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": "requires_action", "total_usd": "54.13", "client_secret": "pi_1_secret"}
+        assert mock_request.call_args.args == ("POST", f"{BILLING_SERVICE_URL}/api/ai-credits/purchase")
+        assert mock_request.call_args.kwargs["json"] == {
+            "amount_usd": "50.00",
+            "total_usd": "54.13",
+            "idempotency_key": "purchase-1",
+        }
+
+    @parameterized.expand(
+        [
+            ("quote_without_a_card", "get", "quote?amount_usd=50", 400, {}, 400, "ai_credits_no_card"),
+            ("tax_unavailable", "get", "quote?amount_usd=50", 503, {}, 503, "ai_credits_tax_unavailable"),
+            ("card_declined", "post", "purchase", 402, {"status": "declined"}, 402, "ai_credits_card_declined"),
+            ("total_changed", "post", "purchase", 409, {"status": "total_changed"}, 409, "ai_credits_total_changed"),
+            ("purchase_ended", "post", "purchase", 409, {"status": "ended"}, 409, "ai_credits_purchase_ended"),
+            ("purchase_unfinished", "post", "purchase", 503, {}, 503, "ai_credits_purchase_unfinished"),
+            ("not_in_rollout", "get", "card", 403, {}, 403, "ai_credits_unavailable"),
+            ("settings_refused", "patch", "settings/spend_limit", 400, {}, 400, "ai_credits_settings_rejected"),
+            ("billing_failed", "get", "settings", 500, {}, 502, "billing_service_error"),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.request")
+    def test_billing_refusals_become_named_errors_without_billing_words(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        billing_status: int,
+        billing_body: dict[str, Any],
+        expected_status: int,
+        expected_code: str,
+        mock_request: MagicMock,
+    ) -> None:
+        mock_request.return_value = _billing_answer(billing_status, {**billing_body, "detail": "billing's own words"})
+        bodies = {
+            "purchase": {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},
+            "settings/spend_limit": {"monthly_spend_limit_usd": "250.00"},
+        }
+
+        response = getattr(self.client, method)(
+            f"/api/billing/ai_credits/{path}", bodies.get(path), content_type="application/json"
+        )
+
+        assert (response.status_code, response.json()["code"]) == (expected_status, expected_code)
+        assert "billing's own words" not in response.content.decode()
+
+    @patch("ee.billing.billing_manager.http_session.request", side_effect=requests.Timeout("read timed out"))
+    def test_a_purchase_billing_never_answered_asks_for_a_retry(self, mock_request: MagicMock) -> None:
+        response = self.client.post(
+            "/api/billing/ai_credits/purchase",
+            {"amount_usd": "50.00", "total_usd": "54.13", "idempotency_key": "purchase-1"},
+            content_type="application/json",
+        )
+
+        assert (response.status_code, response.json()["code"]) == (503, "ai_credits_purchase_unfinished")
+
+    @parameterized.expand(
+        [
+            (
+                "without_consent",
+                {"enabled": True, "low_balance_threshold_usd": "20", "target_usd": "100"},
+                "consent_text",
+            ),
+            ("target_too_close", {"low_balance_threshold_usd": "20", "target_usd": "30"}, "target_usd"),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.request")
+    def test_reload_settings_billing_would_refuse_never_reach_it(
+        self, _name: str, body: dict[str, Any], field: str, mock_request: MagicMock
+    ) -> None:
+        response = self.client.patch(
+            "/api/billing/ai_credits/settings/automatic_reload", body, content_type="application/json"
+        )
+
+        assert (response.status_code, response.json()["attr"]) == (400, field)
+        mock_request.assert_not_called()
+
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.get")
+    def test_reads_the_billing_period_from_the_gateway(self, mock_get: MagicMock) -> None:
+        self.organization.usage = {"period": ["2026-10-18T00:00:00Z", "2026-11-18T00:00:00Z"]}
+        self.organization.save()
+        mock_get.return_value = httpx.Response(200, json=GATEWAY_SPEND, request=httpx.Request("GET", "http://gw"))
+
+        response = self.client.get("/api/billing/ai_credits/spend?periods_ago=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_get.call_args.args[0] == f"http://gateway.example/internal/accounts/{self.organization.id}/spend"
+        assert mock_get.call_args.kwargs["params"] == {"start": "2026-09-18", "end": "2026-10-18"}
+        assert (response.json()["period_start"], response.json()["period_end"]) == ("2026-09-18", "2026-10-18")
+
+    @parameterized.expand(
+        [
+            ("gateway_error", httpx.Response(500, json={"error": "gateway's own words"})),
+            ("answer_missing_fields", httpx.Response(200, json={"balance_usd": "gateway's own words"})),
+        ]
+    )
+    @override_settings(AI_GATEWAY_INTERNAL_URL="http://gateway.example", AI_GATEWAY_INTERNAL_TOKEN="gateway-token")
+    @patch("posthog.llm.gateway_internal_client.httpx.get")
+    def test_a_failed_gateway_read_is_a_named_error(
+        self, _name: str, gateway_answer: httpx.Response, mock_get: MagicMock
+    ) -> None:
+        gateway_answer.request = httpx.Request("GET", "http://gw")
+        mock_get.return_value = gateway_answer
+
+        response = self.client.get("/api/billing/ai_credits/spend")
+
+        assert (response.status_code, response.json()["code"]) == (503, "ai_spend_unavailable")
+        assert "gateway's own words" not in response.content.decode()
+
+
+class TestAISpendPeriod(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("current", ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"], 0, date(2026, 10, 18), date(2026, 11, 18)),
+            ("previous", ["2026-10-18T09:30:00Z", "2026-11-18T09:30:00Z"], 1, date(2026, 9, 18), date(2026, 10, 18)),
+            (
+                "anchored_on_the_31st",
+                ["2026-05-31T00:00:00Z", "2026-06-30T00:00:00Z"],
+                2,
+                date(2026, 3, 31),
+                date(2026, 4, 30),
+            ),
+            ("calendar_months_without_a_billing_period", None, 1, date(2026, 10, 1), date(2026, 11, 1)),
+        ]
+    )
+    def test_period_bounds(
+        self, _name: str, period: list[str] | None, periods_ago: int, start: date, end: date
+    ) -> None:
+        organization = Organization(usage={"period": period} if period else None)
+
+        assert ai_spend_period(organization, periods_ago, datetime(2026, 11, 3, 12, tzinfo=UTC)) == (start, end)
+
+
 class TestPartnerManagedBillingAPI(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1630,6 +1813,9 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         "spend",
         "usage_export",
         "spend_export",
+        "ai_credit_settings",
+        "ai_credit_history",
+        "ai_credit_card",
     }
     UNLOCKED_WRITE_ACTIONS = {
         "deactivate",

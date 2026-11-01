@@ -21,6 +21,12 @@ import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingSectionId } from './types'
 
+const AICredits = lazyWithRetry(() =>
+    import('@posthog/products-billing/frontend/aiCredits/AICredits').then((module) => ({
+        default: module.AICredits,
+    }))
+)
+
 const BillingAlerts = lazyWithRetry(() =>
     import('@posthog/products-billing-alerts/frontend/BillingAlerts').then((module) => ({
         default: module.BillingAlerts,
@@ -37,6 +43,7 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
     { key: 'usage', label: 'Usage' },
     { key: 'spend', label: 'Spend' },
     { key: 'alerts', label: 'Alerts' },
+    { key: 'ai-credits', label: 'AI credits' },
 ]
 
 export function BillingSection(): JSX.Element {
@@ -44,18 +51,26 @@ export function BillingSection(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { canAccessBilling, canViewUsageAndSpend, canOnlyViewUsageAndSpend } = useValues(billingLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
+    const aiCreditsEnabled = !!featureFlags[FEATURE_FLAGS.AI_PREPAID_CREDITS]
     const todayRailNav = !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const alertsRequested = location.pathname.includes('alerts')
     const billingAlertsPending = alertsRequested && !receivedFeatureFlags
-    const tabs = billingAlertsEnabled || billingAlertsPending ? allTabs : allTabs.filter((tab) => tab.key !== 'alerts')
+    const tabs = allTabs.filter(
+        (tab) =>
+            (tab.key !== 'alerts' || billingAlertsEnabled || billingAlertsPending) &&
+            (tab.key !== 'ai-credits' || aiCreditsEnabled)
+    )
 
-    const section = location.pathname.includes('spend')
-        ? 'spend'
-        : location.pathname.includes('usage')
-          ? 'usage'
-          : alertsRequested && (billingAlertsEnabled || billingAlertsPending)
-            ? 'alerts'
-            : 'overview'
+    const section =
+        location.pathname.includes('ai-credits') && aiCreditsEnabled
+            ? 'ai-credits'
+            : location.pathname.includes('spend')
+              ? 'spend'
+              : location.pathname.includes('usage')
+                ? 'usage'
+                : alertsRequested && (billingAlertsEnabled || billingAlertsPending)
+                  ? 'alerts'
+                  : 'overview'
 
     useEffect(() => {
         // Wait for feature flags before redirecting an alerts deep link away.
@@ -64,15 +79,15 @@ export function BillingSection(): JSX.Element {
         }
     }, [alertsRequested, billingAlertsEnabled, receivedFeatureFlags])
 
-    // View-only members have no access to the Overview tab, so send them to Usage instead.
+    // View-only members have no access to the Overview or AI credits tabs, so send them to Usage instead.
     // canOnlyViewUsageAndSpend is only true once org membership and flags are loaded, so admins never bounce.
     useEffect(() => {
-        if (section === 'overview' && canOnlyViewUsageAndSpend) {
+        if ((section === 'overview' || section === 'ai-credits') && canOnlyViewUsageAndSpend) {
             router.actions.replace(urls.organizationBillingSection('usage'))
         }
     }, [section, canOnlyViewUsageAndSpend])
 
-    // Usage and Spend are the read-only surfaces. Overview and Alerts stay admin-only, since both
+    // Usage and Spend are the read-only surfaces. Overview, Alerts and AI credits stay admin-only, since each
     // can change what the organization is billed.
     const visibleTabs = tabs.filter((tab) =>
         tab.key === 'usage' || tab.key === 'spend' ? canViewUsageAndSpend : canAccessBilling
@@ -119,6 +134,11 @@ export function BillingSection(): JSX.Element {
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
+            {section === 'ai-credits' && (
+                <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
+                    <AICredits />
+                </Suspense>
+            )}
             {section === 'alerts' && (
                 <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
                     {billingAlertsPending ? <Spinner className="text-3xl mx-auto my-8" /> : <BillingAlerts />}

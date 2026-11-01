@@ -25,6 +25,76 @@ export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.obje
     payment_intent_id: zod.string().nullish().describe('Stripe payment intent created for this organization.'),
 })
 
+export const billingAiCreditsPurchaseCreateBodyAmountUsdRegExp = new RegExp('^-?\\d{0,10}(?:\\.\\d{0,2})?$')
+export const billingAiCreditsPurchaseCreateBodyTotalUsdRegExp = new RegExp('^-?\\d{0,10}(?:\\.\\d{0,2})?$')
+export const billingAiCreditsPurchaseCreateBodyIdempotencyKeyMax = 100
+
+export const BillingAiCreditsPurchaseCreateBody = /* @__PURE__ */ zod.object({
+    amount_usd: zod
+        .stringFormat('decimal', billingAiCreditsPurchaseCreateBodyAmountUsdRegExp)
+        .describe('The AI credit to buy, in USD, such as \"50.00\". At least $20.00 and at most $1,000,000.00.'),
+    total_usd: zod
+        .stringFormat('decimal', billingAiCreditsPurchaseCreateBodyTotalUsdRegExp)
+        .describe(
+            'The total the person confirmed, tax included, from the quote. When the tax has changed since, nothing is charged.'
+        ),
+    idempotency_key: zod
+        .string()
+        .max(billingAiCreditsPurchaseCreateBodyIdempotencyKeyMax)
+        .describe(
+            'A new value, such as a UUID, for each purchase the person confirms. Send the same value again to retry that purchase.'
+        ),
+})
+
+export const billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyLowBalanceThresholdUsdRegExp = new RegExp(
+    '^-?\\d{0,10}(?:\\.\\d{0,2})?$'
+)
+export const billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyTargetUsdRegExp = new RegExp(
+    '^-?\\d{0,10}(?:\\.\\d{0,2})?$'
+)
+export const billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyMonthlyReloadLimitUsdRegExp = new RegExp(
+    '^-?\\d{0,10}(?:\\.\\d{0,2})?$'
+)
+export const billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyConsentTextMax = 2000
+
+export const BillingAiCreditsSettingsAutomaticReloadPartialUpdateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional().describe('Turn automatic reload on or off.'),
+    low_balance_threshold_usd: zod
+        .stringFormat('decimal', billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyLowBalanceThresholdUsdRegExp)
+        .nullish()
+        .describe('Reload when the AI balance drops below this many USD, such as \"20.00\".'),
+    target_usd: zod
+        .stringFormat('decimal', billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyTargetUsdRegExp)
+        .nullish()
+        .describe(
+            'The AI balance in USD that a reload brings the organization up to. At least $20.00 more than the low-balance amount.'
+        ),
+    monthly_reload_limit_usd: zod
+        .stringFormat('decimal', billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyMonthlyReloadLimitUsdRegExp)
+        .nullish()
+        .describe(
+            'The most that automatic reloads charge in a billing period, in USD. At least $20.00. Pass null for no limit.'
+        ),
+    consent_text: zod
+        .string()
+        .max(billingAiCreditsSettingsAutomaticReloadPartialUpdateBodyConsentTextMax)
+        .optional()
+        .describe('The exact words the person agreed to. Turning automatic reload on needs them.'),
+})
+
+export const billingAiCreditsSettingsSpendLimitPartialUpdateBodyMonthlySpendLimitUsdRegExp = new RegExp(
+    '^-?\\d{0,10}(?:\\.\\d{0,2})?$'
+)
+
+export const BillingAiCreditsSettingsSpendLimitPartialUpdateBody = /* @__PURE__ */ zod.object({
+    monthly_spend_limit_usd: zod
+        .stringFormat('decimal', billingAiCreditsSettingsSpendLimitPartialUpdateBodyMonthlySpendLimitUsdRegExp)
+        .nullish()
+        .describe(
+            'The most the organization can spend on AI in a billing period, in USD, such as \"250.00\". Pass null to remove the limit.'
+        ),
+})
+
 export const billingCouponsClaimCreateBodyPlanMax = 100
 
 export const BillingCouponsClaimCreateBody = /* @__PURE__ */ zod.object({

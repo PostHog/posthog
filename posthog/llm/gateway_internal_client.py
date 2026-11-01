@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import date
 from typing import Any
 
 from django.conf import settings
@@ -101,6 +102,26 @@ def get_wallet(team_id: int) -> Wallet:
         balance=wallet.get("balance"),
         recent=recent,
     )
+
+
+def get_org_spend(organization_id: str, start: date, end: date) -> dict[str, Any]:
+    """The organization's balance, and its AI spend from start up to end, from the gateway's org ledger."""
+    url, token = _config()
+    try:
+        response = httpx.get(
+            f"{url}/internal/accounts/{organization_id}/spend",
+            params={"start": start.isoformat(), "end": end.isoformat()},
+            headers=_auth_headers(token),
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AIGatewayInternalError(f"spend read failed: {exc}") from exc
+    if not isinstance(data, dict):
+        raise AIGatewayInternalError("spend response was not an object")
+    return data
 
 
 def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str) -> CreditResult:

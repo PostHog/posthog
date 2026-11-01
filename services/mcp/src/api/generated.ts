@@ -283,11 +283,218 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    /**
+     * * `card_declined` - Card declined
+     * * `authentication_required` - Card needs authentication
+     * * `no_card` - No card on file
+     */
+    export type AIReloadDisabledReasonEnum = typeof AIReloadDisabledReasonEnum[keyof typeof AIReloadDisabledReasonEnum];
+
+
+    export const AIReloadDisabledReasonEnum = {
+      CardDeclined: 'card_declined',
+      AuthenticationRequired: 'authentication_required',
+      NoCard: 'no_card',
+    } as const;
+
+    export interface AIAutomaticReloadSettings {
+      /** Whether automatic reload is on. */
+      enabled: boolean;
+      /**
+         * The AI balance in USD that a reload brings the organization up to.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      target_usd: string | null;
+      /**
+         * The most that automatic reloads charge in a billing period, in USD. Null means no limit.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      monthly_reload_limit_usd: string | null;
+      /** Why billing turned automatic reload off after a failed reload. Null otherwise.
+       *
+       * * `card_declined` - Card declined
+       * * `authentication_required` - Card needs authentication
+       * * `no_card` - No card on file */
+      disabled_reason: AIReloadDisabledReasonEnum | null;
+      /**
+         * When billing turned automatic reload off after a failed reload.
+         * @nullable
+         */
+      disabled_at: string | null;
+    }
+
     export interface AIContextAccountProperty {
       /** Customer analytics account property definition id. */
       id: string;
       /** Display name of the account property. */
       name: string;
+    }
+
+    export interface AICreditCard {
+      /** The card brand, such as "visa". */
+      brand: string;
+      /** The last four digits of the card number. */
+      last4: string;
+      /** The month the card expires. */
+      exp_month: number;
+      /** The year the card expires. */
+      exp_year: number;
+    }
+
+    export interface AICreditCardResponse {
+      /** The card that pays for AI credits. Null when none. */
+      card: AICreditCard | null;
+    }
+
+    /**
+     * * `purchase` - Purchase
+     * * `automatic_reload` - Automatic reload
+     */
+    export type AICreditHistoryKindEnum = typeof AICreditHistoryKindEnum[keyof typeof AICreditHistoryKindEnum];
+
+
+    export const AICreditHistoryKindEnum = {
+      Purchase: 'purchase',
+      AutomaticReload: 'automatic_reload',
+    } as const;
+
+    /**
+     * * `added` - Added
+     * * `pending` - Pending
+     */
+    export type AICreditHistoryStatusEnum = typeof AICreditHistoryStatusEnum[keyof typeof AICreditHistoryStatusEnum];
+
+
+    export const AICreditHistoryStatusEnum = {
+      Added: 'added',
+      Pending: 'pending',
+    } as const;
+
+    export interface AICreditHistoryEntry {
+      /** When the purchase or reload was made. */
+      created_at: string;
+      /** A purchase by a person, or an automatic reload.
+       *
+       * * `purchase` - Purchase
+       * * `automatic_reload` - Automatic reload */
+      kind: AICreditHistoryKindEnum;
+      /**
+         * The AI credit bought, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      amount_usd: string;
+      /**
+         * The tax charged on it, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      tax_usd: string;
+      /**
+         * The amount charged to the card, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      total_usd: string;
+      /** Pending until the credit reaches the organization's AI balance.
+       *
+       * * `added` - Added
+       * * `pending` - Pending */
+      status: AICreditHistoryStatusEnum;
+      /**
+         * Stripe's receipt for the payment.
+         * @nullable
+         */
+      receipt_url: string | null;
+    }
+
+    export interface AICreditHistoryResponse {
+      /** Purchases and automatic reloads, newest first. */
+      results: AICreditHistoryEntry[];
+      /** Whether older entries follow. */
+      has_more: boolean;
+    }
+
+    export interface AICreditPurchaseRequest {
+      /**
+         * The AI credit to buy, in USD, such as "50.00". At least $20.00 and at most $1,000,000.00.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      amount_usd: string;
+      /**
+         * The total the person confirmed, tax included, from the quote. When the tax has changed since, nothing is charged.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      total_usd: string;
+      /**
+         * A new value, such as a UUID, for each purchase the person confirms. Send the same value again to retry that purchase.
+         * @maxLength 100
+         */
+      idempotency_key: string;
+    }
+
+    /**
+     * * `paid` - Paid
+     * * `requires_action` - Requires action
+     */
+    export type AICreditPurchaseStatusEnum = typeof AICreditPurchaseStatusEnum[keyof typeof AICreditPurchaseStatusEnum];
+
+
+    export const AICreditPurchaseStatusEnum = {
+      Paid: 'paid',
+      RequiresAction: 'requires_action',
+    } as const;
+
+    export interface AICreditPurchaseResponse {
+      /** Paid, or waiting for the person to authenticate the payment with their bank.
+       *
+       * * `paid` - Paid
+       * * `requires_action` - Requires action */
+      status: AICreditPurchaseStatusEnum;
+      /**
+         * What the card is charged, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      total_usd: string;
+      /**
+         * Confirm this with Stripe.js when the status is requires_action.
+         * @nullable
+         */
+      client_secret?: string | null;
+    }
+
+    export interface AICreditQuoteResponse {
+      /**
+         * The AI credit to buy, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      amount_usd: string;
+      /**
+         * The tax on it, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      tax_usd: string;
+      /**
+         * What the card is charged, in USD.
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      total_usd: string;
+    }
+
+    export interface AICreditSettingsResponse {
+      /**
+         * The most the organization can spend on AI in a billing period, in USD. Null means no limit.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      monthly_spend_limit_usd: string | null;
+      /**
+         * Automatic reload charges the card when the AI balance drops below this many USD.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      low_balance_threshold_usd: string | null;
+      /** The automatic reload settings. */
+      automatic_reload: AIAutomaticReloadSettings;
     }
 
     /**
@@ -539,6 +746,61 @@ export namespace Schemas {
          * @nullable
          */
       human_readable_error?: string | null;
+    }
+
+    /**
+     * Charged to the AI balance that day, in USD, by product.
+     */
+    export type AISpendDaySpendUsd = {[key: string]: string};
+
+    export interface AISpendDay {
+      /** The day, in UTC. */
+      date: string;
+      /** Charged to the AI balance that day, in USD, by product. */
+      spend_usd: AISpendDaySpendUsd;
+    }
+
+    export interface AISpendProduct {
+      /** The AI product, as the AI gateway names it. */
+      product: string;
+      /** The product's name for display. */
+      name: string;
+      /**
+         * Charged to the AI balance in the period, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      spend_usd: string;
+      /**
+         * The list cost minus the charged amount, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      free_usd: string;
+    }
+
+    export interface AISpendResponse {
+      /**
+         * The organization's AI balance now, in USD. Below zero after overage.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      balance_usd: string;
+      /** The first day of the billing period. */
+      period_start: string;
+      /** The day the next billing period starts. */
+      period_end: string;
+      /**
+         * Charged to the AI balance in the period, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      spend_usd: string;
+      /**
+         * The list cost minus the charged amount, in USD.
+         * @pattern ^-?\d{0,12}(?:\.\d{0,6})?$
+         */
+      free_usd: string;
+      /** Spend by AI product. */
+      products: AISpendProduct[];
+      /** Spend by day, for the days so far. */
+      days: AISpendDay[];
     }
 
     /**
@@ -85708,6 +85970,43 @@ export namespace Schemas {
       archived?: boolean | null;
     }
 
+    export interface PatchedAIAutomaticReloadRequest {
+      /** Turn automatic reload on or off. */
+      enabled?: boolean;
+      /**
+         * Reload when the AI balance drops below this many USD, such as "20.00".
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      low_balance_threshold_usd?: string | null;
+      /**
+         * The AI balance in USD that a reload brings the organization up to. At least $20.00 more than the low-balance amount.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      target_usd?: string | null;
+      /**
+         * The most that automatic reloads charge in a billing period, in USD. At least $20.00. Pass null for no limit.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      monthly_reload_limit_usd?: string | null;
+      /**
+         * The exact words the person agreed to. Turning automatic reload on needs them.
+         * @maxLength 2000
+         */
+      consent_text?: string;
+    }
+
+    export interface PatchedAISpendLimitRequest {
+      /**
+         * The most the organization can spend on AI in a billing period, in USD, such as "250.00". Pass null to remove the limit.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      monthly_spend_limit_usd?: string | null;
+    }
+
     /**
      * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
      * @nullable
@@ -129192,6 +129491,37 @@ export namespace Schemas {
      * Explicit organization to refresh after payment.
      */
     organization_id?: string;
+    };
+
+    export type BillingAiCreditsHistoryRetrieveParams = {
+    /**
+     * How many entries to return, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many of the newest entries to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type BillingAiCreditsQuoteRetrieveParams = {
+    /**
+     * The AI credit to buy, in USD, such as "50.00". At least $20.00 and at most $1,000,000.00.
+     * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+     */
+    amount_usd: string;
+    };
+
+    export type BillingAiCreditsSpendRetrieveParams = {
+    /**
+     * How many billing periods before the current one, from 0 for the current period to 12.
+     * @minimum 0
+     * @maximum 12
+     */
+    periods_ago?: number;
     };
 
     export type BillingSpendRetrieveParams = {
