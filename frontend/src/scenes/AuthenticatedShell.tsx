@@ -1,5 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -11,6 +11,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { runWhenIdle } from 'lib/utils/async'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -33,10 +34,18 @@ import { sceneLogic } from './sceneLogic'
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
 )
-// Loads on the first open of the palette, so the shell skips its search code until a user asks for it.
-const Command = lazyWithRetry(() =>
-    import('lib/components/Command/Command').then(({ Command }) => ({ default: Command }))
-)
+// Off the eager path, so the shell skips the palette's search code on first paint.
+const importCommand = (): Promise<typeof import('lib/components/Command/Command')> =>
+    import('lib/components/Command/Command')
+const Command = lazyWithRetry(() => importCommand().then(({ Command }) => ({ default: Command })))
+// Fetched when the browser is idle, so the first shortcut press opens the palette without a network wait.
+// A failed preload is ignored, because the lazy component retries the import on the first open.
+function preloadCommand(withCommandKSearch: boolean): void {
+    void importCommand().catch(() => {})
+    if (withCommandKSearch) {
+        void import('lib/components/CommandKSearch/CommandKSearch').catch(() => {})
+    }
+}
 // Staff-only, so everyone else skips the chunk and the toolbar selector code it pulls in.
 const InternalFeedbackWidget = lazyWithRetry(() =>
     import('~/layout/InternalFeedback/InternalFeedbackWidget').then(({ InternalFeedbackWidget }) => ({
@@ -72,6 +81,11 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { isDarkModeOn } = useValues(themeLogic)
     const { user } = useValues(userLogic)
     const { hasOpenedCommand } = useValues(commandLogic)
+    const newCommandKSearch = !!featureFlags[FEATURE_FLAGS.NEW_COMMAND_K_SEARCH]
+    useEffect(
+        () => (isEmbeddedPageFrame() ? undefined : runWhenIdle(() => preloadCommand(newCommandKSearch))),
+        [newCommandKSearch]
+    )
     const showInternalFeedback =
         !!featureFlags[FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET] && !!user?.email?.toLowerCase().endsWith('@posthog.com')
     const runSyncEnabled = featureFlags[FEATURE_FLAGS.WIZARD_RUN_SYNC] === 'wizard-run'
