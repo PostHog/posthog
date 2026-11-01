@@ -131,6 +131,52 @@ describe('cohortsSceneLogic', () => {
             })
         })
 
+        describe('request timing', () => {
+            let listCohorts: jest.SpyInstance
+
+            beforeEach(() => {
+                logic.unmount()
+                jest.useFakeTimers()
+                listCohorts = jest.spyOn(api.cohorts, 'listPaginated').mockResolvedValue({ count: 0, results: [] })
+            })
+
+            afterEach(() => {
+                listCohorts.mockRestore()
+                jest.useRealTimers()
+            })
+
+            it.each<[string, Record<string, string>]>([
+                ['a bare URL', {}],
+                ['a search in the URL', { search: 'paying' }],
+            ])('sends one request at once when the page opens on %s', async (_, searchParams) => {
+                router.actions.push(urls.cohorts(), searchParams)
+                logic = cohortsSceneLogic()
+                logic.mount()
+
+                expect(listCohorts).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(listCohorts).toHaveBeenCalledTimes(1)
+            })
+
+            it('waits for typing in the search box to pause, then sends one request', async () => {
+                router.actions.push(urls.cohorts())
+                logic = cohortsSceneLogic()
+                logic.mount()
+                await jest.advanceTimersByTimeAsync(1000)
+                listCohorts.mockClear()
+
+                logic.actions.setCohortFilters({ search: 'pay', page: 1 })
+                logic.actions.setCohortFilters({ search: 'paying', page: 1 })
+                await jest.advanceTimersByTimeAsync(299)
+                expect(listCohorts).not.toHaveBeenCalled()
+
+                await jest.advanceTimersByTimeAsync(1)
+                expect(listCohorts).toHaveBeenCalledTimes(1)
+                expect(listCohorts).toHaveBeenCalledWith(expect.objectContaining({ search: 'paying' }))
+            })
+        })
+
         describe('cohort operations', () => {
             it('can delete a cohort', async () => {
                 // Wait for initial load

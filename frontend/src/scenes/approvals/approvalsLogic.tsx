@@ -135,8 +135,6 @@ export const approvalsLogic = kea<approvalsLogicType>([
                         return { changeRequests: [], changeRequestsCount: 0 }
                     }
 
-                    await breakpoint(300)
-
                     const actualUrl =
                         url ||
                         `api/projects/${values.currentTeamId}/change_requests/?${new URLSearchParams({

@@ -79,6 +79,18 @@ export function normalizePropertyDefinitionEndpointUrl(
     })
 }
 
+function filtersFromSearchParams(searchParams: Record<string, any>): Filters {
+    const { event, event_type, ordering, tags, verified } = searchParams
+    return {
+        ...DEFAULT_FILTERS,
+        ...(event !== undefined && { event }),
+        ...(event_type !== undefined && { event_type }),
+        ...(ordering !== undefined && { ordering }),
+        ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
+        ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
+    }
+}
+
 function normalizeEventDefinitionEndpointUrl({
     url,
     searchParams = {},
@@ -289,7 +301,11 @@ export interface eventDefinitionsTableLogicActions {
     setEventDefinitionPropertiesLoading: (ids: string[]) => {
         ids: string[]
     }
-    setFilters: (filters: Partial<Filters>) => {
+    setFilters: (
+        filters: Partial<Filters>,
+        debounce?: boolean
+    ) => {
+        debounce: boolean
         filters: Partial<Filters>
     }
     setLocalEventDefinition: (definition: EventDefinition) => {
@@ -369,7 +385,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         loadEventDefinitions: (url: string | null = '') => ({ url }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
-        setFilters: (filters: Partial<Filters>) => ({ filters }),
+        setFilters: (filters: Partial<Filters>, debounce: boolean = true) => ({ filters, debounce }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         applyBulkTagUpdates: (updates: { id: number | string; tags: string[] }[]) => ({ updates }),
         applyBulkVerifiedUpdates: (updates: { id: string; verified: boolean }[]) => ({ updates }),
@@ -415,7 +431,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         return cache.apiCache[url]
                     }
 
-                    await breakpoint(200)
                     cache.eventsStartTime = performance.now()
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
@@ -657,7 +672,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setFilters: async () => {
+        setFilters: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                cache.filtersLoadPending = true
+                await breakpoint(200)
+            }
+            cache.filtersLoadPending = false
             actions.loadEventDefinitions()
         },
         bulkUpdateVerifiedSuccess: ({ bulkVerifiedResult, payload }) => {
@@ -720,22 +740,18 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         '/data-management/events': (_, searchParams) => {
-            const { event, event_type, ordering, tags, verified } = searchParams
-
-            const filtersFromUrl: Filters = {
-                ...DEFAULT_FILTERS,
-                ...(event !== undefined && { event }),
-                ...(event_type !== undefined && { event_type }),
-                ...(ordering !== undefined && { ordering }),
-                ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
-                ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
-            }
+            const filtersFromUrl = filtersFromSearchParams(searchParams)
 
             if (!objectsEqual(values.filters, filtersFromUrl)) {
-                actions.setFilters(filtersFromUrl)
-            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.setFilters(filtersFromUrl, false)
+            } else if (
+                // A debounced filter change already writes this URL, so loading here would skip the debounce
+                !cache.filtersLoadPending &&
+                !values.eventDefinitions.results.length &&
+                !values.eventDefinitionsLoading
+            ) {
                 actions.loadEventDefinitions()
             }
         },
