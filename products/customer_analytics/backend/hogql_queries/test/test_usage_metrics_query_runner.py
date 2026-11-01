@@ -921,6 +921,39 @@ class TestUsageMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(zero_count, len(timeseries) - 2)
 
     @time_machine.travel("2025-10-09T12:11:00", tick=False)
+    def test_long_interval_keeps_recent_days_when_active_days_exceed_default_row_limit(self):
+        GroupUsageMetric.objects.create(
+            id=self.test_metric_id,
+            team=self.team,
+            group_type_index=0,
+            name="Events",
+            format=GroupUsageMetric.Format.NUMERIC,
+            interval=90,
+            display=GroupUsageMetric.Display.SPARKLINE,
+            filters={"events": [{"id": "metric_event", "type": "events", "order": 0}]},
+        )
+        now = timezone.now()
+        for days_ago in range(120):
+            _create_event(
+                event="metric_event",
+                team=self.team,
+                person_id=str(self.person.uuid),
+                distinct_id=self.person_distinct_id,
+                timestamp=now - timedelta(days=days_ago),
+            )
+        flush_persons_and_events()
+
+        query_result = self._calculate(person_id=str(self.person.uuid))
+
+        results = query_result["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["value"], 91.0)
+        self.assertEqual(results[0]["previous"], 29.0)
+        self.assertAlmostEqual(results[0]["change_from_previous_pct"], (91 - 29) / 29 * 100)
+        self.assertEqual(results[0]["timeseries_labels"][-1], "2025-10-09")
+        self.assertEqual(results[0]["timeseries"][-1], 1.0)
+
+    @time_machine.travel("2025-10-09T12:11:00", tick=False)
     def test_sparkline_sum_aggregation(self):
         GroupUsageMetric.objects.create(
             id=self.test_metric_id,
