@@ -24,7 +24,7 @@ export function QuillEditWithAgentPrompt({ sentenceRef, ...props }: QuillEditWit
     const { setChangeSentence, copyAgentPrompt } = useActions(logic)
 
     const copyOnCmdEnter = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
             event.preventDefault()
             copyAgentPrompt()
         }

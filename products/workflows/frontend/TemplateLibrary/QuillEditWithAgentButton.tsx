@@ -28,7 +28,7 @@ export function QuillEditWithAgentButton(props: MessageTemplateLogicProps): JSX.
             </PopoverTrigger>
             <PopoverContent
                 align="end"
-                className="w-96 max-w-full"
+                className="w-96 max-w-full max-h-[var(--available-height)] overflow-y-auto"
                 aria-label="Edit with your agent"
                 initialFocus={() => focusAtEnd(sentenceRef.current)}
             >

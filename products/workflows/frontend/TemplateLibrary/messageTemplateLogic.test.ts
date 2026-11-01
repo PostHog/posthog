@@ -467,18 +467,21 @@ describe('messageTemplateLogic', () => {
                 description: 'a template made in PostHog has no source',
                 served: { id: 'existing-id', name: 'Existing', managed_by: null },
                 isCodeManaged: false,
+                canEditWithAgent: false,
                 templateSource: null,
             },
             {
                 description: 'a keyed template that PostHog still manages has no source',
                 served: { ...CODE_MANAGED, managed_by: 'gui' },
                 isCodeManaged: false,
+                canEditWithAgent: false,
                 templateSource: null,
             },
             {
                 description: 'a known host links the file, the repository and the shortened commit',
                 served: CODE_MANAGED,
                 isCodeManaged: true,
+                canEditWithAgent: true,
                 templateSource: {
                     path: 'emails/welcome.html',
                     fileUrl:
@@ -493,6 +496,7 @@ describe('messageTemplateLogic', () => {
                 description: 'a branch links to the branch',
                 served: { ...CODE_MANAGED, source_ref: 'main' },
                 isCodeManaged: true,
+                canEditWithAgent: true,
                 templateSource: expect.objectContaining({
                     ref: 'main',
                     refUrl: 'https://github.com/example/app/tree/main',
@@ -502,6 +506,7 @@ describe('messageTemplateLogic', () => {
                 description: 'a tag of hex digits keeps its name and links as a tag',
                 served: { ...CODE_MANAGED, source_ref: 'deadbeef' },
                 isCodeManaged: true,
+                canEditWithAgent: true,
                 templateSource: expect.objectContaining({
                     ref: 'deadbeef',
                     refUrl: 'https://github.com/example/app/tree/deadbeef',
@@ -511,6 +516,7 @@ describe('messageTemplateLogic', () => {
                 description: 'an unknown host stays plain text',
                 served: { ...CODE_MANAGED, source_repository: 'git.example.com/team/app' },
                 isCodeManaged: true,
+                canEditWithAgent: true,
                 templateSource: {
                     path: 'emails/welcome.html',
                     fileUrl: undefined,
@@ -524,16 +530,24 @@ describe('messageTemplateLogic', () => {
                 description: 'an upload without a source shows none',
                 served: { ...CODE_MANAGED, source_repository: null, source_path: null, source_ref: null },
                 isCodeManaged: true,
+                canEditWithAgent: true,
                 templateSource: null,
             },
-        ])('$description', async ({ served, isCodeManaged, templateSource }) => {
+            {
+                description: 'a server that does not build the agent prompt offers no prompt',
+                served: { ...CODE_MANAGED, change_prompt_starter: undefined, change_prompt_context: undefined },
+                isCodeManaged: true,
+                canEditWithAgent: false,
+                templateSource: expect.objectContaining({ path: 'emails/welcome.html' }),
+            },
+        ])('$description', async ({ served, isCodeManaged, canEditWithAgent, templateSource }) => {
             useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': served } })
             logic = messageTemplateLogic({ id: 'existing-id' })
             logic.mount()
 
             await expectLogic(logic)
                 .toDispatchActions(['loadTemplateSuccess'])
-                .toMatchValues({ isCodeManaged, templateSource })
+                .toMatchValues({ isCodeManaged, canEditWithAgent, templateSource })
         })
     })
 
