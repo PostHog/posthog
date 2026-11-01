@@ -40,7 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 ANTHROPIC_BASE_URL = "https://api.anthropic.com"
-ANTHROPIC_VERSION = "2023-06-01"
+ANTHROPIC_VERSION_2023_06_01 = "2023-06-01"
+# Renames Admin API and Claude Enterprise Analytics response fields and drops the old names. The rows
+# are mapped back onto the 2023-06-01 column names, so a table keeps one shape under either pin.
+ANTHROPIC_VERSION_2026_10_21 = "2026-10-21"
 # Entity list endpoints allow up to 1000 per page.
 ENTITY_PAGE_SIZE = 1000
 # Attempts per request for the entity list endpoints (users, workspaces, api_keys, ...). They are
@@ -233,10 +236,47 @@ class ClaudeCodeDayPaginator(BasePaginator):
         return f"ClaudeCodeDayPaginator(current_day={self._current_day}, today={self._today})"
 
 
-def _version_headers() -> dict[str, str]:
+def _version_headers(api_version: str) -> dict[str, str]:
     # Auth (x-api-key) is supplied via the framework auth config so its value is redacted from
     # logs; only the non-secret version/accept headers are set here.
-    return {"anthropic-version": ANTHROPIC_VERSION, "accept": "application/json"}
+    return {"anthropic-version": api_version, "accept": "application/json"}
+
+
+def _is_legacy_version(api_version: str) -> bool:
+    return api_version == ANTHROPIC_VERSION_2023_06_01
+
+
+# Response fields 2026-10-21 renamed, per endpoint, mapped from the new name back to the column name.
+_RENAMED_FIELDS: dict[str, dict[str, str]] = {
+    "rbac_groups": {"role_ids": "roles"},
+    "rbac_group_members": {"rbac_group_id": "group_id"},
+    "rbac_roles": {"display_name": "name"},
+}
+
+
+def _restore_renamed_fields(renames: dict[str, str], item: dict[str, Any]) -> dict[str, Any]:
+    item = {**item}
+    for new_name, column in renames.items():
+        if new_name in item:
+            item[column] = item.pop(new_name)
+    return item
+
+
+def _flatten_api_key_scope(item: dict[str, Any]) -> dict[str, Any]:
+    """2026-10-21 replaces an API key's `workspace_id` with a `scope` object; surface it as the column.
+
+    Unlike 2023-06-01, a key bound to the Default Workspace carries that workspace's real id, and only
+    an organization-scoped key leaves the column null.
+    """
+    item = {**item}
+    scope = item.pop("scope", None)
+    item["workspace_id"] = scope.get("workspace_id") if isinstance(scope, dict) else None
+    return item
+
+
+def _data_selector(config: AnthropicEndpointConfig, api_version: str) -> str:
+    # 2026-10-21 serves the summaries rows under `data` too, like every other endpoint.
+    return config.data_selector if _is_legacy_version(api_version) else "data"
 
 
 def _auth_config(api_key: str) -> ApiKeyAuthConfig:
@@ -267,14 +307,14 @@ VALIDATION_UNREACHABLE_MESSAGE = (
 )
 
 
-def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
+def validate_credentials(api_key: str, api_version: str) -> tuple[bool, Optional[str]]:
     # A single cheap probe against the smallest list endpoint confirms the admin key is genuine.
     # 200 => valid. 403 => valid key without a scope we probed here; still a real key, so accept it
     # at create time (sync-time 403s are caught by get_non_retryable_errors). 401 => bad key.
     ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{ANTHROPIC_BASE_URL}/v1/organizations/users?limit=1",
-        headers={"x-api-key": api_key, **_version_headers()},
+        headers={"x-api-key": api_key, **_version_headers(api_version)},
         ok_statuses=(200, 403),
     )
     if ok:
@@ -286,7 +326,7 @@ def validate_credentials(api_key: str) -> tuple[bool, Optional[str]]:
     return False, INVALID_ADMIN_KEY_MESSAGE
 
 
-def _check_path_access(api_key: str, path: str, missing_reason: str) -> Optional[str]:
+def _check_path_access(api_key: str, api_version: str, path: str, missing_reason: str) -> Optional[str]:
     """Report whether the configured key can read a path that needs access beyond the Admin API key.
 
     Returns None when it can, or the reason to show against the tables that need it. Only a real
@@ -297,7 +337,7 @@ def _check_path_access(api_key: str, path: str, missing_reason: str) -> Optional
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{ANTHROPIC_BASE_URL}{path}",
-        headers={"x-api-key": api_key, **_version_headers()},
+        headers={"x-api-key": api_key, **_version_headers(api_version)},
     )
     # 404 as well as 403: an organization that is not on a Claude Enterprise plan does not serve
     # these routes at all.
@@ -306,18 +346,18 @@ def _check_path_access(api_key: str, path: str, missing_reason: str) -> Optional
     return None
 
 
-def check_analytics_access(api_key: str) -> Optional[str]:
-    return _check_path_access(api_key, f"{ANALYTICS_PATH_PREFIX}users?limit=1", ANALYTICS_ACCESS_MISSING)
+def check_analytics_access(api_key: str, api_version: str) -> Optional[str]:
+    return _check_path_access(api_key, api_version, f"{ANALYTICS_PATH_PREFIX}users?limit=1", ANALYTICS_ACCESS_MISSING)
 
 
-def check_rbac_group_access(api_key: str) -> Optional[str]:
-    return _check_path_access(api_key, f"{RBAC_GROUPS_PATH}?limit=1", RBAC_GROUP_ACCESS_MISSING)
+def check_rbac_group_access(api_key: str, api_version: str) -> Optional[str]:
+    return _check_path_access(api_key, api_version, f"{RBAC_GROUPS_PATH}?limit=1", RBAC_GROUP_ACCESS_MISSING)
 
 
-def check_rbac_role_access(api_key: str) -> Optional[str]:
+def check_rbac_role_access(api_key: str, api_version: str) -> Optional[str]:
     # The custom role reads take their own scope, so a key that reaches the group tables can still
     # be denied here.
-    return _check_path_access(api_key, f"{RBAC_ROLES_PATH}?limit=1", RBAC_ROLE_ACCESS_MISSING)
+    return _check_path_access(api_key, api_version, f"{RBAC_ROLES_PATH}?limit=1", RBAC_ROLE_ACCESS_MISSING)
 
 
 def _flatten_created_by(item: dict[str, Any]) -> dict[str, Any]:
@@ -722,12 +762,12 @@ _FAN_OUT_ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 }
 
 
-def _analytics_actor_columns(item: dict[str, Any]) -> dict[str, Any]:
+def _analytics_actor_columns(item: dict[str, Any], api_version: str) -> dict[str, Any]:
     """Surface the seat user a per-user report row is attributed to as flat columns."""
     actor = item.get("actor") or {}
     return {
         "user_id": actor.get("user_id"),
-        "user_email": actor.get("email"),
+        "user_email": actor.get("email") if _is_legacy_version(api_version) else actor.get("email_address"),
         "user_name": actor.get("name"),
         "user_deleted": actor.get("deleted"),
     }
@@ -736,10 +776,10 @@ def _analytics_actor_columns(item: dict[str, Any]) -> dict[str, Any]:
 # The per-user report requests carry no `group_by`, so the dimension fields Anthropic populates only
 # for a grouped query (model, product, cost_type, token_type, context_window, inference_geo, speed,
 # rbac_group_id, and the Claude Tag and Slack fields) are null on every row and are left out below.
-def _flatten_analytics_user_cost(item: dict[str, Any]) -> dict[str, Any]:
+def _flatten_analytics_user_cost(api_version: str, item: dict[str, Any]) -> dict[str, Any]:
     """One row per (day, user): cost attributed to that seat user for that day."""
     starting_at = item.get("starting_at")
-    actor = _analytics_actor_columns(item)
+    actor = _analytics_actor_columns(item, api_version)
     return {
         "id": _row_id(starting_at, actor["user_id"]),
         "starting_at": starting_at,
@@ -754,10 +794,10 @@ def _flatten_analytics_user_cost(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _flatten_analytics_user_usage(item: dict[str, Any]) -> dict[str, Any]:
+def _flatten_analytics_user_usage(api_version: str, item: dict[str, Any]) -> dict[str, Any]:
     """One row per (day, user): token usage attributed to that seat user for that day."""
     starting_at = item.get("starting_at")
-    actor = _analytics_actor_columns(item)
+    actor = _analytics_actor_columns(item, api_version)
     cache_creation = item.get("cache_creation") or {}
     server_tool_use = item.get("server_tool_use") or {}
     return {
@@ -830,6 +870,7 @@ def anthropic_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[AnthropicResumeConfig],
+    api_version: str,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = ANTHROPIC_ENDPOINTS.get(endpoint)
@@ -846,7 +887,7 @@ def anthropic_source(
     is_report_endpoint = config.pagination == PaginationType.PAGE
     client_config: ClientConfig = {
         "base_url": ANTHROPIC_BASE_URL,
-        "headers": _version_headers(),
+        "headers": _version_headers(api_version),
         "auth": _auth_config(api_key),
         "max_retries": REPORT_MAX_RETRY_ATTEMPTS if is_report_endpoint else MAX_RETRY_ATTEMPTS,
     }
@@ -855,6 +896,7 @@ def anthropic_source(
         client_config["retry_budget_seconds"] = REPORT_RETRY_BUDGET_SECONDS
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    renames = {} if _is_legacy_version(api_version) else _RENAMED_FIELDS.get(endpoint, {})
 
     if config.analytics_window is not None:
         # Claude Enterprise Analytics: one request per UTC day, each day its own resource so the
@@ -880,7 +922,10 @@ def anthropic_source(
             if config.analytics_window == AnalyticsWindowKind.DATE_RANGE:
                 # A summary row is already flat and carries its own `starting_at`.
                 return None
-            return _flatten_analytics_user_cost if endpoint == "analytics_user_cost" else _flatten_analytics_user_usage
+            flatten = (
+                _flatten_analytics_user_cost if endpoint == "analytics_user_cost" else _flatten_analytics_user_usage
+            )
+            return partial(flatten, api_version)
 
         def save_analytics_checkpoint(next_start: date) -> None:
             resumable_source_manager.save_state(
@@ -893,7 +938,7 @@ def anthropic_source(
                 "endpoint": {
                     "path": config.path,
                     "params": _analytics_params(config, window),
-                    "data_selector": config.data_selector,
+                    "data_selector": _data_selector(config, api_version),
                     "paginator": AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page"),
                 },
                 "data_map": analytics_row_map(window),
@@ -966,7 +1011,7 @@ def anthropic_source(
         child_row_map = _FAN_OUT_ROW_MAPS.get(endpoint)
 
         def fan_out_data_map(row: dict[str, Any]) -> dict[str, Any]:
-            stamped = _stamp_parent_id(fan_out, row)
+            stamped = _stamp_parent_id(fan_out, _restore_renamed_fields(renames, row))
             return child_row_map(stamped) if child_row_map else stamped
 
         rest_config: RESTAPIConfig = {
@@ -1031,8 +1076,14 @@ def anthropic_source(
         data_map: Optional[Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]]
         if is_report:
             data_map = _explode_usage_bucket if endpoint == "usage_report" else _explode_cost_bucket
+        elif endpoint == "api_keys":
+            data_map = (
+                _flatten_created_by
+                if _is_legacy_version(api_version)
+                else lambda item: _flatten_api_key_scope(_flatten_created_by(item))
+            )
         else:
-            data_map = _flatten_created_by if endpoint == "api_keys" else None
+            data_map = partial(_restore_renamed_fields, renames) if renames else None
 
         initial_paginator_state: Optional[dict[str, Any]] = None
         if resume is not None and resume.cursor:

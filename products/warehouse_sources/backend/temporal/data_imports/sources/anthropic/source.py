@@ -10,6 +10,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
+    ANTHROPIC_VERSION_2023_06_01,
+    ANTHROPIC_VERSION_2026_10_21,
     AnthropicResumeConfig,
     anthropic_source,
     check_analytics_access,
@@ -107,8 +109,8 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2023-06-01",)
-    default_version = "2023-06-01"
+    supported_versions = (ANTHROPIC_VERSION_2023_06_01, ANTHROPIC_VERSION_2026_10_21)
+    default_version = ANTHROPIC_VERSION_2026_10_21
     api_docs_url = "https://platform.claude.com/docs/en/api/versioning"
 
     @property
@@ -223,6 +225,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
             AccessFamily.RBAC_GROUPS: check_rbac_group_access,
             AccessFamily.RBAC_ROLES: check_rbac_role_access,
         }
+        resolved_version = self.resolve_api_version(api_version)
         permissions: dict[str, str | None] = dict.fromkeys(endpoints)
         by_family: dict[AccessFamily, list[str]] = defaultdict(list)
         for name in endpoints:
@@ -231,7 +234,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
                 by_family[endpoint_config.access_family].append(name)
         for family, names in by_family.items():
             # Every endpoint in a family needs the same access, so one probe answers for all of them.
-            reason = probes[family](config.api_key)
+            reason = probes[family](config.api_key, resolved_version)
             for name in names:
                 permissions[name] = reason
         return permissions
@@ -243,7 +246,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_anthropic_credentials(config.api_key)
+        return validate_anthropic_credentials(config.api_key, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AnthropicResumeConfig]:
         return ResumableSourceManager[AnthropicResumeConfig](inputs, AnthropicResumeConfig)
@@ -260,6 +263,7 @@ The group, group membership and custom role tables come from the Claude Enterpri
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
