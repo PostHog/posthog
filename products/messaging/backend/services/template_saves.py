@@ -20,8 +20,11 @@ def save_template(
     user_id: int | None,
     require_workflow_editor: WorkflowEditorCheck,
 ) -> MessageTemplate:
+    # Sends use the workflow's copy, so the template and its new workflow version are saved together,
+    # under a row lock that keeps a concurrent make_transactional from slipping in between.
     with transaction.atomic():
         template = MessageTemplate.objects.select_for_update().get(team_id=team_id, id=template_id, deleted=False)
+        # Checked under the row lock, so a template made transactional meanwhile is checked too.
         if template.transactional_hog_flow_id:
             require_workflow_editor(template.transactional_hog_flow_id)
         write(template)
@@ -57,13 +60,16 @@ def save_locked_template(template: MessageTemplate, *, user_id: int | None) -> N
         check_still_sendable(template)
     template.save()
     if syncs_workflow:
+        # Raising rolls back the template save, so the template and its workflow never disagree.
         sync_transactional_workflow(template.team_id, template.id, user_id=user_id)
+        # The sync unlinks the template when its workflow was deleted.
         template.refresh_from_db()
 
 
 def rewrite_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
+    # Read the row again under a row lock, so a concurrent save is not overwritten with a stale blob.
     with transaction.atomic():
         templates = templates_of(team_ids)
         template = templates.get(pk=template_id) if dry_run else templates.select_for_update().get(pk=template_id)
@@ -76,5 +82,6 @@ def rewrite_content(
             template.content = new_content
             save_locked_template(template, user_id=None)
         elif draft_occurrences:
+            # updated_at is auto_now, so listing it bumps it. The editor's stale-write check reads it.
             template.save(update_fields=["draft_content", "updated_at"])
     return content_occurrences + draft_occurrences

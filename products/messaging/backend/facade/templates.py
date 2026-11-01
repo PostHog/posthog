@@ -106,6 +106,7 @@ def save_template_fields(
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
+    """Lock the template, set the given fields and save. `message_category` holds a category id or None."""
     return _to_contract(
         template_saves.save_fields(
             team_id, template_id, fields, user_id=user_id, require_workflow_editor=require_workflow_editor
@@ -125,6 +126,10 @@ def save_template_content(
     user_id: int | None,
     require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
+    """Lock the template, replace its content with `edit(content)` and save, in one transaction.
+
+    `edit` gets a copy of the stored content. An exception from it rolls the change back.
+    """
     return _to_contract(
         template_saves.save_template(
             team_id,
@@ -139,4 +144,5 @@ def save_template_content(
 def rewrite_template_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
+    """Apply `rewrite` to a template's content and draft under a row lock. Returns the number of occurrences it replaced."""
     return template_saves.rewrite_content(template_id, rewrite, team_ids=team_ids, dry_run=dry_run)

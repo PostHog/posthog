@@ -136,10 +136,11 @@ class Command(BaseCommand):
         self.stdout.write(f"Replacing {from_url}\n       with {to_url}\n")
 
         totals = RewriteCounts()
+        template_owned: set[Any] = set()
         for target in targets:
-            counts = self._process_target(
-                target, from_url, to_url, options, rewrites_templates=MESSAGE_TEMPLATES in targets
-            )
+            counts, row_ids = self._process_target(target, from_url, to_url, options, template_owned=template_owned)
+            if target == MESSAGE_TEMPLATES:
+                template_owned = find_transactional_workflow_ids(row_ids)
             totals.rows_scanned += counts.rows_scanned
             totals.rows_changed += counts.rows_changed
             totals.occurrences += counts.occurrences
@@ -157,22 +158,19 @@ class Command(BaseCommand):
             raise CommandError(f"{totals.errors} row(s) failed to rewrite - see the errors above and re-run")
 
     def _process_target(
-        self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, rewrites_templates: bool
-    ) -> RewriteCounts:
+        self, target: str, from_url: str, to_url: str, options: dict[str, Any], *, template_owned: set[Any]
+    ) -> tuple[RewriteCounts, list[Any]]:
         counts = RewriteCounts()
         if target == MESSAGE_TEMPLATES:
             row_ids, rewrite_row = self._message_template_rows(from_url, to_url, options)
         else:
-            template_owned = (
-                find_transactional_workflow_ids(options.get("team_id"))
-                if target == "hog_flows" and rewrites_templates
-                else set()
+            row_ids, rewrite_row = self._model_rows(
+                target, from_url, to_url, options, template_owned=template_owned if target == "hog_flows" else set()
             )
-            row_ids, rewrite_row = self._model_rows(target, from_url, to_url, options, template_owned=template_owned)
 
         self.stdout.write(f"{target}: {len(row_ids)} row(s) matched")
         if not row_ids:
-            return counts
+            return counts, row_ids
 
         batch_size: int = options["batch_size"]
         for start in range(0, len(row_ids), batch_size):
@@ -192,7 +190,7 @@ class Command(BaseCommand):
                     if options["list_rows"]:
                         self.stdout.write(f"  {row_id}: {occurrences} occurrence(s)")
 
-        return counts
+        return counts, row_ids
 
     def _message_template_rows(
         self, from_url: str, to_url: str, options: dict[str, Any]

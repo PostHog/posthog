@@ -211,3 +211,26 @@ class TestRewriteEmailAssetUrl(BaseTest):
 
         assert (stalled.version, OLD in json.dumps(stalled.actions)) == (1, True)
         assert (recovered.version, NEW in json.dumps(recovered.actions)) == (2, True)
+
+    @parameterized.expand([("default_run", False), ("workflow_id", True)])
+    def test_rewrites_a_transactional_workflow_whose_template_lacks_the_url(self, _name: str, by_id: bool) -> None:
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        template = create_message_template_for_test(
+            team_id=self.team.id,
+            name="Welcome",
+            content={"email": {"subject": "Welcome", "html": f'<img src="{NEW}?w=960px" />'}},
+        )
+        workflow_id = make_transactional(self.team.id, template, user_id=self.user.id, from_integration_id=None)
+        drifted = json.loads(json.dumps(HogFlow.objects.get(id=workflow_id).actions).replace(NEW, OLD))
+        HogFlow.objects.filter(id=workflow_id).update(actions=drifted)
+        id_args = ["--id", str(workflow_id)] if by_id else []
+
+        call_command(
+            "rewrite_email_asset_url", "--from-url", OLD, "--to-url", NEW, "--team-id", str(self.team.id), *id_args
+        )
+
+        actions = json.dumps(HogFlow.objects.get(id=workflow_id).actions)
+        assert (OLD in actions, NEW in actions) == (False, True)

@@ -66,5 +66,5 @@ def find_template_ids_containing(text: str, *, team_ids: list[int] | None, templ
     return message_templates.find_ids_containing(text, team_ids=team_ids, template_id=template_id)
 
 
-def find_transactional_workflow_ids(team_ids: list[int] | None) -> set[UUID]:
-    return message_templates.transactional_workflow_ids(team_ids)
+def find_transactional_workflow_ids(template_ids: list[UUID]) -> set[UUID]:
+    return message_templates.transactional_workflow_ids(template_ids)

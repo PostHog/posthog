@@ -47,6 +47,7 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
     queryset = templates_of(team_ids)
     if template_id:
         queryset = queryset.filter(id=template_id)
+    # The text cast stays in the WHERE clause, so the scan never returns a full copy of each content blob.
     return list(
         queryset.annotate(
             _text_content=Cast("content", models.TextField()),
@@ -58,8 +59,10 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
     )
 
 
-def transactional_workflow_ids(team_ids: list[int] | None) -> set[UUID]:
-    linked = templates_of(team_ids).filter(deleted=False).values_list("transactional_hog_flow_id", flat=True)
+def transactional_workflow_ids(template_ids: list[UUID]) -> set[UUID]:
+    linked = MessageTemplate.objects.filter(pk__in=template_ids, deleted=False).values_list(
+        "transactional_hog_flow_id", flat=True
+    )
     return {hog_flow_id for hog_flow_id in linked if hog_flow_id is not None}
 
 
@@ -102,6 +105,8 @@ def create_template(team_id: int, created_by_id: int | None, fields: dict[str, A
 
 
 def save_tags(team_id: int, template_id: UUID | str, tags: list[str]) -> MessageTemplate:
+    # Tags live on their own rows. Saving the template too would write back every column this
+    # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
     with transaction.atomic():
         template = team_template(team_id, template_id)
         replace_changed_tags(template, tags)
