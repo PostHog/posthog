@@ -17,7 +17,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ToastButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { delay } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
-import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
+import { retryImport } from 'lib/utils/retryImport'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -383,6 +383,9 @@ export const exportsLogic = kea<exportsLogicType>([
             const toastId = 'toast-' + Math.random()
             try {
                 lemonToast.info('Saving cohort...', { toastId, autoClose: false })
+                // The toast pulls in the workflows audience code. Load it before saving, so a failed
+                // chunk load cannot report a saved cohort as a failure.
+                const { cohortSavedToast } = await retryImport(() => import('scenes/cohorts/cohortSavedToast'))
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
                 const cohort: CohortType = await api.create('api/cohort', {
                     is_static: true,
