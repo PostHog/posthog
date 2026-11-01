@@ -422,6 +422,20 @@ class TestTransactionalEmail(APIBaseTest):
             "queued",
         )
 
+    def test_a_code_send_makes_a_new_workflow_when_its_keys_workflow_was_deleted(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+        first = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
+        deleted_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
+        HogFlow.objects.filter(team=self.team, id=deleted_workflow_id).delete()
+
+        second = psak.post(self.send_email_url, self._code_send(template_key="welcome"), format="json")
+
+        assert first.status_code == second.status_code == status.HTTP_202_ACCEPTED, second.json()
+        new_workflow_id = TransactionalEmailKey.objects.for_team(self.team.id).get(key="welcome").hog_flow_id
+        assert new_workflow_id != deleted_workflow_id
+        assert f"/hog_flows/{new_workflow_id}/" in mock_post.call_args_list[1].args[0]
+
     @parameterized.expand(
         [
             (
@@ -513,6 +527,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json()["code"] == "delivery_unavailable"
         assert "may still go out" in response.json()["detail"]
+        assert "same Idempotency-Key" in response.json()["detail"]
 
     def test_the_send_schema_gives_a_template_send_no_code_only_field(self, _mock_post, _flag, _capture):
         schema = self.client.get("/api/schema/").data

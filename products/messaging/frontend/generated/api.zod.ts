@@ -54,7 +54,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
         ),
     distinct_id: zod
         .string()
