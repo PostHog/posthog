@@ -4,18 +4,17 @@ import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'lib/logic/preflightLogic'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
@@ -24,18 +23,10 @@ import { taskEventsLogic } from 'products/posthog_ai/frontend/logics/taskEventsL
 import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { OrganizationType, PreflightStatus } from '../../types'
+import type { OrganizationType } from '../../types'
 import type { SceneConfig } from '../sceneTypes'
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
-import { PHAI_VIEW_MODE_KEY } from './max-storage-keys'
 import { maxLogic, mergeConversationHistory, mergeConversations, sidePanelMaxLogic } from './maxLogic'
-
-/**
- * Which PostHog AI implementation the Max scene renders. `'new'` is the posthog_ai/frontend surface
- * (the tasks product on `/ai`, the new composer + thread viewer in the side panel); `'legacy'` is the
- * existing Max chat. Only meaningful while the `PHAI_SANDBOX_MODE` flag is on — see `effectivePhaiView`.
- */
-export type PhaiViewMode = 'new' | 'legacy'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
@@ -96,10 +87,13 @@ export interface maxGlobalLogicValues {
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
     dataProcessingDismissed: boolean // aiConsentLogic
     requestingAiAccess: boolean // aiConsentLogic
+    effectivePhaiView: PhaiViewMode // aiShellLogic
+    isMaxAvailable: boolean // aiShellLogic
+    isPhaiSandboxFlagOn: boolean // aiShellLogic
+    phaiViewMode: PhaiViewMode // aiShellLogic
+    registeredToolMap: Record<string, ToolRegistration> // aiShellLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentOrganization: OrganizationType | null // organizationLogic
-    isCloudOrDev: boolean | undefined // preflightLogic
-    preflight: PreflightStatus | null // preflightLogic
     sceneConfig: SceneConfig | null // sceneLogic
     sceneId: string | null // sceneLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
@@ -110,13 +104,8 @@ export interface maxGlobalLogicValues {
     conversationHistoryLoading: boolean
     currentConversationId: string | null
     editInsightToolRegistered: true
-    effectivePhaiView: PhaiViewMode
-    isMaxAvailable: boolean
     isOrganizationCreatedRecently: boolean
-    isPhaiSandboxFlagOn: boolean
     liabilityNoticeDismissed: boolean
-    phaiViewMode: PhaiViewMode
-    registeredToolMap: Record<string, ToolRegistration>
     shouldShowLiabilityNotice: boolean
     toolMap: {
         [x: string]: ToolRegistration
@@ -140,6 +129,18 @@ export interface maxGlobalLogicActions {
     requestAiAccess: () => {
         value: true
     } // aiConsentLogic
+    askSidePanelMax: (prompt: string) => {
+        prompt: string
+    } // aiShellLogic
+    deregisterTool: (key: string) => {
+        key: string
+    } // aiShellLogic
+    registerTool: (tool: ToolRegistration) => {
+        tool: ToolRegistration
+    } // aiShellLogic
+    setPhaiViewMode: (mode: PhaiViewMode) => {
+        mode: PhaiViewMode
+    } // aiShellLogic
     locationChanged: ({
         method,
         pathname,
@@ -168,14 +169,8 @@ export interface maxGlobalLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
-    askSidePanelMax: (prompt: string) => {
-        prompt: string
-    }
     deleteConversation: (id: string) => {
         id: string
-    }
-    deregisterTool: (key: string) => {
-        key: string
     }
     dismissLiabilityNotice: () => {
         value: true
@@ -228,26 +223,17 @@ export interface maxGlobalLogicActions {
     prependOrReplaceConversation: (conversation: Conversation | ConversationDetail) => {
         conversation: Conversation | ConversationDetail
     }
-    registerTool: (tool: ToolRegistration) => {
-        tool: ToolRegistration
-    }
-    setPhaiViewMode: (mode: PhaiViewMode) => {
-        mode: PhaiViewMode
-    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface maxGlobalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         currentConversationId: (searchParams: Record<string, any>) => string | null
-        isMaxAvailable: (isCloudOrDev: boolean | undefined, preflight: PreflightStatus | null) => boolean
         isOrganizationCreatedRecently: (currentOrganization: OrganizationType | null) => boolean
         shouldShowLiabilityNotice: (
             isOrganizationCreatedRecently: boolean,
             liabilityNoticeDismissed: boolean
         ) => boolean
-        isPhaiSandboxFlagOn: (featureFlags: FeatureFlagsSet) => boolean
-        effectivePhaiView: (isPhaiSandboxFlagOn: boolean, phaiViewMode: PhaiViewMode) => PhaiViewMode
         availableStaticTools: (featureFlags: FeatureFlagsSet) => ToolRegistration[]
         toolMap: (
             registeredToolMap: Record<string, ToolRegistration>,
@@ -272,6 +258,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
     connect(() => ({
         values: [
+            aiShellLogic,
+            ['effectivePhaiView', 'isMaxAvailable', 'isPhaiSandboxFlagOn', 'phaiViewMode', 'registeredToolMap'],
             organizationLogic,
             ['currentOrganization'],
             sceneLogic,
@@ -282,8 +270,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['featureFlags'],
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
-            preflightLogic,
-            ['preflight', 'isCloudOrDev'],
             aiConsentLogic,
             [
                 'dataProcessingAccepted',
@@ -300,18 +286,16 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['openSidePanel'],
             aiConsentLogic,
             ['acceptDataProcessing', 'dismissDataProcessing', 'requestAiAccess'],
+            aiShellLogic,
+            ['setPhaiViewMode', 'askSidePanelMax', 'registerTool', 'deregisterTool'],
         ],
     })),
     actions({
         openSidePanelMax: (conversationId?: string) => ({ conversationId }),
         openSidePanelMaxWithTaskBind: (taskId: string) => ({ taskId }),
-        askSidePanelMax: (prompt: string) => ({ prompt }),
-        registerTool: (tool: ToolRegistration) => ({ tool }),
-        deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         deleteConversation: (id: string) => ({ id }),
         dismissLiabilityNotice: true,
-        setPhaiViewMode: (mode: PhaiViewMode) => ({ mode }),
     }),
 
     loaders(({ values }) => ({
@@ -361,20 +345,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 return mergeConversationHistory(state, conversation)
             },
         },
-        registeredToolMap: [
-            {} as Record<string, ToolRegistration>,
-            {
-                registerTool: (state, { tool }) => ({
-                    ...state,
-                    [tool.identifier]: tool,
-                }),
-                deregisterTool: (state, { key }) => {
-                    const newState = { ...state }
-                    delete newState[key]
-                    return newState
-                },
-            },
-        ],
         liabilityNoticeDismissed: [
             false,
             { persist: true, storageKey: AI_LIABILITY_NOTICE_STORAGE_KEY },
@@ -382,32 +352,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 dismissLiabilityNotice: () => true,
             },
         ],
-        // The user's chosen implementation, persisted per device. Defaults to the new surface so a
-        // flagged user lands there; `effectivePhaiView` collapses this to legacy when the flag is off.
-        phaiViewMode: [
-            'new' as PhaiViewMode,
-            { persist: true, storageKey: PHAI_VIEW_MODE_KEY },
-            {
-                setPhaiViewMode: (_, { mode }) => mode,
-            },
-        ],
     }),
     listeners(({ actions, values }) => ({
-        setPhaiViewMode: ({ mode }) => {
-            // The task list only loads on mount. A chat made on the legacy view has a task copy by the
-            // time the user switches, and the merged list shows it as that task once it is loaded.
-            const tasks = tasksLogic.findMounted()
-            if (mode === 'new' && tasks) {
-                tasks.actions.loadTasks(tasks.values.taskListParams)
-            }
-        },
         // A chat and its task are deleted together on the server, so removing a task from the merged
         // list must drop the chat row too, or the chat resurfaces as a row of its own.
         [taskEventsLogic.actionTypes.taskDeleted]: () => {
             actions.loadConversationHistory()
-        },
-        askSidePanelMax: ({ prompt }) => {
-            newInternalTab(urls.ai(undefined, prompt))
         },
         openSidePanelMax: ({ conversationId }) => {
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
@@ -463,15 +413,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             () => [router.selectors.searchParams],
             (searchParams: Record<string, any>): string | null => searchParams?.chat ?? null,
         ],
-        // On Cloud/dev a provider key is always present. On a self-hosted (hobby) instance Max only
-        // works once ANTHROPIC_API_KEY is configured, so we surface a "set the key" state instead.
-        // Treat a not-yet-loaded preflight (null) as available so the empty-state doesn't flash
-        // before preflight resolves — once loaded we gate on cloud/dev or the key being present.
-        isMaxAvailable: [
-            (s) => [s.isCloudOrDev, s.preflight],
-            (isCloudOrDev: boolean | undefined, preflight: null | import('~/types').PreflightStatus): boolean =>
-                !preflight || !!isCloudOrDev || !!preflight.anthropic_available,
-        ],
         isOrganizationCreatedRecently: [
             (s) => [s.currentOrganization],
             (currentOrganization: null | import('~/types').OrganizationType): boolean => {
@@ -483,20 +424,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             (s) => [s.isOrganizationCreatedRecently, s.liabilityNoticeDismissed],
             (isOrganizationCreatedRecently: boolean, liabilityNoticeDismissed: boolean): boolean =>
                 isOrganizationCreatedRecently && !liabilityNoticeDismissed,
-        ],
-        // Gates the new-vs-legacy toggle: only flagged users can switch, and the new surface only
-        // exists for them.
-        isPhaiSandboxFlagOn: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE],
-        ],
-        // The implementation the Max scene actually renders: the user's choice while the flag is on,
-        // always legacy otherwise (so non-flagged users are unaffected regardless of any stored value).
-        effectivePhaiView: [
-            (s) => [s.isPhaiSandboxFlagOn, s.phaiViewMode],
-            (isPhaiSandboxFlagOn: boolean, phaiViewMode: PhaiViewMode): PhaiViewMode =>
-                isPhaiSandboxFlagOn ? phaiViewMode : 'legacy',
         ],
         availableStaticTools: [
             (s) => [s.featureFlags],

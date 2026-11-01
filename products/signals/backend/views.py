@@ -1,6 +1,7 @@
 import re
 import json
 import math
+import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
@@ -9,19 +10,15 @@ from functools import cached_property, partial
 from typing import Any, Literal, cast
 
 from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models import (
     BooleanField,
     Case,
-    CharField,
     Count,
     Exists,
     F,
-    Func,
     IntegerField,
-    JSONField,
     OuterRef,
     Prefetch,
     Q,
@@ -32,7 +29,7 @@ from django.db.models import (
     Window,
 )
 from django.db.models.expressions import OrderBy
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Coalesce
 from django.db.models.lookups import GreaterThanOrEqual
 from django.utils import timezone
 
@@ -77,7 +74,12 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.permissions import (
+    APIScopePermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+)
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
@@ -152,11 +154,13 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
+from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
-from products.signals.backend.ranking.access import can_view_inbox_ranking
+from products.signals.backend.ranking.access import can_view_inbox_ranking, user_flag_enabled
 from products.signals.backend.ranking.inbox_sort import (
     PRIORITY_ORDERING,
     RANKER_ORDERINGS,
@@ -215,7 +219,7 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_plan import report_plan
-from products.signals.backend.report_priority import update_report_priority
+from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
     ReportReadStateResponseSerializer,
@@ -242,6 +246,8 @@ from products.signals.backend.scout_harness.trial_access import trial_state_erro
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    PersonalRankingQuerySerializer,
+    PersonalRankingSerializer,
     PullRequestChecksPermissionErrorSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCiStatusesResponseSerializer,
@@ -283,6 +289,7 @@ from products.signals.backend.serializers import (
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
+    personal_ranking_payload,
 )
 from products.signals.backend.signal_metadata import (
     ReportSignalMeta,
@@ -1724,6 +1731,65 @@ class SignalReportViewSet(
         )
 
     @validated_request(
+        query_serializer=PersonalRankingQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=PersonalRankingSerializer),
+            404: OpenApiResponse(description="Personal ranking is not available to the caller."),
+        },
+        summary="Get your personal ranked inbox",
+        description=(
+            "Your open inbox reports, ranked for you by one language model call over your activity summary, the "
+            "reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. "
+            "The request never waits on the model. A current stored list returns at once. Otherwise the request "
+            "starts a background build and returns the last stored list with `stale: true`, or your reports in inbox "
+            "order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time "
+            "for the new list. Only the user the list is about can read it."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="for_me", required_scopes=["task:read"], pagination_class=None)
+    def for_me(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        user = request.user
+        # A list describes one person, so only that person's own credentials can read it.
+        if (
+            is_service_auth(request)
+            or not isinstance(user, User)
+            or trial_store_for_request(request, self.team_id) is not None
+            or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
+        ):
+            raise NotFound()
+        query = request.validated_query_data
+        started = time.monotonic()
+        served = serve_personal_ranking(
+            self.team,
+            user,
+            limit=query.get("limit"),
+            refresh=query["refresh"],
+            focus=query.get("focus"),
+            wait_seconds=query["wait_seconds"],
+        )
+        report_user_action(
+            user,
+            "personal inbox ranking read",
+            properties={
+                "via_mcp": is_mcp_request(request),
+                "status": served.status,
+                "cached": served.cached,
+                "stale": served.stale,
+                "building": served.building,
+                "personalized": served.personalized,
+                "fallback_reason": served.fallback_reason,
+                "refresh": query["refresh"],
+                "has_focus": bool(query.get("focus")),
+                "wait_seconds": query["wait_seconds"],
+                "result_count": len(served.results),
+                "duration_ms": round((time.monotonic() - started) * 1000),
+            },
+            team=self.team,
+            request=request,
+        )
+        return Response(PersonalRankingSerializer(personal_ranking_payload(served)).data)
+
+    @validated_request(
         query_serializer=SignalReportFilterQuerySerializer,
         responses={200: SignalReportSectionCountsSerializer},
         parameters=_SECTION_COUNTS_PARAMETERS,
@@ -2405,37 +2471,7 @@ class SignalReportViewSet(
     def _annotate_signal_report_priority(self, queryset):
         # `ordering=priority` sorts by the priority value ("P0"–"P4") from the latest priority_judgment
         # artefact, as its index in `AutonomyPriority.values`. Reports without a priority rank after "P4".
-        # The startswith guard skips non-object content.
-        # The rank is one `array_position` inside the subquery, not a CASE: Django repeats the CASE
-        # operand in each WHEN branch, so a CASE runs the subquery or the JSON parse once per priority.
-        unranked = Value(len(AutonomyPriority.values))
-        priority_value = Func(
-            Cast(F("content"), output_field=JSONField()),
-            Value("priority"),
-            function="jsonb_extract_path_text",
-            output_field=CharField(),
-        )
-        priority_position = Func(
-            Value(list(AutonomyPriority.values), output_field=ArrayField(CharField())),
-            priority_value,
-            function="array_position",
-            output_field=IntegerField(),
-        )
-        latest_priority_rank = Subquery(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                content__startswith="{",
-            )
-            .order_by("-created_at")
-            # `array_position` counts from 1 and returns NULL for a value outside the list.
-            .annotate(_priority_rank=priority_position - 1)
-            .values("_priority_rank")[:1],
-            output_field=IntegerField(),
-        )
-        return queryset.annotate(
-            priority_sort_rank=Coalesce(latest_priority_rank, unranked, output_field=IntegerField())
-        )
+        return queryset.annotate(priority_sort_rank=latest_priority_rank())
 
     def _annotate_signal_report_ranking(self, queryset):
         # `ordering=ranking_<head>` sorts by the served model's probability for that head, read from

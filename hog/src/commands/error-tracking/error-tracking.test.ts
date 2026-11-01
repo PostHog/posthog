@@ -15,7 +15,10 @@ import { join } from 'node:path'
 
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
-import { runHog } from '@/testing'
+import { nativeCandidates } from '@/error-tracking/native/package'
+import { ZipWriter } from '@/error-tracking/native/zip'
+import { deriveBaseName } from '@/error-tracking/symbols'
+import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
 import { HERMES_BUILD } from '../../../test/parity/hermes-fixtures'
@@ -72,7 +75,7 @@ describe('hog error-tracking upload', () => {
         })
     })
 
-    test('--dry-run leaves bundles and maps untouched, and ignore globs skip files', async () => {
+    test('--dry-run leaves bundles and maps untouched, ignore globs skip files, and unreadable folders are skipped', async () => {
         const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
         const map = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
         const folder = project({
@@ -81,7 +84,10 @@ describe('hog error-tracking upload', () => {
             'dist/a.js.map': map,
             'dist/vendor/b.js': bundle.replace('a.js.map', 'b.js.map'),
             'dist/vendor/b.js.map': map,
+            'dist/vendor/cache/c.js': bundle,
         })
+        chmodSync(join(folder, 'dist/vendor/cache'), 0o000)
+
         const result = await runHog(['et', 'process', '--dry-run'], {
             env: { CLAUDECODE: '1' },
             cwd: folder,
@@ -96,6 +102,27 @@ describe('hog error-tracking upload', () => {
         })
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
         expect(readFileSync(join(folder, 'dist/a.js.map'), 'utf8')).toBe(map)
+    })
+
+    test.each([
+        ['HOG_RELEASE_MODE', { HOG_RELEASE_MODE: 'symbol-set' }, {}],
+        ['errorTracking.releaseMode in posthog.json', {}, { releaseMode: 'symbol-set' }],
+    ])('%s picks symbol-set mode, which mints random chunk IDs', async (_name, env, errorTracking) => {
+        const folder = project({
+            'posthog.json': JSON.stringify({
+                errorTracking: { release: { name: 'app', version: '1' }, ...errorTracking },
+            }),
+            'dist/a.js': 'a();\n//# sourceMappingURL=a.js.map\n',
+            'dist/a.js.map': JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' }),
+        })
+        const result = await runHog(['et', 'process', 'dist', '--dry-run'], {
+            env: { CLAUDECODE: '1', ...env },
+            cwd: folder,
+            useDisk: true,
+        })
+        expect(result.json().symbolSets).toEqual([
+            expect.objectContaining({ chunkId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/) }),
+        ])
     })
 
     const MAP = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
@@ -171,6 +198,32 @@ describe('hog error-tracking upload', () => {
 
         expect(result.exitCode).toBe(1)
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+    })
+
+    test('a universal binary with a slice that does not parse keeps its other slices', () => {
+        const slice = readFileSync(join(import.meta.dir, '../../../test/parity/native/bin/apple/Shop.dwarf'))
+        const header = Buffer.alloc(48)
+        header.writeUInt32BE(0xcafebabe, 0)
+        header.writeUInt32BE(2, 4)
+        const arches: [number, number, number][] = [
+            [0x0100000c, 4096, slice.length],
+            [0x01000007, 4096 + slice.length, 8],
+        ]
+        for (const [index, [cputype, offset, size]] of arches.entries()) {
+            header.writeUInt32BE(cputype, 8 + index * 20)
+            header.writeUInt32BE(offset, 16 + index * 20)
+            header.writeUInt32BE(size, 20 + index * 20)
+        }
+        const folder = project({})
+        const path = join(folder, 'Shop')
+        writeFileSync(path, Buffer.concat([header, Buffer.alloc(4096 - 48), slice, Buffer.alloc(8)]))
+
+        const candidates = nativeCandidates(path)
+
+        expect(candidates).toEqual([
+            { file: expect.objectContaining({ format: 'macho', debugId: expect.any(String) }) },
+            { path, problem: 'unparseable_slice' },
+        ])
     })
 
     test('--dry-run plans a Hermes map once when two paths overlap', async () => {
@@ -345,5 +398,89 @@ describe('hog error-tracking upload', () => {
         })
         expect(result.exitCode).toBe(exitCode)
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
+    })
+
+    function dsymWithBadChecksum(): Buffer {
+        const zip = new ZipWriter()
+        zip.add('dwarf', Buffer.from('not really dwarf, but bytes all the same'))
+        const archive = zip.finish()
+        const central = archive.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]))
+        archive.writeUInt32LE((archive.readUInt32LE(central + 16) ^ 1) >>> 0, central + 16)
+        return writeSymbolData(SymbolDataType.AppleDsym, archive)
+    }
+
+    test.each([
+        ['a zip entry whose checksum is wrong', dsymWithBadChecksum, "doesn't match its recorded size and checksum"],
+        [
+            'a Hermes map that is not UTF-8, by its type rather than as unknown',
+            () => writeSymbolData(SymbolDataType.HermesMap, Buffer.from([0xff, 0xfe])),
+            'HermesMap whose payload',
+        ],
+    ])('extract rejects %s', async (_name, build, message) => {
+        const folder = project({})
+        writeFileSync(join(folder, 'Shop.dSYM'), build())
+        const result = await runHog(['et', 'extract', 'Shop.dSYM'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code: 'invalid_symbol_set', message: expect.stringContaining(message) })
+    })
+
+    test('extract escapes control characters in the file names it prints', async () => {
+        const zip = new ZipWriter()
+        zip.add('evil\u001b]52;c;cGF5\u0007', Buffer.from('dwarf'))
+        const folder = project({})
+        writeFileSync(join(folder, 'Shop.dSYM'), writeSymbolData(SymbolDataType.AppleDsym, zip.finish()))
+
+        const result = await runHog(['et', 'extract', 'Shop.dSYM'], {
+            env: { NO_COLOR: '1' },
+            stdoutIsTTY: true,
+            cwd: folder,
+            useDisk: true,
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).not.toContain('\u001b')
+        expect(result.stdout).toContain('evil\\x1b]52;c;cGF5\\x07')
+    })
+
+    test.each(['<!DOCTYPE plist', ' <?xml version="1.0"', '  <!-- a comment'])(
+        'an Info.plist starting with the unterminated markup %p fails to parse',
+        async (plist) => {
+            const folder = project({ 'Info.plist': plist })
+
+            const result = await runHog(['et', 'release', '--info-plist', 'Info.plist'], {
+                env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+            })
+
+            expect(result.exitCode).toBe(1)
+            expect(result.error()).toMatchObject({ code: 'invalid_info_plist' })
+        }
+    )
+
+    test.each([
+        ['a key without access', ['0192f0a0-0000-7000-8000-000000000001'], 403, 'access_denied'],
+        ['a ref lookup with a key without access', ['app.js.map'], 403, 'access_denied'],
+        ['an ID PostHog does not have', ['0192f0a0-0000-7000-8000-000000000001'], 404, 'symbol_set_not_found'],
+    ])('download fails with a hint for %s', async (_name, args, status, code) => {
+        const result = await runHog(['et', 'download', ...args], {
+            env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+            respond: () => ({ status, body: { detail: 'Not allowed.' } }),
+        })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
+    })
+
+    test.each([
+        ['...dSYM', 'linux', 'symbol_set'],
+        ['C:\\build\\symbols.bin', 'win32', 'symbols.bin'],
+        ['static/chunks/app.js.map', 'linux', 'app'],
+    ] as const)('the base name of %s on %s is %s', (reference, platform, expected) => {
+        expect(deriveBaseName(reference, platform)).toBe(expected)
     })
 })

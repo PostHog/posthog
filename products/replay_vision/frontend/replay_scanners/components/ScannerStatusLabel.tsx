@@ -17,6 +17,7 @@ const STATUS_LABEL: Record<ScannerStatus['kind'], { label: string; tone: StatusT
     off: { label: 'Off', tone: 'muted' },
     limit_reached: { label: 'Stopped', tone: 'danger' },
     quota_exhausted: { label: 'Stopped', tone: 'danger' },
+    filter_error: { label: 'Filter error', tone: 'danger' },
     starting: { label: 'Starting', tone: 'warning' },
     delayed: { label: 'Delayed', tone: 'warning' },
     no_matches: { label: 'No matches', tone: 'warning' },

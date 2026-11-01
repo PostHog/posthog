@@ -138,7 +138,7 @@ The workers on that queue need `USAGE_INGESTION_ADDR` with an explicit port, and
 The Python gRPC client connects to port 443 when the address has no port, but the usage-ingestion Service listens on port 80.
 The task discards counts for teams that the allowlist does not enable.
 Delivery is best effort: the shared usage-ingestion client logs a failed send, and the task does not put the counts back.
-This counter is in `RECORD_REALTIME_BLOCKERS`, so its `realtime` mode resolves to `both` and legacy totals stay authoritative during the comparison rollout.
+Usage records from before this task omit the requests that Django served. [Step 4](#step-4-usage-report-generation) lists this gap with the other gaps that keep a counter off `realtime`.
 
 ### Redis pipelining
 
@@ -185,7 +185,13 @@ sender.add_periodic_task(
 
 ### Aggregation process
 
-For each team (excluding internal metrics and demo teams):
+The task reads the teams 1,000 at a time, excluding internal metrics and demo teams.
+For each batch, one pipelined `EXISTS` call finds the teams that have a team key for any request type.
+The task skips the teams with no team key.
+Those teams also have no SDK keys, because the service writes the SDK key in the same pipeline as the team key.
+When the `EXISTS` call fails, the task reports the error and exports every team in that batch.
+
+For each team with a team key:
 
 1. **Acquire distributed lock**: `posthog:decide_analytics:lock:{team_id}` with 60-second timeout
 2. **Extract counters**: Read all time buckets except the current one (still being filled)
@@ -252,24 +258,17 @@ The usage report task queries ClickHouse for aggregated billing data.
 **Source file:** `posthog/tasks/usage_report.py`
 
 Daily reports, usage reports v2, and quota limiting read the billed request counters through `posthog.usage_counters.UsageCounterService`.
-Each counter's feature flag selects `legacy`, `both`, or `realtime`.
-A counter in `RECORD_REALTIME_BLOCKERS` resolves `realtime` to `both` until its producer discrepancy is resolved or confirmed as intended billing behavior.
-All record-backed counters are guarded for the initial comparison rollout.
-These guards cover event, enhanced-person, and exception timestamp attribution, Django local-evaluation requests, replay sessions, and workflow invocations.
-Feature-flag request records use Rust flush time, while legacy billing events use the later Celery export time.
-That counter remains guarded until cutover reconciles requests across those dates.
-CDP and workflow dispatches use independent flush-time clocks for legacy app metrics and usage records.
-Their counters remain guarded until cutover reconciles dispatches across those dates.
-They also cover producer gaps in the exemptions for product-tour survey responses, wallet-billed AI gateway events, and sponsored relay events.
-Guarded counters still collect comparisons while legacy totals remain authoritative.
+The daily report and quota limiting always query billing events.
+Only usage reports v2 reads the counter feature flags.
+There, each counter's feature flag selects `legacy`, `both`, or `realtime`.
 `legacy` queries billing events. `both` queries billing events and `billing_usage_records`, and keeps the legacy count authoritative.
-`realtime` uses the usage record count. A report for a complete day also queries billing events, for the comparison. Each caller states whether its period is a complete day. The daily report and finalized usage reports v2 runs pass a complete day. Intraday usage reports v2 runs and quota limiting pass a partial day and skip that query.
+`realtime` uses the usage record count. A finalized run covers a complete day and also queries billing events, for the comparison. An intraday run covers a partial day and skips that query.
 Reports retain both totals in `counter_comparisons` for every counter that ran both queries. Both totals count each team under its current organization, the same as the report fields. A failed comparison query omits that counter's pair. A failure in a query needed for normal report fields still fails the report.
 The usage record query checks units separately for each usage key and discards all totals for a key with incompatible units.
 A mismatch in a comparison-only source omits that counter's pair and records a shadow validation failure; other counters remain available.
 A mismatch in a source used for a realtime total fails the report.
 Removing the complete-day legacy query will be a later code change.
-The mode selects the authoritative count for every caller and time window.
+The mode selects the authoritative count for finalized and intraday runs.
 Each run keeps its resolved plan, and flag lookups are cached for 60 seconds per process.
 Usage reports v2 saves each completed legacy query in S3 under its workflow run.
 Each legacy counter runs in its own activity, sharing the workflow's four-query limit with other queries.
@@ -278,9 +277,20 @@ The counter-report activity reads those checkpoints before its shared usage-reco
 Cancellation stops the counter worker between queries and before checkpoint or report writes; an in-flight query or write can still finish.
 Usage reports v2 records query latency and failures under the existing query names, plus `usage_records` for the shared scan and `usage_counters` for the combined activity.
 A failed counter activity or remaining query fails the workflow without waiting for the other queries to finish.
-Quota runs log resolved sources as `usage_counter_sources` and successful comparisons as `usage_counter_comparison`.
-Each comparison includes both totals, the number of differing teams, and the sum of absolute differences, so opposite discrepancies cannot cancel each other out.
 Missing-organization diagnostics use size-bounded events. Temporal runs their capture and flush outside the event loop.
+
+Usage records still differ from the legacy queries for every counter.
+Set a counter's flag to `realtime` only after a change removes its gap below.
+The team can also agree to bill the usage record count with the gap.
+
+- Events, enhanced person events, and exceptions: usage records use capture time, and the legacy queries use the event timestamp. The switch must not count an event on both dates or on neither date.
+- Feature flag requests: usage records use the flush time of the Rust flags service. The legacy query uses the later Celery export time.
+- Feature flag local evaluation requests: usage records from before [#118814](https://github.com/PostHog/posthog/pull/118814) omit the requests that the Django feature flag list endpoint served. Compare both producers over a complete window before you switch this counter.
+- CDP invocations and workflow emails, push, and SMS: usage records and app metrics flush on separate clocks. Each source can put one dispatch on a different date.
+- Workflow invocations: the legacy query counts fetch and push dispatches. Before [#118809](https://github.com/PostHog/posthog/pull/118809), a push dispatch wrote only a `workflow_push_sent` record, so `workflow_billable_invocations` held only fetches. Now a push dispatch writes both records. The clock difference above also applies.
+- Web and mobile recordings: the replay pipeline marks a session as seen before it parses the first message. When that message fails, the later messages of the session bill nothing. The fix is [#121613](https://github.com/PostHog/posthog/pull/121613), which bills each saved session once.
+- Survey responses: usage records include product tour responses, which the legacy query exempts.
+- AI events: usage records do not apply the legacy exemptions for wallet-billed gateway events and sponsored relay events.
 
 ### Billable calculation
 

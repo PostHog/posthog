@@ -20,6 +20,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
+    has_positive_test_account_filter,
     normalize_to_exposure_criteria,
 )
 
@@ -171,6 +172,30 @@ class TestGetTestAccountsFilter:
     def test_opting_out_skips_team_filters(self):
         team = Team(id=1, project_id=1, test_account_filters=[self._team_filter])
         assert get_test_accounts_filter(team, {"filterTestAccounts": False}) == []
+
+
+class TestHasPositiveTestAccountFilter:
+    @parameterized.expand(
+        [
+            ("positive_operator", [{"key": "$ip", "type": "event", "operator": "exact", "value": "203.0.113.1"}], True),
+            ("missing_operator_means_exact", [{"key": "$ip", "type": "event", "value": "203.0.113.1"}], True),
+            ("positive_cohort", [{"key": "id", "type": "cohort", "operator": "in", "value": 1}], True),
+            (
+                "one_positive_among_negative",
+                [
+                    {"key": "$host", "type": "event", "operator": "is_not", "value": ["localhost"]},
+                    {"key": "$ip", "type": "event", "operator": "exact", "value": "203.0.113.1"},
+                ],
+                True,
+            ),
+            ("negative_cohort", [{"key": "id", "type": "cohort", "operator": "not_in", "value": 1}], False),
+            ("hogql_only", [{"key": "properties.a = 1", "type": "hogql"}], False),
+            ("no_filters", [], False),
+            ("not_a_list", {}, False),
+        ]
+    )
+    def test_reads_the_operator_of_each_filter(self, _name, filters, expected):
+        assert has_positive_test_account_filter(Team(test_account_filters=filters)) is expected
 
 
 class TestGetMultipleVariantHandling:

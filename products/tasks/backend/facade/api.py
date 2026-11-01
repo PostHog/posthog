@@ -104,7 +104,13 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource, resolve_task_origin
+from products.tasks.backend.facade.profiles import (
+    NetworkAccess,
+    TaskProfile,
+    TaskRunOptions,
+    TaskSource,
+    resolve_task_origin,
+)
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
@@ -137,6 +143,7 @@ from products.tasks.backend.logic.services.network_policy import (
     normalize_requested_domains,
 )
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.logic.services.space_setup import (
     SPACE_SETUP_FEED_EVENT,
     SPACE_SETUP_MODEL,
@@ -275,6 +282,7 @@ __all__ = [
     "uses_own_subscription",
     "beacon_task_presence",
     "bootstrap_task_run",
+    "MAX_SANDBOX_TTL_SECONDS",
     "SANDBOX_REPOSITORIES_ROOT",
     "can_mint_readonly_github_token",
     "is_public_sandbox_repo",
@@ -5215,13 +5223,18 @@ def presign_task_run_artifact_download(
 
 
 def _run_has_open_network(run: TaskRun) -> bool:
-    if not (run.state or {}).get("sandbox_environment_id"):
+    environment = None
+    if (run.state or {}).get("sandbox_environment_id"):
+        environment = run.get_sandbox_environment()
+        if environment is None:
+            return False
+    profile = run.task.stored_profile
+    if profile is not None and (environment is None or environment.internal):
+        return profile.network.levels[0] == NetworkAccess.FULL
+    if environment is None:
         return True
-    environment = run.get_sandbox_environment()
     return (
-        environment is not None
-        and environment.network_access_level == SandboxNetworkAccessLevel.FULL
-        and environment.updated_at <= run.created_at
+        environment.network_access_level == SandboxNetworkAccessLevel.FULL and environment.updated_at <= run.created_at
     )
 
 

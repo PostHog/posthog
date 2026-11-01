@@ -1,6 +1,12 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import {
+    applyChartDisplay,
+    getChartDisplayOptions,
+    hasTrendsFormula,
+} from 'lib/components/ChartFilter/chartDisplayOptions'
+import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components/ChartFilter/chartDisplayOptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -29,8 +35,6 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
-import { applyChartDisplay, getChartDisplayOptions, hasTrendsFormula } from './chartDisplayOptions'
-import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 import { getChartAlternatives } from './chartRecommendations'
 
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
