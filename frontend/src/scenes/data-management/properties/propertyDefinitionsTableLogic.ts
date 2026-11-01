@@ -85,8 +85,12 @@ export interface propertyDefinitionsTableLogicActions {
             url: string | null
         }
     }
-    setFilters: (filters: Partial<Filters>) => {
+    setFilters: (
+        filters: Partial<Filters>,
+        debounce?: boolean
+    ) => {
         filters: Partial<Filters>
+        debounce: boolean
     }
     setHoveredDefinition: (definitionKey: string | null) => {
         definitionKey: string | null
@@ -150,7 +154,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         loadPropertyDefinitions: (url: string | null = '') => ({
             url,
         }),
-        setFilters: (filters: Partial<Filters>) => ({ filters }),
+        setFilters: (filters: Partial<Filters>, debounce: boolean = true) => ({ filters, debounce }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
         setLocalPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
@@ -216,7 +220,6 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                         url = api.propertyDefinitions.determineListEndpoint({})
                     }
                     cache.propertiesStartTime = performance.now()
-                    await breakpoint(200)
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
@@ -264,8 +267,10 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setFilters: async (_, breakpoint) => {
-            await breakpoint(500)
+        setFilters: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                await breakpoint(500)
+            }
             const params: Record<string, any> = {
                 offset: 0,
                 search: values.filters.property,
@@ -317,7 +322,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                         : undefined,
             }
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(parsedParams))) {
-                actions.setFilters(parsedParams as Filters)
+                actions.setFilters(parsedParams as Filters, false)
             } else if (!values.propertyDefinitions.results.length) {
                 actions.loadPropertyDefinitions()
             }
