@@ -552,6 +552,19 @@ describe('the feature flags logic', () => {
             await jest.advanceTimersByTimeAsync(1)
             expect(listRequests()).toEqual([expect.stringContaining('search=checkout')])
         })
+
+        it('sends one request with the destination filters when the URL moves from another tab to the overview', async () => {
+            router.actions.push(urls.featureFlags(), { tab: 'history' })
+            logic = featureFlagsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(1000)
+            listGet.mockClear()
+
+            router.actions.push(urls.featureFlags(), { tab: 'overview', search: 'checkout' })
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(listRequests()).toEqual([expect.stringContaining('search=checkout')])
+        })
     })
 
     describe('activity deep-link', () => {

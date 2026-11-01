@@ -892,22 +892,27 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             setActiveTab: changeUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         [urls.featureFlags()]: async (_, searchParams, __, { initial }, previousLocation) => {
-            const tabInURL = searchParams['tab']
-
-            if (!tabInURL) {
-                if (values.activeTab !== FeatureFlagsTab.OVERVIEW) {
-                    actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
-                }
-            } else if (tabInURL !== values.activeTab) {
-                const availableTab =
+            if (cache.settingTabFromUrl) {
+                return
+            }
+            const tabInURL = searchParams['tab'] || FeatureFlagsTab.OVERVIEW
+            if (tabInURL !== values.activeTab) {
+                const tab =
                     tabInURL === FeatureFlagsTab.USAGE &&
                     values.receivedFeatureFlags &&
                     !values.enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
                         ? FeatureFlagsTab.OVERVIEW
                         : tabInURL
-                actions.setActiveTab(availableTab)
+                // setActiveTab resets the filters, and actionToUrl sends that reset back here at once. Ignore it,
+                // or it loads the list without the filters below, and the list then loads a second time.
+                cache.settingTabFromUrl = true
+                try {
+                    actions.setActiveTab(tab)
+                } finally {
+                    cache.settingTabFromUrl = false
+                }
             }
 
             const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
