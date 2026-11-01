@@ -1286,7 +1286,7 @@ Returns:
 - `{"safe": true, "threat_type": "", "explanation": ""}`
 - `{"safe": false, "threat_type": "...", "explanation": "..."}`
 
-If the provider returns an empty response, the signal is treated as unsafe with threat type `provider_safety_filter`.
+If the provider returns an empty response (`EmptyLLMResponseError`), the safety filter retries once on a fallback model (`SIGNAL_SAFETY_FALLBACK_MODEL`, default `claude-sonnet-4-6`). If the fallback retry returns a valid verdict, that verdict is used. If the fallback model also returns an empty response, the signal is marked `held_for_review=True` with threat type `safety_filter_empty_response`, status `needs_review`, and preserved in object storage via `refusal_review.py` rather than completing and permanently dropping the pipeline. Confirmed benign held signals can be re-ingested into the active pipeline via `reingest_held_signal`.
 
 A block fires a `signal_blocked_by_safety_filter` event in the internal project, carrying the threat type and the explanation, but not the full signal text.
 The explanation quotes the fragment that caused the block, so the event holds a short excerpt of the signal.

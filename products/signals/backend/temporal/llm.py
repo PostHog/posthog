@@ -26,6 +26,7 @@ MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5-5")
 # MATCHING_MODEL, so a matching-model swap leaves the gate on the model its prompt was measured
 # against, and moving the gate takes a deliberate change to this setting.
 SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5-5"
+SAFETY_FALLBACK_MODEL = os.getenv("SIGNAL_SAFETY_FALLBACK_MODEL") or "claude-sonnet-4-6"
 
 
 @frozen
