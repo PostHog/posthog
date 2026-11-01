@@ -104,4 +104,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Time at which the member was added to the workspace.",
         },
     },
+    "activities": {
+        "description": "An activity type defined in the Attio workspace, such as a call or site visit. Lists the type definitions, not the individual activity records.",
+        "docs_url": "https://docs.attio.com/rest-api/endpoint-reference/activities/list-activities",
+        "columns": {
+            "id": "Composite identifier for the activity type (workspace and activity id).",
+            "activity_id": "Unique identifier for the activity type.",
+            "api_slug": "URL-safe slug used to reference the activity type in the API.",
+            "singular_noun": "Singular display name of the activity type.",
+            "plural_noun": "Plural display name of the activity type.",
+            "extends": "The standard schemas this activity type extends.",
+            "is_system_activity": "Whether Attio defines the activity type, as opposed to a workspace user.",
+            "created_at": "Time at which the activity type was created.",
+        },
+    },
 }

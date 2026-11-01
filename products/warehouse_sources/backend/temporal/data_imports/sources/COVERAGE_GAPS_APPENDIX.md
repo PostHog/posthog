@@ -975,6 +975,16 @@ No material gaps found.
 
 Note: This is a webhook-ingestion source (the directory contains webhook_template.py), and the 8 tables map exactly 1:1 onto the 8 event types Attentive's createwebhook endpoint accepts: sms.subscribed, sms.sent, sms.message_link_click, email.subscribed, email.unsubscribed, email.message_link_click, email.opened, custom_attribute.set. Full coverage of the webhook surface. Attentive's REST/GraphQL APIs are almost entirely write/ingest (POST events, attributes, subscriptions, catalog uploads); the only GETs are single-user lookups by phone/email, webhook config, catalog upload status and /me - no analytical collections to backfill from, so historical data before webhook setup is simply unavailable from the vendor.
 
+## Attio — gaps
+
+Today (10): `activities`, `companies`, `deals`, `lists`, `notes`, `people`, `tasks`, `users`, `workspace_members`, `workspaces`
+
+Diffed against: <https://docs.attio.com/changelog/rest-api>
+
+- [x] `Activities (GET /v2/activities)` — activity type definitions, so activity records can be labelled by type (low)
+
+Note: The main gap list for Attio is in COVERAGE_GAPS.md. `GET /v2/emails` was not added: it is alpha, Attio enables it per workspace on request, and it only returns emails filtered by linked records, participants, or domain, so it cannot list a workspace's emails.
+
 ## Auth0 — gaps
 
 Today (13): `actions`, `clients`, `connections`, `log_streams`, `logs`, `organization_member_roles`, `organization_members`, `organizations`, `resource_servers`, `roles`, `user_roles`, `user_sessions`, `users`

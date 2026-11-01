@@ -263,7 +263,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/asknicely/asknicely.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/assemblyai/assemblyai.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/assemblyai/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/attio/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/automox/automox.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/automox/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/autumn/autumn.py
