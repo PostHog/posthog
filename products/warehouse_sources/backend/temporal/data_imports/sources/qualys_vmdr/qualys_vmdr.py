@@ -340,6 +340,17 @@ def _next_batch_url(root: Element, base_url: str) -> str | None:
     return urlunsplit((base_parts.scheme, base_parts.netloc, next_parts.path, next_parts.query, ""))
 
 
+def _resume_url(saved_url: str, base_url: str, path: str) -> str:
+    """Rebuild a saved next-batch URL on the pin's current route.
+
+    A checkpoint saved before a repin carries the old version's path, which Qualys may have retired.
+    The truncation query (filters plus the id_min cursor) is the same on every version, so only the
+    path changes.
+    """
+    base_parts = urlsplit(base_url)
+    return urlunsplit((base_parts.scheme, base_parts.netloc, path, urlsplit(saved_url).query, ""))
+
+
 def _build_initial_url(
     base_url: str,
     config: QualysVmdrEndpointConfig,
@@ -382,7 +393,7 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = resume.next_url
+        url = _resume_url(resume.next_url, base_url, config.resolve_path(api_version))
         logger.debug(f"Qualys VMDR: resuming from URL: {url}")
     else:
         url = _build_initial_url(

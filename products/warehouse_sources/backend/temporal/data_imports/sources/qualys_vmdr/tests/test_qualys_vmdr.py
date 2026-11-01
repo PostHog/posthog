@@ -367,17 +367,25 @@ class TestQualysVmdr:
         assert result.paths == [expected_path]
         assert result.requests[0].headers["authorization"].startswith("Basic ")
 
-    def test_get_rows_resumes_from_saved_state(self):
+    @pytest.mark.parametrize(
+        "api_version,expected_url",
+        [
+            ("4.0", "https://qualysapi.qualys.com/api/2.0/fo/asset/host/?action=list&id_min=1002"),
+            ("6.0", "https://qualysapi.qualys.com/api/6.0/fo/asset/host/?action=list&id_min=1002"),
+        ],
+    )
+    def test_get_rows_resumes_from_saved_state_on_the_pins_route(self, api_version, expected_url):
+        # A checkpoint saved before a 4.0 -> 6.0 repin still carries the retired 2.0 path
         resume_url = "https://qualysapi.qualys.com/api/2.0/fo/asset/host/?action=list&id_min=1002"
 
         result = _drive(
             "hosts",
             [_xml(HOST_LIST_PAGE_2)],
-            api_version="2.0",
+            api_version=api_version,
             resume_state=QualysVmdrResumeConfig(next_url=resume_url),
         )
 
-        assert result.urls == [resume_url]
+        assert result.urls == [expected_url]
         assert [row["id"] for row in result.rows] == ["1002"]
 
     def test_get_rows_rejects_disallowed_api_server_before_any_request(self):
