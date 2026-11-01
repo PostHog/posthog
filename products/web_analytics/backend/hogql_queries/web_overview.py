@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -489,6 +490,7 @@ WHERE and(
                 timings=self.timings,
                 modifiers=execution_modifiers,
                 limit_context=self.limit_context,
+                settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
             )
             if not pre_aggregated_response
             else pre_aggregated_response
