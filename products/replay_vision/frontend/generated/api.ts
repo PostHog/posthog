@@ -52,6 +52,7 @@ import type {
     ScannerImpactApi,
     ScannerScoutCreateApi,
     ScannerScoutCreateResponseApi,
+    ScannerScoutTemplateApi,
     ScannerSelfDrivingStatsApi,
     ScannerStatsResponseApi,
     ScoutReportApi,
@@ -1518,6 +1519,24 @@ export const visionScannersScoutsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scannerScoutCreateApi),
+    })
+}
+
+export const getVisionScannersScoutsTemplatesListUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/scouts/templates/`
+}
+
+/**
+ * The scout templates this scanner offers, rendered for it, in the order the picker shows them.
+ */
+export const visionScannersScoutsTemplatesList = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ScannerScoutTemplateApi[]> => {
+    return apiMutator<ScannerScoutTemplateApi[]>(getVisionScannersScoutsTemplatesListUrl(projectId, scannerId), {
+        ...options,
+        method: 'GET',
     })
 }
 

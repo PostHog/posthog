@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
@@ -14,6 +15,7 @@ from products.replay_vision.backend.api.scout_permissions import ScoutDataAccess
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
+from products.replay_vision.backend.scout_templates import ScoutTemplateKey, scout_templates_for
 from products.replay_vision.backend.variant_analysis import VARIANT_ANALYSIS_TAG, variant_analysis_config
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigSerializer, SignalScoutCreateSerializer
@@ -56,6 +58,15 @@ class ScannerScoutCreateResponseSerializer(serializers.Serializer):
     config = SignalScoutConfigSerializer(help_text="The scout's config, including the source recorded for it.")
 
 
+class ScannerScoutTemplateSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(choices=ScoutTemplateKey.choices, help_text="The template's id.")
+    title = serializers.CharField(help_text="The template's name, as the template picker shows it.")
+    description = serializers.CharField(help_text="What a scout made from this template does.")
+    default_name = serializers.CharField(help_text="The name the create form starts with.")
+    cron = serializers.CharField(help_text="The default run schedule, as a cron expression in the project timezone.")
+    body = serializers.CharField(help_text="The scout's instructions, rendered for this scanner.")
+
+
 class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Creating the scouts that watch one scanner.
 
@@ -84,6 +95,16 @@ class ScannerScoutViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not access.check_access_level_for_object(scanner, required_level="editor"):
             raise PermissionDenied("Creating a scout for this scanner requires editor access to it.")
         return scanner
+
+    @extend_schema(
+        responses={200: ScannerScoutTemplateSerializer(many=True)},
+        description="The scout templates this scanner offers, rendered for it, in the order the picker shows them.",
+    )
+    @action(detail=False, methods=["get"], required_scopes=["replay_scanner:read", "session_recording:read"])
+    def templates(self, request: Any, **kwargs: Any) -> Response:
+        scanner = scanner_for_recording_derived_read(self)
+        templates = scout_templates_for(str(scanner.id), scanner.scanner_type, scanner.name or "")
+        return Response(ScannerScoutTemplateSerializer(templates, many=True).data)
 
     @extend_schema(
         request=ScannerScoutCreateSerializer,

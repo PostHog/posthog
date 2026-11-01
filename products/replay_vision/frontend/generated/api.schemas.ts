@@ -2529,6 +2529,50 @@ export interface ScannerScoutCreateResponseApi {
     config: SignalScoutConfigApi
 }
 
+/**
+ * * `variant-analysis` - Variant analysis
+ * * `daily-digest` - Daily digest
+ * * `root-cause` - Root cause
+ * * `weekly-themes` - Weekly themes
+ * * `trend-watch` - Trend watch
+ * * `new-issues` - New issue watch
+ * * `scratch` - Start from scratch
+ */
+export type ScoutTemplateKeyEnumApi = (typeof ScoutTemplateKeyEnumApi)[keyof typeof ScoutTemplateKeyEnumApi]
+
+export const ScoutTemplateKeyEnumApi = {
+    VariantAnalysis: 'variant-analysis',
+    DailyDigest: 'daily-digest',
+    RootCause: 'root-cause',
+    WeeklyThemes: 'weekly-themes',
+    TrendWatch: 'trend-watch',
+    NewIssues: 'new-issues',
+    Scratch: 'scratch',
+} as const
+
+export interface ScannerScoutTemplateApi {
+    /** The template's id.
+     *
+     * * `variant-analysis` - Variant analysis
+     * * `daily-digest` - Daily digest
+     * * `root-cause` - Root cause
+     * * `weekly-themes` - Weekly themes
+     * * `trend-watch` - Trend watch
+     * * `new-issues` - New issue watch
+     * * `scratch` - Start from scratch */
+    key: ScoutTemplateKeyEnumApi
+    /** The template's name, as the template picker shows it. */
+    title: string
+    /** What a scout made from this template does. */
+    description: string
+    /** The name the create form starts with. */
+    default_name: string
+    /** The default run schedule, as a cron expression in the project timezone. */
+    cron: string
+    /** The scout's instructions, rendered for this scanner. */
+    body: string
+}
+
 export interface VariantsExperimentApi {
     /** The experiment's id. */
     id: number
