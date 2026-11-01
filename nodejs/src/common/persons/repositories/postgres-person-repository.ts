@@ -5,6 +5,7 @@ import { buildIntegerMatcher } from '~/common/config/config'
 import { PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
 import {
     oversizedPersonPropertiesTrimmedCounter,
+    personCreateDistinctIdConflictCounter,
     personJsonFieldSizeHistogram,
     personPropertiesSizeViolationCounter,
     personStrayDistinctIdTombstonedCounter,
@@ -704,6 +705,31 @@ export class PostgresPersonRepository
             distinctId.version ||= 0
         }
 
+        // A live person that owns one of the distinct ids makes the create fail. Find that before
+        // the insert: the upsert locks the person row and the contested mappings, and the undo
+        // below keeps those locks until the caller's transaction ends.
+        const {
+            rows: [{ owned }],
+        } = await this.postgres.query<{ owned: boolean }>(
+            tx,
+            `SELECT EXISTS (
+                SELECT 1 FROM posthog_persondistinctid d
+                JOIN posthog_person p ON p.team_id = d.team_id AND p.id = d.person_id
+                WHERE d.team_id = $1 AND d.distinct_id = ANY($2::text[])
+                  AND d.is_deleted = false AND p.is_deleted = false
+            ) AS owned`,
+            [teamId, distinctIds.map(({ distinctId }) => distinctId)],
+            'checkCreatePersonDistinctIdConflict'
+        )
+        if (owned) {
+            personCreateDistinctIdConflictCounter.labels({ stage: 'precheck' }).inc()
+            return {
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: distinctIds.map((d) => d.distinctId),
+            }
+        }
+
         // Fresh inserts start at version 0; a tombstone conflict revives at death_version + 1 instead.
         const personVersion = 0
 
@@ -855,6 +881,7 @@ export class PostgresPersonRepository
                     [distinctIdRows.map((row) => row.id), teamId, person.id],
                     'undoInsertPerson'
                 )
+                personCreateDistinctIdConflictCounter.labels({ stage: 'undo' }).inc()
                 // A distinct-ID collision, not a uuid one: the caller resolves this by
                 // re-fetching on distinct ID, so there is no holder to look up.
                 return {

@@ -211,6 +211,15 @@ describe('PostgresPersonRepository', () => {
             return () => spy.mock.calls.map((call) => String(call[3]))
         }
 
+        // Stands in for a mapping that commits between the create's conflict check and its insert.
+        function missCreateConflictCheck(): void {
+            const query = postgres.query.bind(postgres)
+            jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof postgres.query>) =>
+                args[3] === 'checkCreatePersonDistinctIdConflict'
+                    ? Promise.resolve({ rows: [{ owned: false }] })
+                    : query(...args)) as typeof postgres.query)
+        }
+
         async function tombstonePerson(person: InternalPerson): Promise<void> {
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
@@ -723,44 +732,56 @@ describe('PostgresPersonRepository', () => {
             await expect(repository.fetchPerson(team.id, 'dup-did')).resolves.toMatchObject({ uuid })
         })
 
-        it('createPerson undoes its insert when a distinct id is owned by a live mapping', async () => {
-            await createTestPerson(team.id, 'contested-did')
-            const uuid = new UUIDT().toString()
-            const queryTags = recordQueryTags()
+        it.each([
+            ['found before the insert', false, []],
+            ['committed after the check', true, [{ is_deleted: true, properties: {} }]],
+        ])(
+            'createPerson writes no live person when a live mapping owns a distinct id %s',
+            async (_name, raced, expectedPersonRows) => {
+                await createTestPerson(team.id, 'contested-did')
+                const uuid = new UUIDT().toString()
+                if (raced) {
+                    missCreateConflictCheck()
+                }
+                const queryTags = recordQueryTags()
 
-            const result = await repository.createPerson(
-                TIMESTAMP,
-                { secret: 'value' },
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid,
-                { distinctId: 'undo-primary-did' },
-                [{ distinctId: 'contested-did' }]
-            )
+                const result = await repository.createPerson(
+                    TIMESTAMP,
+                    { secret: 'value' },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    false,
+                    uuid,
+                    { distinctId: 'undo-primary-did' },
+                    [{ distinctId: 'contested-did' }]
+                )
 
-            expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
-            expect(queryTags()).not.toContain('lockStrayDistinctIds')
-            // The person row and the primary mapping it did attach are tombstoned, not
-            // left live: a live person unreachable by its contested distinct id would
-            // block the key forever. Like every tombstone, the properties are scrubbed.
-            const personRows = await postgres.query(
-                PostgresUse.PERSONS_WRITE,
-                'SELECT is_deleted, properties FROM posthog_person WHERE team_id = $1 AND uuid = $2',
-                [team.id, uuid],
-                'fetchUndonePerson'
-            )
-            expect(personRows.rows).toEqual([{ is_deleted: true, properties: {} }])
-            await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
-        })
+                expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
+                expect(queryTags()).not.toContain('lockStrayDistinctIds')
+                // The check skips the insert, so the create locks no row. When a race slips past
+                // the check, the person row and the primary mapping it did attach are tombstoned,
+                // not left live: a live person unreachable by its contested distinct id would
+                // block the key forever. Like every tombstone, the properties are scrubbed.
+                expect(queryTags().includes('insertPerson')).toBe(raced)
+                const personRows = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT is_deleted, properties FROM posthog_person WHERE team_id = $1 AND uuid = $2',
+                    [team.id, uuid],
+                    'fetchUndonePerson'
+                )
+                expect(personRows.rows).toEqual(expectedPersonRows)
+                await expect(repository.fetchPerson(team.id, 'undo-primary-did')).resolves.toBeUndefined()
+            }
+        )
 
         it('createPerson undone by a live mapping leaves a reattached stray tombstoned', async () => {
             const liveOwner = await createTestPerson(team.id, 'mixed-contested-did')
             const deadOwner = await createTestPerson(team.id, 'mixed-stray-owner-did')
             await repository.addDistinctId(deadOwner, 'mixed-stray-did', 1)
             await tombstonePerson(deadOwner)
+            missCreateConflictCheck()
 
             const result = await repository.createPerson(
                 TIMESTAMP,
