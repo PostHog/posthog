@@ -2,9 +2,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
 
-import { attachedContextLogic } from './attachedContextLogic'
 import { PICKER_PROVIDER_ID, contextPickerLogic, taxonomicItemToAttachedContext } from './contextPickerLogic'
 
 describe('contextPickerLogic', () => {

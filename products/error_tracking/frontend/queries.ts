@@ -1,4 +1,5 @@
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { HogQLQueryString, escapeHogQLString, hogql } from 'lib/utils/hogql'
 
 import {
     DataTableNode,
@@ -17,7 +18,7 @@ import {
     NodeKind,
     ProductKey,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, escapeHogQLString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,

@@ -2,10 +2,14 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { ActionType, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActionType, ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Actions',
+    activityDescribers: {
+        [ActivityScope.ACTION]: () =>
+            import('./frontend/actionActivityDescriber').then((module) => module.actionActivityDescriber),
+    },
     urls: {
         createAction: (): string => `/data-management/actions/new`,
         duplicateAction: (action: ActionType | null): string => {

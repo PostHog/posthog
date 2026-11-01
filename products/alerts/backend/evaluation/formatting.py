@@ -1,7 +1,7 @@
 """Format alert-breach values and breakdown labels the way the insight itself displays them.
 
 This is a backend port of the frontend `formatAggregationAxisValue`
-(`frontend/src/scenes/insights/aggregationAxisFormat.ts`): given a trends insight's axis config
+(`frontend/src/lib/insights/aggregationAxisFormat.ts`): given a trends insight's axis config
 (`aggregationAxisFormat`, prefix/postfix, decimal places) plus the team's base currency, render a
 raw metric value as the user sees it on the chart — so notification messages read "($803.77)" and
 "(Other (i.e. all remaining values))" instead of "(803.7740196999998)" and a raw breakdown sentinel.

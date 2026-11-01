@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconArchive, IconArrowRight, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 
 import {
     NotificationGroup,

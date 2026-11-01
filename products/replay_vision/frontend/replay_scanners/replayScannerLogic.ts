@@ -87,14 +87,15 @@ import { newScanner } from './newScanner'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
-    SCANNER_EDITOR_STEPS,
     ScannerEditorStep,
+    advancesWithoutSubmit,
     firstErroredScannerStep,
+    nextScannerEditorStep,
     scannerEditorSceneLogic,
+    scannerEditorSteps,
     scannerStepErrors,
     scannerStepUrl,
     scannerStepUrlWithParams,
-    UNVALIDATED_SCANNER_STEPS,
 } from './scannerEditorSceneLogic'
 import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
@@ -438,7 +439,7 @@ export type CreditLimitUnit = 'credits' | 'observations'
 export type GoalSpendMode = 'free' | 'budget'
 
 // Prefills the typed budget at the free monthly credits (FREE_TIER_MONTHLY_CREDITS in backend/billing.py).
-const DEFAULT_GOAL_BUDGET = 2500
+export const DEFAULT_GOAL_BUDGET = 2500
 
 /** The spend a goal draft is sized to. The server sizes a free-only draft to the free credits it can spend. */
 export type GoalDraftSpend = { freeOnly: true } | { monthlyCreditBudget: number }
@@ -448,6 +449,11 @@ export interface GoalDraftRequest {
     spend: GoalDraftSpend
     templateKey?: string
     experimentId?: number
+}
+
+/** Kept only when it is a slug the create API accepts, so a telemetry value can never block a save. */
+function scannerEntryPoint(value: unknown): string | null {
+    return typeof value === 'string' && /^[a-z0-9_]{1,64}$/.test(value) ? value : null
 }
 
 export interface GoalSpendChoice {
@@ -529,6 +535,7 @@ export interface replayScannerLogicValues {
     creditLimitState: CreditLimitState
     creditLimitUnit: CreditLimitUnit
     durationValidationError: string | null
+    entryPoint: string | null
     estimateRequestVersion: number
     experimentContext: ExperimentScannerContext | null
     experimentContextLinked: boolean
@@ -536,6 +543,7 @@ export interface replayScannerLogicValues {
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
+    goalDraftQuery: RecordingsQuery | null
     goalExperiment: ExperimentBasicApi | null
     goalSpendMode: GoalSpendMode
     hasActiveObservationFilters: boolean
@@ -785,6 +793,9 @@ export interface replayScannerLogicActions {
     setCreditLimitUnit: (unit: CreditLimitUnit) => {
         unit: CreditLimitUnit
     }
+    setEntryPoint: (entryPoint: string | null) => {
+        entryPoint: string | null
+    }
     setExperimentContext: (context: ExperimentScannerContext | null) => {
         context: ExperimentScannerContext | null
     }
@@ -796,6 +807,9 @@ export interface replayScannerLogicActions {
     }
     setGoalDraftInput: (goal: string) => {
         goal: string
+    }
+    setGoalDraftQuery: (query: RecordingsQuery | null) => {
+        query: RecordingsQuery | null
     }
     setGoalExperiment: (experiment: ExperimentBasicApi | null) => {
         experiment: ExperimentBasicApi | null
@@ -1050,6 +1064,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setGoalExperiment: (experiment: ExperimentBasicApi | null) => ({ experiment }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
         setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
+        setGoalDraftQuery: (query: RecordingsQuery | null) => ({ query }),
+        setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -1170,11 +1186,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             submit: async (scanner: ScannerFormValues) => {
                 // A non-final step only ever offers "Next", so any submit there advances rather than persisting.
                 // Enter would otherwise save an existing scanner and leave the wizard from the middle of it.
-                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step ?? 'configure'
-                // The overview step sits outside the manual wizard's step list (indexOf -1), so its
-                // submit must persist rather than resolve to the list's first step and navigate there.
-                const currentStepIndex = SCANNER_EDITOR_STEPS.indexOf(currentStep)
-                const nextStep = currentStepIndex === -1 ? undefined : SCANNER_EDITOR_STEPS[currentStepIndex + 1]
+                const editor = scannerEditorSceneLogic.findMounted()
+                const currentStep = editor?.values.step ?? 'configure'
+                // The overview step sits outside the manual wizard's step list, so its submit must
+                // persist rather than resolve to the list's first step and navigate there.
+                const nextStep = nextScannerEditorStep(currentStep, editor?.values.steps ?? scannerEditorSteps(false))
                 if (nextStep) {
                     router.actions.push(scannerStepUrlWithParams(nextStep, props.id, router.values.searchParams))
                     return
@@ -1199,7 +1215,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         // about that, so the update payload below leaves it out.
                         const response = await visionScannersCreate(
                             String(teamId),
-                            scannerToApiBody({ ...body, creation_method: values.creationMethod })
+                            scannerToApiBody({
+                                ...body,
+                                creation_method: values.creationMethod,
+                                entry_point: values.entryPoint,
+                            })
                         )
                         actions.scannerSaved(scanner)
                         leaveScannerEditor(props.id, urls.replayVision(response.id))
@@ -1291,6 +1311,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             ? { free_only: true }
                             : { monthly_credit_budget: spend.monthlyCreditBudget }),
                         experiment_id: experimentId,
+                        ...(values.goalDraftQuery ? { query: values.goalDraftQuery } : {}),
                     })
                 },
             },
@@ -1346,6 +1367,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             'free' as GoalSpendMode,
             {
                 setGoalSpendMode: (_, { mode }) => mode,
+            },
+        ],
+        // Kept through a failed draft, so a retry from the goal page still watches the chosen recordings.
+        goalDraftQuery: [
+            null as RecordingsQuery | null,
+            {
+                setGoalDraftQuery: (_, { query }) => query,
+                startFromScratch: () => null,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
+            },
+        ],
+        // Kept through a path switch, because a person who builds by hand after the AI flow still started there.
+        entryPoint: [
+            null as string | null,
+            {
+                setEntryPoint: (_, { entryPoint }) => entryPoint,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
             },
         ],
         // Starting from scratch replaces the drafted form, so its rationale no longer describes the config.
@@ -1986,20 +2026,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (error?.message !== 'Validation Failed') {
                     return
                 }
-                const currentStep = scannerEditorSceneLogic.findMounted()?.values.step
-                // Enter submits the whole form, so leaving a step that validates nothing must behave like
+                const editor = scannerEditorSceneLogic.findMounted()
+                const currentStep = editor?.values.step
+                const recordingsFirst = editor?.values.recordingsFirst ?? false
+                const steps = scannerEditorSteps(recordingsFirst)
+                const errors = { ...values.scannerValidationErrors, duration: values.durationValidationError }
+                // Enter submits the whole form, so leaving a step whose own fields are clean must behave like
                 // its Next button: move on, rather than red-flag fields the user has not reached yet.
-                if (currentStep && UNVALIDATED_SCANNER_STEPS.includes(currentStep)) {
-                    const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(currentStep) + 1]
+                if (currentStep && advancesWithoutSubmit(currentStep, recordingsFirst, errors)) {
+                    const next = nextScannerEditorStep(currentStep, steps)
                     if (next) {
                         router.actions.push(scannerStepUrlWithParams(next, props.id, router.values.searchParams))
                     }
                     return
                 }
-                const erroredStep = firstErroredScannerStep({
-                    ...values.scannerValidationErrors,
-                    duration: values.durationValidationError,
-                })
+                const erroredStep = firstErroredScannerStep(errors, steps)
                 if (erroredStep && erroredStep !== currentStep) {
                     router.actions.push(scannerStepUrlWithParams(erroredStep, props.id, router.values.searchParams))
                 }
@@ -2025,6 +2066,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // unrelated wizard visit.
                     const handoff = consumeScannerHandoffIntent()
                     const armedGoal = consumeScannerGoalDraftIntent()
+                    const entryPoint = scannerEntryPoint(
+                        handoff?.source ?? armedGoal?.source ?? router.values.searchParams.entry_point
+                    )
+                    if (entryPoint) {
+                        actions.setEntryPoint(entryPoint)
+                    }
                     // Prefill precedence: a cross-product hand-off (a whole scanner, armed by an
                     // in-tab click moments before navigation), then an experiment deep link, then
                     // an explicit ?filters= query (both carry fully built state), then a saved
@@ -2047,6 +2094,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if ('filters' in nextParams) {
                         delete nextParams.filters
                     }
+                    if ('entry_point' in nextParams) {
+                        delete nextParams.entry_point
+                    }
                     if (Object.keys(nextParams).length !== Object.keys(router.values.searchParams).length) {
                         router.actions.replace(router.values.location.pathname, nextParams, router.values.hashParams)
                     }
@@ -2055,6 +2105,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             creation_method: 'handoff',
                             template_key: null,
                             source: handoff.source,
+                            entry_point: values.entryPoint,
                         })
                         // Same fresh-intent rule as the experiment deep link: the hand-off was
                         // armed by a click moments before navigation, so it outranks a saved
@@ -2146,15 +2197,30 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     const consented = !!organizationLogic.values.currentOrganization?.is_ai_data_processing_approved
                     if (armedGoal && !hasFiltersPrefill && consented && !values.goalDraftLoading) {
-                        actions.setGoalDraftInput(armedGoal)
-                        const { spend } = goalSpendChoice(
-                            values.goalSpendMode,
-                            values.goalBudgetInput,
-                            visionQuotaLogic.findMounted()?.values.freeCreditsLeft ?? null
-                        )
+                        actions.setGoalDraftInput(armedGoal.goal)
+                        if (armedGoal.query) {
+                            actions.setGoalDraftQuery(armedGoal.query)
+                        }
+                        if (armedGoal.spend) {
+                            // Mirrored into the goal page's controls, so a failed draft offers the same choice again.
+                            actions.setGoalSpendMode('freeOnly' in armedGoal.spend ? 'free' : 'budget')
+                            if ('monthlyCreditBudget' in armedGoal.spend) {
+                                actions.setGoalBudgetInput(armedGoal.spend.monthlyCreditBudget)
+                            }
+                        }
+                        const spend =
+                            armedGoal.spend ??
+                            goalSpendChoice(
+                                values.goalSpendMode,
+                                values.goalBudgetInput,
+                                visionQuotaLogic.findMounted()?.values.freeCreditsLeft ?? null
+                            ).spend
                         // With no budget to size it to, the goal stays in the box for the person to finish.
                         if (spend) {
-                            actions.draftScannerFromGoal({ goal: armedGoal, spend })
+                            actions.draftScannerFromGoal({
+                                goal: armedGoal.goal,
+                                spend,
+                            })
                         }
                     }
                     return
@@ -2299,6 +2365,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // Set when a starter wrote the goal and it was sent unedited, or when an experiment was picked,
                     // so the funnel can split typed goals from starter ones.
                     template_key: templateKey ?? null,
+                    entry_point: values.entryPoint,
+                    query_pinned: !!values.goalDraftQuery,
                     spend_mode: 'freeOnly' in spend ? 'free' : 'budget',
                     // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
@@ -2424,6 +2492,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'scratch',
                     template_key: null,
+                    entry_point: values.entryPoint,
                 })
                 clearScannerDraft()
                 actions.setScannerDraftSavedAt(null)
@@ -2945,7 +3014,7 @@ export function leaveScannerEditor(scannerId: string, destination: string): void
 /** The step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
-        ...SCANNER_EDITOR_STEPS.map((step) => scannerStepUrl(step, scannerId)),
+        ...scannerEditorSteps(false).map((step) => scannerStepUrl(step, scannerId)),
         // The goal flow's overview step is editor territory too, though it sits outside the manual stepper.
         scannerStepUrl('overview', scannerId),
     ]

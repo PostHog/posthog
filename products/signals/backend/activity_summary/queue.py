@@ -209,9 +209,8 @@ def organization_rollout_bucket(organization_id: uuid.UUID) -> int:
     return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
 
 
-def _in_rollout(config: ActivitySummaryConfig, organization_id: uuid.UUID) -> bool:
-    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
-    return organization_rollout_bucket(organization_id) < threshold
+def _in_rollout(percentage: float, organization_id: uuid.UUID) -> bool:
+    return organization_rollout_bucket(organization_id) < percentage * _ROLLOUT_BUCKETS / 100
 
 
 @frozen
@@ -220,6 +219,8 @@ class Enrollment:
     organization_ids: list[uuid.UUID]
     # The organizations that a 100 percent rollout enrolls, with or without manual enrollment.
     qualifying_organization_ids: list[uuid.UUID]
+    # The organization of each enrolled team.
+    team_organization_ids: dict[int, uuid.UUID] = dataclasses.field(default_factory=dict)
 
 
 def enrollment(config: ActivitySummaryConfig) -> Enrollment:
@@ -248,17 +249,30 @@ def enrollment(config: ActivitySummaryConfig) -> Enrollment:
         enrolled |= {
             team_id: organization_id
             for team_id, organization_id in with_source.items()
-            if _in_rollout(config, organization_id)
+            if _in_rollout(config.self_driving_organization_percentage, organization_id)
         }
     return Enrollment(
         team_ids=sorted(enrolled),
         organization_ids=sorted(set(enrolled.values())),
         qualifying_organization_ids=sorted(set(with_source.values())),
+        team_organization_ids=enrolled,
     )
 
 
 def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
     return enrollment(config).team_ids
+
+
+def mcp_buffer_team_ids(config: ActivitySummaryConfig, enrolled: Enrollment) -> list[int]:
+    """The enrolled teams whose MCP intents the buffer keeps. The percentage never adds a team that is not enrolled."""
+    if not config.mcp_buffer_enabled:
+        return []
+    listed = _parse_organization_ids(config.mcp_buffer_organization_ids)
+    return sorted(
+        team_id
+        for team_id, organization_id in enrolled.team_organization_ids.items()
+        if organization_id in listed or _in_rollout(config.mcp_buffer_percentage, organization_id)
+    )
 
 
 def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:
@@ -275,7 +289,7 @@ def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -
         return False
     if config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids):
         return True
-    if not _in_rollout(config, team.organization_id):
+    if not _in_rollout(config.self_driving_organization_percentage, team.organization_id):
         return False
     from products.signals.backend.facade.api import (
         has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`

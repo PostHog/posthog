@@ -175,7 +175,7 @@ def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping
 
     `grouping` applies only to a copy this creates, because the logs row stores none."""
     upsert = platform_upsert_of(alert)
-    savepoint = transaction.savepoint()
+    savepoint = transaction.savepoint_create()
     upsert_configuration(upsert if grouping is None else replace(upsert, grouping=grouping))
     taken = take_ownership(
         PlatformOwnershipHandover(

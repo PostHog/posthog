@@ -17,6 +17,8 @@ from posthog.schema import (
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsRecommendationsQuery,
+    MarketingAnalyticsSearchQuery,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -219,6 +221,18 @@ class TestQueriedAccessControlledResources(BaseTest):
             )
         )
         assert queried_access_controlled_resources(query, self.team) == set()
+
+    @parameterized.expand(
+        [
+            ("recommendations_without_sources", MarketingAnalyticsRecommendationsQuery(), True),
+            ("recommendations_with_empty_sources", MarketingAnalyticsRecommendationsQuery(sources=[]), False),
+            ("search_with_empty_sources", MarketingAnalyticsSearchQuery(sources=[]), False),
+        ]
+    )
+    def test_marketing_queries_partition_on_warehouse_scopes(self, _name, query, reads_warehouse):
+        scopes = queried_access_controlled_resources(query, self.team)
+        assert scopes is not None
+        assert ({"warehouse_table", "warehouse_view"} <= scopes) is reads_warehouse
 
     def test_references_data_warehouse_covers_all_variants_and_nesting(self):
         variants = [

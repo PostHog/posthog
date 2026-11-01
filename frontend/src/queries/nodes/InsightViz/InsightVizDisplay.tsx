@@ -6,6 +6,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -28,10 +29,10 @@ import {
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { INSIGHT_GRAPH_DATA_ATTR } from '~/queries/nodes/InsightViz/insightImageCapture'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
@@ -59,7 +60,6 @@ import { Paths } from 'products/product_analytics/frontend/insights/paths/Paths'
 import { PathCanvasLabel } from 'products/product_analytics/frontend/insights/paths/PathsLabel'
 import { RetentionContainer } from 'products/product_analytics/frontend/insights/retention/RetentionContainer'
 import { InsightAIAnalysis } from 'products/product_analytics/frontend/insights/shared/InsightAIAnalysis'
-import { INSIGHT_GRAPH_DATA_ATTR } from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { InsightsTable } from 'products/product_analytics/frontend/insights/shared/InsightsTable/InsightsTable'
 import { BoxPlotLegend } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotLegend'
 import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insights/trends/BoxPlot/BoxPlotResultsTable'
@@ -217,7 +217,7 @@ export function InsightVizDisplay({
         validationError,
         validationErrorCode,
         theme,
-        showsFlagCallsRetentionNotice,
+        flagCallsRetentionGap,
         flagCallsRetentionStartDate,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -604,8 +604,11 @@ export function InsightVizDisplay({
                                 </div>
                             )}
 
-                        {!embedded && showsFlagCallsRetentionNotice && (
-                            <FlagCallsRetentionNotice retentionStartDate={flagCallsRetentionStartDate} />
+                        {!embedded && flagCallsRetentionGap && (
+                            <FlagCallsRetentionNotice
+                                gap={flagCallsRetentionGap}
+                                retentionStartDate={flagCallsRetentionStartDate}
+                            />
                         )}
                         <div
                             className={clsx(

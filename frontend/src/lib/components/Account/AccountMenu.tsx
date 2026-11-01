@@ -22,14 +22,16 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -48,9 +50,7 @@ import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -58,7 +58,6 @@ import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
 
-import { shortcutLogic } from '../Shortcuts/shortcutLogic'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
 import { OrgCombobox } from './OrgCombobox'
 
@@ -146,7 +145,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { reportAccountOwnerClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
-    const { setShortcutMenuOpen } = useActions(shortcutLogic)
 
     return (
         <DropdownMenu>
@@ -305,23 +303,6 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                     )}
 
                     <ThemeMenu />
-
-                    <DropdownMenuItem asChild>
-                        <ButtonPrimitive
-                            tooltip="Open shortcut menu"
-                            tooltipPlacement="right"
-                            onClick={() => setShortcutMenuOpen(true)}
-                            menuItem
-                        >
-                            <span className="size-4 flex items-center justify-center">⌘</span>
-                            Shortcuts
-                            <div className="flex gap-1 ml-auto items-center">
-                                <KeyboardShortcut command option k />
-                                <span className="text-xs opacity-75">or</span>
-                                <KeyboardShortcut command shift k />
-                            </div>
-                        </ButtonPrimitive>
-                    </DropdownMenuItem>
 
                     <DropdownMenuItem asChild>
                         <Link
