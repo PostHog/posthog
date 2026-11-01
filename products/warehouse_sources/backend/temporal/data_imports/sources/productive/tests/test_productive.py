@@ -22,8 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.productive
     "endpoint",
     [
         "bookings",
+        "comments",
         "companies",
         "contact_entries",
+        "deal_statuses",
         "deals",
         "expenses",
         "invoices",
@@ -32,11 +34,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.productive
         "people",
         "pipelines",
         "projects",
+        "purchase_orders",
         "service_types",
         "services",
         "task_lists",
         "tasks",
         "time_entries",
+        "workflow_statuses",
     ],
 )
 @responses.activate

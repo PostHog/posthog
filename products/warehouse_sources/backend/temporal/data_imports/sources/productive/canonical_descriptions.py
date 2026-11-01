@@ -7,6 +7,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Scheduled work allocations and absences for people.",
         "docs_url": "https://developer.productive.io/reference/resources/bookings",
     },
+    "comments": {
+        "description": "Discussion comments attached to tasks, deals, and other Productive records.",
+        "docs_url": "https://developer.productive.io/reference/resources/comments",
+    },
     "companies": {
         "description": "Client organizations associated with projects, deals, budgets, and invoices.",
         "docs_url": "https://developer.productive.io/reference/resources/companies",
@@ -14,6 +18,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "contact_entries": {
         "description": "Email addresses, phone numbers, websites, and postal addresses belonging to companies or people.",
         "docs_url": "https://developer.productive.io/reference/resources/contact-entries",
+    },
+    "deal_statuses": {
+        "description": "Stages of a deal pipeline, including win probability and whether the stage counts as open, won, lost, or delivered.",
+        "docs_url": "https://developer.productive.io/reference/resources/deal-statuses",
     },
     "deals": {
         "description": "Sales opportunities and delivery budgets, including their financial and pipeline details.",
@@ -47,6 +55,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Workspaces organizing client and internal work, including tasks and budgets.",
         "docs_url": "https://developer.productive.io/reference/resources/projects",
     },
+    "purchase_orders": {
+        "description": "Orders issued to vendors for costs committed against deals and budgets, with totals and receipt status.",
+        "docs_url": "https://developer.productive.io/reference/resources/purchase-orders",
+    },
     "service_types": {
         "description": "Categories of work assigned to services, such as design or development.",
         "docs_url": "https://developer.productive.io/reference/resources/service-types",
@@ -66,5 +78,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "time_entries": {
         "description": "Time logged by people against services, including work dates and durations.",
         "docs_url": "https://developer.productive.io/reference/resources/time-entries",
+    },
+    "workflow_statuses": {
+        "description": "Task statuses within a workflow, each mapped to a not started, started, or closed category.",
+        "docs_url": "https://developer.productive.io/reference/resources/workflow-statuses",
     },
 }
