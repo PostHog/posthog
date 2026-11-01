@@ -16,6 +16,7 @@ from django.test import SimpleTestCase
 import numpy as np
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -38,6 +39,7 @@ from products.signals.backend.anomaly_scores.config import (
     DISABLED,
     AnomalyScoringConfig,
     ScoringRun,
+    covers_team,
     parse_config,
 )
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
@@ -47,9 +49,11 @@ from products.signals.backend.anomaly_scores.queue import (
     ActivityReason,
     InsightPick,
     QueryBudget,
+    TeamCensus,
     _cooldown_key,
     _fleet_budget_key,
     _project_budget_key,
+    _team_loaded_key,
     active_insights,
     eligible_teams,
     is_due,
@@ -79,10 +83,11 @@ from products.signals.backend.anomaly_scores.tick import (
     AnomalyScoringTickWorkflow,
     ScoreInsightInput,
     ScoreInsightResult,
+    capture_census,
     plan_tick,
     run_insight,
 )
-from products.signals.backend.models import AnomalyScoringState
+from products.signals.backend.models import AnomalyScoringState, SignalSourceConfig, SignalTeamConfig
 from products.subscriptions.backend.facade.testing import create_subscription
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -139,6 +144,8 @@ class TestTickConfig(SimpleTestCase):
                 "enabled": True,
                 "organization_ids": [ORGANIZATION_ID, "not-a-uuid"],
                 "allow_team_ids": [2, True, "3"],
+                "self_driving_organization_percentage": 101,
+                "deny_organization_ids": [ORGANIZATION_ID.upper(), "not-a-uuid", 3],
                 "intervals": ["minute", "week"],
                 "max_insights_per_tick": 0,
                 "limits": {"max_backfill_buckets": 100_000, "max_series": -1},
@@ -150,6 +157,8 @@ class TestTickConfig(SimpleTestCase):
 
         assert config.organization_ids == (ORGANIZATION_ID,)
         assert config.allow_team_ids == (2,)
+        assert config.self_driving_organization_percentage == 0.0
+        assert config.deny_organization_ids == (ORGANIZATION_ID,)
         assert config.intervals == (IntervalType.WEEK,)
         assert config.max_insights_per_tick == DISABLED.max_insights_per_tick
         assert (config.limits.max_backfill_buckets, config.limits.max_series) == (90, 20)
@@ -480,10 +489,12 @@ class TestScoreEvents(SimpleTestCase):
 
 
 class TestRunInsight(SimpleTestCase):
-    def _run(self, error: Exception) -> tuple[str, list[Any], MagicMock]:
+    def _run(self, error: Exception) -> tuple[str, list[Any], MagicMock, dict[str, Any]]:
         tick = "products.signals.backend.anomaly_scores.tick"
         client = MagicMock()
+        capture = MagicMock()
         with (
+            patch(f"{tick}.ph_background_capture", return_value=capture),
             patch(
                 f"{tick}.insights_including_soft_deleted_for_team",
                 return_value=[Insight(id=7, saved=True, deleted=False)],
@@ -499,7 +510,10 @@ class TestRunInsight(SimpleTestCase):
             except Exception:
                 status = "raised"
         cooldowns = [call.args[1] for call in mark_attempted.call_args_list]
-        return status, cooldowns, client.metrics
+        [pick_event] = [
+            call.kwargs for call in capture.call_args_list if call.kwargs["event"] == "anomaly scoring pick"
+        ]
+        return status, cooldowns, client.metrics, pick_event["properties"]
 
     @parameterized.expand(
         [
@@ -512,16 +526,23 @@ class TestRunInsight(SimpleTestCase):
     def test_a_known_failure_returns_its_status_and_waits_a_day(
         self, _name: str, error: Exception, expected: str
     ) -> None:
-        status, cooldowns, metrics = self._run(error)
+        status, cooldowns, metrics, pick_event = self._run(error)
 
         assert status == expected
         assert cooldowns[-1] == SKIP_COOLDOWN
         metrics.count.assert_any_call(
             "anomaly_scoring.picks", 1, attributes={"status": expected, "interval": IntervalType.DAY.value}
         )
+        assert {key: pick_event[key] for key in ("team_id", "insight_id", "interval", "status", "queries")} == {
+            "team_id": 1,
+            "insight_id": 7,
+            "interval": IntervalType.DAY.value,
+            "status": expected,
+            "queries": 1,
+        }
 
     def test_a_full_cluster_returns_at_capacity_and_waits_an_hour(self) -> None:
-        status, cooldowns, _metrics = self._run(ClickHouseAtCapacity())
+        status, cooldowns, _metrics, _pick_event = self._run(ClickHouseAtCapacity())
 
         assert status == "at_capacity"
         assert SKIP_COOLDOWN not in cooldowns
@@ -534,10 +555,37 @@ class TestRunInsight(SimpleTestCase):
         ]
     )
     def test_any_other_failure_raises_and_waits_an_hour(self, _name: str, error: Exception) -> None:
-        status, cooldowns, _metrics = self._run(error)
+        status, cooldowns, _metrics, pick_event = self._run(error)
 
         assert status == "raised"
         assert SKIP_COOLDOWN not in cooldowns
+        assert pick_event["status"] == "errored"
+
+
+class TestCaptureCensus(SimpleTestCase):
+    def test_each_team_gets_one_census_event_per_utc_day(self) -> None:
+        census = [
+            TeamCensus(team_id=team_id, active=1, active_reasons={"viewed": 1}, active_intervals={"day": 1})
+            for team_id in (901, 902)
+        ]
+        days = [NOW, NOW + timedelta(hours=11), NOW + timedelta(days=1)]
+        cache.delete_many(
+            [
+                f"signals:anomaly_scoring:census:{day.date().isoformat()}:{team_id}"
+                for day in days
+                for team_id in (901, 902)
+            ]
+        )
+        capture = MagicMock()
+
+        with patch("products.signals.backend.anomaly_scores.tick.ph_background_capture", return_value=capture):
+            for now in days:
+                capture_census(census, now)
+
+        sent = [
+            (call.kwargs["properties"]["day"], call.kwargs["properties"]["team_id"]) for call in capture.call_args_list
+        ]
+        assert sent == [("2026-10-22", 901), ("2026-10-22", 902), ("2026-10-23", 901), ("2026-10-23", 902)]
 
 
 class TestTrainScoreSplit(BaseTest):
@@ -656,16 +704,27 @@ _SPLIT_PAYLOAD = {"enabled": True, "organization_ids": [ORGANIZATION_ID], "train
 class TestEligibleTeams(BaseTest):
     @parameterized.expand(
         [
-            ("every_team_of_the_organization", [], [], False, {"main", "second"}),
-            ("allowlist", ["main"], [], False, {"main"}),
-            ("skip_list", [], ["main"], False, {"second"}),
-            ("quota_limited", [], [], True, {"main"}),
+            ("every_team_of_the_organization", [], [], False, None, {"main", "second"}),
+            ("allowlist", ["main"], [], False, None, {"main"}),
+            ("skip_list", [], ["main"], False, None, {"second"}),
+            ("quota_limited", [], [], True, None, {"main"}),
+            ("turned_off_in_settings", [], [], False, False, {"main"}),
+            ("left_on_in_settings", [], [], False, True, {"main", "second"}),
+            ("settings_cannot_enroll_a_skipped_team", [], ["second"], False, True, {"main"}),
         ]
     )
     def test_only_allowed_teams_under_their_event_quota_are_scored(
-        self, _name: str, allow: list[str], skip: list[str], second_limited: bool, expected: set[str]
+        self,
+        _name: str,
+        allow: list[str],
+        skip: list[str],
+        second_limited: bool,
+        second_setting: bool | None,
+        expected: set[str],
     ) -> None:
         teams = {"main": self.team, "second": Team.objects.create(organization=self.organization, name="second")}
+        if second_setting is not None:
+            SignalTeamConfig.objects.create(team=teams["second"], anomaly_scoring_enabled=second_setting)
         other = Organization.objects.create(name="other")
         Team.objects.create(organization=other, name="other")
         config = AnomalyScoringConfig(
@@ -680,6 +739,62 @@ class TestEligibleTeams(BaseTest):
             eligible = {team.id for team in eligible_teams(config)}
 
         assert eligible == {teams[name].id for name in expected}
+
+    @parameterized.expand(
+        [
+            # name, listed, percentage, denied, skipped, allow_other, has_source, enrolled
+            ("listed_without_source", True, 0.0, False, False, False, False, True),
+            ("listed_and_denied", True, 0.0, True, False, False, False, False),
+            ("rollout", False, 100.0, False, False, False, True, True),
+            ("rollout_without_source", False, 100.0, False, False, False, False, False),
+            ("rollout_at_zero", False, 0.0, False, False, False, True, False),
+            ("rollout_denied", False, 100.0, True, False, False, True, False),
+            ("rollout_team_skipped", False, 100.0, False, True, False, True, False),
+            ("rollout_ignores_the_allowlist", False, 100.0, False, False, True, True, True),
+        ]
+    )
+    def test_enrollment_by_list_and_rollout(
+        self,
+        _name: str,
+        listed: bool,
+        percentage: float,
+        denied: bool,
+        skipped: bool,
+        allow_other: bool,
+        has_source: bool,
+        enrolled: bool,
+    ) -> None:
+        other = Team.objects.create(organization=Organization.objects.create(name="other"), name="other")
+        own_organization = (str(self.organization.id),)
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=own_organization if listed else (),
+            self_driving_organization_percentage=percentage,
+            deny_organization_ids=own_organization if denied else (),
+            skip_team_ids=(self.team.id,) if skipped else (),
+            allow_team_ids=(other.id,) if allow_other else (),
+        )
+        if has_source:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+            )
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            eligible = {team.id for team in eligible_teams(config)}
+
+        assert covers_team(config, Team.objects.get(id=self.team.id)) is enrolled
+        assert (self.team.id in eligible) is enrolled
+        assert other.id not in eligible
+
+    def test_rollout_skips_a_team_that_turned_scoring_off(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="error_tracking", source_type="issue_created", enabled=True
+        )
+        SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
+        config = AnomalyScoringConfig(enabled=True, self_driving_organization_percentage=100.0)
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            assert self.team.id not in {team.id for team in eligible_teams(config)}
 
 
 _DEFAULT_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH)
@@ -816,11 +931,12 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         # Any member can capture these: one names an insight of another team, one a bucket in the future.
         score(11, "f", datetime(2026, 10, 21, tzinfo=UTC))
         score(8, "c", datetime(2027, 1, 1, tzinfo=UTC))
+        # Inside the window of the other insights, but older than the window of its own interval.
+        score(12, "g", datetime(2026, 9, 15, tzinfo=UTC))
 
         state = scored_buckets(
             self.team,
-            insight_ids={7, 8, 9, 10},
-            since=datetime(2026, 9, 1, tzinfo=UTC),
+            {datetime(2026, 9, 1, tzinfo=UTC): {7, 8, 9, 10}, datetime(2026, 10, 1, tzinfo=UTC): {12}},
             now=datetime(2026, 10, 22, tzinfo=UTC),
         )
 
@@ -907,9 +1023,16 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
         assert selection.picks[1].insight_id == small_insight.id
         assert selection.candidates == 4
+        assert [(team.team_id, team.active, team.active_intervals) for team in selection.census] == [
+            (self.team.id, 3, {"day": 3}),
+            (small_team.id, 1, {"day": 1}),
+        ]
 
+    @parameterized.expand([("query_timeout", ClickHouseQueryTimeOut), ("at_capacity", ClickHouseAtCapacity)])
     @time_machine.travel(NOW, tick=False)
-    def test_select_insights_skips_a_project_whose_scored_buckets_query_times_out(self) -> None:
+    def test_select_insights_skips_a_project_whose_scored_buckets_query_fails(
+        self, _name: str, error: type[Exception]
+    ) -> None:
         slow_team = Team.objects.create(organization=self.organization, name="Slow")
         dashboards = {team.id: Dashboard.objects.create(team=team, name="Main") for team in (self.team, slow_team)}
         insights = {}
@@ -929,7 +1052,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
         def buckets(team: Team, *args: Any) -> dict[int, dict[str, datetime]]:
             if team.id == slow_team.id:
-                raise ClickHouseQueryTimeOut()
+                raise error()
             return scored_buckets(team, *args)
 
         with (
@@ -939,6 +1062,36 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
 
         assert [pick.insight_id for pick in selection.picks] == [insights[self.team.id].id]
+        assert (selection.teams_planned, selection.teams_skipped) == (1, 1)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_plan_past_its_deadline_loads_one_team_and_the_next_plan_starts_from_another(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        insights = {}
+        for team in (self.team, other_team):
+            insight = Insight.objects.create(team=team, name=team.name, query=_trends(interval="day"))
+            DashboardTile.objects.create(dashboard=Dashboard.objects.create(team=team, name="Main"), insight=insight)
+            cache.delete_many([_cooldown_key(insight.id), _team_loaded_key(team.id)])
+            insights[team.id] = insight.id
+        config = AnomalyScoringConfig(
+            enabled=True,
+            organization_ids=(str(self.organization.id),),
+            allow_team_ids=(self.team.id, other_team.id),
+        )
+
+        picked: list[list[int]] = []
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            for later in (NOW, NOW + timedelta(minutes=5)):
+                cache.delete_many(
+                    [_fleet_budget_key(later), *(_project_budget_key(team_id, later) for team_id in insights)]
+                )
+                selection = select_insights(
+                    config, SelectionConfig(weighting=Weighting.UNIFORM), later, limit=10, deadline=0.0
+                )
+                assert (selection.teams_planned, selection.teams_skipped) == (1, 1)
+                picked.append([pick.insight_id for pick in selection.picks])
+
+        assert sorted(insight_id for picks in picked for insight_id in picks) == sorted(insights.values())
 
     @parameterized.expand([("cap_one", 1, ["most_overdue"]), ("cap_two", 2, ["most_overdue", "popular"])])
     @time_machine.travel(NOW, tick=False)
@@ -1135,12 +1288,16 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
 
 async def _run_tick(
-    plan: AnomalyScoringTickPlan, statuses: dict[int, str]
+    plan: AnomalyScoringTickPlan | Exception,
+    statuses: dict[int, str],
+    captured: list[AnomalyScoringTickResult] | None = None,
 ) -> tuple[AnomalyScoringTickResult, list[int]]:
     started: list[int] = []
 
     @activity.defn(name="plan_anomaly_scoring_tick_activity")
     async def fake_plan(input: AnomalyScoringTickInput) -> AnomalyScoringTickPlan:
+        if isinstance(plan, Exception):
+            raise plan
         return plan
 
     @activity.defn(name="score_anomaly_insight_activity")
@@ -1150,7 +1307,8 @@ async def _run_tick(
 
     @activity.defn(name="capture_anomaly_scoring_tick_activity")
     async def fake_capture(result: AnomalyScoringTickResult) -> None:
-        pass
+        if captured is not None:
+            captured.append(result)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -1198,3 +1356,15 @@ async def test_the_tick_stops_starting_picks_when_clickhouse_is_at_capacity(
         3,
         stopped,
     )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_plan_sends_a_tick_event_and_still_fails_the_workflow() -> None:
+    captured: list[AnomalyScoringTickResult] = []
+
+    with pytest.raises(WorkflowFailureError):
+        await _run_tick(ClickHouseAtCapacity(), {}, captured)
+
+    assert [(result.plan_failed, result.plan_error, result.picked) for result in captured] == [
+        (True, "ClickHouseAtCapacity", 0)
+    ]

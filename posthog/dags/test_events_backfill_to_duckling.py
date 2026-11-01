@@ -1,14 +1,19 @@
 import os
+import re
 from datetime import UTC, date, datetime, timedelta
+from fnmatch import fnmatch
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, call, patch
 
 import duckdb
 import psycopg
+from clickhouse_driver.errors import Error as ClickHouseError
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.dags.common import JobOwners
 from posthog.dags.events_backfill_to_duckling import (
     _DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR,
@@ -17,12 +22,16 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_COLUMNS,
     EVENTS_CONCURRENCY_TAG,
     EVENTS_TABLE_DDL,
+    EVENTS_TRINO_COLUMN_TYPES,
+    EVENTS_TRINO_COLUMNS,
     EXPECTED_DUCKLAKE_EVENTS_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
     MAX_S3_FILE_FANOUT,
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
+    PERSONS_TRINO_COLUMN_TYPES,
+    PERSONS_TRINO_COLUMNS,
     TARGET_ROWS_PER_FILE,
     DucklingBackfillConfig,
     DucklingTarget,
@@ -41,6 +50,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _resolve_duckling_target,
     _resolve_table_names,
     _run_duckling_events_backfill,
+    _run_duckling_persons_backfill,
     _set_table_partitioning,
     _stale_run_outcome,
     _validate_identifier,
@@ -65,6 +75,8 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableReplacement,
     DucklingTables,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
@@ -2611,3 +2623,234 @@ class TestFannedOutLayoutRoundTrip:
         # The missing column is NULL-filled for every backfilled row.
         cap_vals = [r[0] for r in conn.execute(f"SELECT captured_at FROM {DUCKLAKE_ALIAS}.posthog.events").fetchall()]
         assert cap_vals == [None] * 5
+
+
+class _FakeTrinoBackfillCatalog:
+    def __init__(self) -> None:
+        self.tables: list[tuple[str, dict[str, str]]] = []
+        self.registered: list[tuple[str, list[str], str, DuckLakeDayReplacement | DuckLakeTableReplacement | None]] = []
+        self.deleted: list[tuple[str, DuckLakeDayReplacement | DuckLakeTableReplacement]] = []
+
+    def ensure_table(
+        self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None:
+        self.tables.append((table, dict(columns)))
+
+    def register_files(
+        self,
+        table: str,
+        files: list[str],
+        *,
+        import_id: str,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int:
+        self.registered.append((table, list(files), import_id, replacement))
+        return len(files)
+
+    def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None:
+        self.deleted.append((table, replacement))
+
+
+class _FakeExportClickHouse:
+    def __init__(self, files_per_export: int) -> None:
+        self.files_per_export = files_per_export
+        self.inserts: list[tuple[str, dict[str, Any]]] = []
+        self.objects: list[str] = []
+
+    def execute(
+        self, query: str, params: object = None, settings: dict[str, Any] | None = None
+    ) -> list[tuple[Any, ...]]:
+        if "INSERT INTO FUNCTION" in query:
+            self.inserts.append((query, settings or {}))
+            url = re.search(r"s3\(\s*'([^']+)'", query)
+            assert url is not None
+            self.objects += [url[1].replace("{_partition_id}", str(index)) for index in range(self.files_per_export)]
+            return []
+        if "'One'" in query:
+            pattern = re.search(r"s3\('([^']+)'", query)
+            assert pattern is not None
+            matched = [(url.rsplit("/", 1)[1],) for url in sorted(self.objects) if fnmatch(url, pattern[1])]
+            if not matched and (settings or {}).get("s3_throw_on_zero_files_match"):
+                raise ClickHouseError(f"Can not match any files with path {pattern[1]}")
+            return matched
+        return [(10,)]
+
+
+class TestBackfillThroughTrino:
+    TARGET = DucklingTarget(
+        team_id=2,
+        organization_id="org-1",
+        bucket="bkt",
+        bucket_region="us-east-1",
+        events_table="events_team_2",
+        persons_table="persons_team_2",
+    )
+
+    def _run(self, run, partition_key: str, clickhouse: _FakeExportClickHouse, config: DucklingBackfillConfig):
+        catalog = _FakeTrinoBackfillCatalog()
+        cluster = MagicMock()
+        cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(clickhouse)))
+        context = MagicMock(partition_key=partition_key)
+        context.run.run_id = "0123456789abcdef-run"
+        with (
+            patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=self.TARGET),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=True),
+            patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
+            patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
+            patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
+            patch("tenacity.nap.time.sleep"),
+        ):
+            connect_catalog.return_value.__enter__.return_value = catalog
+            run(context, config)
+            run(context, config)
+        duckgres.assert_not_called()
+        return catalog, connect_catalog
+
+    @parameterized.expand(
+        [
+            (
+                "events_day",
+                _run_duckling_events_backfill,
+                "2_2026-06-17",
+                "events_team_2",
+                EVENTS_TRINO_COLUMN_TYPES,
+                DuckLakeDayReplacement(column="timestamp", day=date(2026, 6, 17)),
+                "toString(person_mode) as person_mode",
+            ),
+            (
+                "persons_day",
+                _run_duckling_persons_backfill,
+                "2_2026-06-17",
+                "persons_team_2",
+                PERSONS_TRINO_COLUMN_TYPES,
+                DuckLakeDayReplacement(column="_timestamp", day=date(2026, 6, 17)),
+                "toInt64(p.version) AS person_version",
+            ),
+            (
+                "persons_full",
+                _run_duckling_persons_backfill,
+                "2",
+                "persons_team_2",
+                PERSONS_TRINO_COLUMN_TYPES,
+                DuckLakeTableReplacement(),
+                "toInt64(p.version) AS person_version",
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_registers_each_export_in_one_snapshot_under_a_new_prefix(
+        self, _name, run, partition_key, table, column_types, replacement, cast_column
+    ):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        catalog, connect_catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
+
+        connect_catalog.assert_called_with("org-1")
+        assert catalog.tables == [(table, column_types)] * 2
+        assert [(t, r) for t, _, _, r in catalog.registered] == [(table, replacement)] * 2
+        first, second = catalog.registered
+        assert len(first[1]) == 2 and all(path.startswith("s3://bkt/backfill/") for path in first[1])
+        assert all(f"/{first[2]}_" in path for path in first[1])
+        assert first[2] != second[2] and not set(first[1]) & set(second[1])
+        for insert, settings in clickhouse.inserts:
+            assert cast_column in insert
+            assert settings["output_format_parquet_string_as_string"] == 1
+
+    @parameterized.expand(
+        [
+            ("empty_day_deletes_its_rows", 0, True),
+            ("append_keeps_existing_rows", 2, False),
+            ("empty_append_changes_nothing", 0, False),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_replaces_the_day_only_when_cleanup_is_on(self, _name, files_per_export, cleanup):
+        clickhouse = _FakeExportClickHouse(files_per_export=files_per_export)
+        day = DuckLakeDayReplacement(column="timestamp", day=date(2026, 6, 17))
+
+        catalog, _ = self._run(
+            _run_duckling_events_backfill,
+            "2_2026-06-17",
+            clickhouse,
+            # A server profile or a Launchpad override can make ClickHouse throw for a glob that matches no files.
+            DucklingBackfillConfig(
+                cleanup_existing_partition_data=cleanup, clickhouse_settings={"s3_throw_on_zero_files_match": 1}
+            ),
+        )
+
+        assert catalog.deleted == ([("events_team_2", day)] * 2 if cleanup and not files_per_export else [])
+        assert [r for _, _, _, r in catalog.registered] == ([None] * 2 if files_per_export else [])
+
+    @parameterized.expand(
+        [
+            ("events_day", _run_duckling_events_backfill, "2_2026-06-17", "toString(person_mode) as person_mode"),
+            ("persons_day", _run_duckling_persons_backfill, "2_2026-06-17", "toInt64(p.version) AS person_version"),
+            ("persons_full", _run_duckling_persons_backfill, "2", "toInt64(p.version) AS person_version"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_export_only_runs_write_the_trino_types_without_registering(self, _name, run, partition_key, cast_column):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        catalog, connect_catalog = self._run(
+            run, partition_key, clickhouse, DucklingBackfillConfig(skip_ducklake_registration=True)
+        )
+
+        connect_catalog.assert_not_called()
+        assert catalog.registered == []
+        assert len(clickhouse.inserts) == 2
+        for insert, settings in clickhouse.inserts:
+            assert cast_column in insert
+            assert settings["output_format_parquet_string_as_string"] == 1
+
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_dry_runs_neither_export_nor_open_the_catalog(self):
+        clickhouse = _FakeExportClickHouse(files_per_export=2)
+
+        _, connect_catalog = self._run(
+            _run_duckling_events_backfill, "2_2026-06-17", clickhouse, DucklingBackfillConfig(dry_run=True)
+        )
+
+        connect_catalog.assert_not_called()
+        assert clickhouse.inserts == []
+
+
+# The Trino column type that DuckLake reads back from the Parquet type ClickHouse writes for a ClickHouse type.
+TRINO_TYPE_OF_CLICKHOUSE_TYPE = {
+    "String": "varchar",
+    "Int64": "bigint",
+    "Int16": "smallint",
+    "Bool": "boolean",
+    "DateTime64(6)": "timestamp(6) with time zone",
+    "DateTime64(6, 'UTC')": "timestamp(6) with time zone",
+}
+EVENTS_SOURCE = (
+    "generateRandom('uuid UUID, event String, properties String, timestamp DateTime64(6, ''UTC''), team_id Int64, "
+    "distinct_id String, elements_chain String, created_at DateTime64(6, ''UTC''), person_id UUID, "
+    "person_created_at DateTime64(3), person_properties String, group0_properties String, group1_properties String, "
+    "group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), "
+    "group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), "
+    "group4_created_at DateTime64(3), person_mode Enum8(''full'' = 0, ''propertyless'' = 1, ''force_upgrade'' = 2), "
+    "historical_migration Bool')"
+)
+PERSONS_SOURCE = (
+    "generateRandom('id UUID, created_at DateTime64(3), team_id Int64, properties String, is_identified Int8, "
+    "version UInt64, _timestamp DateTime') AS p "
+    "CROSS JOIN generateRandom('team_id Int64, distinct_id String, person_id UUID, version Int64') AS pd"
+)
+
+
+class TestTrinoExportColumnTypes:
+    @parameterized.expand(
+        [
+            ("events", f"SELECT {EVENTS_TRINO_COLUMNS} FROM {EVENTS_SOURCE}", EVENTS_TRINO_COLUMN_TYPES),
+            ("persons", f"SELECT {PERSONS_TRINO_COLUMNS} FROM {PERSONS_SOURCE}", PERSONS_TRINO_COLUMN_TYPES),
+        ]
+    )
+    def test_export_writes_the_types_of_the_trino_table(self, _name, select, column_types):
+        with get_client_from_pool() as client:
+            described = client.execute(f"DESCRIBE ({select})")
+
+        exported = {str(row[0]): TRINO_TYPE_OF_CLICKHOUSE_TYPE.get(str(row[1]), str(row[1])) for row in described}
+        assert exported == column_types

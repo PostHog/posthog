@@ -303,7 +303,10 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         params = self.request.GET.dict()
 
         queryset = apply_organization_scoped_filter(
-            queryset, bool(self.team.receive_org_level_activity_logs), self.team_id, self.organization.id
+            queryset.select_related("user"),
+            bool(self.team.receive_org_level_activity_logs),
+            self.team_id,
+            self.organization.id,
         )
 
         if params.get("user"):

@@ -5,10 +5,14 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { AnyPropertyFilter, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, AnyPropertyFilter, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
+    activityDescribers: {
+        [ActivityScope.FEATURE_FLAG]: () =>
+            import('scenes/feature-flags/activityDescriptions').then((module) => module.flagActivityDescriber),
+    },
     scenes: {
         FeatureFlagTemplates: {
             import: () => import('./frontend/FeatureFlagTemplatesScene'),

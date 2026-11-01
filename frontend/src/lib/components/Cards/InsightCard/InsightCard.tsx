@@ -11,6 +11,7 @@ import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { useInterval } from 'lib/hooks/useInterval'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { getCapacityRetryAt, getRetryCooldown } from 'lib/insights/sharedUtils'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -25,7 +26,6 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getCapacityRetryAt, getRetryCooldown } from 'scenes/insights/sharedUtils'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -298,7 +298,9 @@ function InsightCardInternal(
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading, insightDataError } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, insightDataError, savingDisplayOptions } = useValues(
+        insightDataLogic(insightLogicProps)
+    )
 
     const [, setCooldownTick] = useState(0)
     // The embedded query stores its own failure in insightDataLogic and does not set the apiError prop.
@@ -319,8 +321,11 @@ function InsightCardInternal(
     const [compactInfoVisible, setCompactInfoVisible] = useState(false)
     const [alertModal, setAlertModal] = useState<AlertModalState | null>(null)
     useEffect(() => {
-        onOverlayVisibilityChange?.(areDetailsShown || compactInfoVisible || alertModal !== null)
-    }, [areDetailsShown, compactInfoVisible, alertModal, onOverlayVisibilityChange])
+        // A pending display-option save also keeps the card mounted, because unmounting its logic cancels the save.
+        onOverlayVisibilityChange?.(
+            areDetailsShown || compactInfoVisible || alertModal !== null || savingDisplayOptions
+        )
+    }, [areDetailsShown, compactInfoVisible, alertModal, savingDisplayOptions, onOverlayVisibilityChange])
     const openCreateAlertModal = useCallback(() => setAlertModal({}), [])
     const openEditAlertModal = useCallback((alertId: AlertType['id']) => setAlertModal({ alertId }), [])
     const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])

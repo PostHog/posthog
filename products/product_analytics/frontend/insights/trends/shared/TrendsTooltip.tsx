@@ -3,9 +3,9 @@ import { useCallback, useMemo } from 'react'
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { toOpaqueHex } from 'lib/utils/colors'
 import { percentage } from 'lib/utils/numbers'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'

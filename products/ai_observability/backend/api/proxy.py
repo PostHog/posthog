@@ -56,6 +56,7 @@ from products.ai_observability.backend.llm import (
     ModelInfo,
     OutputSchema,
     get_playground_models,
+    supports_reasoning_level,
 )
 from products.ai_observability.backend.llm.errors import (
     ProviderConfigurationError,
@@ -146,6 +147,9 @@ class LLMProxyModelInfoSerializer(serializers.Serializer):
     )
     supports_chat = serializers.BooleanField(
         default=True, help_text="Whether this model supports chat completions with written reasoning."
+    )
+    supports_reasoning = serializers.BooleanField(
+        default=False, help_text="Whether an evaluation judge can set a reasoning level for this model."
     )
 
 
@@ -568,6 +572,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             is_recommended=m in recommended,
                             supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
                             supports_chat=provider_key.provider != LLMProvider.SYSTEM_ONE and m not in non_chat_models,
+                            supports_reasoning=supports_reasoning_level(provider_key.provider, m),
                         )
                         for m in models
                     ]

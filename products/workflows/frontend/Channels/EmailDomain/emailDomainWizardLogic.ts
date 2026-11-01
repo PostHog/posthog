@@ -4,14 +4,14 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { hogql } from 'lib/utils/hogql'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { IntegrationType, OrganizationType, PreflightStatus, TeamPublicType, TeamType, UserType } from '~/types'
 
 import {

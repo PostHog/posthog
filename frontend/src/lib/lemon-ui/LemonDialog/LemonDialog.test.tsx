@@ -32,12 +32,15 @@ describe('LemonFormDialog', () => {
         jest.restoreAllMocks()
     })
 
-    function renderDialog(onSubmit: (values: Record<string, any>) => void | Promise<void>): void {
+    function renderDialog(
+        onSubmit: (values: Record<string, any>) => void | Promise<void>,
+        shouldAwaitSubmit = true
+    ): void {
         render(
             <LemonFormDialog
                 dialogKey="test-dialog"
                 title="Test dialog"
-                shouldAwaitSubmit
+                shouldAwaitSubmit={shouldAwaitSubmit}
                 initialValues={{ name: 'a name' }}
                 content={
                     <LemonField name="name">
@@ -102,6 +105,25 @@ describe('LemonFormDialog', () => {
         expect(onSubmit).toHaveBeenCalled()
         expect(captureException).not.toHaveBeenCalled()
     })
+
+    it.each([
+        ['Cancel', true, 0],
+        ['Submit', true, 1],
+        ['Cancel', false, 0],
+        ['Submit', false, 1],
+    ])(
+        'pressing Enter on the focused %s button only clicks it (await submit: %s)',
+        async (button, awaitSubmit, submits) => {
+            const onSubmit = jest.fn().mockResolvedValue(undefined)
+
+            renderDialog(onSubmit, awaitSubmit)
+            screen.getByText(button).closest('button')?.focus()
+            await userEvent.keyboard('{Enter}')
+
+            await waitForElementToBeRemoved(() => screen.queryByText('Submit'))
+            expect(onSubmit).toHaveBeenCalledTimes(submits)
+        }
+    )
 
     it.each(['Cancel', 'Submit'])('calls the imperative form close callback after %s', async (button) => {
         const onAfterClose = jest.fn()

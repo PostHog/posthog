@@ -3,15 +3,16 @@ import { MOCK_DEFAULT_ORGANIZATION_MEMBER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { membersLogic } from '~/models/membersLogic'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES, assigneeSelectLogic } from '../../components/Assignee'
+import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { normalizeAssigneeFilter, type SavedTicketView, type Ticket, type TicketViewFilters } from '../../types'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -132,6 +133,46 @@ describe('supportTicketsSceneLogic', () => {
                 id: i,
             }))
             expect(normalizeAssigneeFilter(oversized)).toHaveLength(MAX_ASSIGNEE_FILTER_ENTRIES)
+        })
+    })
+
+    describe('unread count changes', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        let counter: ReturnType<typeof supportTicketCounterLogic.build>
+        let ticketRequests = 0
+
+        beforeEach(async () => {
+            ticketRequests = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => {
+                        ticketRequests++
+                        return [200, { results: [], count: 0 }]
+                    },
+                },
+            })
+            initKeaTests()
+            counter = supportTicketCounterLogic()
+            counter.mount()
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            counter.unmount()
+        })
+
+        it.each([
+            ['reloads the list when the count changes', 2, 1],
+            ['keeps the list when the count stays the same', 0, 0],
+        ])('%s', async (_, newCount, extraRequests) => {
+            const before = ticketRequests
+            await expectLogic(logic, () => {
+                counter.actions.loadUnreadCountSuccess(newCount)
+            }).toFinishAllListeners()
+            expect(ticketRequests - before).toBe(extraRequests)
         })
     })
 

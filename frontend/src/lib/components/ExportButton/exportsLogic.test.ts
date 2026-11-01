@@ -674,6 +674,28 @@ describe('exportsLogic', () => {
             }
         })
 
+        it('keeps polling a tracked export while its fetcher says it is still rendering', async () => {
+            // A retry records an exception on the generic row, so only the owner's fetcher knows it is not done.
+            jest.useFakeTimers()
+            try {
+                const pending = asset({ id: 32, export_format: ExporterFormat.JSON })
+                const retrying = asset({ id: 32, export_format: ExporterFormat.JSON, exception: 'Too busy' })
+                const fetchLatest = jest.fn().mockResolvedValue(pending)
+                jest.spyOn(api.exports, 'list').mockResolvedValue({ results: [retrying], count: 1 } as any)
+                const loadExportsSpy = jest.spyOn(logic.actions, 'loadExports')
+
+                logic.actions.trackExport(pending, fetchLatest)
+                await jest.advanceTimersByTimeAsync(30000)
+
+                // The first load comes from tracking the export; any later one is the poll.
+                expect(loadExportsSpy.mock.calls.length).toBeGreaterThan(1)
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toContain(32)
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {
             jest.spyOn(api.exports, 'create').mockRejectedValue({
                 data: { attr: 'export_limit_exceeded', detail: 'You hit the cap' },

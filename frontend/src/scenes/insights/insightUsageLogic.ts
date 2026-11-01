@@ -3,6 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
@@ -19,7 +20,6 @@ import type { DataNode } from '../../queries/schema/schema-general'
 import type { InsightModel } from '../../types'
 import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
-import { keyForInsightLogicProps } from './sharedUtils'
 
 function reportInsightViewed(
     insightModel: Partial<InsightModel>,

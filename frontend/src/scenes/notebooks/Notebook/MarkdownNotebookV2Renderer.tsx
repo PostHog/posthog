@@ -30,9 +30,9 @@ import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
 import { NotebookBtwLayout } from 'products/notebooks/frontend/NotebookBtwLayout'

@@ -239,7 +239,7 @@
         "chromium": 3.045,
         "webkit": 2.417
     },
-    "frontend/src/lib/components/KeyboardShortcut/KeyboardShortcut.stories.tsx": {
+    "frontend/src/lib/lemon-ui/KeyboardShortcut/KeyboardShortcut.stories.tsx": {
         "chromium": 8.996,
         "webkit": 2.76
     },
@@ -359,7 +359,7 @@
         "chromium": 12.5,
         "webkit": 3.526
     },
-    "frontend/src/lib/components/ScrollableShadows/ScrollableShadows.stories.tsx": {
+    "frontend/src/lib/lemon-ui/ScrollableShadows/ScrollableShadows.stories.tsx": {
         "chromium": 9.218,
         "webkit": 3.56
     },
@@ -563,7 +563,7 @@
         "chromium": 13.299,
         "webkit": 3.696
     },
-    "frontend/src/lib/lemon-ui/LemonRichContent/LemonRichContentEditor.stories.tsx": {
+    "frontend/src/lib/components/RichContentEditor/LemonRichContentEditor.stories.tsx": {
         "chromium": 5.951,
         "webkit": 3.278
     },
@@ -623,7 +623,7 @@
         "chromium": 20.438,
         "webkit": 4.26
     },
-    "frontend/src/lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown.stories.tsx": {
+    "frontend/src/lib/components/LemonTextAreaMarkdown/LemonTextAreaMarkdown.stories.tsx": {
         "chromium": 13.195,
         "webkit": 2.75
     },
@@ -1154,10 +1154,6 @@
     "frontend/src/scenes/integrations/components/SlackIntegration.stories.tsx": {
         "chromium": 24.371,
         "webkit": 3.82
-    },
-    "frontend/src/scenes/marketing-analytics/MarketingAnalyticsFreshness.stories.tsx": {
-        "chromium": 9.726,
-        "webkit": 2.652
     },
     "frontend/src/scenes/max/Max.stories.tsx": {
         "chromium": 101.316,
