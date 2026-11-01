@@ -429,7 +429,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     dataAttrKey="message-template"
                 />
 
-                {(isCodeManaged || originalTemplate.key || templateSource) && (
+                {(isCodeManaged || originalTemplate.key) && (
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
                         <CodeManagedTag template={originalTemplate} />
                         {originalTemplate.key && (
