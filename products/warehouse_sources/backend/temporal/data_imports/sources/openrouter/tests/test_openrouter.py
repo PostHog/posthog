@@ -157,7 +157,8 @@ class TestOffsetPagination:
         assert result.params("limit") == ["100"]
         assert result.params("include_inactive") == include_inactive
 
-    def test_session_costs_copy_meta_onto_rows_and_stop_at_max_offset(self):
+    @pytest.mark.parametrize("last_page_size,raised", [(499, None), (500, openrouter.OpenRouterPageCapError)])
+    def test_session_costs_copy_meta_onto_rows_and_fail_past_max_offset(self, last_page_size, raised):
         meta = {
             "as_of": "2026-08-12T02:00:00.000Z",
             "version": "v1",
@@ -165,13 +166,13 @@ class TestOffsetPagination:
             "window_end_date": "2026-08-11",
         }
         pages = [
-            [{"app_slug": f"app{page}", "model_permaslug": f"m{i}", "turn_range": "1-turn"} for i in range(500)]
-            for page in range(11)
+            [{"app_slug": f"app{page}", "model_permaslug": f"m{i}", "turn_range": "1-turn"} for i in range(size)]
+            for page, size in enumerate([500] * 10 + [last_page_size])
         ]
-        # The API rejects an offset above 5000, so the page at offset 5000 must be the last one requested.
+        # The API rejects an offset above 5000, so a full page there can't prove the dataset is exhausted.
         result = _driver().run("session_costs", [ScriptedResponse(json={"data": rows, "meta": meta}) for rows in pages])
 
-        assert result.raised is None
+        assert (type(result.raised) if result.raised else None) is raised
         assert result.params("offset") == [str(500 * page) for page in range(11)]
         assert result.params("limit") == ["500"] * 11
         assert result.items == [[{**meta, **row} for row in rows] for rows in pages]

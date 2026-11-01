@@ -50,7 +50,7 @@ class OpenRouterEndpointConfig:
     task_classifications: bool = False
     # Top-level response object with snapshot metadata copied onto each row (e.g. /datasets/session-cost `meta`).
     snapshot_key: Optional[str] = None
-    # Largest `offset` the endpoint accepts. Rows past it can't be read, so pagination stops there.
+    # Largest `offset` the endpoint accepts. A full page at this offset fails the sync, since rows past it can't be read.
     max_offset: Optional[int] = None
     should_sync_default: bool = True
 
