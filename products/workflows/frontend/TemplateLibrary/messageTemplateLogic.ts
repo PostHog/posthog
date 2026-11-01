@@ -935,6 +935,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): TemplateSource | null => templateSource(originalTemplate),
         ],
+        canEditWithAgent: [
+            (s) => [s.isCodeManaged, s.originalTemplate],
+            (isCodeManaged: boolean, originalTemplate: MessageTemplate): boolean =>
+                isCodeManaged && !!originalTemplate.change_prompt_starter && !!originalTemplate.change_prompt_context,
+        ],
         changePromptStarter: [
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): string => originalTemplate.change_prompt_starter ?? '',

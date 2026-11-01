@@ -101,13 +101,14 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isDiscardingDraft,
         isSavingSensitive,
         isCodeManaged,
+        canEditWithAgent,
         isDuplicating,
         refusedEdits,
         templateSource,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const editWithAgentAvailable = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE') && isCodeManaged
+    const editWithAgentAvailable = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE') && canEditWithAgent
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
