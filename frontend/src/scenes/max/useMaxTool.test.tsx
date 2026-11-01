@@ -1,4 +1,4 @@
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -62,11 +62,11 @@ describe('useMaxTool', () => {
         jest.restoreAllMocks()
     })
 
-    it('updates the registered tool context without deregistering between updates', () => {
+    it('updates the registered tool context without deregistering between updates', async () => {
         const deregisterTool = jest.spyOn(aiShellLogic.actions, 'deregisterTool')
         const { rerender, unmount } = render(<TestMaxTool context={{ query: 'select 1' }} />)
 
-        expect(logic.values.registeredToolMap.read_data?.context).toEqual({ query: 'select 1' })
+        await waitFor(() => expect(logic.values.registeredToolMap.read_data?.context).toEqual({ query: 'select 1' }))
 
         rerender(<TestMaxTool context={{ query: 'select 2' }} />)
 
@@ -89,9 +89,10 @@ describe('useMaxTool', () => {
     })
 
     // Scenes register their tools on the light shell store, before the Max logics load.
-    it('keeps a tool registered before the Max logics mount', () => {
+    it('keeps a tool registered before the Max logics mount', async () => {
         logic.unmount()
         render(<TestMaxTool context={{ query: 'select 1' }} />)
+        await waitFor(() => expect(aiShellLogic.values.registeredToolMap.read_data).toBeTruthy())
 
         logic.mount()
 
