@@ -9,10 +9,14 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+import type { ProjectNotice as ProjectNoticeComponent } from '../../navigation/ProjectNotice'
+
 // The notice logic pulls in dompurify, the sample data logic and the product push branding.
-const ProjectNotice = lazyWithRetry(() =>
+const loadProjectNotice = (): Promise<{ default: typeof ProjectNoticeComponent }> =>
     import('../../navigation/ProjectNotice').then(({ ProjectNotice }) => ({ default: ProjectNotice }))
-)
+// Start the fetch at boot, so the banner usually lands before the scene paints and does not push it down.
+void loadProjectNotice().catch(() => {})
+const ProjectNotice = lazyWithRetry(loadProjectNotice)
 
 /** SceneMenuBar replaces the project notice, so hide the notice when the menu bar is on. */
 export function ProjectNoticeSlot({
