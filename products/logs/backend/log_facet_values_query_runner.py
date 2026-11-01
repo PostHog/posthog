@@ -59,8 +59,10 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
     Thus, when the user selects a value, the other facets change, but this facet does not change.
     The applied filters depend on the columns that each rollup has:
 
-    - A column facet removes its own filter exactly. It ignores body search, log-attribute filters,
-      and resource-attribute filters, because logs_volume_buckets does not have these columns.
+    - A column facet removes its own filter exactly. It ignores body search and log-attribute
+      filters, because neither rollup has these columns. When resource-attribute filters are set,
+      a column facet groups log_attributes instead, because logs_volume_buckets has no
+      resource_fingerprint.
     - An attribute facet applies service, severity, and resource-attribute filters. It ignores body
       search and log-attribute filters.
     - Only a resource-attribute facet can remove its own filter. Its rollup rows share one
@@ -176,35 +178,20 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             return self._attribute_query(self.attribute_facet)
         if self._scoped_to_person_or_session:
             return self._column_facet_query_from_logs()
-        return self._column_facet_query_from_rollup()
-
-    def _column_facet_query_from_rollup(self) -> ast.SelectQuery:
-        # This query sums log_count in the logs_volume_buckets rollup. A query on the logs table
-        # reads each row in the range, and at scale it goes above the read limit.
-        # The rollup has service_name and severity_text, so exclude_facet_field removes the filter
-        # of this facet exactly. The rollup has no body, log attributes, or resource attributes, so
-        # this query ignores these filters. When personId or sessionId is set, to_query() calls
-        # _column_facet_query_from_logs, because the rollup has neither column.
-        facet = ast.Field(chain=[cast(str, self.facet_field)])
         filter_builder = LogsFilterBuilder(
             self.query,
             self.team,
-            self.query_date_range,
+            self._attributes_query_date_range,
             exclude_facet_field=self.facet_field,
         )
-        date_range = self._volume_buckets_query_date_range
-        exprs: list[ast.Expr] = [
-            # Floor the lower limit to the bucket that contains date_from. That bucket starts before
-            # date_from, but it holds logs from after date_from. A bucket that starts before date_to
-            # is in the range, so the upper limit needs no change.
-            parse_expr(
-                "time_bucket >= {date_from} AND time_bucket < {date_to}",
-                placeholders={
-                    "date_from": date_range.date_from_to_start_of_interval_hogql(),
-                    "date_to": ast.Constant(value=date_range.date_to()),
-                },
-            ),
-        ]
+        if filter_builder.resource_attribute_filters or filter_builder.resource_attribute_negative_filters:
+            return self._column_facet_query_from_attributes(filter_builder)
+        return self._column_facet_query_from_rollup()
+
+    def _column_facet_filter_exprs(self, filter_builder: LogsFilterBuilder) -> list[ast.Expr]:
+        # Both rollups have service_name and severity_text. These filters omit the filter of this facet.
+        facet = ast.Field(chain=[cast(str, self.facet_field)])
+        exprs: list[ast.Expr] = []
         if self.query.serviceNames and self.facet_field != "service_name":
             exprs.append(
                 parse_expr(
@@ -239,6 +226,37 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                     },
                 )
             )
+        return exprs
+
+    def _column_facet_query_from_rollup(self) -> ast.SelectQuery:
+        # This query sums log_count in the logs_volume_buckets rollup. A query on the logs table
+        # reads each row in the range, and at scale it goes above the read limit.
+        # The rollup has service_name and severity_text, so exclude_facet_field removes the filter
+        # of this facet exactly. The rollup has no body or log attributes, so this query ignores
+        # these filters. When resource-attribute filters are set, to_query() calls
+        # _column_facet_query_from_attributes. When personId or sessionId is set, to_query() calls
+        # _column_facet_query_from_logs, because the rollup has neither column.
+        facet = ast.Field(chain=[cast(str, self.facet_field)])
+        filter_builder = LogsFilterBuilder(
+            self.query,
+            self.team,
+            self.query_date_range,
+            exclude_facet_field=self.facet_field,
+        )
+        date_range = self._volume_buckets_query_date_range
+        exprs: list[ast.Expr] = [
+            # Floor the lower limit to the bucket that contains date_from. That bucket starts before
+            # date_from, but it holds logs from after date_from. A bucket that starts before date_to
+            # is in the range, so the upper limit needs no change.
+            parse_expr(
+                "time_bucket >= {date_from} AND time_bucket < {date_to}",
+                placeholders={
+                    "date_from": date_range.date_from_to_start_of_interval_hogql(),
+                    "date_to": ast.Constant(value=date_range.date_to()),
+                },
+            ),
+        ]
+        exprs.extend(self._column_facet_filter_exprs(filter_builder))
         query = parse_select(
             """
             SELECT {facet} AS value, sum(log_count) AS count
@@ -252,6 +270,54 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                 "facet": facet,
                 "where": ast.And(exprs=exprs),
                 "limit": ast.Constant(value=self.query.limit or DEFAULT_FACET_LIMIT),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _column_facet_query_from_attributes(self, filter_builder: LogsFilterBuilder) -> ast.SelectQuery:
+        # logs_volume_buckets has no resource_fingerprint, so it cannot apply a resource-attribute
+        # filter. log_attributes has resource_fingerprint, service_name, and severity_text. Each
+        # resource attribute of a log makes one row, so the rows of one resource count its logs once
+        # for each attribute key. resource_fingerprint is a hash of all the resource attributes, thus
+        # each key of one resource has the same count. The inner query counts each key, and the
+        # middle query keeps one count for each resource. A log with no resource attributes has no
+        # row here. Thus, with only negative resource filters, the counts do not include these logs.
+        facet = ast.Field(chain=[cast(str, self.facet_field)])
+        date_range = self._attributes_query_date_range
+        exprs = self._column_facet_filter_exprs(filter_builder)
+        exprs.append(filter_builder.resource_filter(existing_filters=exprs))
+        query = parse_select(
+            """
+            SELECT {facet} AS value, sum(log_count) AS count
+            FROM (
+                SELECT service_name, severity_text, max(key_count) AS log_count
+                FROM (
+                    SELECT
+                        time_bucket,
+                        resource_fingerprint,
+                        service_name,
+                        severity_text,
+                        attribute_key,
+                        sum(attribute_count) AS key_count
+                    FROM log_attributes
+                    WHERE time_bucket >= {date_from_start_of_interval}
+                    AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+                    AND attribute_type = 'resource'
+                    AND {where}
+                    GROUP BY time_bucket, resource_fingerprint, service_name, severity_text, attribute_key
+                )
+                GROUP BY time_bucket, resource_fingerprint, service_name, severity_text
+            )
+            GROUP BY {facet}
+            ORDER BY sum(log_count) DESC, {facet} ASC
+            LIMIT {limit}
+            """,
+            placeholders={
+                "facet": facet,
+                "where": ast.And(exprs=exprs),
+                "limit": ast.Constant(value=self.query.limit or DEFAULT_FACET_LIMIT),
+                **date_range.to_placeholders(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
