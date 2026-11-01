@@ -21,15 +21,20 @@
     clippy::wrong_self_convention,
     clippy::doc_lazy_continuation
 )]
+// Without the Python bindings, only `json::parse_select` reaches the parser, so the other entry points look unused.
+#![cfg_attr(not(feature = "python"), allow(dead_code))]
 
+#[cfg(feature = "python")]
 use pyo3::prelude::*;
 use std::panic::AssertUnwindSafe;
 
 mod emit;
+#[cfg(feature = "python")]
 mod emit_py;
 mod error;
 mod lex;
 mod parse;
+#[cfg(feature = "python")]
 mod pyobject;
 
 #[cfg(feature = "coverage")]
@@ -66,6 +71,14 @@ where
     }
 }
 
+/// The same JSON as the `parse_*_json` Python functions, for callers that cannot link CPython.
+pub mod json {
+    pub fn parse_select(statement: &str) -> String {
+        super::run(|| crate::parse::parse_select(statement))
+    }
+}
+
+#[cfg(feature = "python")]
 /// Counterpart to [`run`] for `parse_*_py` entry points: drive a `PyEmitter` so the parser constructs `posthog.hogql.ast` instances directly, returning the unbound `Py<PyAny>`. Skips both the JSON-string serialise step AND the post-walk `Value`→`PyObject` converter used by the `*_json` entry points — no `serde_json::Value` intermediate on the success path.
 ///
 /// Error path still routes through the JSON-envelope `Converter` so Python exception construction stays in one place.
@@ -104,34 +117,40 @@ where
     }
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (statement, is_internal=false))]
 fn parse_expr_json(statement: &str, is_internal: bool) -> String {
     run(|| parse::parse_expr(statement, is_internal))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_order_expr_json(statement: &str) -> String {
     run(|| parse::parse_order_expr(statement))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_select_json(statement: &str) -> String {
     run(|| parse::parse_select(statement))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_program_json(source: &str) -> String {
     run(|| parse::parse_program(source))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_full_template_string_json(string: &str) -> String {
     run(|| parse::parse_full_template_string(string))
 }
 
-// `parse_*_py` mirror the `_json` entry points but return Python ast dataclass instances directly, skipping the JSON serialise/deserialise round-trip on both sides. The `_json` versions stay alongside for the future WASM build and for tests that compare on JSON shape.
+// `parse_*_py` mirror the `_json` entry points but return Python ast dataclass instances directly, skipping the JSON serialise/deserialise round-trip on both sides. The `_json` versions stay alongside for the WASM build in `rust/hogql/parser-wasm` and for tests that compare on JSON shape.
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (statement, is_internal=false))]
 fn parse_expr_py(py: Python<'_>, statement: &str, is_internal: bool) -> PyResult<Py<PyAny>> {
@@ -140,6 +159,7 @@ fn parse_expr_py(py: Python<'_>, statement: &str, is_internal: bool) -> PyResult
     })
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_order_expr_py(py: Python<'_>, statement: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| {
@@ -147,16 +167,19 @@ fn parse_order_expr_py(py: Python<'_>, statement: &str) -> PyResult<Py<PyAny>> {
     })
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_select_py(py: Python<'_>, statement: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| parse::parse_select_with_emit(emit, statement))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_program_py(py: Python<'_>, source: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| parse::parse_program_with_emit(emit, source))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<Py<PyAny>> {
     run_py(py, |emit| {
@@ -164,6 +187,7 @@ fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<Py<Py
     })
 }
 
+#[cfg(feature = "python")]
 /// Byte-for-byte twin of the C++ wheel's `parse_string_literal_text`, closing the last cpp/rust API gap.
 /// Errors route through the shared converter so `SyntaxError`/`ParsingError` match the C++ wheel's classes.
 #[pyfunction]
@@ -179,6 +203,7 @@ fn parse_string_literal_text(py: Python<'_>, text: &str) -> PyResult<String> {
     }
 }
 
+#[cfg(feature = "python")]
 /// Raise the matching `posthog.hogql.errors` exception for `err`, importing only the errors module (not the AST/enum-laden `Converter`).
 fn raise_parse_error(py: Python<'_>, err: error::ParseError) -> PyErr {
     pyobject::raise_error_envelope(
@@ -190,6 +215,7 @@ fn raise_parse_error(py: Python<'_>, err: error::ParseError) -> PyErr {
     )
 }
 
+#[cfg(feature = "python")]
 #[pymodule]
 fn hogql_parser_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_expr_json, m)?)?;

@@ -22,10 +22,13 @@ serde_json.workspace = true
 # 0.28: cargo allows one pyo3 version per workspace (pyo3 has `links = "python"`),
 # and rust/deltalite/python's pyarrow ingest (arrow 58 `pyarrow` feature) requires
 # 0.28 — keep the two in lockstep or the workspace stops resolving.
-pyo3 = { version = "0.28", features = ["extension-module", "abi3-py312"] }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py312"], optional = true }
 
 [features]
-default = []
+default = ["python"]
+# The Python bindings. `rust/hogql/parser-wasm` turns this off because a WASM
+# build cannot link against CPython.
+python = ["dep:pyo3"]
 # Compile the SanitizerCoverage `__sanitizer_cov_trace_pc_*` callbacks in
 # `src/cov.rs` and expose `cov_snapshot()` / `cov_reset()` to Python. The
 # actual edge-coverage instrumentation pass is requested via RUSTFLAGS in
@@ -37,4 +40,4 @@ default = []
 # Production wheels never set this; the resulting wheel is the parser-parity
 # grind's coverage-instrumented variant. See the "Coverage-instrumented build"
 # section of `rust/hogql/parser/README.md`.
-coverage = []
+coverage = ["python"]
