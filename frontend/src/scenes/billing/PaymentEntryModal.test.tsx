@@ -21,7 +21,10 @@ let mockStripeReady = true
 let mockElementsReady = true
 
 jest.mock('@stripe/react-stripe-js', () => ({
-    PaymentElement: () => null,
+    AddressElement: ({ options }: { options: { mode: string } }) => (
+        <div data-attr="address-element" data-mode={options.mode} />
+    ),
+    PaymentElement: () => <div data-attr="payment-element" />,
     useStripe: () => (mockStripeReady ? { confirmPayment: mockConfirmPayment } : null),
     useElements: () => (mockElementsReady ? {} : null),
 }))
@@ -39,6 +42,19 @@ describe('PaymentForm', () => {
     afterEach(() => {
         cleanup()
         paymentEntryLogic.unmount()
+    })
+
+    it('asks for the billing address before the card', () => {
+        render(
+            <Provider>
+                <PaymentForm />
+            </Provider>
+        )
+
+        const address = document.querySelector('[data-attr="address-element"]')
+        const card = document.querySelector('[data-attr="payment-element"]')
+        expect(address).toHaveAttribute('data-mode', 'billing')
+        expect(address!.compareDocumentPosition(card!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     })
 
     it.each([
