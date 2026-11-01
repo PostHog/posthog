@@ -19,7 +19,7 @@ use replay_core_v4::inspect::stats::MAX_URL_FINGERPRINTS;
 use replay_core_v4::keys::batch::{FlushKeys, SessionId, SessionKey as Key};
 use replay_core_v4::refs::url_fingerprint;
 use replay_core_v4::scan::cv::extract_event_images;
-use replay_core_v4::scan::images::{Image, ImageLimits, ImageSink};
+use replay_core_v4::scan::images::{Declined, Image, ImageLimits, ImageSink};
 use replay_core_v4::seal::{image_content_key, url_fingerprint_key};
 
 use tokio::sync::Semaphore;
@@ -133,7 +133,7 @@ fn prepare_block(
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
-    let mut removed_avif = 0u64;
+    let mut removed_images = [0u64; Declined::ALL.len()];
     for message in &block.messages {
         let mut window = Vec::new();
         write_json_string(
@@ -173,7 +173,9 @@ fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
-        removed_avif += u64::from(sink.removed_avif);
+        for (removed, declined) in removed_images.iter_mut().zip(sink.declined) {
+            *removed += u64::from(declined);
+        }
         images.extend(
             sink.images
                 .into_iter()
@@ -181,7 +183,7 @@ fn prepare_block(
         );
     }
     let mut report = rewrite.finish();
-    report.counters.removed_avif = removed_avif;
+    report.counters.removed_images = removed_images;
     counts.scrubbed = report.scrubbed;
     Ok((images, counts, report))
 }
@@ -959,6 +961,7 @@ mod tests {
             "data:image/avif;base64,{}",
             STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
         );
+        let bitmap = format!("data:image/bmp;base64,{}", STANDARD.encode(b"BMbitmap"));
         // The dataset keeps no AVIF, so an inline one leaves the list too.
         let inline_avif = format!(
             "data:image/avif;base64,{}",
@@ -976,7 +979,8 @@ mod tests {
             source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
-            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
+            // An inline image the image scrub cannot read leaves the list as a declined URL does.
+            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x, {bitmap} 3x")})),
             {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
         ]});
         let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
@@ -1041,10 +1045,10 @@ mod tests {
 
     #[test]
     fn rebuilds_a_srcset_as_the_block_holds_it_after_escapes_are_written_again() {
-        // The `\/` escapes keep the PNG inline, and the writer then writes them as `/`.
-        let png = STANDARD.encode(png(&[0xff; 30]));
-        assert!(png.contains('/'));
-        let inline = format!("data:image/png;base64,{png}");
+        // An SVG stays inline, and the writer writes its `\/` escapes as `/`.
+        let svg = STANDARD.encode(b"<svg><!--??? --></svg>");
+        assert!(svg.contains('/'));
+        let inline = format!("data:image/svg+xml;base64,{svg}");
         let events = format!(
             r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
             inline.replace('/', "\\/")
