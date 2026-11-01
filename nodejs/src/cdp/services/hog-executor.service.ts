@@ -33,6 +33,11 @@ export interface HogExecutorConfig {
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
+export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
+
+function capturedEventsLimit(type: HogFunctionType['type']): number {
+    return type === 'source_webhook' ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS : 1
+}
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -222,6 +227,8 @@ export class HogExecutorService {
 
             try {
                 let hogLogs = 0
+                const maxCapturedEvents = capturedEventsLimit(invocation.hogFunction.type)
+                let droppedCaptures = 0
 
                 const asyncFunctions = (options.asyncFunctionsNames ?? []).reduce(
                     (acc, fn) => {
@@ -269,10 +276,14 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
-                            if (result.capturedPostHogEvents.length > 0) {
-                                throw new Error(
-                                    'postHogCapture was called more than once. Only one call is allowed per function'
-                                )
+                            if (result.capturedPostHogEvents.length >= maxCapturedEvents) {
+                                if (maxCapturedEvents === 1) {
+                                    throw new Error(
+                                        'postHogCapture was called more than once. Only one call is allowed per function'
+                                    )
+                                }
+                                droppedCaptures++
+                                return
                             }
 
                             if (globals.event) {
@@ -307,6 +318,20 @@ export class HogExecutorService {
                 })
 
                 hogExecutionDuration.observe(execHogOutcome.durationMs)
+
+                if (droppedCaptures > 0) {
+                    addLog(
+                        'warn',
+                        `postHogCapture was called ${maxCapturedEvents + droppedCaptures} times, but a source webhook can capture at most ${maxCapturedEvents} events. The last ${droppedCaptures} events were dropped.`
+                    )
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'dropped',
+                        count: droppedCaptures,
+                    })
+                }
 
                 result.invocation.state.timings.push({
                     kind: 'hog',

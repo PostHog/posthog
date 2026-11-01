@@ -547,6 +547,42 @@ describe('Hog Executor', () => {
     })
 
     describe('posthogCaptue', () => {
+        const captureRepeatedly = async (type: HogFunctionType['type'], times: number) => {
+            const bytecode = await compileHog(`
+                let i := 0
+                while (i < ${times}) {
+                    postHogCapture({'event': 'line', 'distinct_id': 'distinct_id', 'properties': {}})
+                    i := i + 1
+                }
+            `)
+            return await executor.execute(createExampleInvocation(createHogFunction({ type, bytecode })))
+        }
+
+        it('lets a source webhook capture one event per call', async () => {
+            const result = await captureRepeatedly('source_webhook', 3)
+
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(3)
+        })
+
+        it('drops source webhook captures past the limit and reports them', async () => {
+            const result = await captureRepeatedly('source_webhook', 102)
+
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(100)
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'dropped', count: 2 }))
+            expect(result.logs.map((log) => log.message)).toContain(
+                'postHogCapture was called 102 times, but a source webhook can capture at most 100 events. The last 2 events were dropped.'
+            )
+        })
+
+        it('fails a destination that captures more than once', async () => {
+            const result = await captureRepeatedly('destination', 2)
+
+            expect(result.error).toContain('postHogCapture was called more than once')
+            expect(result.capturedPostHogEvents).toHaveLength(1)
+        })
+
         it('captures events', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,

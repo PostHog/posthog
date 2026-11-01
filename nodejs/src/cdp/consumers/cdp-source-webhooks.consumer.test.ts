@@ -281,6 +281,34 @@ describe('SourceWebhooksConsumer', () => {
                 expect(internalEvents.method).toBe('POST')
             })
 
+            it.each([
+                [false, 200, [['first', 'second']]],
+                [true, 500, []],
+            ])('with fail=%s, answers %s and captures %j', async (fail, expectedStatus, expectedBatches) => {
+                const code = `
+                        postHogCapture({'event': 'first', 'distinct_id': 'd', 'properties': {}})
+                        postHogCapture({'event': 'second', 'distinct_id': 'd', 'properties': {}})
+                        if (request.body.fail) {
+                            throw Error('boom')
+                        }
+                    `
+                const capturingFunction = await insertHogFunction(hub.postgres, team.id, {
+                    type: 'source_webhook',
+                    hog: code,
+                    bytecode: await compileHog(code),
+                })
+
+                const res = await doPostRequest({ webhookId: capturingFunction.id, body: { fail } })
+                await waitForBackgroundTasks()
+
+                expect(res.status).toEqual(expectedStatus)
+                expect(
+                    mockInternalFetch.mock.calls.map(([, options]) =>
+                        parseJSON(options.body).batch.map((event: { event: string }) => event.event)
+                    )
+                ).toEqual(expectedBatches)
+            })
+
             it('should log custom errors', async () => {
                 const res = await doPostRequest({
                     body: {

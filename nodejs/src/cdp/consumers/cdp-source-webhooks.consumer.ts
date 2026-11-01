@@ -531,8 +531,24 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             )
         }
 
+        this.discardCapturesOfFailedRequest(result)
         await this.invocationResultsService.queueInvocationResults([result])
         return result
+    }
+
+    private discardCapturesOfFailedRequest(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+    ): void {
+        if (!result.error || result.capturedPostHogEvents.length === 0) {
+            return
+        }
+        result.logs.push(
+            logEntry(
+                'warn',
+                `Discarded ${result.capturedPostHogEvents.length} captured events because the function failed. A retry of the request captures them again.`
+            )
+        )
+        result.capturedPostHogEvents = []
     }
 
     @instrumented('cdpSourceWebhooksConsumer.processWebhook')
