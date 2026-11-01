@@ -7,6 +7,7 @@ import dataclasses
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, get_args, get_type_hints
+from urllib.parse import urlsplit
 
 import orjson
 import stripe as stripe_lib
@@ -84,6 +85,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_ATTEMPT_RESOURCE_NAME,
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
+    STRIPE_V2_MONEY_MANAGEMENT_VERSIONS,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -106,6 +108,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
     DEFAULT_PRIMARY_KEYS,
     NON_PARTITIONED_ENDPOINTS,
     PRIMARY_KEYS,
+    V2_LIST_PATHS,
     WAREHOUSE_PARENT_FANOUT,
     WEBHOOK_ONLY_ENDPOINTS,
 )
@@ -218,6 +221,16 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
     return _head_mentions_list_object(raw, start)
 
 
+def _is_truncated_json_object(body: Any) -> bool:
+    """True when ``body`` opens a JSON object but never closes it. API v2 lists carry no
+    ``"object": "list"`` marker, so this is the only shape check that applies to them."""
+    bounds = _trimmed_body_bounds(body)
+    if bounds is None:
+        return False
+    raw, start, end = bounds
+    return raw[start] == _OPEN_BRACE and raw[end] != _CLOSE_BRACE
+
+
 def _is_non_list_stripe_response(body: Any) -> bool:
     """True when ``body`` is a *complete* JSON object that is not a Stripe ``list``.
 
@@ -272,6 +285,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
+    _last_request_is_v2: bool = False
 
     def __init__(
         self,
@@ -295,6 +309,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         post_data: Any = None,
     ) -> tuple[bytes, int, Mapping[str, str]]:
         self._last_request_method = (method or "").lower()
+        self._last_request_is_v2 = urlsplit(url).path.startswith("/v2/")
         if self._before_request is not None:
             self._before_request()
         return super().request(method, url, headers, post_data)
@@ -329,6 +344,8 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         body, status_code, _ = response
         if not (200 <= status_code < 300):
             return False
+        if self._last_request_is_v2:
+            return self._last_request_method == "get" and _is_truncated_json_object(body)
         if _is_truncated_stripe_list_response(body):
             return True
         # A complete but non-list body identifies a corrupt list read only for a GET — a write
@@ -475,6 +492,39 @@ class _SingleObjectList:
 
     def auto_paging_iter(self):
         yield self._obj
+
+
+class _V2ListPage:
+    """A fetched API v2 list page behind the ``auto_paging_iter`` interface of the v1 lists.
+
+    API v2 pages by following `next_page_url`, not by object-id cursors, so the first page is
+    requested up front (a probe surfaces its error there) and later pages are fetched lazily.
+    """
+
+    def __init__(self, client: StripeClient, page: dict[str, Any]) -> None:
+        self._client = client
+        self._page = page
+
+    def auto_paging_iter(self) -> Iterator[dict[str, Any]]:
+        page = self._page
+        while True:
+            data = page.get("data")
+            # A page without `data` is a corrupt response, not the end of the list. Raise so the sync
+            # retries rather than finishing with a truncated table.
+            if not isinstance(data, list):
+                raise stripe_lib.APIError("Stripe returned an API v2 list page without a data array")
+            yield from data
+            next_page_url = page.get("next_page_url")
+            if not next_page_url:
+                return
+            page = self._client.raw_request("get", next_page_url).data
+
+
+def _v2_lister(client: StripeClient, path: str) -> Callable[..., _V2ListPage]:
+    def _list(params: dict[str, Any]) -> _V2ListPage:
+        return _V2ListPage(client, client.raw_request("get", path, limit=params["limit"]).data)
+
+    return _list
 
 
 def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
@@ -942,6 +992,7 @@ def _build_resources(
             parent=StripeResource(method=client.setup_intents.list),
             parent_name=SETUP_INTENT_RESOURCE_NAME,
         ),
+        **{name: StripeResource(method=_v2_lister(client, path)) for name, path in V2_LIST_PATHS.items()},
     }
 
 
@@ -1010,9 +1061,20 @@ def get_rows(
         logger.debug(f"Stripe: {endpoint} endpoint is webhook-only, skipping API list")
         return
 
+    if endpoint in V2_LIST_PATHS and api_version not in STRIPE_V2_MONEY_MANAGEMENT_VERSIONS:
+        raise StripeUnsupportedVersionError(endpoint, api_version)
+
     resource = resources.get(endpoint, None)
     if not resource:
         raise Exception(f"Stripe endpoint does not exist: {endpoint}")
+
+    if endpoint in V2_LIST_PATHS:
+        # A v2 page token cannot be saved as a v1 `starting_after` cursor, so these full-refresh tables
+        # save no resume state. An interrupted sync reads the list again and overwrites the table.
+        yield from _batch_and_yield(
+            _iter_cleaning_errors(_call_stripe(resource.method, params=default_params).auto_paging_iter()), batcher
+        )
+        return
 
     logger.debug(f"Stripe: reading from resource {resource}")
 
@@ -1706,6 +1768,16 @@ class StripeTransientError(Exception):
         super().__init__(stripe_message)
 
 
+class StripeUnsupportedVersionError(Exception):
+    """A table was synced under a pinned API version that does not serve its endpoint."""
+
+    def __init__(self, endpoint: str, api_version: str):
+        super().__init__(
+            f"Stripe {endpoint} is not available on Stripe API version {api_version}. "
+            f"It needs one of: {', '.join(STRIPE_V2_MONEY_MANAGEMENT_VERSIONS)}."
+        )
+
+
 class StripeValidationError(Exception):
     """Raised when one or more resources failed with a non-403, non-transient exception (e.g. an
     unexpected response or schema error) during credential validation. Transient Stripe-side
@@ -1765,13 +1837,19 @@ def validate_credentials(
     api_key: str,
     endpoints: Optional[list[str]] = None,
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    api_version: Optional[str] = None,
 ) -> bool:
     """Validate Stripe credentials.
 
     - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
     - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    client = StripeClient(
+        api_key,
+        stripe_version=api_version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     if endpoints is None:
@@ -1819,12 +1897,18 @@ def check_endpoint_permissions(
     api_key: str,
     endpoints: list[str],
     auth_method: Literal["api_key", "oauth"] = "api_key",
+    api_version: Optional[str] = None,
 ) -> dict[str, str | None]:
     """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
 
     Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
     """
-    client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
+    client = StripeClient(
+        api_key,
+        stripe_version=api_version,
+        base_addresses=_stripe_base_addresses(),
+        http_client=_tracked_stripe_http_client(),
+    )
     all_resources = _build_resources(client, logger=None)
 
     results: dict[str, str | None] = {}
