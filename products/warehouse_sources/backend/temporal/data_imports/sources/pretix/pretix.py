@@ -11,8 +11,8 @@ envelope where ``next`` is the full URL of the following page. Orders and invoic
 organizer-level list endpoints spanning all events; the remaining event-scoped resources fan out
 over the organizer's events.
 
-Only ``orders`` documents a server-side timestamp filter (``modified_since``) together with a
-``last_modified`` ordering key, so it is the only incremental stream. Everything else is full
+Only ``orders`` (``modified_since``) and ``transactions`` (``created_since``) document a
+server-side timestamp filter, so they are the only incremental streams. Everything else is full
 refresh — pretix's other list endpoints only support ``If-Modified-Since`` conditional fetching
 (all-or-nothing 304s), which is not a per-row cursor.
 
@@ -132,8 +132,8 @@ def _get_headers(api_token: str) -> dict[str, str]:
     return {"Authorization": f"Token {api_token}", "Accept": "application/json"}
 
 
-def _format_modified_since(value: Any) -> str:
-    """Format an incremental value for pretix's ``modified_since`` filter (ISO 8601 UTC, Z suffix)."""
+def _format_since(value: Any) -> str:
+    """Format an incremental value for pretix's ``*_since`` filters (ISO 8601 UTC, Z suffix)."""
     if isinstance(value, datetime):
         utc_dt = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
         return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -173,11 +173,11 @@ def _client_config(api_token: str, base_url: str) -> ClientConfig:
     }
 
 
-def _modified_since_incremental() -> IncrementalConfig:
+def _since_incremental(since_field: str, since_param: str) -> IncrementalConfig:
     return {
-        "cursor_path": "last_modified",
-        "start_param": "modified_since",
-        "convert": _format_modified_since,
+        "cursor_path": since_field,
+        "start_param": since_param,
+        "convert": _format_since,
     }
 
 
@@ -187,14 +187,14 @@ def _should_apply_incremental(
     db_incremental_field_last_value: Any,
     incremental_field: Optional[str],
 ) -> bool:
-    # Mirror the hand-rolled gate: only narrow with the server-side `modified_since` filter when the
-    # endpoint supports it and the user's chosen cursor is the field that filter targets
-    # (`last_modified`). Honors the selected incremental_field rather than assuming it.
+    # Only narrow with the server-side filter when the endpoint supports it and the user's chosen
+    # cursor is the field that filter targets. Honors the selected incremental_field rather than
+    # assuming it.
     return (
         should_use_incremental_field
-        and config.modified_since_field is not None
+        and config.since_field is not None
         and db_incremental_field_last_value is not None
-        and incremental_field in (None, config.modified_since_field)
+        and incremental_field in (None, config.since_field)
     )
 
 
@@ -232,10 +232,10 @@ def pretix_source(
     quoted_organizer = _quote_organizer(organizer)
 
     incremental: Optional[IncrementalConfig] = None
-    if _should_apply_incremental(
+    if config.since_field is not None and _should_apply_incremental(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     ):
-        incremental = _modified_since_incremental()
+        incremental = _since_incremental(config.since_field, config.since_param)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     initial_paginator_state: Optional[dict[str, Any]] = None
