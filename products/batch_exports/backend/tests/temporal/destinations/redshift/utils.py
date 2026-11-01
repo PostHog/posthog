@@ -6,6 +6,7 @@ import collections.abc
 
 from psycopg import sql
 
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.service import (
@@ -18,7 +19,6 @@ from products.batch_exports.backend.service import (
     BatchExportSessionsModel,
 )
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import redshift_default_fields
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.temporary_file import remove_escaped_whitespace_recursive
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer

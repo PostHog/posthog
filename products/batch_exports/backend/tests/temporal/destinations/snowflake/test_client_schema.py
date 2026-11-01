@@ -6,12 +6,13 @@ from unittest.mock import AsyncMock, patch
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from posthog.temporal.common.arrow_pipeline.transformer import ParquetStreamTransformer, SchemaTransformer
+
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeClient,
     SnowflakeIncompatibleSchemaError,
     SnowflakeTable,
 )
-from products.batch_exports.backend.temporal.pipeline.transformer import ParquetStreamTransformer, SchemaTransformer
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import DESCRIBE_TABLE_METADATA
 
 

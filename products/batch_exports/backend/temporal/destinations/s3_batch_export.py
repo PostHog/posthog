@@ -37,6 +37,8 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
 )
 from posthog.models.team import Team
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue, wait_for_schema_or_producer
+from posthog.temporal.common.arrow_pipeline.transformer import ParquetStreamTransformer, get_json_stream_transformer
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -64,16 +66,21 @@ from products.batch_exports.backend.temporal.destinations.utils import (
     get_object_key,
 )
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
-from products.batch_exports.backend.temporal.metrics import Attributes, CumulativeTimer, ExecutionTimeRecorder
+from products.batch_exports.backend.temporal.metrics import (
+    Attributes,
+    CumulativeTimer,
+    ExecutionTimeRecorder,
+    QueueWaitTimeRecorder,
+    time_transform,
+)
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
-from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
-from products.batch_exports.backend.temporal.pipeline.transformer import (
-    ParquetStreamTransformer,
-    get_json_stream_transformer,
+from products.batch_exports.backend.temporal.pipeline.events import (
+    EVENTS_JSON_COLUMNS,
+    strip_web_vitals_nested_elements,
 )
+from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 # Errors that any write to S3 can raise, whichever bucket it targets. The file download
@@ -757,7 +764,9 @@ async def insert_into_s3_from_stage(
         get_s3_key_from_inputs(inputs, file_name_prefix=file_name_prefix),
     )
 
-    queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+    queue = RecordBatchQueue(
+        max_size_bytes=settings.BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES, on_wait_time=QueueWaitTimeRecorder()
+    )
     producer = ProducerFromInternalStage()
     assert inputs.batch_export_id is not None
     producer_task = await producer.start(
@@ -792,14 +801,15 @@ async def insert_into_s3_from_stage(
     if inputs.file_format.lower() == "jsonlines":
         transformer = get_json_stream_transformer(
             compression=inputs.compression,
-            include_inserted_at=True,
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            on_recursion_limit=strip_web_vitals_nested_elements,
         )
     else:
         transformer = ParquetStreamTransformer(
             compression=inputs.compression,
-            include_inserted_at=True,
             max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            json_columns=EVENTS_JSON_COLUMNS,
+            transform_timer=time_transform,
         )
 
     async with s3_client(

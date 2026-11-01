@@ -6,29 +6,28 @@ import typing
 import hashlib
 import datetime as dt
 import functools
+import contextlib
 import collections.abc
+import concurrent.futures
 
 import pytest
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.batch_exports.backend.temporal.pipeline.table import (
-    Field,
-    Table,
-    TypeTupleToCastMapping,
-    _make_ensure_array,
-)
-from products.batch_exports.backend.temporal.pipeline.transformer import (
+from posthog.temporal.common.arrow_pipeline.json_type import JsonType
+from posthog.temporal.common.arrow_pipeline.table import Field, Table, TypeTupleToCastMapping, _make_ensure_array
+from posthog.temporal.common.arrow_pipeline.transformer import (
     CSVStreamTransformer,
     JSONLStreamTransformer,
     ParquetStreamTransformer,
     PipelineTransformer,
     SchemaTransformer,
+    SerializedStreamTransformer,
     _ensure_curly_brackets_array,
     dump_dict,
+    dump_record_batch,
 )
-from products.batch_exports.backend.temporal.utils import JsonType
 
 
 def create_deeply_nested_dict(depth: int, value: str = "test") -> typing.Any:
@@ -80,6 +79,49 @@ def test_dump_dict_with_deeply_nested_dict():
     assert json.loads(result) == deeply_nested_dict
 
 
+def _drop_nested(record: dict[str, typing.Any]) -> bool:
+    if "nested" not in record:
+        return False
+    del record["nested"]
+    return True
+
+
+def _refuse(record: dict[str, typing.Any]) -> bool:
+    return False
+
+
+@pytest.mark.parametrize(
+    "on_recursion_limit, expected",
+    [
+        (None, {"keep": 1, "nested": create_deeply_nested_dict(300)}),
+        (_refuse, {"keep": 1, "nested": create_deeply_nested_dict(300)}),
+        (_drop_nested, {"keep": 1}),
+    ],
+)
+def test_dump_dict_calls_recursion_limit_handler(on_recursion_limit, expected):
+    record = {"keep": 1, "nested": create_deeply_nested_dict(300)}
+
+    result = dump_dict(record, on_recursion_limit)
+
+    assert json.loads(result) == expected
+
+
+@pytest.mark.parametrize(
+    "exclude_columns, expected_keys",
+    [
+        ((), {"event", "_inserted_at"}),
+        (("_inserted_at",), {"event"}),
+        (("_inserted_at", "missing"), {"event"}),
+    ],
+)
+def test_dump_record_batch_skips_excluded_columns(exclude_columns, expected_keys):
+    record_batch = pa.RecordBatch.from_pylist([{"event": "a", "_inserted_at": 1}])
+
+    (line,) = dump_record_batch(record_batch, compression=None, exclude_columns=frozenset(exclude_columns))
+
+    assert set(json.loads(line)) == expected_keys
+
+
 TEST_RECORDS = [
     {
         "event": "test-event-0",
@@ -114,7 +156,7 @@ async def test_csv_stream_transformer_writes_record_batches():
         quote_char='"',
         escape_char="\\",
         quoting=csv.QUOTE_NONE,
-        include_inserted_at=False,
+        exclude_columns=("_inserted_at",),
         max_file_size_bytes=0,
     )
 
@@ -231,8 +273,21 @@ async def test_parquet_stream_transformer_bounds_file_size_when_compression_gets
     assert max(len(file) for file in files) <= 2 * max_file_size_bytes
 
 
+@pytest.mark.parametrize(
+    "json_columns, expected",
+    [
+        (
+            ("properties", "person_properties", "set", "set_once"),
+            {"uuid": True, "tags.list.element": True, "person.name": True, "properties": False},
+        ),
+        ((), {"uuid": True, "tags.list.element": True, "person.name": True, "properties": True}),
+        (("uuid",), {"uuid": False, "tags.list.element": True, "person.name": True, "properties": True}),
+    ],
+)
 @pytest.mark.asyncio
-async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only_for_json_columns():
+async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only_for_json_columns(
+    json_columns, expected
+):
     record_batch = pa.RecordBatch.from_pylist(
         [
             {"uuid": "a", "tags": ["x", "y"], "person": {"name": "a"}, "properties": '{"a": 1}'},
@@ -240,37 +295,113 @@ async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only
         ]
     )
 
-    transformer = ParquetStreamTransformer()
+    transformer = ParquetStreamTransformer(json_columns=json_columns)
     (data,) = await collect_parquet_files(transformer, [record_batch])
 
     row_group = pq.ParquetFile(io.BytesIO(data)).metadata.row_group(0)
     columns = [row_group.column(index) for index in range(row_group.num_columns)]
     assert {
         column.path_in_schema: column.statistics is not None and column.statistics.has_min_max for column in columns
-    } == {
-        "uuid": True,
-        "tags.list.element": True,
-        "person.name": True,
-        "properties": False,
-    }
-    assert {column.path_in_schema: "RLE_DICTIONARY" in column.encodings for column in columns} == {
-        "uuid": True,
-        "tags.list.element": True,
-        "person.name": True,
-        "properties": False,
-    }
+    } == expected
+    assert {column.path_in_schema: "RLE_DICTIONARY" in column.encodings for column in columns} == expected
 
 
 @pytest.mark.asyncio
-async def test_parquet_stream_transformer_without_metrics_runs_outside_temporal(settings):
-    # get_metric_meter only raises outside Temporal when DEBUG and TEST are both off.
+async def test_parquet_stream_transformer_without_timer_runs_outside_temporal(settings):
+    # Batch exports' metric meter raises outside Temporal when DEBUG and TEST are both off.
     settings.DEBUG = False
     settings.TEST = False
 
-    transformer = ParquetStreamTransformer(record_metrics=False, max_buffered_arrow_bytes=1)
+    transformer = ParquetStreamTransformer(max_buffered_arrow_bytes=1)
     (data,) = await collect_parquet_files(transformer, [pa.RecordBatch.from_pylist([{"uuid": "a"}])])
 
     assert pq.ParquetFile(io.BytesIO(data)).metadata.num_rows == 1
+
+
+class RecordingTimer:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int, int]] = []
+
+    def __call__(
+        self, name: str, /, *, description: str, log_message: str, num_records: int, num_bytes: int
+    ) -> contextlib.AbstractContextManager[object]:
+        self.calls.append((name, num_records, num_bytes))
+        return contextlib.nullcontext()
+
+
+def _make_transformer(
+    transformer_type: str,
+    pool: concurrent.futures.Executor,
+    exclude_columns: collections.abc.Iterable[str] = (),
+    transform_timer: RecordingTimer | None = None,
+) -> ParquetStreamTransformer | SerializedStreamTransformer:
+    if transformer_type == "parquet":
+        return ParquetStreamTransformer(
+            exclude_columns=exclude_columns, max_buffered_arrow_bytes=1, transform_timer=transform_timer
+        )
+    return SerializedStreamTransformer(
+        pool=pool,  # type: ignore[arg-type]
+        exclude_columns=exclude_columns,
+        transform_timer=transform_timer,
+    )
+
+
+@pytest.mark.parametrize(
+    "transformer_type, expected_name",
+    [
+        ("parquet", "parquet_stream_transformer_record_batch_transform_duration"),
+        ("serialized", "serialized_transformer_record_batch_transform_duration"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transformers_call_transform_timer_once_per_step(transformer_type, expected_name):
+    record_batch = pa.RecordBatch.from_pylist([{"uuid": "a"}, {"uuid": "b"}])
+    timer = RecordingTimer()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        transformer = _make_transformer(transformer_type, pool, transform_timer=timer)
+        async for _ in transformer.iter(iterate_record_batches([record_batch, record_batch])):
+            pass
+
+    assert timer.calls == [(expected_name, 2, record_batch.nbytes)] * 2
+
+
+@pytest.mark.parametrize("transformer_type", ["parquet", "serialized"])
+@pytest.mark.parametrize(
+    "exclude_columns, expected",
+    [
+        ((), [{"event": "a", "_inserted_at": 1}]),
+        (("_inserted_at",), [{"event": "a"}]),
+        (("_inserted_at", "missing"), [{"event": "a"}]),
+    ],
+)
+@pytest.mark.asyncio
+async def test_transformers_skip_excluded_columns(transformer_type, exclude_columns, expected):
+    record_batch = pa.RecordBatch.from_pylist([{"event": "a", "_inserted_at": 1}])
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        transformer = _make_transformer(transformer_type, pool, exclude_columns=exclude_columns)
+        data = b"".join([chunk.data async for chunk in transformer.iter(iterate_record_batches([record_batch]))])
+
+    if isinstance(transformer, ParquetStreamTransformer):
+        rows = pq.read_table(io.BytesIO(data)).to_pylist()
+    else:
+        rows = pa.ipc.read_record_batch(pa.py_buffer(data), transformer.schema).to_pylist()
+    assert rows == expected
+
+
+@pytest.mark.parametrize(
+    "exclude_columns, expected",
+    [
+        ((), "a,1\n"),
+        (("_inserted_at",), "a\n"),
+    ],
+)
+def test_csv_stream_transformer_skips_excluded_columns(exclude_columns, expected):
+    record_batch = pa.RecordBatch.from_pylist([{"event": "a", "_inserted_at": 1}])
+    transformer = CSVStreamTransformer(field_names=record_batch.column_names, exclude_columns=exclude_columns)
+
+    assert transformer.write_record_batch(record_batch).decode("utf-8") == expected
 
 
 class FakeField(Field):

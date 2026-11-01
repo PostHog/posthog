@@ -7,12 +7,12 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from structlog.testing import capture_logs
 
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue
+from posthog.temporal.common.arrow_pipeline.transformer import Chunk
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.pipeline import consumer as consumer_module
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
-from products.batch_exports.backend.temporal.pipeline.transformer import Chunk
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 
 pytestmark = [pytest.mark.asyncio]
 

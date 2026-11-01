@@ -9,6 +9,7 @@ import pytest
 from google.cloud import bigquery, iam_admin_v1
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.service import (
@@ -23,7 +24,6 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     bigquery_default_fields,
     get_our_google_cloud_credentials,
 )
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue

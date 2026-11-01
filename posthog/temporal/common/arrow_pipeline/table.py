@@ -6,7 +6,7 @@ import collections.abc
 
 import pyarrow as pa
 
-from products.batch_exports.backend.temporal.utils import JsonType
+from posthog.temporal.common.arrow_pipeline.json_type import JsonType
 
 _T = typing.TypeVar("_T")
 
@@ -113,7 +113,7 @@ def are_types_compatible(
 
 
 class Field[T](typing.Protocol):
-    """A protocol for a field in a batch exports destination.
+    """A protocol for a field in a destination.
 
     A `Field`'s responsibility is to handle resolution between a `pyarrow.Field` and
     a destination-specific field, by converting to and from each one.
@@ -210,10 +210,10 @@ class TableReference(TableBase):
 
 
 class Table(TableBase, typing.Generic[FieldType]):
-    """A Table abstraction for batch exports.
+    """A Table abstraction for destinations.
 
     The intended use is to wrap the actual target table used in a destination with a
-    common API for all batch exports to use.
+    common API for all destinations to use.
 
     Moreover, this can also be derived from an arrow schema, to allow comparisons with
     tables derived from destination data.

@@ -14,6 +14,8 @@ import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue, wait_for_schema_or_producer
+from posthog.temporal.common.arrow_pipeline.transformer import JSONLStreamTransformer
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -29,12 +31,12 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.metrics import QueueWaitTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.events import INSERTED_AT_COLUMN, strip_web_vitals_nested_elements
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.transformer import JSONLStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
@@ -416,7 +418,10 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
     async with Heartbeater():
         model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_WORKFLOWS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        queue = RecordBatchQueue(
+            max_size_bytes=settings.BATCH_EXPORT_WORKFLOWS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES,
+            on_wait_time=QueueWaitTimeRecorder(),
+        )
         producer = Producer()
         assert inputs.batch_export.batch_export_id is not None
         producer_task = await producer.start(
@@ -437,7 +442,11 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
-        transformer = JSONLStreamTransformer(max_workers=1)
+        transformer = JSONLStreamTransformer(
+            exclude_columns=(INSERTED_AT_COLUMN,),
+            max_workers=1,
+            on_recursion_limit=strip_web_vitals_nested_elements,
+        )
 
         # NOTE: We initialize the TaskGroup first so that any errors in setting up
         # the consumer are not raised in the TaskGroup context.

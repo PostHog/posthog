@@ -15,6 +15,8 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue
+
 from products.batch_exports.backend.service import (
     AnyBatchExportModel,
     BatchExportEventsCustomModel,
@@ -33,7 +35,6 @@ from products.batch_exports.backend.temporal.destinations.azure_blob_batch_expor
 )
 from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs

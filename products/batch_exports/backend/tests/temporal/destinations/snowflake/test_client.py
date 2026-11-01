@@ -16,6 +16,12 @@ import pyarrow as pa
 import pytest_asyncio
 import pyarrow.parquet as pq
 
+from posthog.temporal.common.arrow_pipeline.transformer import (
+    ParquetStreamTransformer,
+    PipelineTransformer,
+    SchemaTransformer,
+)
+
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     NamedBytesIO,
     SnowflakeClient,
@@ -26,11 +32,6 @@ from products.batch_exports.backend.temporal.destinations.snowflake_batch_export
     SnowflakeTable,
     SnowflakeType,
     SnowflakeWarehouseUsageError,
-)
-from products.batch_exports.backend.temporal.pipeline.transformer import (
-    ParquetStreamTransformer,
-    PipelineTransformer,
-    SchemaTransformer,
 )
 from products.batch_exports.backend.tests.temporal.destinations.snowflake.utils import SKIP_IF_MISSING_REQUIRED_ENV_VARS
 

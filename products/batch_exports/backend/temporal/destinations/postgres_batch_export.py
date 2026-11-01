@@ -32,6 +32,9 @@ from posthog.security.url_validation import (
     ShapeError,
     validate_external_host,
 )
+from posthog.temporal.common.arrow_pipeline.json_type import JsonType
+from posthog.temporal.common.arrow_pipeline.queue import RecordBatchQueue, wait_for_schema_or_producer
+from posthog.temporal.common.arrow_pipeline.transformer import CSVStreamTransformer
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -53,14 +56,13 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.metrics import QueueWaitTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.events import INSERTED_AT_COLUMN
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
-from products.batch_exports.backend.temporal.pipeline.transformer import CSVStreamTransformer
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
-from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
-    JsonType,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -986,7 +988,10 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
     async with Heartbeater():
         model = migrate_batch_export_model(inputs.batch_export_model)
 
-        queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
+        queue = RecordBatchQueue(
+            max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES,
+            on_wait_time=QueueWaitTimeRecorder(),
+        )
         producer = Producer()
         assert inputs.batch_export_id is not None
         producer_task = await producer.start(
@@ -1100,7 +1105,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     escape_char=None,
                     line_terminator="\n",
                     quoting=csv.QUOTE_STRINGS,
-                    include_inserted_at=False,
+                    exclude_columns=(INSERTED_AT_COLUMN,),
                     max_file_size_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
                 )
 

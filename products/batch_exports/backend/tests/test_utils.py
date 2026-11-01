@@ -2,9 +2,7 @@ import asyncio
 
 import pytest
 
-import pyarrow as pa
-
-from products.batch_exports.backend.temporal.utils import JsonType, make_retryable_with_exponential_backoff
+from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 
 async def test_make_retryable_with_exponential_backoff_called_max_attempts():
@@ -96,24 +94,3 @@ async def test_make_retryable_with_exponential_backoff_raises_if_not_retryable()
         await make_retryable_with_exponential_backoff(raise_value_error, retryable_exceptions=(TypeError,))()
 
     assert counter == 1
-
-
-@pytest.mark.parametrize(
-    "input,expected",
-    [
-        ([b'{"asdf": "\\udee5\\ud83e\\udee5\\ud83e"}'], [{"asdf": "????"}]),
-        ([b'{"asdf": "\\"Hello\\" \\udfa2"}'], [{"asdf": '"Hello" ?'}]),
-        ([b'{"asdf": "\n"}'], [{"asdf": "\n"}]),
-        ([b'{"asdf": "\\n"}'], [{"asdf": "\n"}]),
-        (
-            [b'{"finally": "a", "normal": "json", "thing": 1, "bool": false}'],
-            [{"finally": "a", "normal": "json", "thing": 1, "bool": False}],
-        ),
-    ],
-)
-def test_json_type_as_py(input, expected):
-    array = pa.array(input)
-    casted_array = array.cast(JsonType())
-    result = casted_array.to_pylist()
-
-    assert result == expected

@@ -9,7 +9,7 @@ from django.conf import settings
 import structlog
 from opentelemetry import trace
 from temporalio import activity, workflow
-from temporalio.common import MetricCounter, MetricMeter
+from temporalio.common import MetricCounter, MetricHistogram, MetricMeter
 from temporalio.worker import (
     ActivityInboundInterceptor,
     ExecuteActivityInput,
@@ -386,6 +386,43 @@ class ExecutionTimeRecorder:
         """Reset counter and bytes processed."""
         self._start_counter = None
         self.bytes_processed = None
+
+
+def time_transform(
+    name: str,
+    /,
+    *,
+    description: str,
+    log_message: str,
+    num_records: int,
+    num_bytes: int,
+) -> ExecutionTimeRecorder:
+    """Record the duration of a transformer step to a histogram metric, and log its throughput.
+
+    This is the `TransformTimer` that batch exports passes to the shared Arrow pipeline transformers.
+    """
+    recorder = ExecutionTimeRecorder(
+        name,
+        description=description,
+        log_message=log_message,
+        log_attributes={"num_records": num_records},
+    )
+    recorder.add_bytes_processed(num_bytes)
+    return recorder
+
+
+class QueueWaitTimeRecorder:
+    """Record the time that record batches wait in a `RecordBatchQueue` to a histogram metric."""
+
+    def __init__(self) -> None:
+        self._histogram: MetricHistogram | None = None
+
+    def __call__(self, wait_time_ns: int) -> None:
+        if self._histogram is None:
+            self._histogram = get_metric_meter().create_histogram(
+                "batch_exports_queue_wait_time", description="Time spent by record batches waiting in queue"
+            )
+        self._histogram.record(wait_time_ns)
 
 
 def log_execution_time(
