@@ -9,6 +9,7 @@ import { logger } from '~/common/utils/logger'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogBytecode,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
@@ -33,6 +34,34 @@ export interface HogExecutorConfig {
 
 export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
+// A log drain source turns one inbound request into events, and log shippers batch many
+// lines per request. Only functions running these templates may capture more than once.
+export const MULTI_CAPTURE_SOURCE_TEMPLATE_IDS: ReadonlySet<string> = new Set(['template-source-vercel-log-drain'])
+// Hard ceiling on events per invocation, counted across async steps because the previous
+// step's events carry into the next result. A 512 KB body can carry thousands of small lines,
+// so the cap is reachable, and calls past it are dropped with a warning and a `dropped`
+// metric instead of failing the whole batch.
+export const MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS = 100
+
+// The API lets a caller keep a template_id on hand-written Hog, so the template id alone is
+// not a trust boundary. The allowance also requires the function to run bytecode the server
+// compiled for that template. Any stored version counts, because a saved function keeps the
+// bytecode of the version it was created from.
+export function capturedEventsLimit(
+    hogFunction: Pick<HogFunctionType, 'type' | 'template_id' | 'bytecode'>,
+    templateBytecodes: ReadonlyArray<HogBytecode | null | undefined>
+): number {
+    if (
+        hogFunction.type !== 'source_webhook' ||
+        !MULTI_CAPTURE_SOURCE_TEMPLATE_IDS.has(hogFunction.template_id ?? '')
+    ) {
+        return 1
+    }
+    const functionBytecode = JSON.stringify(hogFunction.bytecode)
+    return templateBytecodes.some((bytecode) => bytecode && JSON.stringify(bytecode) === functionBytecode)
+        ? MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS
+        : 1
+}
 
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
@@ -76,6 +105,8 @@ export type HogExecutorPreviousResult = Pick<
 
 export type HogExecutorExecuteOptions = {
     functions?: Record<string, (args: unknown[]) => unknown>
+    /** How many events postHogCapture may emit in this invocation. Defaults to one. See capturedEventsLimit. */
+    maxCapturedEvents?: number
     /**
      * Async functions are stubbed in the VM so the program can call them and suspend. Defaults to
      * none, meaning any async call is unknown to the VM - callers that can service them pass their
@@ -222,6 +253,8 @@ export class HogExecutorService {
 
             try {
                 let hogLogs = 0
+                let droppedCaptures = 0
+                const maxCapturedEvents = options.maxCapturedEvents ?? 1
 
                 const asyncFunctions = (options.asyncFunctionsNames ?? []).reduce(
                     (acc, fn) => {
@@ -256,6 +289,8 @@ export class HogExecutorService {
                                 message: sanitizeLogMessage(args, sensitiveValues),
                             })
                         },
+                        // Returns true when the event was captured and false when it was refused, so a
+                        // multi-capture template can stop its loop.
                         postHogCapture: (event) => {
                             const distinctId = event.distinct_id || globals.event?.distinct_id || globals.person?.id
                             const eventName = event.event
@@ -269,10 +304,14 @@ export class HogExecutorService {
                                 throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
                             }
 
-                            if (result.capturedPostHogEvents.length > 0) {
-                                throw new Error(
-                                    'postHogCapture was called more than once. Only one call is allowed per function'
-                                )
+                            if (result.capturedPostHogEvents.length >= maxCapturedEvents) {
+                                if (maxCapturedEvents === 1) {
+                                    throw new Error(
+                                        'postHogCapture was called more than once. Only one call is allowed per function'
+                                    )
+                                }
+                                droppedCaptures++
+                                return false
                             }
 
                             if (globals.event) {
@@ -285,7 +324,7 @@ export class HogExecutorService {
                                         'warn',
                                         `postHogCapture was called from an event that already executed this function 10 times previously. To prevent unbounded infinite loops, the event was not captured.`
                                     )
-                                    return
+                                    return false
                                 }
 
                                 // Increment the execution count so that we can check it in the future
@@ -301,12 +340,27 @@ export class HogExecutorService {
                                     ...eventProperties,
                                 },
                             })
+                            return true
                         },
                         ...options.functions,
                     },
                 })
 
                 hogExecutionDuration.observe(execHogOutcome.durationMs)
+
+                if (droppedCaptures > 0) {
+                    addLog(
+                        'warn',
+                        `postHogCapture was called ${droppedCaptures} more times than the limit of ${maxCapturedEvents}. Only the first ${maxCapturedEvents} events were captured.`
+                    )
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'dropped',
+                        count: droppedCaptures,
+                    })
+                }
 
                 result.invocation.state.timings.push({
                     kind: 'hog',
@@ -381,6 +435,15 @@ export class HogExecutorService {
         } catch (err) {
             result.error = redactSensitiveValues(err.message, sensitiveValues)
             result.finished = true // Explicitly set to true to prevent infinite loops
+            // A failed source webhook answers 5xx and the sender retries the same body, so events
+            // captured before the failure would be ingested twice. Dropping them keeps a retry clean.
+            if ((options.maxCapturedEvents ?? 1) > 1 && result.capturedPostHogEvents.length > 0) {
+                addLog(
+                    'warn',
+                    `Discarded ${result.capturedPostHogEvents.length} captured events because the function failed`
+                )
+                result.capturedPostHogEvents = []
+            }
         }
 
         return result
