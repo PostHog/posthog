@@ -1,4 +1,8 @@
-import { assertRolloutFractions, buildIntegerMatcherWithPercentage } from './matchers'
+import {
+    assertRolloutFractions,
+    buildIntegerMatcherWithPercentage,
+    buildStableTeamMatcherWithPercentage,
+} from './matchers'
 
 describe('buildIntegerMatcherWithPercentage', () => {
     it.each([
@@ -33,5 +37,21 @@ describe('buildIntegerMatcherWithPercentage', () => {
         } else {
             expect(check).not.toThrow()
         }
+    })
+
+    it('picks a fixed share of teams that a larger fraction keeps', () => {
+        const teamIds = Array.from({ length: 10_000 }, (_, i) => i + 1)
+        const picked = (config: string): number[] =>
+            teamIds.filter((teamId) => buildStableTeamMatcherWithPercentage(config)(teamId))
+
+        const onePercent = picked('*:0.01')
+        const tenPercent = picked('*:0.1')
+
+        expect(picked('*:0.01')).toEqual(onePercent)
+        expect(onePercent.length).toBeGreaterThan(80)
+        expect(onePercent.length).toBeLessThan(120)
+        expect(tenPercent.length).toBeGreaterThan(900)
+        expect(tenPercent.length).toBeLessThan(1100)
+        expect(onePercent.every((teamId) => tenPercent.includes(teamId))).toBe(true)
     })
 })

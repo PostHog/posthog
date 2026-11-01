@@ -3,7 +3,7 @@ import { Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
-import { assertRolloutFractions, buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
+import { assertRolloutFractions, buildStableTeamMatcherWithPercentage } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
@@ -106,7 +106,7 @@ export class HogExecutorService {
     ) {
         const multiCaptureTeams = config.sourceWebhookMultiCaptureTeams ?? ''
         assertRolloutFractions('CDP_SOURCE_WEBHOOK_MULTI_CAPTURE_TEAMS', multiCaptureTeams)
-        this.multiCaptureTeams = buildIntegerMatcherWithPercentage(multiCaptureTeams)
+        this.multiCaptureTeams = buildStableTeamMatcherWithPercentage(multiCaptureTeams)
     }
 
     async buildInputsWithGlobals(
@@ -332,7 +332,7 @@ export class HogExecutorService {
                 if (droppedCaptures > 0) {
                     addLog(
                         'warn',
-                        `Captured ${maxCapturedEvents} of ${maxCapturedEvents + droppedCaptures} postHogCapture calls. The other ${droppedCaptures} were dropped.`
+                        `Captured ${maxCapturedEvents} of ${maxCapturedEvents + droppedCaptures} postHogCapture calls and dropped the rest.`
                     )
                     result.metrics.push({
                         team_id: invocation.teamId,
