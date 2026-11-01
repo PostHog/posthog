@@ -22,6 +22,7 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -514,6 +515,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
             team = team_from_token
+        elif psak_team := self._get_team_from_project_secret_api_key():
+            team = psak_team
         elif self._is_project_view:
             team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
@@ -535,6 +538,17 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         tag_queries(**get_team_query_tags(team))
         return team
+
+    def _get_team_from_project_secret_api_key(self) -> Optional[Team]:
+        # The authenticator already loaded the key's team and organization. Reuse that row only when it is the
+        # team the route resolves to, so a key for another team still fails the permission check.
+        if not (self._is_team_view or self._is_project_view):
+            return None
+        authenticator = getattr(self.request, "successful_authenticator", None)
+        if not isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+            return None
+        psak = authenticator.project_secret_api_key
+        return psak.team if psak.team_id == self.team_id else None
 
     @cached_property
     def project_id(self) -> int:
