@@ -13,6 +13,13 @@ import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/In
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isInsightVizNode,
+    isMetricsQuery,
+    isWebOverviewQuery,
+} from '~/queries/schema/node-guards'
+import {
     AnyResponseType,
     DashboardFilter,
     DataTableNode,
@@ -30,17 +37,12 @@ import { MetricsHistogramQueryNode, MetricsQueryNode } from 'products/metrics/fr
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import {
-    isDataTableNode,
-    isDataVisualizationNode,
     isEndpointsUsageOverviewQuery,
     isEndpointsUsageTrendsQuery,
     isHogQuery,
-    isInsightVizNode,
     isMarketingAnalyticsAggregatedQuery,
     isMetricsHistogramQuery,
-    isMetricsQuery,
     isSavedInsightNode,
-    isWebOverviewQuery,
     isWebVitalsPathBreakdownQuery,
     isWebVitalsQuery,
 } from '../utils'

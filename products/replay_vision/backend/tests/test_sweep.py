@@ -236,15 +236,19 @@ class TestFindScannerCandidatesActivity:
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
 
-    def test_a_deleted_experiment_keeps_its_scanner_on_until_the_scout_is_paused(self) -> None:
+    @parameterized.expand([("deleted_experiment",), ("no_ai_consent",)])
+    def test_an_experiment_scanner_stays_on_until_its_scout_is_paused(self, cause: str) -> None:
         # A disabled scanner has no schedule left to retry the pause, and the scout would keep
         # running on the customer's bill. So the scanner stays on until a later tick pauses it.
         scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
         experiment = create_experiment(scanner.team, "deleted-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
-        experiment.deleted = True
-        experiment.save()
+        if cause == "deleted_experiment":
+            experiment.deleted = True
+            experiment.save()
+        else:
+            Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
         inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
 
         with (
@@ -326,19 +330,28 @@ class TestFindScannerCandidatesActivity:
         )
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
-    def test_returns_empty_when_creator_lost_session_recording_access(self) -> None:
-        from posthog.models import User
+    @parameterized.expand([("creator_left_org",), ("creator_deactivated",), ("no_ai_consent",)])
+    def test_a_scanner_that_cannot_spend_is_turned_off_before_any_read(self, case: str) -> None:
+        scanner = _make_scanner()
+        if case != "no_ai_consent":
+            creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+            if case == "creator_deactivated":
+                scanner.team.organization.members.add(creator)
+                User.objects.filter(pk=creator.pk).update(is_active=False)
+            scanner.created_by = creator
+            scanner.save(update_fields=["created_by"])
+        else:
+            Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
 
-        creator = User.objects.create_user(email="demoted@example.com", password="x", first_name="d")
-        scanner = _make_scanner(created_by=creator)
-        with patch(
-            "products.replay_vision.backend.temporal.activities.find_scanner_candidates.UserAccessControl.check_access_level_for_resource",
-            return_value=False,
-        ):
+        with _patched_queries() as (fast_query, deep_query):
             result = find_scanner_candidates_activity(
                 FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
             )
+
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
+        assert not fast_query.called and not deep_query.called
+        scanner.refresh_from_db()
+        assert not scanner.enabled
 
     def test_targeted_scanner_with_no_creator_skips_instead_of_failing(self) -> None:
         # The exposure filter refuses userless principals, so a deleted creator would otherwise
@@ -1279,6 +1292,24 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
         assert scanner.last_swept_at == stale
         assert scanner.last_seen_session_id == "sess-old"
         assert scanner.deep_swept_through == stale
+
+
+@pytest.mark.parametrize("case", ["creator_left_org", "no_ai_consent"])
+@pytest.mark.django_db(transaction=True)
+def test_check_scanner_budget_activity_lets_an_unrunnable_scanner_through_to_be_turned_off(case: str) -> None:
+    scanner = _make_scanner(credit_limit=20 * _OBSERVATION_CREDITS)
+    if case == "creator_left_org":
+        creator = User.objects.create_user(email="creator@example.com", password="x", first_name="c")
+        scanner.created_by = creator
+        scanner.save(update_fields=["created_by"])
+    else:
+        Organization.objects.filter(pk=scanner.team.organization_id).update(is_ai_data_processing_approved=False)
+    seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+
+    with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000):
+        output = check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.capped is False
 
 
 @pytest.mark.django_db(transaction=True)

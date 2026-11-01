@@ -1,7 +1,8 @@
 """Pick the active insights that the next anomaly scoring tick scores.
 
 One query per team reads the newest scored bucket of each series back from the `$anomaly_score`
-events. `selection.pick_order` then orders the due insights, and the tick picks from that order the
+events. With `due_list` on, the plan reads the stored due list of `due_list.py` instead, and sends no
+ClickHouse query. `selection.pick_order` then orders the due insights, and the tick picks from that order the
 insights whose queries fit the hourly budgets. With the train and score split on, `state.plan_run`
 makes each pick a train step or a score step, and each kind has its own budgets.
 
@@ -22,6 +23,7 @@ from enum import StrEnum
 from typing import Any, cast
 
 from django.core.cache import cache
+from django.db.models import Count, Min
 
 import structlog
 
@@ -66,7 +68,7 @@ from products.signals.backend.anomaly_scores.selection import (
     score_order,
 )
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
-from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.models import AnomalyScoringDueInsight, SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
@@ -115,6 +117,8 @@ _MAX_AT_CAPACITY_TEAMS = 2
 # The last scored state load of a team. The team that waited longest loads first, so a plan that stops early
 # does not drop the same teams on every tick.
 _TEAM_LOADED_TTL = datetime.timedelta(days=1)
+# The most due rows that one plan reads. Far more than the picks of one tick.
+_MAX_DUE_ROWS = 5000
 # The scorer rejects these, so selection leaves them out instead of picking them on every tick.
 _UNSCORED_DISPLAYS = sorted(
     display.value for display in {*NON_TIME_SERIES_DISPLAY_TYPES, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE}
@@ -208,6 +212,24 @@ class Selection:
     enrolled_organizations: int = 0
     # Insights in a cooldown after two or more consecutive too-expensive visits.
     long_cooldown: int = 0
+    # Due rows of the stored due list, the time since the oldest of them became due, and the time since the
+    # oldest refresh of a row. None when the tick does not plan from the due list.
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
+
+
+@frozen
+class DueList:
+    """The due rows of the stored due list, for the eligible teams."""
+
+    insights: list[ActiveInsight]
+    scored_through: dict[int, dict[str, datetime.datetime]]
+    usage: dict[int, InsightUsage]
+    # Rows of the eligible teams, due or not.
+    rows: int
+    oldest_due_seconds: int | None
+    oldest_refresh_seconds: int | None
 
 
 @frozen
@@ -380,17 +402,64 @@ def scored_buckets(
     return state
 
 
+def due_at(
+    insight_id: int, interval: IntervalType, newest_bucket: datetime.datetime | None, timezone: datetime.tzinfo
+) -> datetime.datetime | None:
+    """When the bucket after the newest scored one is complete and this insight's slot after its end starts.
+
+    None when the insight was never scored, because it is due at once.
+    """
+    if newest_bucket is None:
+        return None
+    next_start = bucket_end(newest_bucket.astimezone(timezone), interval)
+    next_end = bucket_end(next_start, interval)
+    # The same offset as alert checks, so insights spread over the window after each boundary.
+    return next_end + alert_check_offset(_CALENDAR_INTERVALS[interval], f"anomaly:{insight_id}")
+
+
 def is_due(
     insight: ActiveInsight, newest_bucket: datetime.datetime | None, timezone: datetime.tzinfo, now: datetime.datetime
 ) -> bool:
-    """The bucket after the newest scored one is complete, and this insight's slot after its end has passed."""
-    if newest_bucket is None:
-        return True
-    next_start = bucket_end(newest_bucket.astimezone(timezone), insight.interval)
-    next_end = bucket_end(next_start, insight.interval)
-    # The same offset as alert checks, so insights spread over the window after each boundary.
-    offset = alert_check_offset(_CALENDAR_INTERVALS[insight.interval], f"anomaly:{insight.insight_id}")
-    return now >= next_end + offset
+    due = due_at(insight.insight_id, insight.interval, newest_bucket, timezone)
+    return due is None or now >= due
+
+
+def parse_watermarks(value: Any) -> dict[str, datetime.datetime]:
+    """The stored map of series key to newest scored bucket. An entry that does not parse is left out."""
+    if not isinstance(value, dict):
+        return {}
+    watermarks: dict[str, datetime.datetime] = {}
+    for series_key, stamp in value.items():
+        try:
+            watermarks[str(series_key)] = _utc(datetime.datetime.fromisoformat(stamp))
+        except (TypeError, ValueError):
+            continue
+    return watermarks
+
+
+def load_due_list(team_ids: Collection[int], intervals: tuple[IntervalType, ...], now: datetime.datetime) -> DueList:
+    """The due rows of the teams, longest overdue first, in a fixed number of queries."""
+    scope = AnomalyScoringDueInsight.all_teams.filter(team_id__in=list(team_ids))
+    summary = scope.aggregate(rows=Count("id"), oldest_refresh=Min("refreshed_at"))
+    rows = list(
+        scope.filter(next_due_at__lte=now, interval__in=[interval.value for interval in intervals]).order_by(
+            "next_due_at", "insight_id"
+        )[:_MAX_DUE_ROWS]
+    )
+    oldest_refresh = summary["oldest_refresh"]
+    return DueList(
+        insights=[
+            ActiveInsight(team_id=row.team_id, insight_id=row.insight_id, interval=IntervalType(row.interval))
+            for row in rows
+        ],
+        scored_through={row.insight_id: parse_watermarks(row.series_scored_through) for row in rows},
+        usage={
+            row.insight_id: InsightUsage(viewers=row.viewers, has_enabled_alert=row.has_enabled_alert) for row in rows
+        },
+        rows=summary["rows"],
+        oldest_due_seconds=round((now - rows[0].next_due_at).total_seconds()) if rows else None,
+        oldest_refresh_seconds=None if oldest_refresh is None else round((now - oldest_refresh).total_seconds()),
+    )
 
 
 def _cooldown_key(insight_id: int) -> str:
@@ -424,6 +493,10 @@ def too_expensive_counts(insight_ids: list[int]) -> dict[int, int]:
     }
 
 
+def too_expensive_cooldown(count: int) -> datetime.timedelta:
+    return TOO_EXPENSIVE_COOLDOWNS[min(count, len(TOO_EXPENSIVE_COOLDOWNS)) - 1]
+
+
 def mark_too_expensive(insight_id: int, previous: int) -> int:
     """Count one more too-expensive visit, and start the cooldown of the new count. Returns the new count.
 
@@ -432,7 +505,7 @@ def mark_too_expensive(insight_id: int, previous: int) -> int:
     """
     count = previous + 1
     cache.set(_too_expensive_key(insight_id), count, timeout=int(_TOO_EXPENSIVE_COUNT_TTL.total_seconds()))
-    mark_attempted(insight_id, TOO_EXPENSIVE_COOLDOWNS[min(count, len(TOO_EXPENSIVE_COOLDOWNS)) - 1])
+    mark_attempted(insight_id, too_expensive_cooldown(count))
     return count
 
 
@@ -656,16 +729,26 @@ def select_insights(
     """The picks of the tick. ``limit`` replaces the pick cap of each pass, for a manual run.
 
     ``deadline`` is a ``time.monotonic`` value. After it, no more teams load, and the plan uses the teams it has.
+    With the due list on, the plan reads the stored due list instead, and ``deadline`` has no effect.
     """
     teams = {team.id: team for team in eligible_teams(config)}
-    insights = active_insights(list(teams), config.intervals, now, config.active_window_days)
-    active = len(insights)
-    active_reasons = reason_counts(insights)
-    census = team_census(teams, insights)
-    teams_with_insights = {insight.team_id for insight in insights}
-    state, loaded_teams = load_scored_state(config, teams, insights, now, deadline)
-    # Without its scored state, every insight of the team looks never scored, so the team waits for a later tick.
-    insights = [insight for insight in insights if insight.team_id in loaded_teams]
+    due_list: DueList | None = None
+    if config.due_list:
+        due_list = load_due_list(teams, config.intervals, now)
+        insights = due_list.insights
+        state = due_list.scored_through
+        # The refresh job sends the activity reasons and the census.
+        active, active_reasons, census = due_list.rows, {}, []
+        loaded_teams = teams_with_insights = {insight.team_id for insight in insights}
+    else:
+        insights = active_insights(list(teams), config.intervals, now, config.active_window_days)
+        active = len(insights)
+        active_reasons = reason_counts(insights)
+        census = team_census(teams, insights)
+        teams_with_insights = {insight.team_id for insight in insights}
+        state, loaded_teams = load_scored_state(config, teams, insights, now, deadline)
+        # Without its scored state, every insight of the team looks never scored, so the team waits for a later tick.
+        insights = [insight for insight in insights if insight.team_id in loaded_teams]
 
     newest_buckets = {
         insight.insight_id: max(state[insight.insight_id].values()) if insight.insight_id in state else None
@@ -733,9 +816,12 @@ def select_insights(
         and is_due(insight, newest_buckets[insight_id], teams[insight.team_id].timezone_info, now)
     }
     usage: dict[int, InsightUsage] = {}
-    for team_id in sorted({insight.team_id for insight in due_by_id.values()}):
-        due_ids = [insight.insight_id for insight in due_by_id.values() if insight.team_id == team_id]
-        usage.update(insight_usage(team_id=team_id, insight_ids=due_ids, now=now))
+    if due_list is not None:
+        usage = due_list.usage
+    else:
+        for team_id in sorted({insight.team_id for insight in due_by_id.values()}):
+            due_ids = [insight.insight_id for insight in due_by_id.values() if insight.team_id == team_id]
+            usage.update(insight_usage(team_id=team_id, insight_ids=due_ids, now=now))
     candidates_by_team: dict[int, list[Candidate]] = {}
     for insight in due_by_id.values():
         newest = newest_buckets[insight.insight_id]
@@ -813,6 +899,9 @@ def select_insights(
         enrolled_teams=len(teams),
         enrolled_organizations=len({team.organization_id for team in teams.values()}),
         long_cooldown=sum(too_expensive.get(insight_id, 0) > 1 for insight_id in cooling),
+        due_insights=None if due_list is None else len(due_list.insights),
+        oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
+        oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
     )
 
 

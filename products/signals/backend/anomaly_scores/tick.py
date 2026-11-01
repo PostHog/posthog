@@ -47,6 +47,7 @@ from products.signals.backend.anomaly_scores.config import (
     read_payload,
     resolve_profile,
 )
+from products.signals.backend.anomaly_scores.due_list import record_failed, record_scored
 from products.signals.backend.anomaly_scores.emission import emit, score_events
 from products.signals.backend.anomaly_scores.metrics import record_candidates, record_pick
 from products.signals.backend.anomaly_scores.queue import (
@@ -58,6 +59,7 @@ from products.signals.backend.anomaly_scores.queue import (
     mark_too_expensive,
     reset_too_expensive,
     select_insights,
+    too_expensive_cooldown,
 )
 from products.signals.backend.anomaly_scores.scoring import (
     SCORING_QUERY_BUDGET_SECONDS,
@@ -134,6 +136,9 @@ class AnomalyScoringTickPlan:
     teams_planned: int = 0
     teams_skipped: int = 0
     long_cooldown: int = 0
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
 
 
 @frozen
@@ -194,6 +199,11 @@ class AnomalyScoringTickResult:
     plan_error: str | None = None
     # Insights in a cooldown after two or more consecutive too-expensive visits.
     long_cooldown: int = 0
+    # Due rows that the plan read from the stored due list, the time since the oldest of them became due, and
+    # the time since the oldest row refresh. None when the plan does not read the due list.
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -205,6 +215,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
     deadline = time.monotonic() + _PLAN_LOAD_BUDGET.total_seconds()
     selection = select_insights(config, parse_selection_config(payload), now, limit, deadline=deadline)
     record_candidates(selection.candidates)
+    # With the due list on, the census is empty, and the refresh job sends it.
     capture_census(selection.census, now)
     return AnomalyScoringTickPlan(
         enabled=True,
@@ -225,6 +236,9 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
         long_cooldown=selection.long_cooldown,
+        due_insights=selection.due_insights,
+        oldest_due_seconds=selection.oldest_due_seconds,
+        oldest_refresh_seconds=selection.oldest_refresh_seconds,
     )
 
 
@@ -281,11 +295,14 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
             duration_ms=duration_ms,
         )
         too_expensive = pick.too_expensive
+        cooldown = ATTEMPT_COOLDOWN
         if status == STATUS_TOO_EXPENSIVE:
             too_expensive = mark_too_expensive(pick.insight_id, pick.too_expensive)
+            cooldown = too_expensive_cooldown(too_expensive)
         # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
         elif status is not None and status != STATUS_AT_CAPACITY:
-            mark_attempted(pick.insight_id, SKIP_COOLDOWN)
+            cooldown = SKIP_COOLDOWN
+            mark_attempted(pick.insight_id, cooldown)
         record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0, run=pick.run)
         capture_pick(
             pick,
@@ -295,6 +312,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
             run=pick.run,
             too_expensive=too_expensive,
         )
+        record_failed(pick.team_id, pick.insight_id, now, cooldown)
         if status is None:
             raise
         return ScoreInsightResult(status=status, events=0)
@@ -381,7 +399,7 @@ def capture_census(census: list[TeamCensus], now: datetime.datetime) -> None:
             properties={
                 "deployment": settings.CLOUD_DEPLOYMENT,
                 "team_id": team.team_id,
-                "day": day.isoformat(),
+                "census_date": day.isoformat(),
                 "active_insights": team.active,
                 **{f"active_{reason}": count for reason, count in team.active_reasons.items()},
                 **{f"interval_{interval}": count for interval, count in team.active_intervals.items()},
@@ -400,6 +418,8 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         None,
     )
     if insight is None:
+        # The next refresh removes the row of a deleted insight.
+        record_failed(pick.team_id, pick.insight_id, now, SKIP_COOLDOWN)
         return ScoreInsightResult(status=STATUS_MISSING, events=0)
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
@@ -420,6 +440,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
                     error=str(error)[:200],
                 )
                 invalidate_state(team, insight.id, profile)
+                record_failed(team.id, insight.id, now, ATTEMPT_COOLDOWN)
                 return ScoreInsightResult(status=STATUS_ARTIFACT_UNAVAILABLE, events=0, run=ScoringRun.SCORE)
     scores = score_insight(
         insight,
@@ -446,6 +467,17 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     # A state write before a failed emit would skip those buckets for good.
     if scores.state is not None:
         save_state(team, insight.id, profile, scores.state)
+    record_scored(
+        team,
+        insight.id,
+        {
+            series.series_key: max(point.bucket_start for point in series.points)
+            for series in scores.series
+            if series.points
+        },
+        now,
+        input.limits,
+    )
     return ScoreInsightResult(
         status=STATUS_SCORED if events else STATUS_UP_TO_DATE,
         events=len(events),
@@ -486,6 +518,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         plan_failed=result.plan_failed,
         plan_error=result.plan_error,
         long_cooldown=result.long_cooldown,
+        due_insights=result.due_insights,
+        oldest_due_seconds=result.oldest_due_seconds,
+        oldest_refresh_seconds=result.oldest_refresh_seconds,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -519,6 +554,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "plan_failed": result.plan_failed,
             "plan_error": result.plan_error,
             "long_cooldown": result.long_cooldown,
+            "due_insights": result.due_insights,
+            "oldest_due_seconds": result.oldest_due_seconds,
+            "oldest_refresh_seconds": result.oldest_refresh_seconds,
         },
     )
 
@@ -637,6 +675,9 @@ class AnomalyScoringTickWorkflow:
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,
             long_cooldown=plan.long_cooldown,
+            due_insights=plan.due_insights,
+            oldest_due_seconds=plan.oldest_due_seconds,
+            oldest_refresh_seconds=plan.oldest_refresh_seconds,
         )
         await self._capture(result)
         return result

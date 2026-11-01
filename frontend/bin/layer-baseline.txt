@@ -74,7 +74,6 @@ frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytic
 frontend/src/layout/today/todayContextPanelLogic.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
 frontend/src/layout/today/todayContextPanelLogic.ts -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/todayObjectGlanceLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
-frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/queries/utils.ts
 frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/project-homepage/today/todayNumbers.ts
 frontend/src/layout/today/todayObjectGlances.ts -> products/experiments/frontend/experimentStatus.ts
@@ -119,7 +118,6 @@ frontend/src/lib/components/Cards/InsightCard/DashboardSqlDisplayOptions.tsx -> 
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/queries/Query/Query.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/queries/nodes/InsightViz/utils.ts
-frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/scenes/insights/EmptyStates/index.ts
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> frontend/src/scenes/insights/insightLogic.tsx
@@ -127,7 +125,6 @@ frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> products/busine
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> products/business_intelligence/frontend/BIDashboardTile.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> products/business_intelligence/frontend/biDashboardCrossFilters.ts
 frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx -> products/dashboards/frontend/components/DashboardInsightResultMenu.tsx
-frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> frontend/src/scenes/insights/filters/ActionFilter/flagCallsSeries.ts
 frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> frontend/src/scenes/insights/utils.tsx
 frontend/src/lib/components/Cards/InsightCard/InsightDetails.tsx -> frontend/src/scenes/saved-insights/insightTypesMetadata.tsx
@@ -139,7 +136,6 @@ frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/qu
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/queries/nodes/DataNode/queryScan.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/queries/nodes/DataNode/warehouseSyncWarnings.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/queries/nodes/InsightViz/exportAdapters.ts
-frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/scenes/dashboard/dashboardEvents.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/scenes/dashboard/dashboardUtils.ts
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> frontend/src/scenes/insights/insightDataLogic.tsx
@@ -157,15 +153,12 @@ frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> products/produc
 frontend/src/lib/components/Cards/InsightCard/InsightMeta.tsx -> products/product_analytics/frontend/insights/editor/insightDisplayOptions.tsx
 frontend/src/lib/components/Cards/InsightCard/QueryCard.tsx -> frontend/src/queries/Query/Query.tsx
 frontend/src/lib/components/Cards/InsightCard/RecordingsUniversalFiltersDisplay.tsx -> frontend/src/scenes/session-recordings/filters/DurationFilter.tsx
-frontend/src/lib/components/Cards/InsightCard/TopHeading.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Cards/InsightCard/TopHeading.tsx -> frontend/src/scenes/saved-insights/insightTypesMetadata.tsx
 frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx -> frontend/src/queries/nodes/DataVisualization/Components/SideBar.tsx
-frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/Cards/InsightCard/dashboardVisualizationOptions.tsx -> products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker.tsx
 frontend/src/lib/components/Cards/InsightCard/dashboardWidgetMenusLogic.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
-frontend/src/lib/components/Cards/InsightCard/visualizationShape.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Cards/TextCard/textCardMarkdown.ts -> products/dashboards/frontend/components/ImageTile/imageTileMarkdown.ts
 frontend/src/lib/components/Cards/TextCard/textCardModalLogic.ts -> products/dashboards/frontend/components/ImageTile/imageTileUtils.ts
 frontend/src/lib/components/ChartFilter/ChartFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
@@ -187,8 +180,6 @@ frontend/src/lib/components/EventPropertyTabs/EventPropertyTabs.tsx -> products/
 frontend/src/lib/components/ExportButton/exportNudge.ts -> products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast.tsx
 frontend/src/lib/components/ExportButton/exportNudge.ts -> products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic.ts
 frontend/src/lib/components/ExportButton/exportNudge.ts -> products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeSubject.ts
-frontend/src/lib/components/ExportButton/exportsLogic.ts -> frontend/src/scenes/cohorts/cohortSavedToast.ts
-frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledDependencies.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledDependencies.ts -> frontend/src/scenes/cohorts/CohortFilters/types.ts
 frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledDependencies.ts -> frontend/src/scenes/cohorts/cohortUtils.tsx
 frontend/src/lib/components/FlagCalledRebuildBanner/flagCalledDependencies.ts -> frontend/src/scenes/feature-flags/flagEvaluationsTable.ts
@@ -197,7 +188,6 @@ frontend/src/lib/components/HedgehogMode/HedgehogMode.tsx -> frontend/src/toolba
 frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarConfigLogic.ts
 frontend/src/lib/components/HedgehogMode/hedgehogModeLogic.ts -> frontend/src/toolbar/shared/toolbarFetch.ts
 frontend/src/lib/components/HighlightedJSONViewer.tsx -> products/ai_observability/frontend/ConversationDisplay/HighlightedContentWrapper.tsx
-frontend/src/lib/components/HogQLEditor/HogQLEditor.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/IngestionControls/TriggerMatchChoice.tsx -> frontend/src/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect.tsx
 frontend/src/lib/components/IngestionControls/TriggerMatchChoice.tsx -> frontend/src/scenes/settings/environment/SessionRecordingSettings.tsx
 frontend/src/lib/components/IngestionControls/triggers/EventTrigger.tsx -> frontend/src/scenes/settings/environment/replayTriggersLogic.ts
@@ -262,7 +252,6 @@ frontend/src/lib/components/SessionTimeline/timeline/items/exceptions.tsx -> pro
 frontend/src/lib/components/SessionTimeline/timeline/items/logs.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/SessionTimeline/timeline/items/page.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/nodes/InsightQuery/defaults.ts
-frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/utils.ts
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
@@ -329,7 +318,6 @@ frontend/src/lib/utils/accessControlUtils.ts -> frontend/src/scenes/sceneTypes.t
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/layout/panel-layout/ProjectTree/projectTreeLogic.tsx
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/lib/logic/preflightLogic.tsx
-frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/queries/utils.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/product-tours/constants.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/userLogic.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/experimentStatus.ts
@@ -353,7 +341,6 @@ frontend/src/posthogAiToolRenderers.ts -> products/error_tracking/frontend/posth
 frontend/src/posthogAiToolRenderers.ts -> products/logs/frontend/posthogAiToolRenderers.tsx
 frontend/src/posthogAiToolRenderers.ts -> products/posthog_ai/frontend/posthogAiToolRenderers.tsx
 frontend/src/products.tsx -> frontend/src/queries/examples.ts
-frontend/src/products.tsx -> frontend/src/queries/utils.ts
 frontend/src/products.tsx -> products/ai_observability/frontend/clusters/constants.ts
 frontend/src/products.tsx -> products/ai_observability/frontend/scoreDefinitions/scoreDefinitionNavigation.ts
 frontend/src/products.tsx -> products/error_tracking/frontend/settingsRedirects.ts

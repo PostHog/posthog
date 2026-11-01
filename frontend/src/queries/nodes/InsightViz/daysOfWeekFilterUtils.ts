@@ -1,5 +1,5 @@
+import { isFunnelsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { DateRange } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 
 export type IsoDayOfWeek = NonNullable<DateRange['daysOfWeek']>[number]
 

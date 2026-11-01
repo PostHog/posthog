@@ -30,6 +30,7 @@ import {
 import { ActionNames, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import {
     BreakdownFilter,
     EventsNode,
@@ -78,7 +79,6 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
 import {
     ChartDisplayType,
     CountPerActorMathType,

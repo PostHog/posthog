@@ -118,6 +118,8 @@ class PersonalRankingConfig:
     build_burst: int = 2
     builds_per_hour: int = 12
     builds_per_day: int = 40
+    # Each build keeps this many of the person's newest rows and deletes the older ones.
+    max_rows_per_person: int = 5
 
 
 DEFAULTS = PersonalRankingConfig()
@@ -147,6 +149,7 @@ _MAXIMUMS: dict[str, int] = {
     "build_burst": 20,
     "builds_per_hour": 120,
     "builds_per_day": 500,
+    "max_rows_per_person": 100,
     "reason_max_chars": 500,
 }
 

@@ -20,6 +20,14 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
+import {
+    isActionsNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isGroupNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+} from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     FunnelsQuery,
@@ -29,15 +37,7 @@ import type {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import {
-    isActionsNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isGroupNode,
-    isInsightQueryWithSeries,
-    isInsightVizNode,
-    shouldQueryBeAsync,
-} from '~/queries/utils'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import { SidePanelTab } from '~/types'
 import type { AnyPropertyFilter, InsightLogicProps, TeamPublicType, TeamType } from '~/types'
 

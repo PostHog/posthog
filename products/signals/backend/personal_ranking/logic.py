@@ -55,6 +55,8 @@ AI_PRODUCT = "personal_inbox_ranking"
 PIPELINE_DISTINCT_ID = "signals_personal_inbox_ranking"
 BUILT_EVENT = "personal inbox ranking built"
 TRUNCATED_FINISH_REASON = "length"
+# The most old rows one build deletes. Each build deletes again, so a larger backlog shrinks over later builds.
+PRUNE_BATCH_SIZE = 100
 
 FALLBACK_LLM_ERROR = "llm_error"
 FALLBACK_TIMEOUT = "timeout"
@@ -310,6 +312,14 @@ def _store(team: Team, user: User, build: PersonalRankingBuild) -> PersonalRanki
     return dataclasses.replace(build, ranking_id=str(row.id))
 
 
+def _prune(team: Team, user: User, keep: int) -> None:
+    """Delete one batch of the person's rows older than the newest `keep`, so the table stays bounded."""
+    rows = PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id)
+    stale_ids = list(rows.order_by("-created_at", "-id").values_list("id", flat=True)[keep : keep + PRUNE_BATCH_SIZE])
+    if stale_ids:
+        rows.filter(id__in=stale_ids).delete()
+
+
 def build_personal_ranking(
     team: Team,
     user: User,
@@ -411,5 +421,9 @@ def build_personal_ranking(
     if dry_run:
         return build
     build = _store(team, user, build)
+    try:
+        _prune(team, user, config.max_rows_per_person)
+    except Exception:
+        logger.exception("signals.personal_ranking.prune_failed", team_id=team.id, user_id=user.id)
     _capture(team, user, build, config, has_focus=focus is not None)
     return build
