@@ -541,6 +541,9 @@ jobs:
             - name: Check toolbar for CSP eval violations
               run: pnpm --filter=@posthog/frontend check-toolbar-csp-eval
 
+            - name: Check auth prototype boot size
+              run: node --test frontend/bin/auth-prototype-graph.test.mjs && node frontend/bin/check-auth-prototype-budget.mjs
+
             # Keep the PR-side poster available after the base reset below. This is especially
             # important on the PR that introduces or updates the poster itself.
             - name: Preserve PR toolbar report poster
@@ -573,6 +576,7 @@ jobs:
                   # base measurement by hundreds of MiB and making every PR's dist-size delta
                   # a large spurious negative. The build never cleans dist/ itself.
                   rm -rf frontend/dist
+                  rm -f frontend/*-esbuild-meta.json
                   pnpm --filter=@posthog/frontend... install
                   pnpm --filter=@posthog/frontend build:with-report
                   du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
