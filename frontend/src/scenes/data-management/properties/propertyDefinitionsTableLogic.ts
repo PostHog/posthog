@@ -89,8 +89,8 @@ export interface propertyDefinitionsTableLogicActions {
         filters: Partial<Filters>,
         debounce?: boolean
     ) => {
-        filters: Partial<Filters>
         debounce: boolean
+        filters: Partial<Filters>
     }
     setHoveredDefinition: (definitionKey: string | null) => {
         definitionKey: string | null
@@ -130,7 +130,7 @@ export interface propertyDefinitionsTableLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         propertyTypeOptions: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => LemonSelectOption<string>[]
         showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsPaginatedResponse) => boolean
     }

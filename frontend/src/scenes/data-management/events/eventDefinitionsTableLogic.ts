@@ -293,8 +293,8 @@ export interface eventDefinitionsTableLogicActions {
         filters: Partial<Filters>,
         debounce?: boolean
     ) => {
-        filters: Partial<Filters>
         debounce: boolean
+        filters: Partial<Filters>
     }
     setLocalEventDefinition: (definition: EventDefinition) => {
         definition: EventDefinition

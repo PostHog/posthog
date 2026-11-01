@@ -102,9 +102,9 @@ export interface cohortsSceneLogicActions {
         replace?: boolean,
         debounce?: boolean
     ) => {
+        debounce: boolean
         filters: Partial<CohortFilters>
         replace: boolean | undefined
-        debounce: boolean
     }
     setCohortSorting: (sorting: Sorting | null) => {
         sorting: Sorting | null
