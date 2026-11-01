@@ -1,4 +1,10 @@
-import { LLMProvider, LLMProviderKey, LLMProviderKeyState, LLM_PROVIDER_LABELS } from './llmProviderKeysLogic'
+import {
+    KeyValidationResult,
+    LLMProvider,
+    LLMProviderKey,
+    LLMProviderKeyState,
+    LLM_PROVIDER_LABELS,
+} from './llmProviderKeysLogic'
 
 const UNHEALTHY_PROVIDER_KEY_STATES = new Set<LLMProviderKeyState>(['unknown', 'invalid', 'error'])
 
@@ -63,4 +69,41 @@ export function providerKeyStateSuffix(state: LLMProviderKeyState): string {
 
 export function providerLabel(provider: LLMProvider): string {
     return LLM_PROVIDER_LABELS[provider]
+}
+
+export function getKeyPlaceholder(provider: LLMProvider, usesFoundry = false): string {
+    switch (provider) {
+        case 'openai':
+            return 'sk-...'
+        case 'anthropic':
+            return usesFoundry ? 'Enter your Microsoft Foundry API key' : 'sk-ant-...'
+        case 'gemini':
+            return 'Enter your Gemini API key'
+        case 'together_ai':
+            return 'Enter your Together AI API key'
+        case 'openrouter':
+            return 'Enter your OpenRouter API key'
+        case 'fireworks':
+            return 'Enter your Fireworks API key'
+        case 'azure_openai':
+            return 'Enter your Azure OpenAI API key'
+        case 'minimax':
+            return 'Enter your MiniMax API key'
+        case 'system_one':
+            return "Enter your endpoint's bearer token"
+        case 'openai_compatible':
+            return 'Enter your API key'
+    }
+}
+
+// Azure and OpenAI-compatible validation errors can originate from either the endpoint or the
+// API key. The backend tells us which via `error_field`; map it to which input the key form
+// highlights.
+export function endpointErrorFieldFromResult(
+    result: KeyValidationResult | null | undefined
+): 'endpoint' | 'key' | null {
+    if (!result || result.state === 'ok') {
+        return null
+    }
+    return result.error_field === 'azure_endpoint' || result.error_field === 'base_url' ? 'endpoint' : 'key'
 }

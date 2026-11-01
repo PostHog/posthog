@@ -10,6 +10,7 @@ import { LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EvaluationAgentActions } from './components/EvaluationAgentActions'
 import { TemplateCard } from './components/TemplateCard'
 import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
@@ -22,7 +23,7 @@ const POPULAR_TEMPLATE_KEYS = ['relevance', 'cost_latency', 'helpfulness', 'hall
 // Sentiment leads because more teams run sentiment checks than any other kind.
 // The score and category templates complete the first row so people discover those output types.
 // The second row holds the other templates that people most often keep running.
-export const RECOMMENDED_TEMPLATE_KEYS = [
+const RECOMMENDED_TEMPLATE_KEYS = [
     'sentiment',
     'response_quality',
     'task_outcome',
@@ -30,6 +31,19 @@ export const RECOMMENDED_TEMPLATE_KEYS = [
     'hallucination',
     'helpfulness',
 ]
+// An LLM judge needs the team's own provider key, so a team without one gets a first row it can run as is.
+const NO_KEY_RECOMMENDED_TEMPLATE_KEYS = [
+    'sentiment',
+    'cost_latency',
+    'repeated_tool_calls',
+    'response_quality',
+    'task_outcome',
+    'hallucination',
+]
+
+export function recommendedTemplateKeys(requiresProviderKey: boolean): string[] {
+    return requiresProviderKey ? NO_KEY_RECOMMENDED_TEMPLATE_KEYS : RECOMMENDED_TEMPLATE_KEYS
+}
 
 type TemplateTab = 'recommended' | 'all' | EvaluationTemplateCategory
 
@@ -49,9 +63,9 @@ const ALL_TEMPLATES_POPULAR_FIRST = [
     ...defaultEvaluationTemplates.filter((template) => !POPULAR_TEMPLATE_KEYS.includes(template.key)),
 ]
 
-function templatesForTab(tab: TemplateTab): EvaluationTemplate[] {
+function templatesForTab(tab: TemplateTab, requiresProviderKey: boolean): EvaluationTemplate[] {
     if (tab === 'recommended') {
-        return byKeys(RECOMMENDED_TEMPLATE_KEYS)
+        return byKeys(recommendedTemplateKeys(requiresProviderKey))
     }
     if (tab === 'all') {
         return ALL_TEMPLATES_POPULAR_FIRST
@@ -71,8 +85,9 @@ interface TemplatePickerProps {
 
 function TemplatePicker({ title, showBackButton = false, learnMoreUrl }: TemplatePickerProps): JSX.Element {
     const { searchParams } = useValues(router)
+    const { requiresProviderKey } = useValues(llmProviderKeysLogic)
     const [tab, setTab] = useState<TemplateTab>('recommended')
-    const templates = templatesForTab(tab)
+    const templates = templatesForTab(tab, requiresProviderKey)
 
     const selectTab = (key: TemplateTab): void => {
         setTab(key)
@@ -150,7 +165,12 @@ function TemplatePicker({ title, showBackButton = false, learnMoreUrl }: Templat
                 />
                 <div className="grid grid-cols-1 gap-2 @min-[36rem]/templates:grid-cols-2 @min-[60rem]/templates:grid-cols-3">
                     {templates.map((template) => (
-                        <TemplateCard key={template.key} template={template} onSelect={selectTemplate} />
+                        <TemplateCard
+                            key={template.key}
+                            template={template}
+                            onSelect={selectTemplate}
+                            missingProviderKey={requiresProviderKey}
+                        />
                     ))}
                 </div>
                 {tab === 'recommended' && (

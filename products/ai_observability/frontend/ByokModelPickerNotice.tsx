@@ -49,6 +49,10 @@ export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation
             )
         }
         case 'no-keys':
+            // The evaluation model panel shows its own banner, which adds a key without leaving the page.
+            if (forEvaluation) {
+                return null
+            }
             return (
                 <p className="text-xs text-secondary mt-1">
                     No models available. <Link to={PROVIDER_SETTINGS_URL}>Add your own API keys</Link> to choose one.
