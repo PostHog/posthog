@@ -260,6 +260,16 @@ interface SaveContext {
     editVersion: number
 }
 
+// Putting the edits back adds no new content, so a queued save that already sent them stays current.
+// Without this, every save in the queue would look edited when it lands.
+function keepQueuedSavesCurrent(queuedSaves: SaveContext[], fromVersion: number, toVersion: number): void {
+    for (const queued of queuedSaves) {
+        if (queued.editVersion === fromVersion) {
+            queued.editVersion = toVersion
+        }
+    }
+}
+
 /** The schedule editor state, kept across a status change so unsaved schedule edits survive it. */
 interface ScheduleEdits {
     scheduleState: ScheduleState
@@ -4718,13 +4728,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 const versionBeforeReapply = values.workflowEditVersion
                 actions.setWorkflowValues(editsDuringSave)
                 const queuedSaves = (cache.saveContexts as SaveContext[] | undefined) ?? []
-                // Putting the edits back adds no new content, so a queued save that already sent them
-                // stays current. Without this, every save in the queue would look edited when it lands.
-                for (const queued of queuedSaves) {
-                    if (queued.editVersion === versionBeforeReapply) {
-                        queued.editVersion = values.workflowEditVersion
-                    }
-                }
+                keepQueuedSavesCurrent(queuedSaves, versionBeforeReapply, values.workflowEditVersion)
                 // A queued save runs this same check when it lands, so only the last one starts another.
                 if (queuedSaves.length === 0) {
                     actions.autoSaveWorkflow()
