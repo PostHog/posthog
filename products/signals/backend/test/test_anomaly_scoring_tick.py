@@ -24,7 +24,12 @@ from posthog.schema import IntervalType
 
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Organization, Team, User
 from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
@@ -44,6 +49,7 @@ from products.signals.backend.anomaly_scores.config import (
 )
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
 from products.signals.backend.anomaly_scores.queue import (
+    ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
     ActiveInsight,
     ActivityReason,
@@ -54,6 +60,7 @@ from products.signals.backend.anomaly_scores.queue import (
     _fleet_budget_key,
     _project_budget_key,
     _team_loaded_key,
+    _too_expensive_key,
     active_insights,
     eligible_teams,
     is_due,
@@ -61,6 +68,7 @@ from products.signals.backend.anomaly_scores.queue import (
     reserve_queries,
     scored_buckets,
     select_insights,
+    too_expensive_counts,
     within_budget,
 )
 from products.signals.backend.anomaly_scores.scoring import (
@@ -489,10 +497,16 @@ class TestScoreEvents(SimpleTestCase):
 
 
 class TestRunInsight(SimpleTestCase):
-    def _run(self, error: Exception) -> tuple[str, list[Any], MagicMock, dict[str, Any]]:
+    def setUp(self) -> None:
+        super().setUp()
+        cache.delete(_too_expensive_key(7))
+        self.addCleanup(cache.delete, _too_expensive_key(7))
+
+    def _run(self, error: Exception, too_expensive: int = 0) -> tuple[str, list[Any], MagicMock, dict[str, Any]]:
         tick = "products.signals.backend.anomaly_scores.tick"
         client = MagicMock()
         capture = MagicMock()
+        mark_attempted = MagicMock()
         with (
             patch(f"{tick}.ph_background_capture", return_value=capture),
             patch(
@@ -501,10 +515,13 @@ class TestRunInsight(SimpleTestCase):
             ),
             patch(f"{tick}.Team"),
             patch(f"{tick}.score_insight", side_effect=error),
-            patch(f"{tick}.mark_attempted") as mark_attempted,
+            patch(f"{tick}.mark_attempted", mark_attempted),
+            patch("products.signals.backend.anomaly_scores.queue.mark_attempted", mark_attempted),
             patch("products.signals.backend.anomaly_scores.metrics.posthoganalytics.default_client", client),
         ):
-            pick = InsightPick(team_id=1, insight_id=7, scored_through={}, interval=IntervalType.DAY)
+            pick = InsightPick(
+                team_id=1, insight_id=7, scored_through={}, interval=IntervalType.DAY, too_expensive=too_expensive
+            )
             try:
                 status = run_insight(ScoreInsightInput(pick=pick), NOW).status
             except Exception:
@@ -540,6 +557,47 @@ class TestRunInsight(SimpleTestCase):
             "status": expected,
             "queries": 1,
         }
+
+    def test_consecutive_too_expensive_visits_grow_the_cooldown_and_a_success_resets_it(self) -> None:
+        cooldowns = []
+        streaks = []
+        for error in [
+            ClickHouseQueryTimeOut(),
+            ClickHouseAtCapacity(),
+            ClickHouseClusterMemoryLimitExceeded(),
+            ClickHouseQueryMemoryLimitExceeded(),
+            ClickHouseQueryTimeOut(),
+            ClickHouseQueryTimeOut(),
+            ClickHouseQueryTimeOut(),
+        ]:
+            _status, visit_cooldowns, _metrics, pick_event = self._run(error, too_expensive_counts([7]).get(7, 0))
+            cooldowns.append(visit_cooldowns[-1])
+            streaks.append(pick_event["too_expensive_streak"])
+
+        assert cooldowns == [
+            SKIP_COOLDOWN,
+            ATTEMPT_COOLDOWN,
+            ATTEMPT_COOLDOWN,
+            timedelta(days=3),
+            timedelta(days=7),
+            timedelta(days=30),
+            timedelta(days=30),
+        ]
+        assert streaks == [1, 1, 1, 2, 3, 4, 5]
+
+        capture = MagicMock()
+        with (
+            patch("products.signals.backend.anomaly_scores.tick.ph_background_capture", return_value=capture),
+            patch(
+                "products.signals.backend.anomaly_scores.tick._score_pick",
+                return_value=ScoreInsightResult(status="up_to_date", events=0),
+            ),
+        ):
+            pick = InsightPick(team_id=1, insight_id=7, scored_through={}, too_expensive=5)
+            run_insight(ScoreInsightInput(pick=pick), NOW)
+
+        assert too_expensive_counts([7]) == {}
+        assert capture.call_args.kwargs["properties"]["too_expensive_streak"] == 0
 
     def test_a_full_cluster_returns_at_capacity_and_waits_an_hour(self) -> None:
         status, cooldowns, _metrics, _pick_event = self._run(ClickHouseAtCapacity())
@@ -1009,7 +1067,9 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         small_dashboard = Dashboard.objects.create(team=small_team, name="Main")
         DashboardTile.objects.create(dashboard=small_dashboard, insight=small_insight)
         for insight in [*large_insights, small_insight]:
-            cache.delete(_cooldown_key(insight.id))
+            cache.delete_many([_cooldown_key(insight.id), _too_expensive_key(insight.id)])
+        cache.set(_too_expensive_key(small_insight.id), 2)
+        self.addCleanup(cache.delete, _too_expensive_key(small_insight.id))
         config = AnomalyScoringConfig(
             enabled=True,
             organization_ids=(str(self.organization.id),),
@@ -1022,6 +1082,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         assert [pick.team_id for pick in selection.picks] == [self.team.id, small_team.id]
         assert selection.picks[0].insight_id in {insight.id for insight in large_insights}
         assert selection.picks[1].insight_id == small_insight.id
+        assert [pick.too_expensive for pick in selection.picks] == [0, 2]
         assert selection.candidates == 4
         assert [(team.team_id, team.active, team.active_intervals) for team in selection.census] == [
             (self.team.id, 3, {"day": 3}),

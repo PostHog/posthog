@@ -1,5 +1,6 @@
 import json
 import math
+import uuid
 import hashlib
 import dataclasses
 from collections.abc import Sequence
@@ -15,8 +16,9 @@ from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, Interva
 from posthog.hogql.constants import INSIGHT_QUERY_FANOUT_CONCURRENCY, HogQLGlobalSettings, LimitContext
 
 from posthog.api.services.query import ExecutionMode
-from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.query_tagging import Feature, Product, get_team_query_tags, tag_queries
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, default_client
+from posthog.clickhouse.query_tagging import Feature, Product, get_team_query_tags, tag_queries, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
@@ -55,6 +57,8 @@ _MAX_QUERY_SECONDS = 150
 # Trends runs one query per series in a pool of INSIGHT_QUERY_FANOUT_CONCURRENCY threads, so more series run in waves.
 # All the waves of one insight share this budget. The insight activity then has time to classify a timeout.
 SCORING_QUERY_BUDGET_SECONDS = 210
+# A kill is cleanup with its own time limit, so a silent node must not hold the scoring thread.
+_CANCEL_SEND_RECEIVE_TIMEOUT_SECONDS = 15
 
 
 class UnsupportedInsightError(Exception):
@@ -295,6 +299,43 @@ def scoring_query_settings(queries: int) -> HogQLGlobalSettings:
         # A timeout must throw: a partial result cuts off the end of the series, and that end scores as a drop.
         timeout_overflow_mode="throw",
     )
+
+
+def cancel_series_queries(team_id: int, client_query_id: str) -> None:
+    """Kill the scoring queries of one insight that still run. A failed kill lets them run to their own time limit."""
+    # Without this, the kill queries get ids with the same prefix as the queries that they kill.
+    with tags_context(client_query_id=None):
+        try:
+            with default_client(send_receive_timeout=_CANCEL_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
+                rows = sync_execute(
+                    """
+                    SELECT FQDN(), query_id
+                    FROM distributed_system_processes
+                    WHERE query_id LIKE %(prefix)s
+                    SETTINGS max_execution_time = 2
+                    """,
+                    {"prefix": f"{team_id}_{client_query_id}_%"},
+                    sync_client=client,
+                )
+            query_ids_by_host: dict[str, list[str]] = {}
+            for host, query_id in rows:
+                query_ids_by_host.setdefault(host, []).append(query_id)
+            for host, query_ids in query_ids_by_host.items():
+                with default_client(host=host, send_receive_timeout=_CANCEL_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
+                    sync_execute(
+                        "KILL QUERY WHERE query_id IN %(query_ids)s ASYNC SETTINGS max_execution_time = 5",
+                        {"query_ids": query_ids},
+                        sync_client=client,
+                    )
+        except Exception as error:
+            logger.warning(
+                "anomaly_scores.cancel_series_queries_failed",
+                team_id=team_id,
+                error_class=type(error).__name__,
+                error=str(error)[:200],
+            )
+            return
+    logger.info("anomaly_scores.series_queries_cancelled", team_id=team_id, cancelled=len(rows))
 
 
 def supports_score_step(query: TrendsQuery) -> bool:
@@ -629,6 +670,9 @@ def _fetch(
 
     tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    # One prefix for all the series queries of this fetch, so that the first failure can kill the others.
+    client_query_id = f"anomaly_scoring_{uuid.uuid4().hex}"
+    tag_queries(client_query_id=client_query_id)
     if run is not None:
         # Splits the scoring queries in `query_log`, so train and score cost can be compared.
         tag_queries(name=f"anomaly_scoring_{run.value}")
@@ -644,6 +688,9 @@ def _fetch(
     )
     # The runner expands breakdown cohorts and compare periods into the series, so its count is the query count.
     runner.hogql_settings = scoring_query_settings(len(runner.series))
+    if len(runner.series) > 1:
+        # With `timeout_overflow_mode="throw"` no partial result is usable, so one failed series query fails the insight.
+        runner.on_series_error = lambda _error: cancel_series_queries(team.id, client_query_id)
     response = runner.run(
         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         insight_id=insight.pk,

@@ -19,7 +19,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     materialized,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -71,6 +71,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -3592,6 +3593,26 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             str(e.exception),
             "Error thrown inside thread",
         )
+
+    @parameterized.expand([("without_callback", False, 3), ("with_callback", True, 1)])
+    @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query")
+    def test_on_series_error_stops_the_queued_series_queries(
+        self, _name: str, with_callback: bool, expected_queries: int, patch_execute: MagicMock
+    ) -> None:
+        error = ClickHouseQueryTimeOut()
+        patch_execute.side_effect = error
+        runner = self._create_query_runner(
+            "2020-01-09", "2020-01-20", IntervalType.DAY, [EventsNode(event=event) for event in ("a", "b", "c")]
+        )
+        callback = MagicMock()
+        if with_callback:
+            runner.on_series_error = callback
+
+        with self.assertRaises(ClickHouseQueryTimeOut):
+            runner.calculate()
+
+        assert patch_execute.call_count == expected_queries
+        assert callback.call_args_list == ([call(error)] if with_callback else [])
 
     def test_to_actors_query_options(self):
         self._create_test_events()
