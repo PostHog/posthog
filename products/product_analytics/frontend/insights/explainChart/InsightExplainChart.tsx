@@ -26,25 +26,29 @@ export interface InsightExplainChartProps {
 }
 
 export function InsightExplainChart({ insightProps, renderChart }: InsightExplainChartProps): JSX.Element {
-    const { explainAvailable, story, storyShown, storySeriesKey, formatValue } = useValues(
+    const { storyAvailable, explainAvailable, story, chartStory, storyShown, storySeriesKey, formatValue } = useValues(
         explainChartLogic(insightProps)
     )
     const { askFollowUp } = useActions(explainChartLogic(insightProps))
 
-    if (!explainAvailable || !story || !storyShown) {
+    if (!storyAvailable || !story || !chartStory || !storyShown) {
         return <>{renderChart()}</>
     }
     return (
         <div data-quill>
             <ExplainChartView
                 key={story.headline}
-                data={story}
+                data={chartStory}
                 renderChart={(overlay) => <div data-not-quill>{renderChart(overlay)}</div>}
                 openLink={(url) => window.open(url, '_blank', 'noopener')}
                 formatValue={formatValue}
                 evidenceCharts={EVIDENCE_CHARTS}
                 seriesKey={storySeriesKey ?? undefined}
-                chapterAction={(page, step) => <ExplainChartFollowUp onClick={() => askFollowUp(page, step)} />}
+                chapterAction={
+                    explainAvailable
+                        ? (page, step) => <ExplainChartFollowUp onClick={() => askFollowUp(page, step)} />
+                        : undefined
+                }
                 onPageChange={({ index, fromIndex, source }) =>
                     posthog.capture('explain chart page viewed', {
                         page_index: index,
