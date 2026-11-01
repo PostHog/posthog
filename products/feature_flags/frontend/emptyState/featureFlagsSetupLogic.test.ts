@@ -31,6 +31,7 @@ describe('featureFlagsSetupLogic', () => {
         [1, 0, 'has-data', 1],
         [42, 0, 'has-data', 1],
         [0, 3, 'has-data', 2],
+        [1, 3, 'has-data', 1],
     ])(
         'pushes %i live and %i archived flags as status %s after %i requests',
         async (live, archived, expected, requests) => {
@@ -46,13 +47,13 @@ describe('featureFlagsSetupLogic', () => {
     )
 
     // Undo of a project's only deleted flag reloads the flag list without remounting the gate.
-    // A list reload that returns flags answers the gate itself, so it sends no count requests.
+    // A list reload that returns flags answers the gate itself, so it sends no requests.
     it.each([
         [0, 'needs-setup', 2],
         [1, 'has-data', 1],
     ])(
-        'on a flag list reload after mounting with %i live flags (%s), makes %i count requests and ends has-data',
-        async (liveAtMount, statusAtMount, countRequests) => {
+        'on a flag list reload after mounting with %i live flags (%s), makes %i requests and ends has-data',
+        async (liveAtMount, statusAtMount, requests) => {
             let live = liveAtMount
             mockFeatureFlagsList.mockImplementation((_projectId, params) =>
                 Promise.resolve({ count: params?.archived ? 0 : live, next: null, previous: null, results: [] })
@@ -72,12 +73,12 @@ describe('featureFlagsSetupLogic', () => {
                 })
             )
             await expectLogic(logic).toFinishAllListeners()
-            expect(mockFeatureFlagsList).toHaveBeenCalledTimes(countRequests)
+            expect(mockFeatureFlagsList).toHaveBeenCalledTimes(requests)
             expect(productSetupStatusLogic({ productKey: ProductKey.FEATURE_FLAGS }).values.status).toBe('has-data')
         }
     )
 
-    it('fails open to unknown when the count query fails before any answer', async () => {
+    it('fails open to unknown when the flag check fails before any answer', async () => {
         mockFeatureFlagsList.mockRejectedValue(new Error('network down'))
         const logic = featureFlagsSetupLogic()
         logic.mount()
