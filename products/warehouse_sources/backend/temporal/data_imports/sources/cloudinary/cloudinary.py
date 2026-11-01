@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudinary
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
+    create_response_hooks,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
@@ -23,7 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    ResponseAction,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -33,6 +37,12 @@ CLOUDINARY_API_HOSTS = {
     "ap": "https://api-ap.cloudinary.com",
 }
 REQUEST_TIMEOUT_SECONDS = 30
+
+# Cloudinary rate-limits the Admin API and returns a 420 ("Enhance Your Calm") rather than the
+# standard 429 — the same non-standard code `validate_credentials` below already recognizes. The
+# shared client's own retry check only fires on 429/5xx, so 420 is promoted to retryable here.
+_RETRY_ACTIONS: list[ResponseAction] = [{"status_code": 420, "action": "retry"}]
+_RETRY_HOOKS = create_response_hooks(_RETRY_ACTIONS)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -64,6 +74,7 @@ def get_resource(endpoint: str) -> EndpointResource:
             "data_selector": f"{config.data_key}[*]",
             "path": config.path,
             "params": dict(config.params),
+            "response_actions": _RETRY_ACTIONS,
         },
         "table_format": "delta",
     }
@@ -104,6 +115,7 @@ def iter_usage(
             path=CLOUDINARY_ENDPOINTS["usage"].path.format(date=day.isoformat()),
             paginator=SinglePagePaginator(),
             data_selector="$",
+            hooks=_RETRY_HOOKS,
         ):
             rows = [{**row, "date": day.isoformat()} for row in page]
             manager.save_state(CloudinaryResumeConfig(cursor=(day + timedelta(days=1)).isoformat()))
@@ -123,7 +135,10 @@ def iter_subfolders(
         cursor = resume.cursor or None
     else:
         for page in client.paginate(
-            path=CLOUDINARY_ENDPOINTS["folders"].path, params={"max_results": MAX_RESULTS}, data_selector="folders"
+            path=CLOUDINARY_ENDPOINTS["folders"].path,
+            params={"max_results": MAX_RESULTS},
+            data_selector="folders",
+            hooks=_RETRY_HOOKS,
         ):
             pending.extend(folder["path"] for folder in page)
             manager.safe_point()
@@ -143,6 +158,7 @@ def iter_subfolders(
             data_selector="folders",
             initial_paginator_state={"cursor": cursor} if cursor else None,
             page_state_hook=remember_cursor,
+            hooks=_RETRY_HOOKS,
         ):
             pending.extend(folder["path"] for folder in page)
             if next_cursor["value"]:
@@ -175,7 +191,10 @@ def iter_last_access_report_resources(
 ) -> Iterator[list[dict[str, Any]]]:
     report_ids: list[str] = []
     for page in client.paginate(
-        path=LAST_ACCESS_REPORTS_PATH, params={"max_results": MAX_RESULTS}, data_selector="reports"
+        path=LAST_ACCESS_REPORTS_PATH,
+        params={"max_results": MAX_RESULTS},
+        data_selector="reports",
+        hooks=_RETRY_HOOKS,
     ):
         # A report still being generated has no resources to list yet.
         report_ids.extend(report["id"] for report in page if report.get("status") == "done")
@@ -197,6 +216,7 @@ def iter_last_access_report_resources(
             data_selector="resources",
             initial_paginator_state={"cursor": cursor} if cursor else None,
             page_state_hook=_report_state_hook(manager, report_id, next_report_id),
+            hooks=_RETRY_HOOKS,
         ):
             if page:
                 yield [{**row, "report_id": report_id} for row in page]
