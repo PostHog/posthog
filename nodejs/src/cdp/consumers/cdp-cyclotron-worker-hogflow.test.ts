@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -89,6 +90,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     let team2: Team
     let hogFlows: HogFlow[]
     let jobQueue: ReturnType<typeof createMockJobQueue>
+
+    const failedJobCount = async (reason: string): Promise<number> => {
+        const metric = await register.getSingleMetric('cdp_hogflow_worker_jobs_failed_total')?.get()
+        return metric?.values.find((value) => value.labels.reason === reason)?.value ?? 0
+    }
 
     const createSerializedHogFlowInvocation = (
         hogFlow: HogFlow,
@@ -599,10 +605,13 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 event: { distinct_id: 'distinct_A_1', properties: {} } as any,
             })
 
+            const unavailableBefore = await failedJobCount('workflow_unavailable')
+
             const resultsBeforeInsert = await processor.processInvocations([invocationBeforeInsert])
 
             expect(resultsBeforeInsert).toEqual([])
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([invocationBeforeInsert])
+            expect(await failedJobCount('workflow_unavailable')).toEqual(unavailableBefore + 1)
 
             await insertHogFlow(hub.postgres, lateFlow)
             const invocationAfterInsert = createSerializedHogFlowInvocation(lateFlow, {

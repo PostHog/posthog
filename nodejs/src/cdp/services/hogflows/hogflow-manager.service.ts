@@ -165,7 +165,7 @@ export class HogFlowManagerService {
         const readInFlight = this.primaryReads.get(id)
         if (readInFlight) {
             const joined = await readInFlight
-            if (meetsVersion(joined, minimumVersion)) {
+            if (minimumVersion === undefined || meetsVersion(joined, minimumVersion)) {
                 return joined
             }
         }

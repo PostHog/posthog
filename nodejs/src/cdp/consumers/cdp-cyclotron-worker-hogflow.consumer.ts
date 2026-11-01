@@ -120,6 +120,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,
                     })
+                    counterHogFlowJobsFailed.labels({ reason: 'workflow_unavailable' }).inc()
 
                     failedInvocations.push(item)
                     this.invocationResultsService.emailStatusService.queueUnavailableRun(item)
