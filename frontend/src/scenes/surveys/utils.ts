@@ -230,6 +230,33 @@ export function getSurveyResponseValue(
     return (idBasedKey && eventProperties[idBasedKey]) ?? eventProperties[indexBasedKey]
 }
 
+/**
+ * `conditions` holds free-form JSON, so a survey row written before the API checked the shape can
+ * carry a `values` that is not a list. Every reader calls array methods on `values`, so read a
+ * condition with such a `values` as a condition with no values.
+ */
+function getConditionValues<T>(condition: { values?: T[] } | null | undefined): T[] {
+    return Array.isArray(condition?.values) ? condition.values : []
+}
+
+/**
+ * Replace a `values` that is not a list with an empty list. The app does this when it loads a
+ * survey and again when it saves one, so a save also repairs the stored row.
+ */
+export function normalizeSurveyConditionValues(conditions: SurveyDisplayConditions): SurveyDisplayConditions {
+    const normalized = { ...conditions }
+    if (normalized.events && !Array.isArray(normalized.events.values)) {
+        normalized.events = { ...normalized.events, values: [] }
+    }
+    if (normalized.cancelEvents && !Array.isArray(normalized.cancelEvents.values)) {
+        normalized.cancelEvents = { ...normalized.cancelEvents, values: [] }
+    }
+    if (normalized.actions && !Array.isArray(normalized.actions.values)) {
+        normalized.actions = { ...normalized.actions, values: [] }
+    }
+    return normalized
+}
+
 export function sanitizeSurveyDisplayConditions(
     displayConditions?: SurveyDisplayConditions | null,
     surveyType?: SurveyType
@@ -277,7 +304,7 @@ export function sanitizeSurveyDisplayConditions(
         delete sanitized.linkedFlagVariant
     }
 
-    return sanitized
+    return normalizeSurveyConditionValues(sanitized)
 }
 
 /**
@@ -1694,18 +1721,20 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     if (conditions?.deviceTypes?.length) {
         parts.push({ type: 'device', label: 'Device', value: conditions.deviceTypes.join(', ') })
     }
-    if ((conditions?.events?.values?.length ?? 0) > 0) {
+    const triggerEvents = getConditionValues(conditions?.events)
+    if (triggerEvents.length > 0) {
         parts.push({
             type: 'events',
             label: 'Events',
-            value: conditions!.events!.values.map((e) => e.name).join(', '),
+            value: triggerEvents.map((e) => e.name).join(', '),
         })
     }
-    if ((conditions?.actions?.values?.length ?? 0) > 0) {
+    const triggerActions = getConditionValues(conditions?.actions)
+    if (triggerActions.length > 0) {
         parts.push({
             type: 'actions',
             label: 'Actions',
-            value: conditions!.actions!.values.map((a) => a.name).join(', '),
+            value: triggerActions.map((a) => a.name).join(', '),
         })
     }
     if (survey.linked_flag?.key) {

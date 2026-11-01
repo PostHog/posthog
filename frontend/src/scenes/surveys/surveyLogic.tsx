@@ -155,6 +155,7 @@ import {
     getSurveyStartDateForQuery,
     isSurveyRunning,
     isThumbQuestion,
+    normalizeSurveyConditionValues,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     surveyResponseColumnId,
@@ -1617,6 +1618,12 @@ export const surveyLogic = kea<surveyLogicType>([
                         // pending root cause on _how_ these get to be null
                         if (!survey.appearance) {
                             survey.appearance = defaultSurveyAppearance
+                        }
+                        // A row written before the API refused a `values` that is not a list can
+                        // still carry one. Repair it here, because the editor, the view scene and
+                        // the warning selector all call array methods on it.
+                        if (survey.conditions) {
+                            survey.conditions = normalizeSurveyConditionValues(survey.conditions)
                         }
                         const currentFilters = values.answerFilters
                         posthog.capture('survey viewed', {
