@@ -65,18 +65,20 @@ export const featureFlagsSetupLogic = kea<featureFlagsSetupLogicType>([
             null as number | null,
             {
                 loadFlagCount: async (_: void, breakpoint): Promise<number> => {
+                    const live = await featureFlagsList(String(values.currentProjectId), { limit: 1 })
+                    breakpoint()
+                    if (live.count > 0) {
+                        return live.count
+                    }
                     // The list excludes archived flags unless asked for them, and no value of
                     // `archived` returns both, so a project that archived all of its flags would
                     // count zero and lose the scene it unarchives them from.
-                    const [live, archived] = await Promise.all([
-                        featureFlagsList(String(values.currentProjectId), { limit: 1 }),
-                        featureFlagsList(String(values.currentProjectId), {
-                            limit: 1,
-                            archived: FeatureFlagsListArchived.True,
-                        }),
-                    ])
+                    const archived = await featureFlagsList(String(values.currentProjectId), {
+                        limit: 1,
+                        archived: FeatureFlagsListArchived.True,
+                    })
                     breakpoint()
-                    return live.count + archived.count
+                    return archived.count
                 },
             },
         ],
@@ -84,8 +86,14 @@ export const featureFlagsSetupLogic = kea<featureFlagsSetupLogicType>([
     listeners(({ actions, values }) => ({
         // Undo of a deleted flag brings it back without remounting the gate, so no count runs on its own.
         // The flag list reloads after Undo, and that reload is the signal to count again.
-        [featureFlagsLogic.actionTypes.loadFeatureFlagsSuccess]: () => {
-            if (values.setupStatus !== 'has-data') {
+        [featureFlagsLogic.actionTypes.loadFeatureFlagsSuccess]: ({ featureFlags }) => {
+            if (values.setupStatus === 'has-data') {
+                return
+            }
+            // Any flag in the list, under any filter, answers the gate without a count request.
+            if (featureFlags.count > 0) {
+                actions.setDetectedStatus('has-data')
+            } else {
                 actions.loadFlagCount()
             }
         },
