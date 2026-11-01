@@ -27,7 +27,7 @@ function splitBySize(events: InternalCaptureEvent[]): InternalCaptureEvent[][] {
     let group: InternalCaptureEvent[] = []
     let groupBytes = 0
     for (const event of events) {
-        const eventBytes = JSON.stringify(event).length
+        const eventBytes = Buffer.byteLength(JSON.stringify(event))
         if (group.length > 0 && groupBytes + eventBytes > MAX_BATCH_BYTES) {
             groups.push(group)
             group = []

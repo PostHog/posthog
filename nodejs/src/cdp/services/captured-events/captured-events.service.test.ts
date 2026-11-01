@@ -158,14 +158,14 @@ describe('CapturedEventsService', () => {
         })
 
         it.each([
-            ['source_webhook', 200, 1, ['batch a,b']],
-            ['source_webhook', 400, 1, ['batch a,b', 'single a', 'single b']],
-            ['source_webhook', 200, 1_500_000, ['single a', 'single b']],
-            ['destination', 200, 1, ['single a', 'single b']],
-        ])('sends a %s result answered %s with %s-byte events as %j', async (type, status, bytes, expected) => {
+            ['source_webhook', 200, 'small', ['batch a,b'], 'x'],
+            ['source_webhook', 400, 'small', ['batch a,b', 'single a', 'single b'], 'x'],
+            ['source_webhook', 200, '1.2 MB', ['single a', 'single b'], '漢'.repeat(400_000)],
+            ['destination', 200, 'small', ['single a', 'single b'], 'x'],
+        ])('sends a %s result answered %s with %s events as %j', async (type, status, _size, expected, blob) => {
             teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
             internalCaptureService.captureBatch.mockResolvedValueOnce({ status } as any)
-            const properties = { blob: 'x'.repeat(bytes) }
+            const properties = { blob }
 
             await service.queueInvocationResults([
                 {
