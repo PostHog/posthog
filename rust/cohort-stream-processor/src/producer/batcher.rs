@@ -20,30 +20,12 @@ impl OutputBuffer {
         self.changes.extend(changes);
     }
 
-    /// Take everything buffered as one batch, or `None` when the buffer is empty.
-    /// `source_offset` is the informational offset the batch's first-hop cascades carry.
-    pub fn take_batch(&mut self, source_offset: i64) -> Option<OutputBatch> {
+    /// `None` when nothing is buffered, so a caller never produces an empty batch.
+    pub fn take(&mut self) -> Option<Vec<CohortMembershipChange>> {
         if self.changes.is_empty() {
             return None;
         }
-        Some(OutputBatch {
-            changes: std::mem::take(&mut self.changes),
-            source_offset,
-        })
-    }
-}
-
-/// Buffered changes ready to produce. [`OutputBuffer::take_batch`] is the only constructor, so a
-/// batch is never empty.
-#[derive(Debug)]
-pub struct OutputBatch {
-    changes: Vec<CohortMembershipChange>,
-    source_offset: i64,
-}
-
-impl OutputBatch {
-    pub fn into_parts(self) -> (Vec<CohortMembershipChange>, i64) {
-        (self.changes, self.source_offset)
+        Some(std::mem::take(&mut self.changes))
     }
 }
 
@@ -65,28 +47,18 @@ mod tests {
     }
 
     #[test]
-    fn take_batch_drains_in_order_and_yields_nothing_when_empty() {
+    fn take_drains_in_order_and_yields_nothing_when_empty() {
         let mut buffer = OutputBuffer::new();
-        assert!(
-            buffer.take_batch(0).is_none(),
-            "an empty buffer has no batch"
-        );
+        assert!(buffer.take().is_none(), "an empty buffer has no batch");
 
         buffer.push(change(1));
         buffer.extend([change(2), change(3)]);
 
-        let (taken, source_offset) = buffer
-            .take_batch(9)
-            .expect("three changes buffered")
-            .into_parts();
+        let taken = buffer.take().expect("three changes buffered");
         assert_eq!(
             taken.iter().map(|c| c.cohort_id).collect::<Vec<_>>(),
             vec![1, 2, 3]
         );
-        assert_eq!(source_offset, 9);
-        assert!(
-            buffer.take_batch(10).is_none(),
-            "the batch left the buffer empty"
-        );
+        assert!(buffer.take().is_none(), "take left the buffer empty");
     }
 }

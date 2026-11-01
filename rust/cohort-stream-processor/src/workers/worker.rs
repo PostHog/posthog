@@ -47,7 +47,7 @@ use crate::partitions::router::WorkerInbox;
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::{
     map_transition, CohortMembershipChange, LastUpdatedClock, MembershipSink, MembershipStatus,
-    OutputBatch, OutputBuffer,
+    OutputBuffer,
 };
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
@@ -212,7 +212,7 @@ impl ProduceWindow {
     /// The worker submits before each merge, transfer, cascade, sweep or reconcile message and at
     /// the end of each live sub-batch, so batches enter the window in state-commit order.
     async fn submit(&mut self, buffer: &mut OutputBuffer, max_offset: Option<i64>) {
-        let Some(batch) = buffer.take_batch(max_offset.unwrap_or(0)) else {
+        let Some(changes) = buffer.take() else {
             return;
         };
         while self.in_flight.front().is_some_and(JoinHandle::is_finished) {
@@ -226,7 +226,8 @@ impl ProduceWindow {
             self.partition_id,
             Arc::clone(&self.sink),
             Arc::clone(&self.merge),
-            batch,
+            changes,
+            max_offset.unwrap_or(0),
         ));
         // The first poll enqueues every record, because the producer's enqueue is synchronous and
         // only the acks are awaited. A spawned task first runs when the worker yields, which can be
@@ -267,9 +268,9 @@ async fn produce_live(
     partition_id: u16,
     sink: Arc<dyn MembershipSink>,
     merge: Arc<MergeWorkerDeps>,
-    batch: OutputBatch,
+    changes: Vec<CohortMembershipChange>,
+    source_offset: i64,
 ) {
-    let (changes, source_offset) = batch.into_parts();
     let produced = changes.len();
     // Built from a borrow before `changes` moves: the cascade payload embeds the change.
     let cascades = first_cascades(&merge, &changes, source_offset);
@@ -1652,6 +1653,11 @@ mod tombstone_redirect_tests {
             assert!(
                 futures::poll!(&mut full).is_pending(),
                 "a full window waits for its oldest ack",
+            );
+            assert_eq!(
+                sink.enqueued_cohorts().len(),
+                PRODUCE_WINDOW,
+                "the waiting submit enqueues its batch only after the oldest acks",
             );
             sink.release(1);
             full.await;

@@ -79,9 +79,8 @@ pub(crate) async fn handle_cascades(
                 continue;
             };
             if group.touched.contains(&person_id) || group.writes >= CASCADE_GROUP_WRITES {
-                std::mem::replace(&mut group, CascadeGroup::open(clock))
-                    .settle(partition_id, handle, sink, merge)
-                    .await;
+                group.settle(partition_id, handle, sink, merge).await;
+                group = CascadeGroup::open(clock);
             }
             group
                 .reevaluate(
@@ -98,7 +97,7 @@ pub(crate) async fn handle_cascades(
         }
         group.settle(partition_id, handle, sink, merge).await;
     }
-    // Every message that did not settle is held, and the hold caps this mark.
+    // A message whose read, produce or write failed is held, and the hold caps this mark.
     mark_processed(&merge.cascade_tracker, partition_id, last);
 }
 
@@ -978,7 +977,14 @@ mod tests {
         let (sink, deps) = deps(&membership, &cascade, true, 1000);
         run(&store, &catalog, &sink, &deps, messages).await;
 
-        assert_eq!(membership.changes().len(), 3);
+        let changes = membership.changes();
+        assert_eq!(changes.len(), 3);
+        assert!(
+            changes
+                .iter()
+                .all(|change| change.last_updated == changes[0].last_updated),
+            "the three flips settle as one group, which stamps them once",
+        );
         assert_eq!(cascade.messages().len(), 3);
         for who in people {
             assert_eq!(
