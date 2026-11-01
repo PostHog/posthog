@@ -11,6 +11,9 @@ first: it takes the trained insights from their stored state, longest overdue fi
 keep them current. The train pass then takes the other due insights in the `pick_order` order. An insight
 whose model is due for a soft retrain goes to the train pass first. When the train pass does not pick it,
 the score pass scores it with the old model, so the train budget does not decide the score coverage.
+
+The CPU limits of `spend.py` apply before the query budgets: a walk leaves out the insights of a team over its
+daily CPU limit, and every insight of a pass that the fleet limit stops.
 """
 
 import time
@@ -67,6 +70,7 @@ from products.signals.backend.anomaly_scores.selection import (
     pick_order,
     score_order,
 )
+from products.signals.backend.anomaly_scores.spend import CpuSpendReport, cpu_gate
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
 from products.signals.backend.models import AnomalyScoringDueInsight, SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
@@ -217,6 +221,7 @@ class Selection:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    cpu: CpuSpendReport | None = None
 
 
 @frozen
@@ -732,6 +737,8 @@ def select_insights(
     With the due list on, the plan reads the stored due list instead, and ``deadline`` has no effect.
     """
     teams = {team.id: team for team in eligible_teams(config)}
+    gate = cpu_gate(config, now)
+    cpu_skipped: Counter[ScoringRun] = Counter()
     due_list: DueList | None = None
     if config.due_list:
         due_list = load_due_list(teams, config.intervals, now)
@@ -775,6 +782,9 @@ def select_insights(
         cap: int,
         plans: Callable[[list[int]], dict[int, RunPlan]] = plans_for,
     ) -> tuple[dict[int, RunPlan], int]:
+        allowed = [insight_id for insight_id in order if not gate.blocks(team_ids[insight_id], kind)]
+        cpu_skipped[kind] += len(order) - len(allowed)
+        order = allowed
         # Read the budget before any cost, so a spent hour loads no insight.
         return within_budget(
             order,
@@ -902,6 +912,14 @@ def select_insights(
         due_insights=None if due_list is None else len(due_list.insights),
         oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
         oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
+        cpu=CpuSpendReport(
+            status=gate.status,
+            fleet_cpu_seconds=gate.fleet_cpu_seconds,
+            fleet_read_bytes=gate.fleet_read_bytes,
+            teams_over_limit=len(gate.blocked_teams & teams.keys()),
+            train_skipped=cpu_skipped[ScoringRun.TRAIN],
+            score_skipped=cpu_skipped[ScoringRun.SCORE],
+        ),
     )
 
 

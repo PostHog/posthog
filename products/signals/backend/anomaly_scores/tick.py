@@ -68,6 +68,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     score_insight,
 )
 from products.signals.backend.anomaly_scores.selection import parse_selection_config
+from products.signals.backend.anomaly_scores.spend import CpuSpendReport
 from products.signals.backend.anomaly_scores.state import invalidate_state, load_state, save_state
 
 logger = structlog.get_logger(__name__)
@@ -139,6 +140,7 @@ class AnomalyScoringTickPlan:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    cpu: CpuSpendReport | None = None
 
 
 @frozen
@@ -204,6 +206,8 @@ class AnomalyScoringTickResult:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
+    cpu: CpuSpendReport | None = None
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -239,6 +243,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
+        cpu=selection.cpu,
     )
 
 
@@ -521,7 +526,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         due_insights=result.due_insights,
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
+        cpu=result.cpu,
     )
+    cpu = result.cpu
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
         event="anomaly scoring tick",
@@ -557,6 +564,12 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "due_insights": result.due_insights,
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
+            "cpu_spend_status": cpu.status if cpu else None,
+            "fleet_cpu_seconds_today": cpu.fleet_cpu_seconds if cpu else None,
+            "fleet_read_bytes_today": cpu.fleet_read_bytes if cpu else None,
+            "teams_over_cpu_limit": cpu.teams_over_limit if cpu else None,
+            "train_skipped_for_cpu": cpu.train_skipped if cpu else None,
+            "score_skipped_for_cpu": cpu.score_skipped if cpu else None,
         },
     )
 
@@ -678,6 +691,7 @@ class AnomalyScoringTickWorkflow:
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
+            cpu=plan.cpu,
         )
         await self._capture(result)
         return result

@@ -672,9 +672,9 @@ def _fetch(
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     # One prefix for all the series queries of this fetch, so that the first failure can kill the others.
     client_query_id = f"anomaly_scoring_{uuid.uuid4().hex}"
-    if run is not None:
-        # Splits the scoring queries in `query_log`, so train and score cost can be compared.
-        tag_queries(name=f"anomaly_scoring_{run.value}")
+    # Splits the scoring queries in `query_log`, so train and score cost can be compared, and lets `spend.py`
+    # find them. A visit with the split off fetches the full history, as a train step does.
+    tag_queries(name=f"anomaly_scoring_{(run or ScoringRun.TRAIN).value}")
     runner = TrendsQueryRunner(
         query=scoring_query,
         team=team,
