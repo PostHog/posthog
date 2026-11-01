@@ -34,6 +34,7 @@ describe('CapturedEventsService', () => {
     beforeEach(() => {
         internalCaptureService = {
             capture: jest.fn().mockResolvedValue({ status: 200 }),
+            captureBatch: jest.fn().mockResolvedValue({ status: 200 }),
         } as unknown as jest.Mocked<InternalCaptureService>
 
         teamManager = {
@@ -154,6 +155,26 @@ describe('CapturedEventsService', () => {
                 timestamp: 't3',
                 properties: { foo: 'bar' },
             })
+        })
+
+        it.each([
+            [200, ['batch a,b']],
+            [400, ['batch a,b', 'single a', 'single b']],
+        ])('sends the events of one result as one batch, and after a %s sends %j', async (status, expected) => {
+            teamManager.getTeam.mockResolvedValue(buildTeam(1, 'token-team-1'))
+            internalCaptureService.captureBatch.mockResolvedValueOnce({ status } as any)
+
+            await service.queueInvocationResults([
+                buildResult([buildCapturedEvent(1, { event: 'a' }), buildCapturedEvent(1, { event: 'b' })]),
+            ])
+            await service.flush()
+
+            expect([
+                ...internalCaptureService.captureBatch.mock.calls.map(
+                    ([events]) => `batch ${events.map((event) => event.event).join(',')}`
+                ),
+                ...internalCaptureService.capture.mock.calls.map(([event]) => `single ${event.event}`),
+            ]).toEqual(expected)
         })
 
         it('drops events whose team is not found (teamManager returns null)', async () => {

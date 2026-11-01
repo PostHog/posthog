@@ -282,10 +282,10 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it.each([
-                ['ok', 200, ['first', 'second']],
+                ['ok', 200, [['first', 'second']]],
                 ['throw', 500, []],
                 ['answer500', 500, []],
-            ])('with outcome %s, answers %s and captures %j', async (outcome, expectedStatus, expectedEvents) => {
+            ])('with outcome %s, answers %s and captures %j', async (outcome, expectedStatus, expectedRequests) => {
                 const code = `
                         postHogCapture({'event': 'first', 'distinct_id': 'd', 'properties': {}})
                         postHogCapture({'event': 'second', 'distinct_id': 'd', 'properties': {}})
@@ -306,9 +306,11 @@ describe('SourceWebhooksConsumer', () => {
                 await waitForBackgroundTasks()
 
                 expect(res.status).toEqual(expectedStatus)
-                expect(mockInternalFetch.mock.calls.map(([, options]) => parseJSON(options.body).event)).toEqual(
-                    expectedEvents
-                )
+                expect(
+                    mockInternalFetch.mock.calls.map(([, options]) =>
+                        parseJSON(options.body).batch.map((event: { event: string }) => event.event)
+                    )
+                ).toEqual(expectedRequests)
             })
 
             it('should log custom errors', async () => {

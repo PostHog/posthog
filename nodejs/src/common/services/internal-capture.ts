@@ -28,6 +28,12 @@ type CapturePayloadFormat = {
     properties: Record<string, any>
 }
 
+type CaptureBatchPayloadFormat = {
+    api_key: string
+    sent_at: string
+    batch: CapturePayloadFormat[]
+}
+
 /** An internal event carries the server's IP, not the user's. GeoIP would turn it into a wrong or
  * placeholder location and write that over the person's real location. */
 export function disableGeoipWithoutClientIp(properties: Record<string, any>): Record<string, any> {
@@ -52,13 +58,25 @@ export class InternalCaptureService {
 
     async capture(event: InternalCaptureEvent): Promise<FetchResponse> {
         logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
+        return await this.post(this.prepareEvent(event))
+    }
+
+    async captureBatch(events: InternalCaptureEvent[]): Promise<FetchResponse> {
+        return await this.post({
+            api_key: events[0].team_token,
+            sent_at: DateTime.utc().toISO(),
+            batch: events.map((event) => this.prepareEvent(event)),
+        })
+    }
+
+    private async post(payload: CapturePayloadFormat | CaptureBatchPayloadFormat): Promise<FetchResponse> {
         try {
             const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(this.prepareEvent(event)),
+                body: JSON.stringify(payload),
             })
             logger.debug('Internal capture event captured', { status: response.status })
 

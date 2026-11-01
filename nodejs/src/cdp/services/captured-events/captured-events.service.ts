@@ -1,3 +1,4 @@
+import { groupBy } from 'lodash'
 import { Gauge } from 'prom-client'
 
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
@@ -20,7 +21,8 @@ const capturedEventsPending = new Gauge({
  * service.
  */
 export class CapturedEventsService {
-    private queuedEvents: InternalCaptureEvent[] = []
+    private queuedGroups: InternalCaptureEvent[][] = []
+    private queuedEventCount = 0
 
     constructor(
         private internalCaptureService: InternalCaptureService,
@@ -29,13 +31,9 @@ export class CapturedEventsService {
 
     /** Append already-resolved events onto the flush buffer. */
     queue(events: InternalCaptureEvent[]): void {
-        if (events.length === 0) {
-            return
-        }
         for (const event of events) {
-            this.queuedEvents.push(event)
+            this.queueGroup([event])
         }
-        capturedEventsPending.set(this.queuedEvents.length)
     }
 
     /**
@@ -47,14 +45,15 @@ export class CapturedEventsService {
         if (!team) {
             return
         }
-        this.queuedEvents.push({
-            team_token: team.api_token,
-            event: event.event,
-            distinct_id: event.distinct_id,
-            timestamp: event.timestamp,
-            properties: event.properties,
-        })
-        capturedEventsPending.set(this.queuedEvents.length)
+        this.queueGroup([
+            {
+                team_token: team.api_token,
+                event: event.event,
+                distinct_id: event.distinct_id,
+                timestamp: event.timestamp,
+                properties: event.properties,
+            },
+        ])
     }
 
     /**
@@ -68,12 +67,13 @@ export class CapturedEventsService {
                 if (!capturedEvents || capturedEvents.length === 0) {
                     return
                 }
+                const events: InternalCaptureEvent[] = []
                 for (const event of capturedEvents) {
                     const team = await this.teamManager.getTeam(event.team_id)
                     if (!team) {
                         continue
                     }
-                    this.queuedEvents.push({
+                    events.push({
                         team_token: team.api_token,
                         event: event.event,
                         distinct_id: event.distinct_id,
@@ -81,7 +81,9 @@ export class CapturedEventsService {
                         properties: event.properties,
                     })
                 }
-                capturedEventsPending.set(this.queuedEvents.length)
+                for (const group of Object.values(groupBy(events, (event) => event.team_token))) {
+                    this.queueGroup(group)
+                }
             })
         )
     }
@@ -93,21 +95,37 @@ export class CapturedEventsService {
     }
 
     async flush(): Promise<void> {
-        const events = this.queuedEvents
-        this.queuedEvents = []
+        const groups = this.queuedGroups
+        this.queuedGroups = []
+        this.queuedEventCount = 0
         capturedEventsPending.set(0)
 
-        if (events.length === 0) {
+        await Promise.all(groups.map((group) => this.sendAndReport(group)))
+    }
+
+    private queueGroup(group: InternalCaptureEvent[]): void {
+        this.queuedGroups.push(group)
+        this.queuedEventCount += group.length
+        capturedEventsPending.set(this.queuedEventCount)
+    }
+
+    private async sendAndReport(group: InternalCaptureEvent[]): Promise<void> {
+        try {
+            await this.send(group)
+        } catch (error) {
+            logger.error('Error capturing internal event', { error })
+            captureException(error)
+        }
+    }
+
+    private async send(group: InternalCaptureEvent[]): Promise<void> {
+        if (group.length === 1) {
+            await this.internalCaptureService.capture(group[0])
             return
         }
-
-        await Promise.all(
-            events.map((event) =>
-                this.internalCaptureService.capture(event).catch((error) => {
-                    logger.error('Error capturing internal event', { error })
-                    captureException(error)
-                })
-            )
-        )
+        const response = await this.internalCaptureService.captureBatch(group)
+        if (response.status === 400) {
+            await Promise.all(group.map((event) => this.sendAndReport([event])))
+        }
     }
 }

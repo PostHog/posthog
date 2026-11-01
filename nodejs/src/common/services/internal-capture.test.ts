@@ -58,6 +58,25 @@ describe('InternalCaptureService', () => {
         })
     })
 
+    it('sends a batch as one request under its team token', async () => {
+        await service.captureBatch(
+            ['first', 'second'].map((event) => ({ team_token: 'token', event, distinct_id: 'distinct-id' }))
+        )
+
+        expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+        expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toEqual({
+            api_key: 'token',
+            sent_at: '2025-01-01T00:00:00.000Z',
+            batch: ['first', 'second'].map((event) =>
+                expect.objectContaining({
+                    event,
+                    distinct_id: 'distinct-id',
+                    properties: { $geoip_disable: true, capture_internal: true },
+                })
+            ),
+        })
+    })
+
     it('should allow some overrides', async () => {
         await service.capture({
             team_token: 'token',
