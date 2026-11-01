@@ -46,7 +46,7 @@ const ROOTS = [
         budgetBytes: 1_200_000,
         forbidden: [
             'node_modules/monaco-editor/',
-            'src/lib/components/ActivityLog/describers',
+            'products/product_analytics/frontend/insights/activityDescriptions',
             // Inlined hoggie SVGs are huge (up to ~1 MiB each), and one static barrel import
             // from eager code drags every hoggie used anywhere in the app onto the eager
             // path. All app code uses pngHoggie (lib/brand/hoggies) instead - the package's
@@ -91,12 +91,14 @@ const ROOTS = [
             // file that builds a schema. Move the zod-free code of that file into its own module, as
             // sqlEditorDraftCleanup does for sqlEditorDraftStorage.
             'node_modules/zod/',
-            // Billing is for logged-in users, and billingLogic pulls in eventUsageLogic and the credit
-            // purchase UI. A hit means a module on the App path imports billingLogic. Read billing values
-            // from a logic or component that only logged-in pages load.
-            'src/scenes/billing/billingLogic.tsx',
+            // Billing is for logged-in users, and billingLogic pulls in eventUsageLogic. A hit means a
+            // module on the App path imports billingLogic. Read billing values from a logic or component
+            // that only logged-in pages load.
+            'src/lib/logic/billing/billingLogic.tsx',
             // Product setup statuses need a logged-in team, so AuthenticatedShell mounts the preload.
             'src/lib/components/ProductEmptyState/productSetupPreloadLogic.ts',
+            // See the authenticated shell's note: a test library never ships on a boot path.
+            'node_modules/kea-test-utils/',
         ],
     },
     {
@@ -106,7 +108,10 @@ const ROOTS = [
         budgetBytes: 7_100_000,
         forbidden: [
             'node_modules/monaco-editor/',
-            'src/lib/components/ActivityLog/describers',
+            'products/product_analytics/frontend/insights/activityDescriptions',
+            // A test library. Its expectLogic and jest matchers ship with any import, so use
+            // objectsEqual from lib/utils/objects and delay from lib/utils/async instead.
+            'node_modules/kea-test-utils/',
             // Widget previews render product UI (recordings player, error tracking list, logs) and
             // are only needed by the add-widget modal; the recordings player logic pulls in rrweb.
             {
@@ -123,6 +128,9 @@ const ROOTS = [
             'src/layout/today/TodayTopBar.tsx',
             // The rail's pane actions pull in the new-analytics menu and the canvas block library.
             'src/layout/today/todayRailItems.tsx',
+            // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
+            'node_modules/@tiptap/',
+            'node_modules/prosemirror-',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.

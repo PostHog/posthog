@@ -103,7 +103,7 @@ class QontoSource(ResumableSource[QontoSourceConfig, QontoResumeConfig]):
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Qonto",
             iconPath="/static/services/qonto.png",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="Find your organization login and secret key in Qonto under **Integrations and Partnerships > API key**.",
             fields=cast(
                 list[FieldType],

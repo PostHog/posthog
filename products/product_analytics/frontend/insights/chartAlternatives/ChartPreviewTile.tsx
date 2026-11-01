@@ -2,11 +2,11 @@ import clsx from 'clsx'
 
 import { IconInfo } from '@posthog/icons'
 
+import { ChartDisplayIcon } from 'lib/components/ChartFilter/ChartDisplayIcon'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ChartDisplayType } from '~/types'
 
-import { ChartDisplayIcon } from './ChartDisplayIcon'
 import { ChartPreviewCanvas } from './ChartPreviewCanvas'
 import type { ChartPreview } from './chartPreviewsLogic'
 

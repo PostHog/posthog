@@ -4,6 +4,17 @@ on:
     # Dispatched by desktop-ci.yml, the single PR/merge_group run for the whole
     # desktop suite; merge_group gating and PR concurrency live there.
     workflow_call:
+        inputs:
+            run-suite:
+                description: Whether this suite needs to run; an empty value uses local change detection.
+                type: string
+                required: false
+                default: ''
+            run-e2e:
+                description: Whether package changes require end-to-end tests.
+                type: string
+                required: false
+                default: ''
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
                 required: false
@@ -30,7 +41,7 @@ jobs:
     changes:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
-        if: github.event_name != 'merge_group'
+        if: github.event_name != 'merge_group' && inputs.run-suite == ''
         permissions:
             pull-requests: read
         outputs:
@@ -83,7 +94,7 @@ jobs:
     unit-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -137,7 +148,7 @@ jobs:
     electron-test:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
+        if: ${{ !cancelled() && github.event_name != 'merge_group' && (inputs.run-suite == 'true' || (inputs.run-suite == '' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true'))) }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
@@ -285,7 +296,7 @@ jobs:
         # batch merges cleanly, which is what a queue run is for. A model timeout there
         # removes a PR that changes no desktop code from the queue. The PR's own run
         # still covers every branch that really changes products/desktop/packages/.
-        if: ${{ (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ !cancelled() && ((inputs.run-suite != '' && inputs.run-e2e == 'true') || (inputs.run-suite == '' && needs.changes.result == 'success' && (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true'))) && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:

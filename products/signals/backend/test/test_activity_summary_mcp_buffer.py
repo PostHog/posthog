@@ -18,6 +18,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.activity_summary import mcp_buffer
+from products.signals.backend.activity_summary.inputs import McpRead, user_mcp_records
 from products.signals.backend.activity_summary.mcp_buffer import (
     CIRCUIT_OPEN_SECONDS,
     DIRTY_KEY,
@@ -101,6 +102,66 @@ class TestMcpIntentBuffer(SimpleTestCase):
         assert [record.split("|")[3] for record in self.redis.lrange(records_key(TEAM_ID, USER_ID, DAY), 0, -1)] == [
             "written"
         ]
+
+
+class TestUserMcpRecords(SimpleTestCase):
+    def setUp(self) -> None:
+        self.redis = fakeredis.FakeRedis()
+
+    def _write(self, at: datetime.datetime, session_id: str, intent: str) -> None:
+        buffer = McpIntentBuffer(start_thread=False, redis_client=lambda: self.redis)
+        buffer.buffer_settings = BufferSettings(team_ids=frozenset({TEAM_ID}), calls_per_day=2, buffer_days=10)
+        with time_machine.travel(at, tick=False):
+            buffer.append(
+                team_id=TEAM_ID, user_id=USER_ID, session_id=session_id, route_name="insight-list", intent=intent
+            )
+        buffer.flush()
+
+    def test_reads_what_the_writer_wrote_inside_the_window_and_counts_trimmed_days(self) -> None:
+        older = NOW - datetime.timedelta(days=2)
+        for minutes, intent in ((0, "trimmed"), (1, "before the window"), (2, "kept")):
+            self._write(older + datetime.timedelta(minutes=minutes), "s|1", intent)
+        self._write(NOW - datetime.timedelta(days=1), "", "kept too")
+        self._write(NOW, "s2", "at the end of the window")
+        start = older + datetime.timedelta(minutes=1, seconds=30)
+
+        read = user_mcp_records(TEAM_ID, USER_ID, start, NOW, max_days=10, redis_client=lambda: self.redis)
+        newest_days = user_mcp_records(TEAM_ID, USER_ID, start, NOW, max_days=2, redis_client=lambda: self.redis)
+
+        assert [(record.session_id, record.route_name, record.intent) for record in read.records] == [
+            ("s 1", "insight-list", "kept"),
+            ("", "insight-list", "kept too"),
+        ]
+        assert read.records[0].at == older + datetime.timedelta(minutes=2)
+        assert (read.truncated_days, read.read_error) == (1, False)
+        assert [record.intent for record in newest_days.records] == ["kept too"]
+        assert newest_days.truncated_days == 0
+
+    @parameterized.expand(
+        [
+            ("missing keys are an empty read", None, McpRead()),
+            (
+                "a timeout is an empty read with the error set",
+                redis.TimeoutError("timed out"),
+                McpRead(read_error=True),
+            ),
+            (
+                "a refused connection is an empty read with the error set",
+                redis.ConnectionError(),
+                McpRead(read_error=True),
+            ),
+        ]
+    )
+    def test_a_missing_or_failed_read_never_raises(
+        self, _name: str, error: Exception | None, expected: McpRead
+    ) -> None:
+        client = MagicMock(side_effect=error, return_value=self.redis)
+
+        read = user_mcp_records(
+            TEAM_ID, USER_ID, NOW - datetime.timedelta(days=3), NOW, max_days=10, redis_client=client
+        )
+
+        assert read == expected
 
 
 @time_machine.travel(NOW, tick=False)

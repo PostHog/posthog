@@ -3,8 +3,8 @@ import { useActions } from 'kea'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonButtonPropsBase } from '@posthog/lemon-ui'
 
+import { inviteLogic } from 'lib/logic/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 export function InviteMembersButton({
     text = 'Invite members',

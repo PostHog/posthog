@@ -9,9 +9,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { requestAiAccessCreate } from 'products/platform_features/frontend/generated/api'
+import type { OrganizationType, UserType } from '~/types'
 
-import type { OrganizationType, UserType } from '../../../types'
+import { requestAiAccessCreate } from 'products/platform_features/frontend/generated/api'
 
 // Keep this stored across all projects, only display this once per month
 const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = `posthog_ai_data_processing_dismissed_${dayjs().format('YYYY-MM')}`
@@ -91,7 +91,7 @@ export type aiConsentLogicType = MakeLogicType<
 >
 
 export const aiConsentLogic = kea<aiConsentLogicType>([
-    path(['scenes', 'settings', 'organization', 'aiConsentLogic']),
+    path(['layout', 'ai', 'aiConsentLogic']),
     connect(() => ({
         values: [organizationLogic, ['currentOrganization'], userLogic, ['user']],
     })),
