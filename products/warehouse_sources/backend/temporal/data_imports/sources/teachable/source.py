@@ -89,7 +89,7 @@ class TeachableSource(ResumableSource[TeachableSourceConfig, TeachableResumeConf
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_teachable_credentials(config.api_key, self.resolve_api_version(api_version))
+        return validate_teachable_credentials(config.api_key, self.resolve_api_version(api_version), schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TeachableResumeConfig]:
         return ResumableSourceManager[TeachableResumeConfig](inputs, TeachableResumeConfig)

@@ -46,7 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teachable.
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TeachableResumeConfig:
     """Paginator checkpoint: `page` for page-numbered endpoints, `search_after` for /users."""
 
@@ -190,28 +190,44 @@ def _require_supported_version(api_version: str) -> None:
         raise ValueError(f"Unsupported Teachable API version: {api_version!r}")
 
 
-def validate_credentials(api_key: str, api_version: str) -> tuple[bool, str | None]:
+def _probes(api_version: str, schema_name: Optional[str]) -> list[tuple[str, dict[str, Any]]]:
+    v1_probe: tuple[str, dict[str, Any]] = ("/v1/courses", {"per": 1})
+    if api_version != TEACHABLE_API_VERSION_V2:
+        return [v1_probe]
+    courses_probe = (cast(str, TEACHABLE_ENDPOINTS["courses"].v2_path), {"per_page": 1})
+    users_probe = (cast(str, TEACHABLE_ENDPOINTS["users"].v2_path), {"per_page": 1})
+    config = TEACHABLE_ENDPOINTS.get(schema_name) if schema_name else None
+    if config is None:
+        # v2 keys carry per-resource scopes, so a key that can read either top-level list is usable.
+        return [courses_probe, users_probe]
+    if config.v2_path is None:
+        return [v1_probe]
+    # Every other v2 table walks the course list first.
+    return [users_probe] if schema_name == "users" else [courses_probe]
+
+
+def validate_credentials(api_key: str, api_version: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
     _require_supported_version(api_version)
-    if api_version == TEACHABLE_API_VERSION_V2:
-        path, params = "/v2/products/courses", {"per_page": 1}
-    else:
-        path, params = "/v1/courses", {"per": 1}
-    response = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
-        f"{TEACHABLE_BASE_URL}{path}",
-        headers={"apiKey": api_key, "Accept": "application/json"},
-        params=params,
-        timeout=10,
-    )
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    for path, params in _probes(api_version, schema_name):
+        response = session.get(
+            f"{TEACHABLE_BASE_URL}{path}",
+            headers={"apiKey": api_key, "Accept": "application/json"},
+            params=params,
+            timeout=10,
+        )
+        if response.status_code != 403:
+            break
     if response.status_code == 200:
         return True, None
     if response.status_code == 401:
         return False, "Invalid Teachable API key"
-    if response.status_code == 403 and api_version == TEACHABLE_API_VERSION_V2:
+    if response.status_code == 403 and path.startswith("/v2/"):
         return (
             False,
-            "Teachable rejected the API key. Check that the key is active and can read courses, users and "
-            "enrollments, and that your school is on the Growth plan or higher. Teachable API v2 is in beta, "
-            "so you may also need to ask Teachable Support to turn on API v2 for your school.",
+            "Teachable rejected the API key. Check that the key is active and can read the tables you want to "
+            "sync, and that your school is on the Growth plan or higher. Teachable API v2 is in beta, so you "
+            "may also need to ask Teachable Support to turn on API v2 for your school.",
         )
     if response.status_code == 403:
         return (

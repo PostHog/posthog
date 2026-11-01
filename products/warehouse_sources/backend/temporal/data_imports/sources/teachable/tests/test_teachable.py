@@ -139,20 +139,49 @@ class TestTeachableTransport:
 
     @parameterized.expand(
         [
-            (V1, 200, True, None, "/v1/courses"),
-            (V1, 401, False, "Invalid Teachable API key", "/v1/courses"),
-            (V1, 403, False, "Growth plan", "/v1/courses"),
-            (V1, 500, False, "unexpected status code", "/v1/courses"),
-            (V2, 200, True, None, "/v2/products/courses"),
+            ("v1_ok", V1, None, {}, True, None, ["/v1/courses"]),
+            ("v1_bad_key", V1, None, {"/v1/courses": 401}, False, "Invalid Teachable API key", ["/v1/courses"]),
+            ("v1_forbidden", V1, None, {"/v1/courses": 403}, False, "Growth plan", ["/v1/courses"]),
+            ("v1_server_error", V1, None, {"/v1/courses": 500}, False, "unexpected status code", ["/v1/courses"]),
+            ("v2_ok", V2, None, {}, True, None, ["/v2/products/courses"]),
+            # v2 keys carry per-resource scopes, so a key that can only read users still connects.
+            (
+                "v2_users_only_key",
+                V2,
+                None,
+                {"/v2/products/courses": 403},
+                True,
+                None,
+                ["/v2/products/courses", "/v2/users"],
+            ),
+            ("v2_users_table", V2, "users", {"/v2/products/courses": 403}, True, None, ["/v2/users"]),
+            (
+                "v2_course_table",
+                V2,
+                "lectures",
+                {"/v2/products/courses": 403},
+                False,
+                "turn on API v2",
+                ["/v2/products/courses"],
+            ),
+            ("v2_beta_table_on_v1", V2, "transactions", {}, True, None, ["/v1/courses"]),
             # v2 is in beta and granted per school, so a 403 points at the access request.
-            (V2, 403, False, "turn on API v2", "/v2/products/courses"),
+            (
+                "v2_no_access",
+                V2,
+                None,
+                {"/v2/products/courses": 403, "/v2/users": 403},
+                False,
+                "turn on API v2",
+                ["/v2/products/courses", "/v2/users"],
+            ),
         ]
     )
     def test_validate_credentials_status_mapping(
-        self, api_version, status, expected_valid, message_fragment, expected_path
+        self, _name, api_version, schema_name, statuses, expected_valid, message_fragment, expected_paths
     ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))) as network:
-            is_valid, message = validate_credentials("teachable-key", api_version)
+        with scripted_network(lambda request: ScriptedResponse(status=statuses.get(request.path, 200))) as network:
+            is_valid, message = validate_credentials("teachable-key", api_version, schema_name)
 
         assert is_valid is expected_valid
         if message_fragment is None:
@@ -160,9 +189,11 @@ class TestTeachableTransport:
         else:
             assert message is not None and message_fragment in message
 
-        request = network.requests_log[0]
-        assert request.origin + request.path == f"https://developers.teachable.com{expected_path}"
-        assert request.headers["apikey"] == "teachable-key"
+        # A 5xx is retried, so compare the distinct paths in request order.
+        assert list(dict.fromkeys(r.origin + r.path for r in network.requests_log)) == [
+            f"https://developers.teachable.com{path}" for path in expected_paths
+        ]
+        assert network.requests_log[0].headers["apikey"] == "teachable-key"
         # The validation session must refuse redirects so a 3xx can't replay the apiKey off-host.
         assert network.session_options[0]["allow_redirects"] is False
 

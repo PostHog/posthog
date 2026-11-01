@@ -27,7 +27,7 @@ TRANSACTIONS_INCREMENTAL_LOOKBACK_SECONDS = 300
 V2_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class TeachableEndpointConfig:
     name: str
     path: str
