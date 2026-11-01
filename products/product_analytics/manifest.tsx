@@ -20,6 +20,7 @@ import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQ
 import { AlertType } from 'products/alerts/frontend/types'
 
 import {
+    ActivityScope,
     DashboardType,
     InsightSceneSource,
     InsightShortId,
@@ -30,6 +31,10 @@ import {
 
 export const manifest: ProductManifest = {
     name: 'Product Analytics',
+    activityDescribers: {
+        [ActivityScope.INSIGHT]: () =>
+            import('./frontend/insights/activityDescriptions').then((module) => module.insightActivityDescriber),
+    },
     urls: {
         insights: (): string => '/insights',
         insightNew: ({

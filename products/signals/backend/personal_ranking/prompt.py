@@ -94,7 +94,7 @@ The person block is an activity summary built from their recent PostHog activity
 - Themes are their recent areas of work. A strong theme seen recently counts more than a weak or old one.
 - Owns lists objects they made or keep changing. Watches lists objects they keep opening. A report about an object they own matters more than one they only watch.
 - Works in lists the PostHog products they use most.
-When no activity summary is available, rank on the needs-you facts, priority and the model's lift.
+When no activity summary is available, rank on the needs-you facts and the model's lift.
 
 The `model` line of a report holds the ranking model's predictions for three outcomes:
 - `open`: someone opens the report.
@@ -104,9 +104,9 @@ Each outcome has a probability and a lift. Lift is the probability over the base
 
 Read every candidate. Rank only the best {config.rank_top}, fold the duplicates, and ignore the rest. The candidates you do not rank follow in their given order.
 To pick and order the best {config.rank_top}:
-- Put first the reports that need this person: waiting on their input, claimed by them, or naming them as suggested reviewer. Among these, P0 and P1 reports come first.
+- Put first the reports that need this person: waiting on their input, claimed by them, or naming them as suggested reviewer.
 - Then the reports that match their themes, the objects they own or watch, and the products they work in.
-- Use priority and the ranking model's lift as evidence of value. Among the reports that match their work, a P0 or P1 report comes before a lower priority one. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
+- Use the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
 - Old reports with no activity and reports far from their work go last.
 - When the person has a focus, it outranks their usual themes.
 
@@ -152,7 +152,7 @@ def _works_in(computed: dict[str, Any] | None) -> list[str]:
 
 def render_person(summary: ActivitySummaryView | None, config: PersonalRankingConfig) -> str:
     if summary is None or summary.status != ActivitySummaryStatus.READY:
-        return "No activity summary for this person. Rank on the needs-you facts, priority and the ranking model."
+        return "No activity summary for this person. Rank on the needs-you facts and the ranking model."
     lines = []
     if summary.headline:
         lines.append(f"Headline: {summary.headline}")

@@ -5,9 +5,11 @@ from io import StringIO
 from types import SimpleNamespace
 from typing import Any
 
-from posthog.test.base import BaseTest
+import time_machine
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.core.management import call_command
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -15,6 +17,10 @@ from django.utils import timezone
 import httpx
 from openai import APITimeoutError, BadRequestError, omit
 from parameterized import parameterized
+
+from posthog.models import User
+from posthog.redis import TEST_clear_clients
+from posthog.token_bucket import TEST_reset_scripts
 
 from products.signals.backend.activity_summary.read import (
     ActivitySummaryStatus,
@@ -29,10 +35,16 @@ from products.signals.backend.models import (
     SignalReportAssignment,
 )
 from products.signals.backend.personal_ranking.candidates import Candidate
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, ReasonLimits, parse_config
+from products.signals.backend.personal_ranking.config import (
+    CandidatePool,
+    PersonalRankingConfig,
+    ReasonLimits,
+    parse_config,
+)
 from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
+from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
 from products.signals.backend.ranking.report_predictions import OutcomePrediction, ReportPredictions
 
 REFS = ["c1", "c2", "c3", "c4"]
@@ -298,6 +310,57 @@ class TestConfig(SimpleTestCase):
                 {"default_limit": 40, "rank_top": 40, "max_limit": 30},
                 PersonalRankingConfig(default_limit=30, rank_top=30, max_limit=30),
             ),
+            (
+                "pools_in_order_with_default_names_and_large_values_capped",
+                {
+                    "pools": [
+                        {"source": "priority", "size": 5, "lowest_priority": "P0", "window_days": 1000},
+                        {"source": "assigned", "size": 0},
+                        {"source": "scored", "size": 500, "head": "fixed", "has_pr": True, "actionable_only": True},
+                    ]
+                },
+                PersonalRankingConfig(
+                    pools=(
+                        CandidatePool(name="priority", source="priority", size=5, lowest_priority="P0", window_days=90),
+                        CandidatePool(name="assigned", source="assigned", size=0),
+                        CandidatePool(
+                            name="scored_fixed",
+                            source="scored",
+                            size=100,
+                            head="fixed",
+                            has_pr=True,
+                            actionable_only=True,
+                        ),
+                    )
+                ),
+            ),
+            (
+                "invalid_pools_drop",
+                {
+                    "pools": [
+                        {"source": "assigned", "size": 5, "name": "mine"},
+                        {"source": "for_you_updated", "size": 5, "name": "mine"},
+                        {"source": "everything", "size": 5},
+                        {"source": "scored", "size": 5},
+                        {"source": "assigned", "size": 5, "head": "open"},
+                        {"source": "assigned", "size": True},
+                        {"source": "assigned", "size": -1},
+                        {"source": "priority", "size": 5, "lowest_priority": "urgent"},
+                        {"source": "priority", "size": 5, "has_pr": "yes"},
+                        {"source": "assigned", "size": 5, "name": "Has Spaces"},
+                    ]
+                },
+                PersonalRankingConfig(pools=(CandidatePool(name="mine", source="assigned", size=5),)),
+            ),
+            ("no_valid_pool_keeps_the_defaults", {"pools": [{"source": "scored", "size": 5}]}, PersonalRankingConfig()),
+            ("pools_not_a_list", {"pools": {"source": "assigned", "size": 5}}, PersonalRankingConfig()),
+            (
+                "pools_past_the_maximum_drop",
+                {"pools": [{"source": "assigned", "size": 1, "name": f"p{index}"} for index in range(12)]},
+                PersonalRankingConfig(
+                    pools=tuple(CandidatePool(name=f"p{index}", source="assigned", size=1) for index in range(10))
+                ),
+            ),
             ("reasoning_effort", {"reasoning_effort": "high"}, PersonalRankingConfig(reasoning_effort="high")),
             ("invalid_reasoning_effort", {"reasoning_effort": "max"}, PersonalRankingConfig()),
         ]
@@ -317,10 +380,11 @@ class TestBuildPersonalRanking(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.llm = MagicMock()
-        self.capture = MagicMock()
+        scoped_capture = MagicMock()
+        self.capture = scoped_capture.return_value.__enter__.return_value
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
-            ("products.signals.backend.personal_ranking.logic.posthoganalytics.capture", self.capture),
+            ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
                 MagicMock(return_value={}),
@@ -379,6 +443,15 @@ class TestBuildPersonalRanking(BaseTest):
                 scored_at=timezone.now(), manifest_version="m", served_key=served.key, results={served.key: served}
             ).model_dump_json(),
         )
+
+    def _prioritize(self, report: SignalReport, priority: str) -> SignalReport:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": priority, "explanation": "test"}),
+        )
+        return report
 
     def _setup_reports(self) -> dict[str, SignalReport]:
         reports = {
@@ -527,6 +600,34 @@ class TestBuildPersonalRanking(BaseTest):
             assert build.status == "empty"
             self.create.assert_not_called()
 
+    @parameterized.expand([("can_see_scores", True), ("cannot_see_ranking", False)])
+    def test_configured_pools_keep_their_order_and_names(self, _name: str, staff: bool) -> None:
+        self.user.is_staff = staff
+        self.user.save(update_fields=["is_staff"])
+        urgent = self._prioritize(self._report("Urgent and unscored"), "P1")
+        self._prioritize(self._report("Not urgent"), "P3")
+        scored = self._report("Scored")
+        self._score(scored, action=0.8)
+        claimed = self._report("Claimed", status=SignalReport.Status.IN_PROGRESS)
+        SignalReportAssignment.all_teams.create(team=self.team, report=claimed, actor_kind="user", actor_user=self.user)
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+        config = PersonalRankingConfig(
+            pools=(
+                CandidatePool(name="assigned", source="assigned", size=0),
+                CandidatePool(name="scored_action", source="scored", size=5, head="action"),
+                CandidatePool(name="urgent", source="priority", size=5),
+            )
+        )
+
+        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
+            build = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
+
+        pools = [(candidate.report_id, candidate.pools) for candidate in build.candidates]
+        expected = [(str(urgent.id), ("urgent",))]
+        if staff:
+            expected = [(str(scored.id), ("scored_action",)), *expected]
+        assert pools == expected
+
     @parameterized.expand([("dry_run", True, 0), ("stored", False, 1)])
     def test_command(self, _name: str, dry_run: bool, expected_rows: int) -> None:
         reports = self._setup_reports()
@@ -554,3 +655,170 @@ class TestBuildPersonalRanking(BaseTest):
         assert "model: gpt-6.1-terra, reasoning_effort: low, rank_top: 10" in output
         assert "next: Review the PR" in output
         assert all(f"] {report.title} (" in output for report in reports.values())
+
+
+class TestForMeEndpoint(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        TEST_clear_clients()
+        TEST_reset_scripts()
+        cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        self.payload: dict[str, Any] = {"build_burst": 10}
+        self.flag_enabled = True
+        self.queued: list[tuple[Any, ...]] = []
+        self.delay = MagicMock(side_effect=lambda *args: self.queued.append(args))
+        for target, value in (
+            (
+                "products.signals.backend.personal_ranking.config.read_flag_payload",
+                MagicMock(side_effect=lambda *_: self.payload),
+            ),
+            (
+                "products.signals.backend.ranking.access.feature_enabled_or_false",
+                MagicMock(side_effect=lambda *_args, **_kwargs: self.flag_enabled),
+            ),
+            (
+                "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",
+                MagicMock(return_value={}),
+            ),
+            ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", MagicMock()),
+            ("products.signals.backend.personal_ranking.serve.build_personal_inbox_ranking.delay", self.delay),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _url(self, **params: Any) -> str:
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        return f"/api/projects/{self.team.id}/signals/reports/for_me/" + (f"?{query}" if query else "")
+
+    def _claimed_report(self, title: str) -> SignalReport:
+        report = SignalReport.objects.create(
+            team=self.team, title=title, summary=title, signal_count=1, total_weight=1.0, status="ready"
+        )
+        SignalReportAssignment.all_teams.create(team=self.team, report=report, actor_kind="user", actor_user=self.user)
+        return report
+
+    def _rows(self) -> int:
+        return PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).count()
+
+    def _get(self, **params: Any) -> dict[str, Any]:
+        response = self.client.get(self._url(**params))
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    def _run_builds(self) -> None:
+        queued, self.queued = self.queued, []
+        for args in queued:
+            build_personal_inbox_ranking(*args)
+
+    def _state(self, body: dict[str, Any]) -> tuple[bool, bool, bool]:
+        return body["cached"], body["stale"], body["building"]
+
+    def test_serves_without_building_and_queues_one_build_per_user(self) -> None:
+        first = self._claimed_report("First")
+        body = self._get()
+        assert (body["fallback_reason"], self._state(body), self._rows()) == ("building", (False, False, True), 0)
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+        assert body["results"][0]["matched"]["needs_you"] == ["claimed"]
+        assert self._get()["building"] is True
+        assert len(self.queued) == 1
+
+        self._run_builds()
+        body = self._get()
+        assert (body["fallback_reason"], self._state(body), self._rows()) == (
+            "ai_not_approved",
+            (True, False, False),
+            1,
+        )
+        assert self.queued == []
+
+        assert self._state(self._get(refresh="true")) == (True, False, True)
+        self._run_builds()
+        assert self._rows() == 2
+
+        first.title = "First, edited"
+        first.save()
+        assert self._state(self._get()) == (True, True, True)
+        self._run_builds()
+        assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
+
+        second = self._claimed_report("Second")
+        assert self._state(self._get()) == (True, True, True)
+        self._run_builds()
+        body = self._get()
+        assert {entry["report"]["id"] for entry in body["results"]} == {str(first.id), str(second.id)}
+
+        assert self._state(self._get(focus="checkout")) == (True, True, True)
+        self._run_builds()
+        assert (self._state(self._get()), self._rows()) == ((True, True, True), 5)
+        self._run_builds()
+
+        self.delay.side_effect = build_personal_inbox_ranking
+        body = self._get(refresh="true", wait_seconds=5)
+        assert (self._state(body), self._rows()) == ((False, False, False), 7)
+
+    def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
+        self.payload = {"build_burst": 1, "builds_per_hour": 1}
+        first = self._claimed_report("First")
+        self._get()
+        self._run_builds()
+
+        assert (self._state(self._get(refresh="true")), self.queued) == ((True, False, False), [])
+        self._claimed_report("Second")
+        body = self._get()
+        assert (self._state(body), self._rows()) == ((True, True, False), 1)
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+
+        PersonalInboxRanking.objects.for_team(self.team.id).all().delete()
+        body = self._get()
+        assert (body["fallback_reason"], body["building"], len(body["results"])) == ("rate_limited", False, 2)
+
+    def test_failed_enqueue_serves_the_inbox_order_and_frees_the_lock(self) -> None:
+        self._claimed_report("First")
+        self.delay.side_effect = RuntimeError("broker down")
+
+        body = self._get()
+
+        assert (body["fallback_reason"], body["building"], len(body["results"])) == ("build_failed", False, 1)
+        self.delay.side_effect = lambda *args: self.queued.append(args)
+        assert self._get()["building"] is True
+
+    def test_daily_cap_holds_across_hours(self) -> None:
+        self.payload = {"build_burst": 10, "builds_per_hour": 120, "builds_per_day": 2}
+        self._claimed_report("First")
+        with time_machine.travel(timezone.now(), tick=False) as traveller:
+            self._get()
+            self._run_builds()
+            self._get(refresh="true")
+            self._run_builds()
+
+            traveller.shift(datetime.timedelta(hours=3))
+            assert (self._get(refresh="true")["building"], self._rows()) == (False, 2)
+
+            traveller.shift(datetime.timedelta(hours=9))
+            assert self._get(refresh="true")["building"] is True
+
+    def test_another_user_never_reads_your_list(self) -> None:
+        self._get()
+        self._run_builds()
+        other = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        self.client.force_login(other)
+
+        body = self._get()
+        self._run_builds()
+
+        assert (body["cached"], body["fallback_reason"]) == (False, "building")
+        assert PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
+
+    @parameterized.expand([("flag_off", {"enabled": True}, False), ("kill_switch", {"enabled": False}, True)])
+    def test_unavailable(self, _name: str, payload: dict[str, Any], flag_enabled: bool) -> None:
+        self.payload, self.flag_enabled = payload, flag_enabled
+        response = self.client.get(self._url())
+        if flag_enabled:
+            assert response.status_code == 200
+            assert (response.json()["status"], response.json()["results"]) == ("unavailable", [])
+        else:
+            assert response.status_code == 404
+        assert (self._rows(), self.queued) == (0, [])

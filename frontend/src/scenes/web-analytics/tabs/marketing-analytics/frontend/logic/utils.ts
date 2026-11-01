@@ -119,6 +119,24 @@ export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
 }
 
+// The id suffix tells apart two accounts of one platform that have no prefix.
+export function marketingSourceName(source: Pick<ExternalDataSource, 'id' | 'prefix' | 'source_type'>): string {
+    return source.prefix || `${nativeSourceDisplayLabel(source.source_type)} (${source.id.slice(0, 8)})`
+}
+
+export function formatMarketingMoney(amount: number, currency: string | null | undefined, compact = false): string {
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency || 'USD',
+            maximumFractionDigits: compact ? 1 : 0,
+            notation: compact ? 'compact' : 'standard',
+        }).format(amount)
+    } catch {
+        return `${Math.round(amount).toLocaleString('en-US')} ${currency ?? ''}`.trim()
+    }
+}
+
 // Mirrors the backend `NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES` derivation (constants.py).
 export type NativeSourceHierarchySchemaNames = {
     adset?: string

@@ -15,13 +15,13 @@ from typing import Any, Literal
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from openai import APITimeoutError, BadRequestError, Omit, OpenAI, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 from posthog.models import Team, User
+from posthog.ph_client import ph_scoped_capture
 
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.models import PersonalInboxRanking
@@ -141,10 +141,13 @@ def normalize_focus(focus: str | None, max_chars: int) -> str | None:
 
 
 def input_hash(candidates: list[Candidate], *, activity_summary_version: int | None, focus: str | None) -> str:
-    """Changes when a candidate, its status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
+    """Changes when a candidate, its text, status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
     rows = sorted(
         [
             candidate.report_id,
+            # The prompt shows this text, so an edit makes the stored reasons out of date.
+            candidate.title,
+            candidate.summary_lead,
             candidate.status,
             candidate.priority,
             candidate.pull_request_state,
@@ -251,35 +254,37 @@ def _capture(
         for candidate in build.candidates:
             for pool in candidate.pools:
                 pools[pool] = pools.get(pool, 0) + 1
-        posthoganalytics.capture(
-            distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
-            event=BUILT_EVENT,
-            properties={
-                "team_id": team.id,
-                "user_id": user.id,
-                "ranking_id": build.ranking_id,
-                "status": build.status,
-                "personalized": build.personalized,
-                "fallback_reason": build.fallback_reason,
-                "model": build.model,
-                "prompt_version": PROMPT_VERSION,
-                "activity_summary_version": build.activity_summary_version,
-                "has_focus": has_focus,
-                "limit": build.limit,
-                "rank_top": config.rank_top,
-                "reasoning_effort": config.reasoning_effort,
-                "candidate_count": len(build.candidates),
-                "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
-                "folded_count": len(build.folded),
-                "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
-                "pool_counts": pools,
-                **dataclasses.asdict(build.counts),
-                "tokens_in": build.tokens_in,
-                "tokens_out": build.tokens_out,
-                "latency_ms": build.latency_ms,
-            },
-            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-        )
+        # The build runs in a Celery task, where the global client can drop events before it flushes.
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
+                event=BUILT_EVENT,
+                properties={
+                    "team_id": team.id,
+                    "user_id": user.id,
+                    "ranking_id": build.ranking_id,
+                    "status": build.status,
+                    "personalized": build.personalized,
+                    "fallback_reason": build.fallback_reason,
+                    "model": build.model,
+                    "prompt_version": PROMPT_VERSION,
+                    "activity_summary_version": build.activity_summary_version,
+                    "has_focus": has_focus,
+                    "limit": build.limit,
+                    "rank_top": config.rank_top,
+                    "reasoning_effort": config.reasoning_effort,
+                    "candidate_count": len(build.candidates),
+                    "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
+                    "folded_count": len(build.folded),
+                    "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
+                    "pool_counts": pools,
+                    **dataclasses.asdict(build.counts),
+                    "tokens_in": build.tokens_in,
+                    "tokens_out": build.tokens_out,
+                    "latency_ms": build.latency_ms,
+                },
+                groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+            )
     except Exception:
         logger.exception("signals.personal_ranking.capture_failed", team_id=team.id, user_id=user.id)
 

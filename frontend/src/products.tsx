@@ -29,7 +29,7 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { ActivityScope, ExperimentsTabs } from '~/types'
+import { ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -53,6 +53,7 @@ import type { WorkflowsSceneTab } from '../../products/workflows/frontend/Workfl
 import type { DashboardsTab } from './scenes/dashboard/dashboards/dashboardsLogic'
 import {
     ActionType,
+    ActivityScope,
     AnnotationType,
     AnyPropertyFilter,
     DashboardType,

@@ -48,7 +48,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
-from products.tasks.backend.facade.profiles import TaskProfile, TaskProfileError, get_task_profile
+from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -889,14 +889,13 @@ def _resolve_sandbox_backend(
     return "hogland" if enabled else "modal"
 
 
-def _stored_task_profile(task: Task, run_id: str) -> TaskProfile | None:
-    if not task.profile:
+def _profile_allowed_domains(network: NetworkPolicy) -> list[str] | None:
+    level = network.levels[0]
+    if level == NetworkAccess.FULL:
         return None
-    try:
-        return get_task_profile(task.profile)
-    except TaskProfileError:
-        log_with_activity_context("task_profile_not_registered", run_id=run_id, profile=task.profile)
-        return None
+    return SandboxEnvironment.effective_domains(
+        level, network.allowed_domains, include_default_domains=network.include_default_domains
+    )
 
 
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
@@ -972,6 +971,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     distinct_id = (
         get_actor_distinct_id(actor_user) if actor_user else task.created_by.distinct_id or "process_task_workflow"
     )
+    profile = task.stored_profile
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
@@ -1007,7 +1007,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                         f"Custom image '{custom_image.name}' is not ready (status: {custom_image.status}); "
                         "using the default base image",
                     )
-            if sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
+            if profile is not None and sandbox_environment.internal:
+                allowed_domains = _profile_allowed_domains(profile.network)
+            elif sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
                 allowed_domains = None
             else:
                 allowed_domains = sandbox_environment.get_effective_domains()
@@ -1021,6 +1023,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 log_with_activity_context(
                     f"Resolved sandbox environment '{sandbox_environment.name}' with full network access", run_id=run_id
                 )
+    elif profile is not None:
+        allowed_domains = _profile_allowed_domains(profile.network)
 
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
@@ -1301,8 +1305,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         )
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
-
-    profile = _stored_task_profile(task, run_id)
 
     return TaskProcessingContext(
         task_id=str(task.id),

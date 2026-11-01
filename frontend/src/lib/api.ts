@@ -19,7 +19,7 @@ import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
-import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/oauth/oauthClient'
+import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
@@ -3659,16 +3659,6 @@ const api = {
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
-        },
-        async resetPersonDistinctId(distinctId: string): Promise<void> {
-            return await new ApiRequest()
-                .persons()
-                .withAction('reset_person_distinct_id')
-                .create({
-                    data: {
-                        distinct_id: distinctId,
-                    },
-                })
         },
         async getByDistinctIds(distinctIds: string[]): Promise<Record<string, PersonType>> {
             const response = await new ApiRequest()

@@ -6548,6 +6548,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'srm'
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
+    | 'test_account_filter_removes_exposures'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -6584,6 +6585,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'srm'
     | 'bias_risk_multiple_excluded'
     | 'multiple_variants_share'
+    | 'test_account_filter_removes_exposures'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -8126,8 +8128,12 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
      * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
     precomputeNotReady?: boolean
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or
+     * later. It is the oldest stamp among the precompute windows that hold that day, across costs and
+     * conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -8139,8 +8145,12 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
      * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
     precomputeNotReady?: boolean
-    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string
+    /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or
+     * later. It is the oldest stamp among the precompute windows that hold that day, across costs and
+     * conversion goals. Unset when no precompute was read or a window has no stamp. */
+    latestDayComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =

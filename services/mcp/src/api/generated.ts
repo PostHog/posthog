@@ -8725,13 +8725,15 @@ export namespace Schemas {
 
     export interface Response12 {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -8758,12 +8760,14 @@ export namespace Schemas {
     export type Response13Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface Response13 {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -10005,13 +10009,15 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsTableQueryResponse {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -10081,12 +10087,14 @@ export namespace Schemas {
     export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
 
     export interface MarketingAnalyticsAggregatedQueryResponse {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -40583,6 +40591,8 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       experiment_id?: number;
+      /** A `RecordingsQuery` the person already chose, as the replay list holds it. The draft starts from it and never removes or widens it. When the goal asks for narrower recordings, the draft can AND its own page, event, action or cohort filters onto it. It keeps them only when the combined filter still matches recent recordings, returns them in `query_additions`, and sizes the sampling dials against the combined `query`. `experiment_exposure` becomes the scanner's experiment and variants, which the draft keeps as they are. `date_from`/`date_to` are dropped, because a scanner's schedule owns time. `comment_text`, `hide_viewed_recordings` and in-session exposure are refused, because a scanner cannot apply them. A query with no filters starts from every new recording. Omit to let the draft pick the sessions. */
+      query?: unknown;
     }
 
     /**
@@ -40621,6 +40631,8 @@ export namespace Schemas {
       rationale: string;
       /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
       query: unknown;
+      /** When the request passed a `query`: the filters the draft ANDed onto it, which `query` already includes. Show them to the person as added by AI. Null when nothing was added or no `query` was passed. */
+      query_additions: unknown;
       /** The quality pre-filter the draft chose for the goal. Null when the costing estimate failed, in which case the wizard keeps its defaults.
        *
        * * `focused` - Focused
@@ -47737,6 +47749,7 @@ export namespace Schemas {
      * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -47744,6 +47757,7 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -47764,6 +47778,7 @@ export namespace Schemas {
       ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       ForcedVariantReleaseCondition: 'forced_variant_release_condition',
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
@@ -47771,6 +47786,7 @@ export namespace Schemas {
       ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
       NewFlagNoTraffic: 'new_flag_no_traffic',
       EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
     } as const;
 
     /**
@@ -47834,13 +47850,15 @@ export namespace Schemas {
        * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
        * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
        * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
        * * `new_flag_no_traffic` - New Flag No Traffic
-       * * `early_significance` - Early Significance */
+       * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -47848,7 +47866,7 @@ export namespace Schemas {
          */
       subcode: string | null;
       /**
-         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
+         * A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit ('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). Null when the finding names none.
          * @nullable
          */
       reason: string | null;
@@ -47889,7 +47907,9 @@ export namespace Schemas {
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
@@ -47913,7 +47933,9 @@ export namespace Schemas {
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ExposureFilters: 'exposure_filters',
       EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
       ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
@@ -47953,7 +47975,9 @@ export namespace Schemas {
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `exposure_filters` - Exposure Filters
        * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
        * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
        * * `srm` - Srm
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
@@ -48235,6 +48259,7 @@ export namespace Schemas {
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
@@ -48281,6 +48306,7 @@ export namespace Schemas {
       Srm: 'srm',
       BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
       MultipleVariantsShare: 'multiple_variants_share',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
     export type ExperimentExposureHealthFindingSeverity = typeof ExperimentExposureHealthFindingSeverity[keyof typeof ExperimentExposureHealthFindingSeverity];
@@ -49190,7 +49216,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -49281,7 +49307,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -49366,7 +49392,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -51670,6 +51696,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -51765,6 +51793,11 @@ export namespace Schemas {
       readonly label: string | null;
       /** @nullable */
       readonly table: ExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at: string | null;
@@ -55044,6 +55077,11 @@ export namespace Schemas {
       readonly supports_webhooks: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
+      /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name: string | null;
       /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
@@ -79605,6 +79643,11 @@ export namespace Schemas {
       readonly dashboard_suggested: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
+      /**
+         * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+         * @nullable
+         */
+      readonly filter_error: string | null;
       readonly created_at: string;
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
@@ -80508,6 +80551,7 @@ export namespace Schemas {
      * * `check_result` - Check Result
      * * `check_observation` - Check Observation
      * * `check_scheduled` - Check Scheduled
+     * * `check_authoring` - Check Authoring
      * * `check_expired` - Check Expired
      * * `check_cancelled` - Check Cancelled
      * * `implementation_decision` - Implementation Decision
@@ -80549,6 +80593,7 @@ export namespace Schemas {
       CheckResult: 'check_result',
       CheckObservation: 'check_observation',
       CheckScheduled: 'check_scheduled',
+      CheckAuthoring: 'check_authoring',
       CheckExpired: 'check_expired',
       CheckCancelled: 'check_cancelled',
       ImplementationDecision: 'implementation_decision',
@@ -88475,6 +88520,8 @@ export namespace Schemas {
       /** @nullable */
       readonly api_version?: string | null;
       readonly supported_api_versions?: string[];
+      /** @nullable */
+      readonly file_name?: string | null;
     } | null;
 
     /**
@@ -88487,6 +88534,11 @@ export namespace Schemas {
       readonly label?: string | null;
       /** @nullable */
       readonly table?: PatchedExternalDataSchemaTable;
+      /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         * @nullable
+         */
+      readonly table_id?: string | null;
       should_sync?: boolean;
       /** @nullable */
       readonly last_synced_at?: string | null;
@@ -88698,6 +88750,11 @@ export namespace Schemas {
       readonly supports_webhooks?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
+      /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         * @nullable
+         */
+      readonly file_name?: string | null;
       /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          * @nullable
@@ -92495,6 +92552,11 @@ export namespace Schemas {
       readonly dashboard_suggested?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
+      /**
+         * Why the scanner's recording filter cannot run, from the last sweep or estimate that tried it. Cleared when the filter changes or a sweep runs it.
+         * @nullable
+         */
+      readonly filter_error?: string | null;
       readonly created_at?: string;
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
@@ -95906,6 +95968,187 @@ export namespace Schemas {
       value?: unknown;
       /** Property keys and values to set together, instead of 'key' and 'value'. One request sets up to 1000 properties and emits a single $set event. */
       properties?: PersonUpdatePropertyRequestProperties;
+    }
+
+    /**
+     * * `ready` - ready
+     * * `unavailable` - unavailable
+     */
+    export type PersonalRankingStatusEnum = typeof PersonalRankingStatusEnum[keyof typeof PersonalRankingStatusEnum];
+
+
+    export const PersonalRankingStatusEnum = {
+      Ready: 'ready',
+      Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * * `top` - top
+     * * `worth_a_look` - worth_a_look
+     * * `later` - later
+     */
+    export type PersonalRankingTierEnum = typeof PersonalRankingTierEnum[keyof typeof PersonalRankingTierEnum];
+
+
+    export const PersonalRankingTierEnum = {
+      Top: 'top',
+      WorthALook: 'worth_a_look',
+      Later: 'later',
+    } as const;
+
+    /**
+     * * `suggested_reviewer` - suggested_reviewer
+     * * `claimed` - claimed
+     * * `waiting_on_input` - waiting_on_input
+     */
+    export type PersonalRankingNeedsYouEnum = typeof PersonalRankingNeedsYouEnum[keyof typeof PersonalRankingNeedsYouEnum];
+
+
+    export const PersonalRankingNeedsYouEnum = {
+      SuggestedReviewer: 'suggested_reviewer',
+      Claimed: 'claimed',
+      WaitingOnInput: 'waiting_on_input',
+    } as const;
+
+    export interface PersonalRankingMatched {
+      /**
+         * The theme of your activity summary that the report matches, or null.
+         * @nullable
+         */
+      theme: string | null;
+      /** Why the report needs you: you are a suggested reviewer, you claimed it, or it waits on your input. */
+      needs_you: PersonalRankingNeedsYouEnum[];
+    }
+
+    /**
+     * * `llm` - llm
+     * * `model` - model
+     */
+    export type PersonalRankingRankedByEnum = typeof PersonalRankingRankedByEnum[keyof typeof PersonalRankingRankedByEnum];
+
+
+    export const PersonalRankingRankedByEnum = {
+      Llm: 'llm',
+      Model: 'model',
+    } as const;
+
+    export interface PersonalRankingReport {
+      /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+      id: string;
+      /** The report title. */
+      title: string;
+      /** The report status.
+       *
+       * * `potential` - Potential
+       * * `candidate` - Candidate
+       * * `in_progress` - In Progress
+       * * `pending_input` - Pending Input
+       * * `ready` - Ready
+       * * `monitoring` - Monitoring
+       * * `resolved` - Resolved
+       * * `closed` - Closed
+       * * `failed` - Failed
+       * * `deleted` - Deleted
+       * * `suppressed` - Suppressed */
+      status: SignalReportStatusEnum;
+      /** The report priority, P0 to P4, or null.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum | null;
+      /** The state of the report's implementation pull request, or null when it has none.
+       *
+       * * `unknown` - Unknown
+       * * `draft` - Draft
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** The ranking model's predictions for the report. */
+      ranking: ReportRanking;
+    }
+
+    export interface PersonalRankingEntry {
+      /** The position in your list. 1 is the first. */
+      rank: number;
+      /** top, worth_a_look or later.
+       *
+       * * `top` - top
+       * * `worth_a_look` - worth_a_look
+       * * `later` - later */
+      tier: PersonalRankingTierEnum;
+      /** Why the report has this place in your list. */
+      reason: string;
+      /**
+         * A suggested next step for the top entries. Null for the others.
+         * @nullable
+         */
+      next_step: string | null;
+      /** What in your work the report matches. */
+      matched: PersonalRankingMatched;
+      /** llm: the language model placed the report. model: it kept its place in the inbox order.
+       *
+       * * `llm` - llm
+       * * `model` - model */
+      ranked_by: PersonalRankingRankedByEnum;
+      /** A compact view of the report. */
+      report: PersonalRankingReport;
+    }
+
+    export interface PersonalRankingFold {
+      /** The report that the list leaves out. */
+      report_id: string;
+      /** The report in the list that covers the same work. */
+      into_report_id: string;
+      /** Why the two reports are about the same work. */
+      reason: string;
+    }
+
+    export interface PersonalRanking {
+      /** ready: the list is in `results`. unavailable: personal ranking is off now, and `results` is empty.
+       *
+       * * `ready` - ready
+       * * `unavailable` - unavailable */
+      status: PersonalRankingStatusEnum;
+      /** True when the language model ranked the list with your activity summary. False when you have no summary yet or the build fell back to the inbox order. */
+      personalized: boolean;
+      /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
+      cached: boolean;
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise you reached the build limit, so try again later. */
+      stale: boolean;
+      /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
+      building: boolean;
+      /**
+         * Why the list is in inbox order and not ranked by the language model. building: no list is stored yet and one is being built. rate_limited: no list is stored yet and you reached the build limit. build_failed: no list is stored yet and the build could not start. llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored build fell back. Null when the model ranked it.
+         * @nullable
+         */
+      fallback_reason: string | null;
+      /**
+         * When the list was built.
+         * @nullable
+         */
+      generated_at: string | null;
+      /**
+         * How long the model call of the build took, in ms. Null when there was no model call.
+         * @nullable
+         */
+      latency_ms: number | null;
+      /**
+         * The version of your activity summary that the build read, or null.
+         * @nullable
+         */
+      activity_summary_version: number | null;
+      /** How many reports the build considered. */
+      candidates_considered: number;
+      /** How many reports the stored list ranks. `results` holds at most `limit` of them. */
+      ranked_count: number;
+      /** Your reports, best first. A report that left your inbox since the build, for example a resolved one, is left out. */
+      results: PersonalRankingEntry[];
+      /** Reports the list leaves out because another report in it covers the same work. */
+      folded: PersonalRankingFold[];
     }
 
     export interface _Summary {
@@ -101453,13 +101696,15 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative33 {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -101486,12 +101731,14 @@ export namespace Schemas {
     export type QueryResponseAlternative34Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative34 {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -102037,13 +102284,15 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative52 {
       columns?: unknown[] | null;
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       limit?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -102070,12 +102319,14 @@ export namespace Schemas {
     export type QueryResponseAlternative53Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative53 {
-      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
+      /** ISO timestamp of when the numbers for the most recent day in the range were computed, at this time or later. It is the oldest stamp among the precompute windows that hold that day, across costs and conversion goals. Unset when no precompute was read or a window has no stamp. */
+      latestDayComputedAt?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
@@ -123965,6 +124216,8 @@ export namespace Schemas {
       readonly projected_monthly_credits: number;
       /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0. */
       readonly scanners_monthly_credits: number;
+      /** The part of `scanners_monthly_credits` that lands between now and `period_end`. Use it for rest-of-period forecasts; billing forecasts from the same figure. */
+      readonly scanners_period_credits: number;
       /** Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left. */
       readonly backfills_committed_credits: number;
       /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
@@ -140873,18 +141126,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type PersonsResetPersonDistinctIdCreateParams = {
-    format?: PersonsResetPersonDistinctIdCreateFormat;
-    };
-
-    export type PersonsResetPersonDistinctIdCreateFormat = typeof PersonsResetPersonDistinctIdCreateFormat[keyof typeof PersonsResetPersonDistinctIdCreateFormat];
-
-
-    export const PersonsResetPersonDistinctIdCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsValuesRetrieveParams = {
     format?: PersonsValuesRetrieveFormat;
     /**
@@ -141531,7 +141772,7 @@ export namespace Schemas {
 
     export type SdkHealthReportRetrieveParams = {
     /**
-     * When true, bypasses the Redis cache and re-queries ClickHouse for SDK usage. A background job refreshes this data once a day, so the cached answer is usually current. Use sparingly.
+     * When true, bypasses the cache and re-reads SDK usage. The cached answer is at most an hour old, so use this sparingly.
      */
     force_refresh?: boolean;
     };
@@ -142001,6 +142242,30 @@ export namespace Schemas {
       /** Member's email address. */
       email: string;
     }};
+
+    export type SignalsReportsForMeRetrieveParams = {
+    /**
+     * Free text about what to put first, such as `error tracking` or `billing reports`. A request with focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to wait for it.
+     * @maxLength 2000
+     */
+    focus?: string;
+    /**
+     * The most reports to return, best first. Defaults to 25. Values above the configured maximum (50) use the maximum.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
+     */
+    refresh?: boolean;
+    /**
+     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * @minimum 0
+     * @maximum 30
+     */
+    wait_seconds?: number;
+    };
 
     export type SignalsReportsPrCiStatusesParams = {
     /**

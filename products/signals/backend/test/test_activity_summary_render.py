@@ -27,11 +27,13 @@ from products.signals.backend.activity_summary.render import (
     MAX_ACTIVITY_LINES_PER_DAY,
     MAX_COMPLETION_TOKENS,
     MAX_UNITS_PER_DAY,
+    MCP_HEADER,
     TASK_LINES,
     TASKS_HEADER,
     VIEWS_HEADER,
     ActivityItem,
     Drop,
+    McpItem,
     Parent,
     Product,
     RenderLimits,
@@ -42,6 +44,7 @@ from products.signals.backend.activity_summary.render import (
     build_input,
     burst_cap,
     clean_text,
+    mcp_units,
     sample_units,
     sampling_seed,
     task_units,
@@ -88,6 +91,10 @@ def _change(
 
 QUALITY = Parent(scope="Dashboard", item_id="10", name="Quality review")
 GROWTH = Parent(scope="Dashboard", item_id="11", name="Growth overview")
+
+
+def _mcp(session_id: str, intent: str, days_ago: float = 1, minutes: int = 0, route: str = "insight-list") -> McpItem:
+    return McpItem(at=_at(days_ago, minutes), session_id=session_id, route_name=route, intent=intent)
 
 
 def _view(
@@ -304,9 +311,9 @@ def test_activity_units_drop_automated_activity(
             '- 2026-10-18 updated Insight "Signup funnel" (agent: Split the funnel by plan)',
         ),
         (
-            "collapsed rows carry the newest intent",
+            "collapsed rows carry their intents newest first",
             ["Add a breakdown", None, "Split the funnel by plan"],
-            '- 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown)',
+            '- 2026-10-18 updated Insight "Signup funnel" (x3) (agent: Add a breakdown; Split the funnel by plan)',
         ),
         (
             "an intent keeps only the host of a link",
@@ -391,6 +398,64 @@ def test_activity_units_group_children_under_their_parent(
     drops: Counter[str] = Counter()
     assert [unit.text for unit in activity_units(items, drops, parents)] == expected
     assert dict(drops) == expected_drops
+
+
+def _object_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Insight", "updated", name, days_ago=1 + n / 100, intent=intent, item_id="1")
+        for n, intent in enumerate(intents)
+    ]
+
+
+def _group_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Insight", "updated", f"{name} {n % 2}", days_ago=1 + n / 100, intent=intent, item_id=str(n % 2))
+        for n, intent in enumerate(intents)
+    ]
+
+
+def _count_rows(name: str, intents: list[str | None]) -> list[ActivityItem]:
+    return [
+        _change("Ticket", "updated", f"{name} #{n}", days_ago=0.5 + n / 100, intent=intent, item_id=str(n))
+        for n, intent in enumerate(intents)
+    ]
+
+
+LINE_TYPES = [("object line", _object_rows), ("group line", _group_rows), ("count line", _count_rows)]
+GROUP_PARENTS = {("Insight", "0"): (QUALITY,), ("Insight", "1"): (QUALITY,)}
+
+
+@parameterized.expand(LINE_TYPES)
+def test_an_activity_line_keeps_the_intent_after_a_long_name(_name: str, rows: Any) -> None:
+    intent = "Split the funnel by plan to see which plan dropped after the pricing change"
+    items = rows("word " * 60, [intent, None, None, None])
+
+    [unit] = activity_units(items, Counter(), GROUP_PARENTS)
+
+    assert len(unit.text) <= ACTIVITY_LINE_CHARS
+    assert unit.text.endswith(f" (agent: {intent})")
+    assert unit.intent_chars == len(intent)
+
+
+@parameterized.expand(
+    [
+        (f"{line_type}, {case}", rows, max_intents, expected)
+        for line_type, rows in LINE_TYPES
+        for case, max_intents, expected in [
+            ("two intents", 2, "Add a breakdown; Split by plan"),
+            ("one intent", 1, "Add a breakdown"),
+        ]
+    ]
+)
+def test_an_activity_line_keeps_the_newest_distinct_intents(
+    _name: str, rows: Any, max_intents: int, expected: str
+) -> None:
+    items = rows("Signup funnel", ["Add a breakdown", "Split by plan", "add  a BREAKDOWN", "Fix the date range"])
+    limits = RenderLimits(activity_max_intents=max_intents)
+
+    [unit] = activity_units(items, Counter(), GROUP_PARENTS, limits)
+
+    assert unit.text.endswith(f" (agent: {expected})")
 
 
 def test_a_group_line_lists_the_names_that_fit_and_marks_the_rest() -> None:
@@ -501,7 +566,7 @@ def test_sampling_is_deterministic_and_favors_recent_units() -> None:
     assert sum(1 for age in picked_ages if age < 7) > sum(1 for age in picked_ages if age >= 21)
 
 
-def test_build_input_renders_the_three_sections_in_order() -> None:
+def test_build_input_renders_the_four_sections_in_order() -> None:
     rendered = build_input(
         [_task("why", summary="Asked: why did signups drop?", tags=("growth",), days_ago=3)],
         [_change("Dashboard", "created", "Growth overview", days_ago=1)],
@@ -511,6 +576,7 @@ def test_build_input_renders_the_three_sections_in_order() -> None:
             _view("insight", "abc", "Weekly signups", days_ago=1),
             _view("dashboard", "9", "Growth overview", days=3, days_ago=2),
         ],
+        mcp=[_mcp("s1", "signups by country", days_ago=2)],
     )
 
     assert rendered is not None
@@ -522,15 +588,93 @@ def test_build_input_renders_the_three_sections_in_order() -> None:
             ACTIVITY_HEADER,
             '- 2026-10-18 created Dashboard "Growth overview"',
             "",
+            MCP_HEADER,
+            "- 2026-10-17, 1 call: signups by country",
+            "",
             VIEWS_HEADER,
             '- Dashboard "Growth overview": opened 3 days, last 2026-10-17, edited 1 day',
             '- Insight "Weekly signups": opened 1 day, last 2026-10-18',
         ]
     )
-    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.n_view_lines, rendered.units) == (1, 1, 2, 4)
+    assert (rendered.n_tasks, rendered.n_activity_lines, rendered.n_mcp_lines, rendered.n_view_lines) == (1, 1, 1, 2)
+    assert rendered.units == 5
     assert rendered.input_chars == len(rendered.text)
     assert build_input([_task("root cause")], [], as_of=AS_OF, seed=1) is None
     assert build_input([], [], as_of=AS_OF, seed=1, views=[_view("scene", "Settings")]) is None
+
+
+def test_mcp_units_assemble_each_session_in_order_and_cap_a_long_chain() -> None:
+    records = [
+        _mcp("s1", "signups by country", days_ago=0, minutes=5),
+        _mcp("s1", "why signups dropped", days_ago=0, minutes=-10),
+        _mcp("s2", "check error rates", days_ago=0, minutes=-8),
+        _mcp("s1", "Why signups dropped", days_ago=0, minutes=-5),
+        *(_mcp("s3", f"step {n}", days_ago=2, minutes=n) for n in range(1, 9)),
+    ]
+    drops: Counter[str] = Counter()
+
+    units = mcp_units(records, [], drops, RenderLimits(mcp_chain_max_intents=3))
+
+    assert [unit.text for unit in units] == [
+        "- 2026-10-17, 8 calls: step 1 --> step 2 --> … --> step 8",
+        "- 2026-10-18, 1 call: check error rates",
+        "- 2026-10-19, 3 calls: why signups dropped --> signups by country",
+    ]
+    assert drops == Counter()
+
+
+KEEPER = _mcp("k", "why signups dropped", days_ago=3)
+
+
+@parameterized.expand(
+    [
+        (
+            "a plumbing route says nothing about the work",
+            [
+                _mcp("s1", "who am I", route="users-detail"),
+                _mcp("s1", "load the skill", route="project_llm_skills-list"),
+            ],
+            [],
+            [],
+            {Drop.MCP_PLUMBING_ROUTE: 2},
+        ),
+        (
+            "an intent an activity line shows is not shown twice",
+            [_mcp("s1", "Split the funnel by plan"), _mcp("s1", "check the split", minutes=1)],
+            [_change("Insight", "updated", "Signup funnel", intent="split the funnel  by plan")],
+            ["- 2026-10-18, 2 calls: check the split"],
+            {Drop.MCP_IN_ACTIVITY: 1},
+        ),
+        (
+            "a session left with no intent goes",
+            [_mcp("s1", "Split the funnel by plan")],
+            [_change("Insight", "updated", "Signup funnel", intent="Split the funnel by plan")],
+            [],
+            {Drop.MCP_IN_ACTIVITY: 1, Drop.MCP_THIN_SESSION: 1},
+        ),
+        (
+            "a chain repeated in many sessions is a scheduled job",
+            [_mcp(f"s{n}", f"refresh digest {n}", days_ago=n) for n in range(1, 5)],
+            [],
+            [],
+            {Drop.MCP_REPEATED_CHAIN: 4},
+        ),
+    ]
+)
+def test_mcp_units_drop_rules(
+    _name: str,
+    records: list[McpItem],
+    activity: list[ActivityItem],
+    expected: list[str],
+    expected_drops: dict[str, int],
+) -> None:
+    drops: Counter[str] = Counter()
+    activity_lines = activity_units(activity, Counter())
+
+    units = mcp_units([*records, KEEPER], activity_lines, drops)
+
+    assert [unit.text for unit in units] == ["- 2026-10-16, 1 call: why signups dropped", *expected]
+    assert dict(drops) == expected_drops
 
 
 def test_view_units_name_products_count_edits_and_drop_what_says_nothing() -> None:
@@ -677,6 +821,7 @@ def test_build_input_stays_inside_its_bounds_for_a_very_active_person(_name: str
     assert max(len(line) for line in tasks_text.split("\n")[1:]) <= limits.task_line_chars
     assert max(len(line) for line in activity_text.split("\n")[1:]) <= limits.activity_line_chars
     assert rendered.input_chars <= limits.sections_max_chars
+    assert rendered.intent_lines == limits.activity_lines and rendered.intent_chars > 0
     assert rendered.drops[Drop.BURST_CAP] > 0 and rendered.drops[Drop.SAMPLE_CAP] > 0
 
 
