@@ -1,6 +1,7 @@
 import Papa from 'papaparse'
 
 import { ApiError } from 'lib/api'
+import { uuid } from 'lib/utils/dom'
 
 import type {
     PushTokenImportFailureApi,
@@ -50,7 +51,7 @@ export interface PushTokenImportOutcome {
 
 export type SendPushTokens = (
     subscriptions: PushTokenSubscriptionApi[],
-    options: { create_missing_persons: boolean },
+    options: { create_missing_persons: boolean; import_id: string },
     signal: AbortSignal
 ) => Promise<PushTokenImportResponseApi>
 
@@ -148,18 +149,13 @@ export function chunkRows<T>(rows: T[]): T[][] {
     return chunks
 }
 
-/** Matches the API's failures, which carry only a token suffix, back to the rows that were sent. */
 function failedRowsOf(chunk: PushTokenRow[], failures: PushTokenImportFailureApi[]): FailedPushTokenRow[] {
-    const unmatched = [...chunk]
     const failed: FailedPushTokenRow[] = []
     for (const failure of failures) {
-        const index = unmatched.findIndex(
-            (row) => row.distinct_id === failure.distinct_id && row.device_token.endsWith(failure.device_token_suffix)
-        )
-        if (index === -1) {
+        const row = chunk[failure.index]
+        if (!row) {
             continue
         }
-        const [row] = unmatched.splice(index, 1)
         failed.push({
             ...row,
             // The API's sentence for a token mismatch names the token it saw, such as an Expo token.
@@ -279,9 +275,11 @@ export async function runPushTokenImport({
             return stopped()
         }
         const subscriptions = chunk.map(({ distinct_id, device_token }) => ({ distinct_id, device_token }))
+        const importId = uuid()
         try {
             const result = await sendWithRetries(
-                (signal) => send(subscriptions, { create_missing_persons: createMissingPersons }, signal),
+                (signal) =>
+                    send(subscriptions, { create_missing_persons: createMissingPersons, import_id: importId }, signal),
                 sleep,
                 stop
             )

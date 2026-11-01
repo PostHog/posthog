@@ -68,6 +68,7 @@ describe('push token import', () => {
             const failed = subscriptions
                 .filter((s) => s.distinct_id === 'user-1500' || s.distinct_id === 'user-2400')
                 .map((s) => ({
+                    index: subscriptions.indexOf(s),
                     distinct_id: s.distinct_id,
                     device_token_suffix: s.device_token.slice(-6),
                     reason: s.distinct_id === 'user-1500' ? ('unknown_person' as const) : ('not_stored' as const),
@@ -93,6 +94,34 @@ describe('push token import', () => {
         ])
     })
 
+    it("marks the row the API names when two of a person's tokens end the same", async () => {
+        const outcome = await runPushTokenImport({
+            rows: [
+                { line: 2, distinct_id: 'user-1', device_token: 'abcdef0123aaaaaa' },
+                { line: 3, distinct_id: 'user-1', device_token: 'not-hex-aaaaaa' },
+            ],
+            send: async () => ({
+                imported: 1,
+                dry_run: false,
+                failed: [
+                    {
+                        index: 1,
+                        distinct_id: 'user-1',
+                        device_token_suffix: 'aaaaaa',
+                        reason: 'token_mismatch' as const,
+                        detail: 'An APNs channel needs the hex APNs device token.',
+                    },
+                ],
+                failed_distinct_ids: ['user-1'],
+            }),
+            sleep: () => Promise.resolve(),
+            onChunkDone: () => {},
+            stop: new AbortController().signal,
+        })
+
+        expect(outcome.failed.map((row) => row.line)).toEqual([3])
+    })
+
     it('retries rate limits and server errors, then gives up on the batch but not the import', async () => {
         // One entry per call: an error to throw, or null to succeed.
         const calls: (ApiError | null)[] = [
@@ -101,7 +130,9 @@ describe('push token import', () => {
             null,
             ...Array.from({ length: 5 }, () => new ApiError('down', 503)),
         ]
-        const outcome = await run(async (subscriptions) => {
+        const importIds: string[] = []
+        const outcome = await run(async (subscriptions, options) => {
+            importIds.push(options.import_id)
             const error = calls.shift()
             if (error) {
                 throw error
@@ -113,6 +144,10 @@ describe('push token import', () => {
         expect(outcome.imported).toBe(1000)
         expect(outcome.failed).toHaveLength(500)
         expect(outcome.stoppedReason).toBeNull()
+        // A retry resends its batch under the same import ID, so the server can tell it is a repeat.
+        expect(new Set(importIds.slice(0, 3)).size).toBe(1)
+        expect(new Set(importIds.slice(3)).size).toBe(1)
+        expect(importIds[3]).not.toBe(importIds[0])
     })
 
     it('stops during a rate limit wait instead of sleeping it out', async () => {

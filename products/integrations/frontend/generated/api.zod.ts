@@ -217,6 +217,12 @@ export const IntegrationsPushTokensCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing.'
         ),
+    import_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.'
+        ),
     create_missing_persons: zod
         .boolean()
         .default(integrationsPushTokensCreateBodyCreateMissingPersonsDefault)

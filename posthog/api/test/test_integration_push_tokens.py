@@ -83,12 +83,14 @@ class TestPushTokenImport(APIBaseTest):
             "dry_run": False,
             "failed": [
                 {
+                    "index": 4,
                     "distinct_id": "user-3",
                     "device_token_suffix": "e5f6a7",
                     "reason": "person_processing_disabled",
                     "detail": "Person processing is off for this person, so the device was not stored.",
                 },
                 {
+                    "index": 3,
                     "distinct_id": "user-2",
                     "device_token_suffix": "d4e5f6",
                     "reason": "not_stored",
@@ -109,6 +111,25 @@ class TestPushTokenImport(APIBaseTest):
         assert value != "a1b2c3d4"
         assert _TokenCipher().decrypt(value) == "a1b2c3d4"
         assert len(call["events"]) == 5
+
+    def test_a_retried_batch_reuses_its_event_ids(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-1"])
+        flush_persons_and_events()
+        capture, captured = _capture_dropping(set())
+        subscriptions = [{"distinct_id": "user-1", "device_token": "a1b2c3d4"}]
+        with patch("posthog.api.integration_push_tokens.capture_batch_internal", side_effect=capture):
+            for import_id in [
+                None,
+                None,
+                "8f1a6f0e-2f4c-4b8e-9d55-3f0a3c2b1e10",
+                "8f1a6f0e-2f4c-4b8e-9d55-3f0a3c2b1e10",
+            ]:
+                options = {"import_id": import_id} if import_id else {}
+                assert self._import(self.apns.id, subscriptions, **options).status_code == status.HTTP_200_OK
+
+        no_id_first, no_id_retry, first, retry = [call["events"][0]["event_uuid"] for call in captured]
+        assert no_id_first != no_id_retry
+        assert first == retry
 
     @parameterized.expand(
         [

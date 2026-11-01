@@ -717,6 +717,11 @@ export interface PushTokenImportRequestApi {
     subscriptions: PushTokenSubscriptionApi[]
     /** Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing. */
     dry_run?: boolean
+    /**
+     * A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.
+     * @nullable
+     */
+    import_id?: string | null
     /** Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push. */
     create_missing_persons?: boolean
 }
@@ -738,6 +743,8 @@ export const PushTokenImportFailureReasonEnumApi = {
 } as const
 
 export interface PushTokenImportFailureApi {
+    /** Position of the row in the request's `subscriptions`, from 0. */
+    index: number
     /** The distinct ID of the row. */
     distinct_id: string
     /** The last 6 characters of the row's device token, to find the row. */

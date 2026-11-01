@@ -57,6 +57,13 @@ class PushTokenImportRequestSerializer(serializers.Serializer):
         help_text="Check every row and report what would fail, without storing anything. "
         "Run this first and fix the failed rows before importing.",
     )
+    import_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="A new UUID for each batch. Send the same value when you retry that batch, "
+        "so a retried batch can be recognized as a repeat.",
+    )
     create_missing_persons = serializers.BooleanField(
         default=False,
         help_text="Create a person for a distinct ID that has none. Off by default, because a distinct ID "
@@ -65,6 +72,7 @@ class PushTokenImportRequestSerializer(serializers.Serializer):
 
 
 class PushTokenImportFailureSerializer(serializers.Serializer):
+    index = serializers.IntegerField(help_text="Position of the row in the request's `subscriptions`, from 0.")
     distinct_id = serializers.CharField(help_text="The distinct ID of the row.")
     device_token_suffix = serializers.CharField(
         help_text=f"The last {TOKEN_SUFFIX_LENGTH} characters of the row's device token, to find the row."
@@ -93,6 +101,7 @@ class PushTokenImportResponseSerializer(serializers.Serializer):
 
 @frozen
 class PushTokenImportFailure:
+    index: int
     distinct_id: str
     device_token_suffix: str
     reason: PushTokenImportFailureReason
@@ -147,6 +156,7 @@ def import_push_tokens(
     *,
     dry_run: bool = False,
     create_missing_persons: bool = False,
+    import_id: uuid.UUID | None = None,
 ) -> PushTokenImportResult:
     app_id = push_channel_app_id(integration)
     if not app_id:
@@ -154,46 +164,54 @@ def import_push_tokens(
 
     failed: list[PushTokenImportFailure] = []
 
-    def fail(row: tuple[str, str], reason: PushTokenImportFailureReason, detail: str) -> None:
+    def fail(row: tuple[int, str, str], reason: PushTokenImportFailureReason, detail: str) -> None:
+        index, distinct_id, device_token = row
         failed.append(
             PushTokenImportFailure(
-                distinct_id=row[0], device_token_suffix=row[1][-TOKEN_SUFFIX_LENGTH:], reason=reason, detail=detail
+                index=index,
+                distinct_id=distinct_id,
+                device_token_suffix=device_token[-TOKEN_SUFFIX_LENGTH:],
+                reason=reason,
+                detail=detail,
             )
         )
 
-    rows: list[tuple[str, str]] = []
+    rows: list[tuple[int, str, str]] = []
     seen: set[tuple[str, str]] = set()
-    for subscription in subscriptions:
-        row = (subscription["distinct_id"], subscription["device_token"])
-        if row in seen:
+    for index, subscription in enumerate(subscriptions):
+        key = (subscription["distinct_id"], subscription["device_token"])
+        if key in seen:
             continue
-        seen.add(row)
-        if mismatch := token_mismatch(integration.kind, row[1]):
+        seen.add(key)
+        row = (index, *key)
+        if mismatch := token_mismatch(integration.kind, row[2]):
             fail(row, PushTokenImportFailureReason.TOKEN_MISMATCH, mismatch)
         else:
             rows.append(row)
 
     if rows and not create_missing_persons:
-        _, known = get_person_uuids_and_matched_distinct_ids(integration.team_id, sorted({d for d, _ in rows}))
+        _, known = get_person_uuids_and_matched_distinct_ids(integration.team_id, sorted({d for _, d, _ in rows}))
         for row in rows:
-            if row[0] not in known:
+            if row[1] not in known:
                 fail(
                     row,
                     PushTokenImportFailureReason.UNKNOWN_PERSON,
                     "No person has this distinct ID. Use the ID your app passes to identify, "
                     "or import with create_missing_persons.",
                 )
-        rows = [row for row in rows if row[0] in known]
+        rows = [row for row in rows if row[1] in known]
 
     if dry_run or not rows:
         return PushTokenImportResult(imported=len(rows), dry_run=dry_run, failed=failed)
 
     cipher = _TokenCipher()
     events = []
-    row_by_uuid: dict[str, tuple[str, str]] = {}
-    for distinct_id, device_token in rows:
-        event_uuid = str(uuid.uuid4())
-        row_by_uuid[event_uuid] = (distinct_id, device_token)
+    row_by_uuid: dict[str, tuple[int, str, str]] = {}
+    for row in rows:
+        _, distinct_id, device_token = row
+        # A retried batch reuses its event IDs, so its copies can be deduplicated.
+        event_uuid = str(uuid.uuid5(import_id, f"{distinct_id}\n{device_token}") if import_id else uuid.uuid4())
+        row_by_uuid[event_uuid] = row
         events.append(
             {
                 "event": "$set",

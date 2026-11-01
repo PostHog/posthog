@@ -2783,6 +2783,7 @@ class IntegrationViewSet(
             integration.team.api_token,
             dry_run=data["dry_run"],
             create_missing_persons=data["create_missing_persons"],
+            import_id=data["import_id"],
         )
         return Response(
             PushTokenImportResponseSerializer(
