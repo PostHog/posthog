@@ -121,6 +121,8 @@ class FunnelResultsFormatter:
         conversion_type_hint = f'Conversion and drop-off rates are calculated in overall. For example, "Conversion rate: 9%" means that 9% of {unit} from the first step completed the funnel.'
         if self._step_reference == FunnelStepReference.PREVIOUS:
             conversion_type_hint = f"Conversion and drop-off rates are relative to the previous steps. For example, 'Conversion rate: 90%' means that 90% of {unit} from the previous step completed the funnel."
+            if self._optional_step_indexes:
+                conversion_type_hint += " Optional steps are not previous steps: the rates of each step are relative to the last required step before it."
 
         joined_matrixes = "\n\n".join(matrixes)
         return f"{self._format_time_range()}\n\n{joined_matrixes}\n\n{conversion_type_hint}"
@@ -156,6 +158,10 @@ class FunnelResultsFormatter:
         if self._query.funnelsFilter and self._query.funnelsFilter.funnelStepReference:
             step_reference = self._query.funnelsFilter.funnelStepReference
         return step_reference
+
+    @property
+    def _optional_step_indexes(self) -> set[int]:
+        return {idx for idx, node in enumerate(self._query.series) if getattr(node, "optionalInFunnel", False)}
 
     @property
     def _viz_type(self) -> FunnelVizType:
@@ -214,10 +220,14 @@ class FunnelResultsFormatter:
             ["Median conversion time"],
         ]
 
+        optional_step_indexes = self._optional_step_indexes
+        reference_step_idx = 0
         for idx, series in enumerate(results):
             label = series["name"]
             if series.get("custom_name") is not None:
                 label = f"{label} {series['custom_name']}"
+            if idx in optional_step_indexes:
+                label = f"{label} (optional)"
 
             matrix[0].append(label)
             matrix[1].append(series["count"])
@@ -228,7 +238,8 @@ class FunnelResultsFormatter:
                 conversion_rate = "100%"
                 dropoff_rate = "0%"
             elif self._step_reference == FunnelStepReference.PREVIOUS:
-                prev_count = matrix[1][idx]
+                # Users can skip an optional step, so a later step can have more users than the optional step.
+                prev_count = matrix[1][reference_step_idx + 1]
                 if prev_count != 0:
                     conversion_rate = format_percentage(this_step_count / prev_count)
                     dropoff_rate = format_percentage((prev_count - this_step_count) / prev_count)
@@ -245,6 +256,8 @@ class FunnelResultsFormatter:
 
             matrix[2].append(conversion_rate)
             matrix[3].append(dropoff_rate)
+            if idx not in optional_step_indexes:
+                reference_step_idx = idx
 
             matrix[4].append(
                 format_duration(series["average_conversion_time"])

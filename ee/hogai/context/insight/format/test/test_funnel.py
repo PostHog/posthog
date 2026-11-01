@@ -297,6 +297,89 @@ class TestFunnelResultsFormatter(BaseTest):
         self.assertIn("\nTotal entity count|5|2\n", output)
         self.assertIn("means that 9% of entities from the first step completed the funnel.", output)
 
+    @parameterized.expand(
+        [
+            (
+                "previous_optional_step_with_fewer_users",
+                FunnelStepReference.PREVIOUS,
+                [False, True, False],
+                [[100, 20, 80]],
+                [("100%|20%|80%", "0%|80%|20%")],
+            ),
+            (
+                "previous_optional_step_with_zero_users",
+                FunnelStepReference.PREVIOUS,
+                [False, True, False],
+                [[100, 0, 80]],
+                [("100%|0%|80%", "0%|100%|20%")],
+            ),
+            (
+                "previous_consecutive_optional_steps",
+                FunnelStepReference.PREVIOUS,
+                [False, True, True, False, False],
+                [[100, 20, 10, 80, 40]],
+                [("100%|20%|10%|80%|50%", "0%|80%|90%|20%|50%")],
+            ),
+            (
+                "previous_with_breakdown",
+                FunnelStepReference.PREVIOUS,
+                [False, True, False],
+                [[100, 20, 80], [50, 0, 25]],
+                [("100%|20%|80%", "0%|80%|20%"), ("100%|0%|50%", "0%|100%|50%")],
+            ),
+            (
+                "total",
+                FunnelStepReference.TOTAL,
+                [False, True, False],
+                [[100, 20, 80]],
+                [("100%|20%|80%", "0%|80%|20%")],
+            ),
+        ]
+    )
+    def test_funnel_steps_with_optional_steps(
+        self,
+        _name: str,
+        step_reference: FunnelStepReference,
+        optional: list[bool],
+        counts_per_breakdown: list[list[int]],
+        expected_rates: list[tuple[str, str]],
+    ):
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event=f"step_{idx}", optionalInFunnel=is_optional)
+                for idx, is_optional in enumerate(optional)
+            ],
+            funnelsFilter=FunnelsFilter(funnelStepReference=step_reference),
+        )
+        results = [
+            [
+                {
+                    "name": f"step_{idx}",
+                    "count": count,
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown_value": [f"value_{breakdown_idx}"],
+                }
+                for idx, count in enumerate(counts)
+            ]
+            for breakdown_idx, counts in enumerate(counts_per_breakdown)
+        ]
+        output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
+        labels = "|".join(
+            f"step_{idx} (optional)" if is_optional else f"step_{idx}" for idx, is_optional in enumerate(optional)
+        )
+        for breakdown_idx, (conversion, dropoff) in enumerate(expected_rates):
+            self.assertIn(f"---value_{breakdown_idx}\nMetric|{labels}\n", output)
+            self.assertIn(
+                f"\nConversion rate|{conversion}\nDropoff rate|{dropoff}\n",
+                output.split(f"---value_{breakdown_idx}")[1],
+            )
+        relative_to_required_hint = "the rates of each step are relative to the last required step before it."
+        if step_reference == FunnelStepReference.PREVIOUS:
+            self.assertIn(relative_to_required_hint, output)
+        else:
+            self.assertNotIn(relative_to_required_hint, output)
+
     def test_assistant_funnel_session_aggregation(self):
         query = AssistantFunnelsQuery(
             series=[AssistantFunnelsEventsNode(event="$pageview"), AssistantFunnelsEventsNode(event="signup")],
