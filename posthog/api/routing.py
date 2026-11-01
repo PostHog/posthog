@@ -12,7 +12,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.utils import get_token
 from posthog.auth import (
     DelegatedOAuthAccessTokenAuthentication,
@@ -44,6 +43,7 @@ from posthog.permissions import (
     is_service_auth,
 )
 from posthog.products import is_product_module
+from posthog.queryset_paging import stable_queryset_ordering
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 

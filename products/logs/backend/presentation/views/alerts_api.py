@@ -22,7 +22,6 @@ from rest_framework.response import Response
 from posthog.schema import LogsAlertFilters
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
-from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
@@ -32,6 +31,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
+from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.destinations import (
