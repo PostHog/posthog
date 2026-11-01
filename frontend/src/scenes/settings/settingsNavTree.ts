@@ -49,3 +49,8 @@ export function settingsNavItems(level: SettingLevelId, sections: SettingSection
 export function settingsNavTree(levels: SettingLevelId[], sections: SettingSection[]): SettingsNavLevel[] {
     return levels.map((level) => ({ level, items: settingsNavItems(level, sections) }))
 }
+
+export function firstSettingsNavSection(items: SettingsNavItem[]): SettingSection | undefined {
+    const first = items[0]
+    return first?.kind === 'group' ? first.sections[0] : first?.section
+}
