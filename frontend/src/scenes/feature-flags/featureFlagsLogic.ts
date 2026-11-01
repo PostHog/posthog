@@ -16,6 +16,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
 import {
@@ -120,8 +121,10 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
         flagMatchesSearch(flag, filters.search) &&
         flagMatchesStatus(flag, filters.active) &&
         flagMatchesType(flag, filters.type) &&
-        // Archived flags are hidden unless explicitly filtered for, mirroring the API default
-        (filters.archived === 'true' ? !!flag.archived : !flag.archived) &&
+        // Deleted and archived flags are hidden unless explicitly filtered for, mirroring the API defaults.
+        // The deleted view lists a flag whether or not it was archived before the delete.
+        (filters.deleted === 'true' ? !!flag.deleted : !flag.deleted) &&
+        (filters.deleted === 'true' || (filters.archived === 'true' ? !!flag.archived : !flag.archived)) &&
         (!filters.created_by_id?.length ||
             (flag.created_by != null && filters.created_by_id.includes(flag.created_by.id))) &&
         (!filters.tags?.length || filters.tags.some((tag) => flag.tags?.includes(tag))) &&
@@ -160,6 +163,8 @@ export interface FeatureFlagsFilters {
     active?: string
     /** 'true' shows only archived flags; when unset, archived flags are excluded */
     archived?: string
+    /** 'true' shows only deleted flags, which can be restored; when unset, deleted flags are excluded */
+    deleted?: string
     created_by_id?: number[]
     type?: string
     search?: string
@@ -173,6 +178,7 @@ export interface FeatureFlagsFilters {
 const DEFAULT_FILTERS: FeatureFlagsFilters = {
     active: undefined,
     archived: undefined,
+    deleted: undefined,
     created_by_id: undefined,
     type: undefined,
     search: undefined,
@@ -251,8 +257,7 @@ export interface FlagLogicProps {
 
 type FlagsUpdatingState = Record<number, boolean>
 
-// Shared by the updateFeatureFlag and updateFeatureFlagArchived reducer cases, which track the
-// per-row spinner identically.
+// Shared by the per-row write loaders (update, archive, restore), which track the per-row spinner identically.
 const markFlagUpdating = (state: FlagsUpdatingState, { id }: { id: number }): FlagsUpdatingState => ({
     ...state,
     [id]: true,
@@ -290,6 +295,7 @@ export interface featureFlagsLogicValues {
         active?: string | undefined
         archived?: string | undefined
         created_by_id?: number[] | undefined
+        deleted?: string | undefined
         evaluation_runtime?: string | undefined
         excluded_tags?: string[] | undefined
         limit: number
@@ -336,6 +342,41 @@ export interface featureFlagsLogicActions {
     }
     resetFilters: () => {
         value: true
+    }
+    restoreFeatureFlag: ({ id }: { id: number }) => {
+        id: number
+    }
+    restoreFeatureFlagFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    restoreFeatureFlagSuccess: (
+        featureFlags: {
+            count: number
+            filters?: FeatureFlagsFilters | null | undefined
+            lastUpdatedFlagId: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: any[]
+        },
+        payload?: {
+            id: number
+        }
+    ) => {
+        featureFlags: {
+            count: number
+            filters?: FeatureFlagsFilters | null | undefined
+            lastUpdatedFlagId: number
+            next?: string | null | undefined
+            previous?: string | null | undefined
+            results: any[]
+        }
+        payload?: {
+            id: number
+        }
     }
     setActiveTab: (tabKey: FeatureFlagsTab) => {
         tabKey: FeatureFlagsTab
@@ -479,6 +520,7 @@ export interface featureFlagsLogicMeta {
             active?: string | undefined
             archived?: string | undefined
             created_by_id?: number[] | undefined
+            deleted?: string | undefined
             evaluation_runtime?: string | undefined
             excluded_tags?: string[] | undefined
             limit: number
@@ -631,6 +673,37 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         throw e
                     }
                 },
+                restoreFeatureFlag: async ({ id }: { id: number }) => {
+                    try {
+                        // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
+                        const response = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${id}`,
+                            { deleted: false }
+                        )
+                        // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
+                        deleteFromTree('feature_flag', String(id))
+                        refreshTreeItem('feature_flag', String(id))
+                        // The response carries the restored key, not the one the delete renamed it to.
+                        lemonToast.success(`${response.key} has been restored`)
+                        const updatedFlags = values.featureFlags.results.map((flag) =>
+                            flag.id === response.id ? response : flag
+                        )
+                        // Restore is only offered in the deleted view, which the restored flag now leaves.
+                        return {
+                            ...values.featureFlags,
+                            results: updatedFlags,
+                            count: Math.max(0, values.featureFlags.count - 1),
+                            lastUpdatedFlagId: id,
+                        }
+                    } catch (e: any) {
+                        actions.setFeatureFlagUpdating(id, false)
+                        // The global loader toast only covers errors with an HTTP status. A dropped connection has none.
+                        if (e?.status === undefined) {
+                            lemonToast.error("Couldn't restore this feature flag. Try again.")
+                        }
+                        throw e
+                    }
+                },
             },
         ],
     })),
@@ -691,6 +764,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 updateFeatureFlagSuccess: clearFlagUpdating,
                 updateFeatureFlagArchived: markFlagUpdating,
                 updateFeatureFlagArchivedSuccess: clearFlagUpdating,
+                restoreFeatureFlag: markFlagUpdating,
+                restoreFeatureFlagSuccess: clearFlagUpdating,
             },
         ],
     }),
@@ -735,6 +810,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     filters.search?.trim() ||
                     filters.active ||
                     filters.archived ||
+                    filters.deleted ||
                     filters.type ||
                     filters.evaluation_runtime ||
                     filters.created_by_id?.length ||
@@ -898,7 +974,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 actions.setActiveTab(availableTab)
             }
 
-            const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
+            const { page, created_by_id, active, archived, deleted, type, search, order, evaluation_runtime, tags } =
                 searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
                 created_by_id: parseNumericArrayFilter(created_by_id),
@@ -911,6 +987,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
             pageFiltersFromUrl.archived = archived !== undefined ? String(archived) : undefined
+            pageFiltersFromUrl.deleted = deleted !== undefined ? String(deleted) : undefined
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
             pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
 
