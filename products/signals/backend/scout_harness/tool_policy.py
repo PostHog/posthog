@@ -123,11 +123,17 @@ def _permitted_operations(held_tools: frozenset[str]) -> tuple[McpToolApiOperati
     return tuple(dict.fromkeys((*SANDBOX_HARNESS_OPERATIONS, *tool_operations)))
 
 
+# Tools that undo a soft delete by sending `{"deleted": false}` on the PATCH a flag's update and
+# delete tools share. They join the soft delete family below, so holding one never counts as
+# holding an update tool: it grants only that one write, never the rest of the PATCH.
+_RESTORE_TOOLS = frozenset({"feature-flag-restore"})
+
+
 @lru_cache(maxsize=1)
 def _soft_delete_tools() -> dict[McpToolApiOperation, frozenset[str]]:
     tools: dict[McpToolApiOperation, set[str]] = {}
     for name, definition in get_mcp_tool_definitions().items():
-        if name.endswith("-delete") or name in {"delete-feature-flag", "notebooks-destroy"}:
+        if name.endswith("-delete") or name in {"delete-feature-flag", "notebooks-destroy"} or name in _RESTORE_TOOLS:
             for operation in definition.api_operations:
                 if operation.method == "PATCH":
                     tools.setdefault(operation, set()).add(name)
@@ -135,17 +141,29 @@ def _soft_delete_tools() -> dict[McpToolApiOperation, frozenset[str]]:
 
 
 def _soft_delete_allowed(operation: McpToolApiOperation, held_tools: frozenset[str], data: Any) -> bool:
-    delete_tools = _soft_delete_tools().get(operation)
-    if not delete_tools:
+    """Whether a body may go to a PATCH that soft delete or restore tools share with update tools.
+
+    A restore tool allows exactly `{"deleted": false}`, and a delete tool exactly `{"deleted": true}`.
+    Any other body that sets `deleted` needs a delete tool plus an update tool. A body without
+    `deleted` needs an update tool.
+    """
+    family = _soft_delete_tools().get(operation)
+    if not family:
         return True
     definitions = get_mcp_tool_definitions()
     has_update = any(
-        name not in delete_tools and operation in definitions[name].api_operations
+        name not in family and operation in definitions[name].api_operations
         for name in held_tools
         if name in definitions
     )
+    held_family = held_tools & family
+    holds_restore = bool(held_family & _RESTORE_TOOLS)
+    holds_delete = bool(held_family - _RESTORE_TOOLS)
     if isinstance(data, Mapping) and "deleted" in data:
-        if not held_tools & delete_tools:
+        only_deleted = set(data) == {"deleted"}
+        if holds_restore and only_deleted and data["deleted"] is False:
+            return True
+        if not holds_delete:
             return False
-        return has_update or (set(data) == {"deleted"} and data["deleted"] is True)
+        return has_update or (only_deleted and data["deleted"] is True)
     return has_update
