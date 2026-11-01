@@ -31,7 +31,7 @@ import {
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { cleanSeriesNodes } from 'scenes/insights/filters/ActionFilter/cleanSeriesNodes'
 import {
-    FLAG_CALLS_SERIES_NAME,
+    flagCallsSeriesName,
     dataWarehouseSeriesNodes,
     everyWarehouseSeriesReadsFlagCalls,
     flagCallsBreakdownFromEventBreakdown,
@@ -3266,7 +3266,7 @@ const handleQuerySourceUpdateSideEffects = (
         hasEventBasedBreakdown(breakdownFilter)
     if (mixesEventAndDataWarehouseSeries || hasEventBreakdownOnDataWarehouseSeries) {
         if (hasBreakdownFilter(breakdownFilter)) {
-            const subject = readsFlagCalls(nextQuery) ? FLAG_CALLS_SERIES_NAME : 'A data warehouse series'
+            const subject = readsFlagCalls(nextQuery) ? flagCallsSeriesName() : 'A data warehouse series'
             lemonToast.info(
                 hasEventBreakdownOnDataWarehouseSeries
                     ? `${subject} doesn't support this breakdown, so it's removed.`
