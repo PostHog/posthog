@@ -568,12 +568,14 @@ class TestGroupTarget:
                 [("acme", {"tier": "pro"})],
                 team_uuid="team-uuid",
                 group_type_name="organization",
+                project_id=7,
             )
         assert produced == 1
         data = captured[0]["data"]
         assert data["kind"] == "group"
         assert data["group_type"] == "organization"
         assert data["group_key"] == "acme"
+        assert data["project_id"] == 7
         assert data["distinct_id"] == "team-uuid"  # $groupidentify placeholder
         assert data["properties"] == {"tier": "pro"}
         # keyed per (team, group_type_index, group_key) so per-group ordering is preserved
