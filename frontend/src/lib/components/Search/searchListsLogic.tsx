@@ -19,15 +19,17 @@ import { IntegrationType, UserType } from '~/types'
 
 import { SearchItem } from './searchItems'
 import {
+    SettingsSectionSummary,
     dataManagementSearchItems,
     healthSearchItems,
     miscSearchItems,
     newSearchItems,
     peopleSearchItems,
     productSearchItems,
+    sentenceCaseId,
+    settingsSearchItems,
     starredSearchItems,
 } from './searchListItems'
-import { SettingsSectionSummary, sentenceCaseId, settingsSearchItems } from './settingsSearchItems'
 
 const summarizeSettingsSection = (section: SettingSection): SettingsSectionSummary => ({
     id: section.id,

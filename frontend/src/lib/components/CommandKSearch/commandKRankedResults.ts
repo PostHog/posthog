@@ -4,7 +4,7 @@ import { SEARCH_TAB_CATEGORY } from 'lib/components/Search/utils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { pluralTypeName } from './commandKFilterOptions'
-import { RankKey, compareRanks, rankLocalItem, searchWords, tokenTypos } from './commandKRanking'
+import { RankKey, compareRanks, rankLocalItem, rankLocalSearchItem, searchWords, tokenTypos } from './commandKRanking'
 import type { CommandKRow, CommandKSection } from './commandKSections'
 
 const BEST_MATCHES_LIMIT = 3
@@ -55,12 +55,7 @@ function rankLocalItems(items: SearchItem[], query: string, groupKey: string): R
 
 function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
     return items.flatMap((item) => {
-        const ranked = rankLocalItem(
-            query,
-            String(item.displayName || item.name),
-            item.searchKeywords,
-            item.category === SEARCH_TAB_CATEGORY
-        )
+        const ranked = rankLocalSearchItem(query, item, item.category === SEARCH_TAB_CATEGORY)
         return ranked
             ? [
                   {

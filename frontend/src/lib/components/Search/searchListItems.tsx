@@ -16,6 +16,7 @@ import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { toSentenceCase } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -23,6 +24,7 @@ import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProdu
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import type { SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
@@ -46,7 +48,7 @@ const fixedItem = (
     name: string,
     category: string,
     fields: Partial<FixedSearchItem> = {}
-): FixedSearchItem => ({ id, name, displayName: name, category, itemType: null, ...fields })
+): FixedSearchItem => ({ id, name, displayName: name, category, ...fields })
 
 const lastViewedAt = (sceneKey: string | undefined, sceneViews: SceneViews): string | null =>
     sceneKey ? (sceneViews[sceneKey] ?? null) : null
@@ -67,9 +69,6 @@ const byLastViewed = (a: SearchItem, b: SearchItem): number => {
     }
     return Date.parse(b.lastViewedAt) - Date.parse(a.lastViewedAt)
 }
-
-const isFlagOn = (flag: string | undefined, featureFlags: FeatureFlagsSet): boolean =>
-    !flag || !!(featureFlags as Record<string, boolean>)[flag]
 
 const visibleImports = (
     items: FileSystemImport[],
@@ -114,7 +113,7 @@ const tabSearchItems = (
     return parents.flatMap((parent) => {
         const parentName = parent.displayName || parent.name
         return (tabsByPath.get(parent.name) ?? [])
-            .filter((tab) => isFlagOn(tab.flag, featureFlags))
+            .filter((tab) => isFileSystemImportFlagEnabled(tab, featureFlags))
             .map((tab) => ({
                 id: `${parent.id}-tab-${tab.name}`,
                 name: `${parentName} ${tab.name}`,
@@ -176,11 +175,10 @@ const newItemDisplayName = (path: string): string => {
 }
 
 const ACTIVITY_ITEM = fixedItem('product-activity', 'Activity', 'tools', {
-    productCategory: null,
     href: urls.activity(ActivityTab.ExploreEvents),
     icon: <IconClock />,
     sceneKey: 'Activity',
-    record: { type: 'activity', iconType: undefined, iconColor: undefined },
+    record: { type: 'activity' },
 })
 
 // Blank SQL query in a new browser tab (inheriting the active warehouse connection when
@@ -188,7 +186,6 @@ const ACTIVITY_ITEM = fixedItem('product-activity', 'Activity', 'tools', {
 // onSelect + newInternalTab, and only the 'command' Search surface honors onSelect —
 // the new-tab scene and AI-first homepage are href-only and would render a dead item.
 const NEW_SQL_QUERY_ITEM = fixedItem('new-sql-query-tab', 'New SQL query', 'create', {
-    productCategory: null,
     itemType: 'insight/hog',
     searchKeywords: ['sql', 'hogql', 'query', 'blank sql', 'new tab'],
     record: { type: 'insight', iconType: 'insight/hog' },
@@ -344,3 +341,77 @@ export const miscSearchItems = (sceneViews: SceneViews, toggleTerminal: (() => v
     [...(toggleTerminal ? [terminalItem(toggleTerminal)] : []), ...MISC_ITEMS].map((item) =>
         withLastViewed(item, sceneViews)
     )
+
+/**
+ * Lean projection of SETTINGS_MAP for search. The full map statically imports every
+ * settings component (the whole configuration UI graph), so it is loaded dynamically
+ * on mount and only the searchable metadata is kept.
+ */
+export interface SettingsSectionSummary {
+    id: SettingSection['id']
+    level: SettingSection['level']
+    titleString: string | null
+    hideFromNavigation?: boolean
+    flag?: SettingSection['flag']
+    to?: string
+    keywords?: string[]
+    settings: {
+        keywords: string[]
+        description: string | null
+        flag?: SettingSection['flag']
+    }[]
+}
+
+interface SettingsGates {
+    isFlagEnabled: (flag: SettingSection['flag']) => boolean
+    hasOrganizationIntegrations: boolean
+    billingEntryUrl: string | null
+}
+
+export const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
+
+// Sections hidden from navigation are only reachable from their product's own configuration page.
+// Integrations and billing mirror the sidebar gates. billingEntryUrl is null when the user has no
+// billing access, and for view-only members it points at Usage, which keeps them off the admin-only
+// Overview and the restricted state it renders first.
+const isSectionShown = (section: SettingsSectionSummary, gates: SettingsGates): boolean =>
+    !section.hideFromNavigation &&
+    gates.isFlagEnabled(section.flag) &&
+    (section.id !== 'organization-integrations' || gates.hasOrganizationIntegrations) &&
+    (section.id !== 'organization-billing' || !!gates.billingEntryUrl)
+
+const toSettingsSearchItem = (section: SettingsSectionSummary, gates: SettingsGates): SearchItem => {
+    // Environment sections show as project sections.
+    const level = section.level === 'environment' ? 'project' : section.level
+    const sectionId = section.id.replace(/^environment-/, 'project-') as SettingSectionId
+    const displayName = section.titleString ?? sentenceCaseId(section.id)
+    const parentName = `${toSentenceCase(level)} settings`
+    const settings = section.settings.filter((setting) => gates.isFlagEnabled(setting.flag))
+    return {
+        id: `settings-${sectionId}`,
+        name: displayName,
+        displayName,
+        parentName,
+        category: 'settings',
+        href:
+            (section.id === 'organization-billing' && gates.billingEntryUrl) || section.to || urls.settings(sectionId),
+        itemType: 'settings',
+        searchKeywords: [...(section.keywords ?? []), ...settings.flatMap((setting) => setting.keywords)],
+        hiddenSearchText: settings.flatMap((setting) => setting.description ?? []).join(' '),
+        record: { type: 'settings', level, sectionId },
+    }
+}
+
+export const settingsSearchItems = (sections: SettingsSectionSummary[], gates: SettingsGates): SearchItem[] => {
+    const items = new Map<string, SearchItem>()
+    for (const section of sections) {
+        if (!isSectionShown(section, gates)) {
+            continue
+        }
+        const item = toSettingsSearchItem(section, gates)
+        if (!items.has(item.id)) {
+            items.set(item.id, item)
+        }
+    }
+    return [...items.values()]
+}

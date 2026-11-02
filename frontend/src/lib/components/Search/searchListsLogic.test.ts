@@ -1,4 +1,4 @@
-import { strictLocalMatches } from 'lib/components/CommandKSearch/commandKRanking'
+import { rankLocalSearchItem, strictLocalMatches } from 'lib/components/CommandKSearch/commandKRanking'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
@@ -123,24 +123,28 @@ describe('searchListsLogic', () => {
         }
     )
 
-    it.each(['settings', 'general', 'project settings', 'settings general', 'timezone'])(
-        'finds a settings section in Command K and the search page when searching "%s"',
-        (query) => {
-            logic.actions.setSettingsSections([
-                {
-                    id: 'environment-details',
-                    level: 'environment',
-                    titleString: 'General',
-                    settings: [{ keywords: ['Timezone'], description: 'Set the timezone for dates.' }],
-                },
-            ])
-            const { settingsItems } = logic.values
+    it.each([
+        ['settings', null],
+        ['general', null],
+        ['project settings', null],
+        ['settings general', null],
+        ['timezone', 'Timezone'],
+    ])('finds a settings section in Command K and the search page when searching "%s"', (query, matchedKeyword) => {
+        logic.actions.setSettingsSections([
+            {
+                id: 'environment-details',
+                level: 'environment',
+                titleString: 'General',
+                settings: [{ keywords: ['Timezone'], description: 'Set the timezone for dates.' }],
+            },
+        ])
+        const { settingsItems } = logic.values
 
-            expect(strictLocalMatches(settingsItems, query).map((item) => item.id)).toEqual([
-                'settings-project-details',
-            ])
-            expect(filterSearchItems(settingsItems, query).map((item) => item.id)).toEqual(['settings-project-details'])
-            expect(settingsItems[0]).toMatchObject({ displayName: 'General', parentName: 'Project settings' })
-        }
-    )
+        expect(strictLocalMatches(settingsItems, query).map((item) => item.id)).toEqual(['settings-project-details'])
+        expect(filterSearchItems(settingsItems, query).map((item) => item.matchedSearchKeyword)).toEqual([
+            matchedKeyword,
+        ])
+        expect(rankLocalSearchItem(query, settingsItems[0])?.matchedAlias).toEqual(matchedKeyword)
+        expect(settingsItems[0]).toMatchObject({ displayName: 'General', parentName: 'Project settings' })
+    })
 })

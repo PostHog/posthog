@@ -9,6 +9,7 @@ export const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
 interface FuseSearchable {
     name: string
     displayName?: string
+    parentName?: string
     category: string
     searchKeywords?: string[]
     hiddenSearchText?: string
@@ -18,6 +19,9 @@ interface FuseSearchable {
 export const SEARCH_TAB_CATEGORY = 'tabs'
 const SEARCH_KEYWORDS_KEY = 'searchKeywords'
 const NAME_KEYS = new Set(['name', 'displayName'])
+
+export const parentPathOf = (item: Pick<FuseSearchable, 'name' | 'displayName' | 'parentName'>): string | null =>
+    item.parentName ? `${item.parentName} ${item.displayName || item.name}` : null
 
 const FUSE_OPTIONS = {
     keys: [
@@ -29,6 +33,7 @@ const FUSE_OPTIONS = {
             getFn: (item: FuseSearchable): string => (item.category === SEARCH_TAB_CATEGORY ? '' : item.category),
         },
         { name: SEARCH_KEYWORDS_KEY, weight: 1.5 },
+        { name: 'parentPath', weight: 1, getFn: (item: FuseSearchable): string => parentPathOf(item) ?? '' },
         { name: 'hiddenSearchText', weight: 1 },
     ],
     ignoreLocation: true,
