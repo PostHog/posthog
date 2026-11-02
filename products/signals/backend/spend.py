@@ -84,6 +84,7 @@ class SignalMetadataChange:
 class SignalSpendUpdate:
     team_id: int
     signal_id: str
+    embedding_timestamp: datetime | None = None
     changes: list[SignalMetadataChange] = field(default_factory=list)
 
 
@@ -99,6 +100,7 @@ async def submit_signal_metadata_updates(
     team_id: int,
     signal_ids: list[str],
     change: SignalMetadataChange | None = None,
+    signal_timestamps: dict[str, datetime] | None = None,
 ) -> None:
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415 — keeps Temporal off Django startup
 
@@ -112,7 +114,11 @@ async def submit_signal_metadata_updates(
             *(
                 client.start_workflow(
                     "update-signal-spend",
-                    SignalSpendUpdate(team_id=team_id, signal_id=signal_id),
+                    SignalSpendUpdate(
+                        team_id=team_id,
+                        signal_id=signal_id,
+                        embedding_timestamp=(signal_timestamps or {}).get(signal_id),
+                    ),
                     id=f"signal-spend-{team_id}-{signal_id}",
                     task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,

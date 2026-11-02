@@ -223,6 +223,7 @@ async def process_team_signals_batch_activity(input: ProcessTeamSignalsBatchInpu
             team_id=input.team_id,
             signal_ids=[signal.signal_id],
             change=SignalMetadataChange(deleted=True),
+            signal_timestamps={signal.signal_id: signal.timestamp},
         )
 
         if not input.delete_only:

@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.runner import _self_heal_stale_runs
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import (
+    SignalMetadataChange,
     SignalSpendSummary,
     SignalSpendUpdate,
     begin_report_spend,
@@ -237,10 +238,14 @@ class TestSignalSpend(BaseTest):
             assert query.call_args_list
             assert all(call.kwargs["ch_user"] == ClickHouseUser.SIGNALS for call in query.call_args_list)
             assert all("timestamp >= now() - INTERVAL 3 MONTH" in call.kwargs["query"] for call in query.call_args_list)
+            spend_bounded_queries = [
+                call for call in query.call_args_list if "spend_timestamp_lower_bound" in call.kwargs["placeholders"]
+            ]
+            assert spend_bounded_queries
             assert all(
                 call.kwargs["placeholders"]["spend_timestamp_lower_bound"].value
                 == earliest_spend_at - timedelta(days=1)
-                for call in query.call_args_list
+                for call in spend_bounded_queries
             )
         with patch(
             "products.signals.backend.signal_metadata.execute_hogql_query",
@@ -249,18 +254,94 @@ class TestSignalSpend(BaseTest):
             signal_row = fetch_signals_for_report_sync(self.team, str(uuid4()))[0]
             assert signal_row["total_spend"] == metadata["total_spend"]
 
-    def test_clickhouse_spend_read_uses_only_ttl_bound_without_a_spend_row(self) -> None:
+    @parameterized.expand([("missing_spend", False), ("late_spend", True)])
+    def test_clickhouse_spend_read_falls_back_to_ttl_bound(self, _name: str, late_spend: bool) -> None:
         driver = str(uuid4())
         now = timezone.now()
-        metadata = {"total_spend": 0, "spend_accounting_failed_stages": []}
+        signal_timestamp = now - timedelta(days=2)
+        if late_spend:
+            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="research")
+        metadata: dict[str, object] = {
+            "total_spend": 0.01 if late_spend else 0,
+            "spend_accounting_failed_stages": [],
+        }
+
+        def result(**kwargs: object) -> Mock:
+            placeholders = kwargs["placeholders"]
+            assert isinstance(placeholders, dict)
+            rows = (
+                []
+                if late_spend and "spend_timestamp_lower_bound" in placeholders
+                else [(driver, ("Example finding", json.dumps(metadata), signal_timestamp, [0.5], now))]
+            )
+            return Mock(results=rows)
+
         with patch(
             "products.signals.backend.spend_metadata.execute_hogql_query",
-            return_value=Mock(results=[(driver, ("Example finding", json.dumps(metadata), now, [0.5], now))]),
+            side_effect=result,
         ) as query:
             publish_signal_spend_metadata(SignalSpendUpdate(team_id=self.team.id, signal_id=driver))
         assert query.call_args_list
         assert all("timestamp >= now() - INTERVAL 3 MONTH" in call.kwargs["query"] for call in query.call_args_list)
-        assert all("spend_timestamp_lower_bound" not in call.kwargs["placeholders"] for call in query.call_args_list)
+        assert any("spend_timestamp_lower_bound" not in call.kwargs["placeholders"] for call in query.call_args_list)
+        assert (
+            any("spend_timestamp_lower_bound" in call.kwargs["placeholders"] for call in query.call_args_list)
+            is late_spend
+        )
+
+    def test_metadata_change_uses_expired_embedding_timestamp(self) -> None:
+        driver = str(uuid4())
+        now = timezone.now().replace(microsecond=0)
+        expired_timestamp = now - timedelta(days=100)
+        metadata = {
+            "report_id": "example-report",
+            "deleted": False,
+            "total_spend": 0,
+            "spend_accounting_failed_stages": [],
+        }
+        producer = Mock()
+        scope = MagicMock()
+        scope.__enter__.return_value = producer
+        with (
+            patch("products.signals.backend.spend_metadata.producer_scope", return_value=scope),
+            patch(
+                "products.signals.backend.spend_metadata.execute_hogql_query",
+                return_value=Mock(
+                    results=[
+                        (
+                            driver,
+                            (
+                                "Example finding",
+                                json.dumps(metadata),
+                                expired_timestamp,
+                                [0.5],
+                                now - timedelta(seconds=2),
+                            ),
+                        )
+                    ]
+                ),
+            ) as query,
+        ):
+            publish_signal_spend_metadata(
+                SignalSpendUpdate(
+                    team_id=self.team.id,
+                    signal_id=driver,
+                    embedding_timestamp=expired_timestamp,
+                    changes=[SignalMetadataChange(deleted=True, clear_content=True)],
+                )
+            )
+        assert query.call_args_list
+        assert all("timestamp >= now() - INTERVAL 3 MONTH" not in call.kwargs["query"] for call in query.call_args_list)
+        assert all("timestamp = {embedding_timestamp}" in call.kwargs["query"] for call in query.call_args_list)
+        assert all(
+            call.kwargs["placeholders"]["embedding_timestamp"].value == expired_timestamp
+            for call in query.call_args_list
+        )
+        for call in producer.produce.call_args_list:
+            payload = call.kwargs["data"]
+            assert json.loads(payload["metadata"])["deleted"] is True
+            assert payload["content"] == ""
+            assert set(payload["embedding"]) == {0.0}
 
     @parameterized.expand([("web", None, False), ("pipeline", ClickHouseUser.SIGNALS, False), ("settled", None, True)])
     def test_triggering_signal_lookup_preserves_query_identity(

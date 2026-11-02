@@ -792,6 +792,8 @@ class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
         assert retracted == 3
         calls = client.start_workflow.call_args_list
         assert sorted(call.args[1].signal_id for call in calls) == ["a", "b", "c"]
+        expected_timestamp = self.base.replace(microsecond=self.base.microsecond // 1000 * 1000)
+        assert all(call.args[1].embedding_timestamp == expected_timestamp for call in calls)
         assert all(
             call.kwargs["start_signal_args"] == [SignalMetadataChange(deleted=True, clear_content=True)]
             for call in calls
