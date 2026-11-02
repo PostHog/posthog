@@ -265,7 +265,7 @@ class _Evaluator:
             if base is None or step is None:
                 return None
             unit, amount = step
-            if base.is_date and unit in _SUB_DAY_UNITS:
+            if (base.is_date or base.utc_day) and unit in _SUB_DAY_UNITS:
                 return None
             if expr.op == ast.ArithmeticOperationOp.Sub:
                 amount = -amount
@@ -349,7 +349,7 @@ class _Evaluator:
         sign, unit = _SHIFT_FUNCTIONS[call.name]
         inner = self.evaluate(call.args[0]) if len(call.args) == 2 else None
         amount = _int_constant(call.args[1]) if len(call.args) == 2 else None
-        if inner is None or amount is None or (inner.is_date and unit in _SUB_DAY_UNITS):
+        if inner is None or amount is None or ((inner.is_date or inner.utc_day) and unit in _SUB_DAY_UNITS):
             return None
         return dataclasses.replace(inner, at=_shifted(inner.at, unit, sign * amount))
 

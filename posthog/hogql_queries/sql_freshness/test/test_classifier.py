@@ -12,7 +12,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
-from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, classify
+from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, classify, freshness_from_record
 from posthog.hogql_queries.sql_freshness.rules import SQL_WINDOW_MAX_AGE, FreshnessReason, Reject, SqlWindowClass
 
 NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
@@ -321,6 +321,16 @@ class TestClassify(BaseTest):
                 FreshnessReason.UNSUPPORTED_BOUND,
             ),
             (
+                "utc_day_as_datetime_plus_hours",
+                "select count() from events where timestamp >= toDateTime(today()) + interval 12 hour",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
+                "utc_day_as_datetime_minus_hours",
+                "select count() from events where timestamp >= subtractHours(toDateTime(today()), 1)",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
                 "date_plus_whole_days_in_hours",
                 "select count() from events where timestamp >= '2026-10-20' "
                 "and timestamp < toDate('2026-10-27') + interval 24 hour",
@@ -364,3 +374,9 @@ class TestClassify(BaseTest):
     )
     def test_keeps_default_age(self, _name: str, sql: str, expected_reason: FreshnessReason) -> None:
         assert self._classify(sql) == Reject(reason=expected_reason)
+
+    def test_record_without_a_timezone_is_missing(self) -> None:
+        assert (
+            freshness_from_record({"window": "live", "fresh_until": "2026-10-29T15:05:00", "reason": "window_age"})
+            is None
+        )
