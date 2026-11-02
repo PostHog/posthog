@@ -21,6 +21,7 @@ from posthog.tasks.comment_slack_sync import (
     BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS,
     SLACK_SYNCED_TS_KEY,
     backfill_comment_slack_thread,
+    ingest_slack_discussion_reply,
     mirror_comment_reply_to_slack,
 )
 
@@ -652,3 +653,36 @@ class TestSlackThreadSerialization(APIBaseTest):
             res = self.client.get(f"/api/projects/{self.team.id}/comments/{self.parent.id}/")
         assert res.status_code == status.HTTP_200_OK
         assert res.json()["slack_thread"] is None
+
+
+class TestIngestSlackDiscussionReply(APIBaseTest):
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_saves_a_live_reply_once_per_slack_message(self, _mock_slack, mock_profile):
+        mock_profile.return_value = {"name": "Grace", "email": self.user.email, "avatar": None, "team_id": "T123"}
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T123", sensitive_config={"access_token": "t"}
+        )
+        root = Comment.objects.create(team=self.team, scope="Insight", item_id="42", content="root")
+        mirror = CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=root,
+            integration=integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+        )
+
+        for _ in range(2):
+            ingest_slack_discussion_reply(str(mirror.id), "U2", "on it", None, "100.2")
+
+        reply = Comment.objects.get(source_comment=root)
+        assert reply.content == "on it"
+        assert reply.created_by == self.user
+        assert reply.item_context == {
+            "from_slack": True,
+            "slack_message_ts": "100.2",
+            "slack_author_name": "Grace",
+            "slack_author_avatar": None,
+        }
