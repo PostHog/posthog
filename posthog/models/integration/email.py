@@ -328,6 +328,9 @@ class EmailIntegration:
 
     def _mark_domain_verified(self, on_domain_verified: Callable[[], None] | None) -> None:
         with transaction.atomic():
+            # Lock every sender on the domain, not only this MAIL FROM group, so that two groups verifying at once
+            # agree on whether the domain was already verified and only one of them reports the first verification.
+            list(self._domain_senders().select_for_update().order_by("id").values_list("id", flat=True))
             senders = list(self._matching_senders().select_for_update().order_by("id"))
             sender_ids = [sender.id for sender in senders]
             unverified_ids = [sender.id for sender in senders if not sender.config.get("verified")]

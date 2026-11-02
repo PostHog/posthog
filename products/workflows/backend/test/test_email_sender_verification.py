@@ -17,6 +17,7 @@ from posthog.models.integration.email import EmailIntegration
 from posthog.redis import get_client
 
 from products.workflows.backend.facade.tasks import refresh_new_email_senders, refresh_settled_email_senders
+from products.workflows.backend.providers.ses import IDENTITY_ATTRIBUTES_BATCH_SIZE
 from products.workflows.backend.services.email_sender_verification import EmailSenderVerification
 
 
@@ -255,6 +256,60 @@ class TestEmailSenderVerification(APIBaseTest):
 
         assert self._verified(*senders) == [True, True]
         assert tenant_read_times == [0.0, 2.0]
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.ses.boto3.client")
+    def test_each_status_read_is_spaced_apart_across_batches(
+        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+    ) -> None:
+        for n in range(IDENTITY_ATTRIBUTES_BATCH_SIZE + 1):
+            self._create_sender(f"d{n}.example.com")
+        ses = self._mock_ses(mock_boto_client, mock_resolver, dkim_status="Pending")
+        read_times: dict[str, list[float]] = {"verification": [], "dkim": [], "mail_from": []}
+
+        def timed(name: str, read: Callable[..., Any], duration: float = 0.0) -> Callable[..., Any]:
+            def timed_read(Identities: list[str]) -> Any:
+                read_times[name].append(self.ses_clock["now"])
+                if len(read_times[name]) == 1:
+                    self.ses_clock["now"] += duration
+                return read(Identities=Identities)
+
+            return timed_read
+
+        ses.get_identity_verification_attributes.side_effect = timed(
+            "verification", ses.get_identity_verification_attributes.side_effect, duration=3.0
+        )
+        ses.get_identity_dkim_attributes.side_effect = timed("dkim", ses.get_identity_dkim_attributes.side_effect)
+        ses.get_identity_mail_from_domain_attributes.side_effect = timed(
+            "mail_from", ses.get_identity_mail_from_domain_attributes.side_effect
+        )
+
+        refresh_new_email_senders()
+
+        assert read_times == {"verification": [0.0, 3.0], "dkim": [3.0, 5.0], "mail_from": [3.0, 5.0]}
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    @patch("products.workflows.backend.providers.ses.boto3.client")
+    def test_slow_status_read_inside_its_bound_still_verifies_and_advances(
+        self, mock_boto_client: MagicMock, mock_resolver: MagicMock
+    ) -> None:
+        sender = self._create_sender("example.com")
+        ses = self._mock_ses(mock_boto_client, mock_resolver)
+        clock = {"now": 0.0}
+        read_statuses = ses.get_identity_verification_attributes.side_effect
+
+        def slow_read(Identities: list[str]) -> Any:
+            clock["now"] += EmailSenderVerification.STATUS_READ_WORST_CASE_SECONDS - 1
+            return read_statuses(Identities=Identities)
+
+        ses.get_identity_verification_attributes.side_effect = slow_read
+
+        with patch(
+            "products.workflows.backend.services.email_sender_verification.monotonic", side_effect=lambda: clock["now"]
+        ):
+            refresh_new_email_senders()
+
+        assert self._verified(sender) == [True]
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.ses.boto3.client")

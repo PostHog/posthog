@@ -96,7 +96,9 @@ RECOMMENDATIONS_RETRY_CONFIG = Config(retries={"mode": "adaptive", "max_attempts
 STATUS_READ_CONFIG = Config(connect_timeout=2, read_timeout=5, retries={"mode": "standard", "max_attempts": 2})
 
 IDENTITY_ATTRIBUTES_BATCH_SIZE = 100
+IDENTITY_STATUS_READS_PER_BATCH = 3
 READ_MIN_INTERVAL_SECONDS = 2
+DNS_LOOKUP_LIFETIME_SECONDS = 5
 
 BACKGROUND_CONNECT_TIMEOUT_SECONDS = 2
 BACKGROUND_READ_TIMEOUT_SECONDS = 5
@@ -783,7 +785,7 @@ class SESProvider:
         dmarc_record_value: str | None = None
         try:
             resolver = dns.resolver.Resolver()
-            resolver.lifetime = 5  # seconds — keep the request path responsive
+            resolver.lifetime = DNS_LOOKUP_LIFETIME_SECONDS  # keep the request path responsive
             answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
             for rdata in answers:
                 txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
@@ -824,7 +826,7 @@ class SESProvider:
             # be present.  Do per-record DNS lookups so the UI can show which
             # specific records are still missing.
             resolver = dns.resolver.Resolver()
-            resolver.lifetime = 5
+            resolver.lifetime = DNS_LOOKUP_LIFETIME_SECONDS
             for r in dns_records:
                 if r["type"] != "dkim":
                     continue
@@ -922,7 +924,6 @@ class SESProvider:
     def get_identity_statuses(self, domains: Sequence[str]) -> dict[str, SESIdentityStatus]:
         statuses = dict.fromkeys(domains, SESIdentityStatus())
         for batch in batched(dict.fromkeys(domains), IDENTITY_ATTRIBUTES_BATCH_SIZE, strict=False):
-            self._pace_read("identity_attributes")
             statuses.update(self._read_identity_statuses(list(batch)))
         return statuses
 
@@ -935,6 +936,7 @@ class SESProvider:
     def _read_identity_statuses(self, domains: list[str]) -> dict[str, SESIdentityStatus]:
         verification: dict[str, str] = {}
         try:
+            self._pace_read("identity_verification_attributes")
             id_attrs = self.ses_client.get_identity_verification_attributes(Identities=domains)
             verification = {d: a["VerificationStatus"] for d, a in id_attrs["VerificationAttributes"].items()}
         except ClientError:
@@ -942,6 +944,7 @@ class SESProvider:
 
         dkim: dict[str, str] = {}
         try:
+            self._pace_read("identity_dkim_attributes")
             dkim_attrs = self.ses_client.get_identity_dkim_attributes(Identities=domains)
             dkim = {d: a["DkimVerificationStatus"] for d, a in dkim_attrs["DkimAttributes"].items()}
         except ClientError:
@@ -949,6 +952,7 @@ class SESProvider:
 
         mail_from: dict[str, IdentityMailFromDomainAttributesTypeDef] = {}
         try:
+            self._pace_read("identity_mail_from_attributes")
             mail_from_attrs = self.ses_client.get_identity_mail_from_domain_attributes(Identities=domains)
             mail_from = dict(mail_from_attrs["MailFromDomainAttributes"])
         except ClientError:

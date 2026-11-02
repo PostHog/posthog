@@ -16,7 +16,9 @@ from posthog.redis import get_client
 
 from products.workflows.backend.providers.ses import (
     BACKGROUND_CALL_WORST_CASE_SECONDS,
+    DNS_LOOKUP_LIFETIME_SECONDS,
     IDENTITY_ATTRIBUTES_BATCH_SIZE,
+    IDENTITY_STATUS_READS_PER_BATCH,
     READ_MIN_INTERVAL_SECONDS,
     SESIdentityStatus,
     SESProvider,
@@ -54,8 +56,10 @@ SETTLED_SENDERS = SenderAgeTier(
 
 
 class EmailSenderVerification:
-    SES_CALLS_PER_STEP = 3
-    STEP_WORST_CASE_SECONDS = SES_CALLS_PER_STEP * BACKGROUND_CALL_WORST_CASE_SECONDS + READ_MIN_INTERVAL_SECONDS
+    PACED_CALL_WORST_CASE_SECONDS = BACKGROUND_CALL_WORST_CASE_SECONDS + READ_MIN_INTERVAL_SECONDS
+    STATUS_READ_WORST_CASE_SECONDS = IDENTITY_STATUS_READS_PER_BATCH * PACED_CALL_WORST_CASE_SECONDS
+    # Verifying a ready sender reuses its status, so it reads only the tenant links and the DMARC record.
+    SENDER_CHECK_WORST_CASE_SECONDS = PACED_CALL_WORST_CASE_SECONDS + DNS_LOOKUP_LIFETIME_SECONDS
 
     def __init__(self, work_budget_seconds: int) -> None:
         self.deadline = monotonic() + work_budget_seconds
@@ -83,7 +87,7 @@ class EmailSenderVerification:
     ) -> bool:
         checked: set[tuple[int, str]] = set()
         for batch in batched(senders, IDENTITY_ATTRIBUTES_BATCH_SIZE, strict=False):
-            if not self._has_time_for_step():
+            if not self._has_time_for(self.STATUS_READ_WORST_CASE_SECONDS):
                 return False
             try:
                 statuses = self.provider.get_identity_statuses([d for sender in batch if (d := _domain(sender))])
@@ -92,7 +96,7 @@ class EmailSenderVerification:
                 return False
             for sender in batch:
                 ready_status = _ready_status(statuses, sender)
-                if ready_status and not self._has_time_for_step():
+                if ready_status and not self._has_time_for(self.SENDER_CHECK_WORST_CASE_SECONDS):
                     return False
                 on_sender(sender)
                 key = (sender.team_id, _mail_from_domain(sender))
@@ -101,8 +105,8 @@ class EmailSenderVerification:
                     self._verify(sender, ready_status)
         return True
 
-    def _has_time_for_step(self) -> bool:
-        return monotonic() + self.STEP_WORST_CASE_SECONDS <= self.deadline
+    def _has_time_for(self, worst_case_seconds: int) -> bool:
+        return monotonic() + worst_case_seconds <= self.deadline
 
     def _verify(self, sender: IntegrationRecord, status: SESIdentityStatus) -> None:
         try:
