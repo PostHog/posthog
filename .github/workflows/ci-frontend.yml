@@ -1110,6 +1110,14 @@ jobs:
               with:
                   ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
                   fetch-depth: 1
+                  filter: blob:none
+                  sparse-checkout: |
+                      .github/scripts/report_test_timings.py
+                      packages/owners-yaml
+                      tools/owners
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
             - name: Check for trusted test reporter
               id: test-reporter
               shell: bash
