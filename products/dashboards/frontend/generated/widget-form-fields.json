@@ -77,7 +77,9 @@
             "configTypeExport": "MetricsTableWidgetConfig",
             "formSchemaExport": "metricsTableWidgetFormSchema",
             "formFields": ["limit", "dateRange"],
-            "live": false
+            "live": false,
+            "creationFlag": "metrics",
+            "dashboardFilterKeys": []
         },
         "notebook_widget": {
             "configSchemaExport": "notebookWidgetConfigSchema",
