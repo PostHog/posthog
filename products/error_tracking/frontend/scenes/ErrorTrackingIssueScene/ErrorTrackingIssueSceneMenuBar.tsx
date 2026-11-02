@@ -1,11 +1,8 @@
-import { useActions } from 'kea'
-
 import { IconCopy } from '@posthog/icons'
 
 import { SceneComment } from 'lib/components/Scenes/SceneComment'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -19,7 +16,7 @@ import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExternalReferences } from '../../components/ExternalReferences'
-import { manageFingerprintsLogic } from '../../components/FingerprintPreview/manageFingerprintsLogic'
+import { ErrorTrackingIssueSceneEditMenu } from './ErrorTrackingIssueSceneEditMenu'
 
 interface ErrorTrackingIssueSceneMenuBarProps {
     issue: ErrorTrackingRelationalIssue
@@ -32,7 +29,6 @@ export function ErrorTrackingIssueSceneMenuBar(props: ErrorTrackingIssueSceneMen
 
 function ErrorTrackingIssueSceneMenuBarInner({ issue }: ErrorTrackingIssueSceneMenuBarProps): JSX.Element {
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const { openManage } = useActions(manageFingerprintsLogic({ issueId: issue.id }))
 
     return (
         <SceneMenuBar className="shrink-0">
@@ -45,18 +41,7 @@ function ErrorTrackingIssueSceneMenuBarInner({ issue }: ErrorTrackingIssueSceneM
                     Copy link
                 </SceneMenuBarItem>
             </SceneMenuBarMenu>
-            {hasIssueSplitting && (
-                <SceneMenuBarMenu label="Edit" dataAttr="error-tracking-issue-menubar-edit">
-                    <SceneMenuBarItem
-                        onClick={openManage}
-                        opensFloatingUi
-                        data-attr="error-tracking-issue-menubar-fingerprints"
-                    >
-                        <IconFingerprint />
-                        Manage fingerprints
-                    </SceneMenuBarItem>
-                </SceneMenuBarMenu>
-            )}
+            {hasIssueSplitting && <ErrorTrackingIssueSceneEditMenu issueId={issue.id} />}
             <SceneMenuBarPopover label="Metadata" dataAttr="error-tracking-issue-menubar-metadata">
                 <div className="flex flex-col gap-2">
                     <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
