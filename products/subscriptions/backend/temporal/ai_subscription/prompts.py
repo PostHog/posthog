@@ -89,8 +89,11 @@ HOGQL_AI_SUBSCRIPTION_RULES = """Scheduled-report query-writing rules:
   group columns, so never reference them there. To add an account's name or properties to a warehouse
   row, LEFT JOIN the `groups` table through an aliased subquery on that row's account key, for example
   `LEFT JOIN (SELECT key, toString(properties.name) AS account_name FROM groups WHERE index = 0) AS g
-  ON g.key = t.org_id`. Alias every subquery used in a JOIN and prefix its columns with the alias.
-- When an error lists "Available fields", use only those columns in the rewrite."""
+  ON g.key = toString(t.org_id)`. `groups` is always available, and this JOIN subquery does not count
+  against the single-subquery limit. Alias every subquery used in a JOIN and prefix its columns with
+  the alias.
+- An error's "Available fields" list is a hint, not the full schema: it can end with "and N more". Prefer
+  those columns, and keep any other column the project context confirms."""
 
 HOGQL_AI_SUBSCRIPTION_QUERY_WRITING_RULES = "\n\n".join(
     (
