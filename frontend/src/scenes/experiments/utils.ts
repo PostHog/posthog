@@ -6,6 +6,7 @@ import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
+import { isFunnelsQuery, isNodeWithSource, isTrendsQuery } from '~/queries/schema/node-guards'
 import {
     ActionsNode,
     AnyEntityNode,
@@ -28,7 +29,7 @@ import {
     isExperimentExposureNode,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
+import { isValidQueryForExperiment } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BreakdownAttributionType,

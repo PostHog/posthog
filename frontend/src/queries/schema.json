@@ -3321,7 +3321,7 @@
             "properties": {
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "optionalInFunnel": {
                     "default": false,
@@ -3350,7 +3350,7 @@
                 },
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "name": {
                     "description": "Action name from the plan.",
@@ -3478,7 +3478,7 @@
                 },
                 "math": {
                     "$ref": "#/definitions/AssistantFunnelsMath",
-                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                    "description": "Optional math aggregation type for the series. `total` is the default stored on saved funnels and can be preserved when rerunning one. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "optionalInFunnel": {
                     "default": false,
@@ -3623,7 +3623,7 @@
             "type": "object"
         },
         "AssistantFunnelsMath": {
-            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "enum": ["total", "first_time_for_user", "first_time_for_user_with_filters"],
             "type": "string"
         },
         "AssistantFunnelsNode": {
@@ -26442,7 +26442,13 @@
             "type": "object"
         },
         "ExperimentExposureHealthCheckKey": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "enum": [
+                "zero_exposures",
+                "srm",
+                "bias_risk_multiple_excluded",
+                "multiple_variants_share",
+                "test_account_filter_removes_exposures"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthCheckStatus": {
@@ -26514,7 +26520,13 @@
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
-            "enum": ["zero_exposures", "srm", "bias_risk_multiple_excluded", "multiple_variants_share"],
+            "enum": [
+                "zero_exposures",
+                "srm",
+                "bias_risk_multiple_excluded",
+                "multiple_variants_share",
+                "test_account_filter_removes_exposures"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthFindingSeverity": {
@@ -60090,7 +60102,8 @@
             "additionalProperties": false,
             "properties": {
                 "action": {
-                    "$ref": "#/definitions/WebVitalsItemAction"
+                    "$ref": "#/definitions/WebVitalsItemAction",
+                    "deprecated": "The runner no longer writes this field. Only responses cached before 2026-10-30 carry it, and it goes\nonce those entries expire. Read the series from the query at `order` instead."
                 },
                 "data": {
                     "items": {
@@ -60109,7 +60122,7 @@
                     "description": "The index of the row's series in the query."
                 }
             },
-            "required": ["data", "days", "order", "action"],
+            "required": ["data", "days", "order"],
             "type": "object"
         },
         "WebVitalsItemAction": {
