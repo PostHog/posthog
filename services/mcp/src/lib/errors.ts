@@ -230,17 +230,6 @@ export class ExecCommandError extends Error {
     }
 }
 
-/** Thrown before a tool runs when the token lacks a scope the tool declares. */
-export class MissingToolScopeError extends ExecCommandError {
-    public readonly requiredScopes: readonly string[]
-
-    constructor(message: string, requiredScopes: readonly string[]) {
-        super(message, 'missing_scope')
-        this.name = 'MissingToolScopeError'
-        this.requiredScopes = requiredScopes
-    }
-}
-
 export interface PostHogApiErrorOptions {
     status: number
     statusText: string

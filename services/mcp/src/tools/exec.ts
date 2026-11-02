@@ -10,7 +10,6 @@ import { isEmptyToolResult } from '@/lib/discovery-hints'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
-    MissingToolScopeError,
     findRecoverableApiError,
     PostHogApiError,
     ToolInputValidationError,
@@ -1723,10 +1722,10 @@ export function missingToolScopeError(
     tool: ScopeGatedTool,
     context: Context | undefined,
     oauthClientId: string | undefined
-): MissingToolScopeError {
-    return new MissingToolScopeError(
+): ExecCommandError {
+    return new ExecCommandError(
         `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
-        tool.requiredScopes
+        'missing_scope'
     )
 }
 

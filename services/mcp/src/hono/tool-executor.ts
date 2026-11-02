@@ -14,7 +14,6 @@ import {
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
-    MissingToolScopeError,
     PinnedContextSwitchError,
     PostHogApiError,
     PostHogValidationError,
@@ -28,7 +27,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
-import { challengeStepUpBeforeRun, missingScopeToolResult } from '@/lib/missing-scope'
+import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
@@ -351,7 +350,7 @@ export class ToolExecutor {
             const scopeGatedTool = state.findScopeGatedTool(toolName)
             if (scopeGatedTool) {
                 const error = missingToolScopeError(scopeGatedTool, state.context, state.oauthClientId)
-                return toolErrorResult(error, toolName, state, undefined, state.suppressAnalytics)
+                return handleToolError(error, toolName, state.distinctId, undefined, state.suppressAnalytics)
             }
             const text = getDeprecatedToolRedirect(toolName, state.allTools) ?? `Tool ${toolName} not found`
             return { content: [{ type: 'text', text }], isError: true }
@@ -639,10 +638,10 @@ export class ToolExecutor {
 
             const sessionUuid = await sessionUuidForError(state)
             return attachGuidanceNotice(
-                toolErrorResult(
+                handleToolError(
                     error,
                     tool.name,
-                    state,
+                    state.distinctId,
                     sessionUuid,
                     state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
                 ),
@@ -816,10 +815,10 @@ export class ToolExecutor {
             // exception fingerprint point at the real source instead of collapsing every
             // exec-routed failure into one opaque `exec` bucket.
             return attachGuidanceNotice(
-                toolErrorResult(
+                handleToolError(
                     error,
                     metricTool,
-                    state,
+                    state.distinctId,
                     sessionUuid,
                     state.suppressAnalytics ||
                         isPrivateScoutTrialTool(metricTool) ||
@@ -1070,7 +1069,7 @@ export class ToolExecutor {
                 analyticsMeta
             )
             const sessionUuid = await sessionUuidForError(state)
-            return toolErrorResult(error, 'render-ui', state, sessionUuid, state.suppressAnalytics)
+            return handleToolError(error, 'render-ui', state.distinctId, sessionUuid, state.suppressAnalytics)
         }
     }
 }
@@ -1109,21 +1108,6 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
     const classification = resolveToolErrorClassification(error)
     toolErrorsTotal.inc({ tool: toolName, error_type: classification.errorType })
     return classification
-}
-
-function toolErrorResult(
-    error: unknown,
-    toolName: string,
-    state: ResolvedState,
-    sessionUuid: string | undefined,
-    suppressAnalytics: boolean | undefined
-): CallToolResult {
-    const toolError = handleToolError(error, toolName, state.distinctId, sessionUuid, suppressAnalytics)
-    const requiredScopes =
-        error instanceof MissingToolScopeError
-            ? error.requiredScopes
-            : findPostHogPermissionError(error)?.requiredScopes
-    return requiredScopes ? missingScopeToolResult(requiredScopes, toolError) : toolError
 }
 
 // Runs first in a tool call, before analytics, guidance, interview recruitment or the tool itself,

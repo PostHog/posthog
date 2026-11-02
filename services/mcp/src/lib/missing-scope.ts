@@ -1,11 +1,7 @@
 // Decides how a missing OAuth scope reaches the client. A step-up token gets HTTP 403 with an
 // RFC 6750 §3.1 challenge, but only from a check that runs before a tool does anything, because
 // the client replays the request after re-consent. Everything else gets the tool error over
-// HTTP 200, since other clients treat a 403 as a dead connection, with the challenge in `_meta`.
-
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
-
-const WWW_AUTHENTICATE_META_KEY = 'mcp/www_authenticate'
+// HTTP 200 it always got, since other clients treat a 403 as a dead connection.
 
 const OAUTH_SCOPE_TOKEN = /^[\x21\x23-\x5B\x5D-\x7E]+$/
 
@@ -24,19 +20,13 @@ export class InsufficientScopeError extends Error {
 
 // No `resource_metadata`: Hono sits behind the worker proxy and does not know the origin the
 // client connected to, so the worker adds it to the 403 (see `withResourceMetadata`).
-export function buildInsufficientScopeChallenge(
-    requiredScopes: readonly string[],
-    { withDescription = false }: { withDescription?: boolean } = {}
-): string {
+export function buildInsufficientScopeChallenge(requiredScopes: readonly string[]): string {
     // RFC 6749 §3.3 limits a scope token to these characters, so nothing that passes can
     // break out of the quoted header value.
     const scopes = [...new Set(requiredScopes)].filter((scope) => OAUTH_SCOPE_TOKEN.test(scope))
     const parts = ['Bearer error="insufficient_scope"']
     if (scopes.length > 0) {
         parts.push(`scope="${scopes.join(' ')}"`)
-    }
-    if (withDescription) {
-        parts.push(`error_description="Reconnect PostHog and approve these scopes: ${scopes.join(' ')}"`)
     }
     return parts.join(', ')
 }
@@ -53,13 +43,6 @@ export function challengeStepUpBeforeRun(requiredScopes: readonly string[], supp
     if (supportsStepUp) {
         throw new InsufficientScopeError(requiredScopes)
     }
-}
-
-export function missingScopeToolResult(requiredScopes: readonly string[], toolError: CallToolResult): CallToolResult {
-    // OpenAI's Apps SDK documents this key as a list of challenges, each with `error` and
-    // `error_description`.
-    const challenges = [buildInsufficientScopeChallenge(requiredScopes, { withDescription: true })]
-    return { ...toolError, _meta: { ...toolError._meta, [WWW_AUTHENTICATE_META_KEY]: challenges } }
 }
 
 export function insufficientScopeResponse(body: string, challenge: string | undefined): Response {
