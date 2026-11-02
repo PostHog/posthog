@@ -48124,6 +48124,7 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
      * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
@@ -48153,6 +48154,7 @@ export namespace Schemas {
       MetricEventNotIngested: 'metric_event_not_ingested',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ExposureFilterOnDynamicCohort: 'exposure_filter_on_dynamic_cohort',
       ExposureFilterExcludesEvents: 'exposure_filter_excludes_events',
@@ -48225,6 +48227,7 @@ export namespace Schemas {
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
        * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
@@ -48284,6 +48287,7 @@ export namespace Schemas {
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
      * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
@@ -48310,6 +48314,7 @@ export namespace Schemas {
       MetricEventNotIngested: 'metric_event_not_ingested',
       MetricCannotCompile: 'metric_cannot_compile',
       MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       ExposureFilters: 'exposure_filters',
       EarlySignificance: 'early_significance',
@@ -48352,6 +48357,7 @@ export namespace Schemas {
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `metric_cannot_compile` - Metric Cannot Compile
        * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `exposure_filters` - Exposure Filters
        * * `early_significance` - Early Significance
@@ -49116,6 +49122,22 @@ export namespace Schemas {
       message: string | null;
     }
 
+    export interface ExperimentHealthInputsZeroMetric {
+      /** The name of the metric, as the results page shows it. */
+      name: string;
+      /** Whether the metric is a primary or a secondary metric of the experiment. */
+      role: string;
+      /** The persons or groups of the result, across the variants. */
+      exposures: number;
+      /**
+         * The side of a ratio that reads zero. Each side that reads zero has its own entry. Null for the other metric types.
+         * @nullable
+         */
+      ratio_side: string | null;
+      /** The events of the metric that the project last received before launch. */
+      stopped_events: string[];
+    }
+
     export interface ExperimentHealthInputsLatestCalculation {
       /**
          * When the latest calculation that the results page shows finished. Null when none has finished.
@@ -49124,6 +49146,13 @@ export namespace Schemas {
       finished_at: string | null;
       /** The metrics whose latest calculation failed, with the error that the results page shows. */
       failures: ExperimentHealthInputsMetricCalculationFailure[];
+      /**
+         * The hours from launch to the end of the data of this calculation. Null when none has finished.
+         * @nullable
+         */
+      hours_of_data: number | null;
+      /** The metrics that read zero in every variant in this calculation. */
+      zero_metrics: ExperimentHealthInputsZeroMetric[];
     }
 
     export interface ExperimentHealthInputsFlagChange {
@@ -76905,6 +76934,8 @@ export namespace Schemas {
       /** @maxLength 30 */
       first_name?: string;
       readonly emailing_attempt_made: boolean;
+      /** True when the email provider reported the target address as suppressed at send time. */
+      readonly email_suppressed: boolean;
       level?: OrganizationMembershipLevelEnum;
       /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
       readonly is_expired: boolean;
@@ -94912,6 +94943,7 @@ export namespace Schemas {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -94944,6 +94976,7 @@ export namespace Schemas {
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
       KnowledgeWriter: 'knowledge_writer',
+      ContextLayer: 'context_layer',
     } as const;
 
     /**
@@ -95006,7 +95039,8 @@ export namespace Schemas {
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
        * * `metrics_import` - Metrics Import
-       * * `knowledge_writer` - Knowledge Writer */
+       * * `knowledge_writer` - Knowledge Writer
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -120267,7 +120301,8 @@ export namespace Schemas {
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
        * * `metrics_import` - Metrics Import
-       * * `knowledge_writer` - Knowledge Writer */
+       * * `knowledge_writer` - Knowledge Writer
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -120491,6 +120526,7 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
@@ -120522,6 +120558,7 @@ export namespace Schemas {
 
     export const TaskListSourceEnum = {
       Autoresearch: 'autoresearch',
+      ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
@@ -121964,7 +122001,8 @@ export namespace Schemas {
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
        * * `metrics_import` - Metrics Import
-       * * `knowledge_writer` - Knowledge Writer */
+       * * `knowledge_writer` - Knowledge Writer
+       * * `context_layer` - Context Layer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -142062,6 +142100,7 @@ export namespace Schemas {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct;
@@ -142098,6 +142137,7 @@ export namespace Schemas {
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
       KnowledgeWriter: 'knowledge_writer',
+      ContextLayer: 'context_layer',
     } as const;
 
     export type SandboxListParams = {
@@ -143688,6 +143728,7 @@ export namespace Schemas {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -143842,6 +143883,7 @@ export namespace Schemas {
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
       KnowledgeWriter: 'knowledge_writer',
+      ContextLayer: 'context_layer',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
@@ -143873,6 +143915,7 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `context_layer` - context_layer
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
@@ -143904,6 +143947,7 @@ export namespace Schemas {
 
     export const TasksListSourcesItem = {
       Autoresearch: 'autoresearch',
+      ContextLayer: 'context_layer',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
