@@ -51,8 +51,7 @@ _URL_SCHEMES: list[tuple[str, str]] = [
 ]
 
 _START_TAG_NAME = re.compile(r"<([a-zA-Z][^\t\n\f\r />]*)")
-# The HTML5 parse cost grows with the square of the nesting depth and of the attribute count in one tag.
-# These caps bound the parse work for one request.
+# The HTML5 parse cost is quadratic in nesting depth and in attributes per tag, so these caps bound it per request.
 _MAX_START_TAGS_PER_REQUEST = 5000
 _MAX_ATTRIBUTE_STARTS_PER_REQUEST = 10000
 # Every attribute name starts after whitespace, "/" or a quote, so this also counts text words but never misses an attribute.
