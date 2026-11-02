@@ -135,9 +135,6 @@ def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     columns = FlagEvaluationsColumns(
         database.get_table(EVENTS_WITH_FLAG_CALLS_CHAIN), database.get_table(["posthog", "flag_evaluations"])
     )
-    if collector.export_collision is not None:
-        first, second = (".".join(str(part) for part in chain) for chain in collector.export_collision)
-        return f"it reads {first} and {second}, which the union would return as one column"
     for chain in collector.chains:
         if columns.chain(chain) is None:
             return f"it reads {'.'.join(str(part) for part in chain)}, which that table doesn't have"
@@ -529,12 +526,6 @@ class _UnionChainCollector(SyntaxVisitor):
         self.exports: dict[tuple[int, str], list[str | int]] = {}
         self._select: ast.SelectQuery | None = None
         self.export_collision: tuple[list[str | int], list[str | int]] | None = None
-
-    def visit_select_query(self, node: ast.SelectQuery) -> None:
-        outer = self._select
-        self._select = node
-        super().visit_select_query(node)
-        self._select = outer
 
     def visit_field(self, node: ast.Field) -> None:
         read = _union_chain(node.type)

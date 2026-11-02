@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import cast
@@ -347,16 +348,6 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
-            # Each scan exports one created_at, so the two fields never share a column.
-            param(
-                "fields_of_one_name_in_separate_scans",
-                f"SELECT created_at FROM events WHERE {MIXED} UNION ALL "
-                f"SELECT person.created_at FROM events WHERE {MIXED}",
-                True,
-                True,
-                mode=ONLY,
-                persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-            ),
             # Mode 1 keeps a materialized property on events, so mode 2 shows which columns the union can read.
             param(
                 "property_in_a_string_materialized_column_on_mode_2",
@@ -433,19 +424,9 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 warehouse_join=True,
             ),
             (
-                "field_and_virtual_field_of_one_name",
-                f"SELECT created_at, person.created_at FROM events WHERE {MIXED}",
-                "created_at and poe.created_at",
-            ),
-            (
                 "properties_whose_paths_join_to_one_name",
                 f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
                 "properties.a.b and properties.a___b",
-            ),
-            (
-                "properties_and_virtual_properties",
-                f"SELECT properties, person.properties FROM events WHERE {MIXED}",
-                "properties and poe.properties",
             ),
             param(
                 "property_in_a_typed_materialized_column",
@@ -833,6 +814,31 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [("$feature_flag_called", "flag_evaluations", 12.5), ("$pageview", None, 20.0)]
 
+    @parameterized.expand(
+        [
+            ("mode_1", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+        ]
+    )
+    def test_fields_of_one_name_on_events_and_person_return_their_own_values(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        response = self._run(
+            f"SELECT event, properties.source, person.properties.email, properties, person.properties, created_at, "
+            f"person.created_at FROM events WHERE {MIXED} AND distinct_id = 'recent' "
+            "AND timestamp >= now() - INTERVAL 5 DAY ORDER BY event",
+            mode,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        )
+
+        flag_call, pageview = response.results
+        assert flag_call[:3] == ("$feature_flag_called", "flag_evaluations", "r@x.com")
+        assert json.loads(flag_call[3])["source"] == "flag_evaluations"
+        assert json.loads(flag_call[4]) == {"email": "r@x.com"}
+        assert pageview[:3] == ("$pageview", None, "r@x.com")
+        assert json.loads(pageview[4]) == {"email": "r@x.com"}
+        assert all(row[5] != row[6] for row in response.results)
+
     def test_prewhere_reads_both_tables(self):
         response = self._run(
             f"SELECT count() FROM events PREWHERE {MIXED} WHERE timestamp >= now() - INTERVAL 120 DAY",
@@ -984,16 +990,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         } <= set(accepted)
         types: dict[bool, dict[str, str]] = {False: {}, True: {}}
         # One query per few fields keeps each union within the memory of a local ClickHouse.
-        # Two fields of one name, such as goe_0.key and goe_1.key, would return one column, so they go in different queries.
-        batches: list[list[str]] = []
-        for name in accepted:
-            batch = next(
-                (b for b in batches if len(b) < 8 and all(n.rsplit(".", 1)[-1] != name.rsplit(".", 1)[-1] for n in b)),
-                None,
-            )
-            if batch is None:
-                batches.append(batch := [])
-            batch.append(name)
+        batches = [accepted[i : i + 8] for i in range(0, len(accepted), 8)]
         for names in batches:
             types_query = f"SELECT {', '.join(f'toTypeName(any({name}))' for name in names)} FROM events WHERE {MIXED}"
             for union in (False, True):

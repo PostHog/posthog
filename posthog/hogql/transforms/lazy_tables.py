@@ -23,6 +23,11 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.dataclasses import frozen
 
 
+def _export_name(field: ast.FieldType, chain: list[str | int]) -> str:
+    # A field of a virtual table gets its own column, so `created_at` and `poe.created_at` do not share one.
+    return "___".join(str(link) for link in chain) if isinstance(field.table_type, ast.VirtualTableType) else field.name
+
+
 def _lazy_table_of(table_type: ast.Type) -> object:
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         table_type = table_type.table_type
@@ -612,7 +617,7 @@ class LazyTableResolver(TraversingVisitor):
                             property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                             new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
-                            new_join.fields_accessed[field.name] = chain
+                            new_join.fields_accessed[_export_name(field, chain)] = chain
                 elif isinstance(table_type, ast.LazyTableType):
                     table_name = get_long_table_name(select_type, table_type)
                     if table_name not in tables_to_add:
@@ -633,7 +638,7 @@ class LazyTableResolver(TraversingVisitor):
                             property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
                             new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
                         else:
-                            new_table.fields_accessed[field.name] = lazy_chain
+                            new_table.fields_accessed[_export_name(field, lazy_chain)] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
                     # Widen mypy's view of the inner type: the annotated union is
                     # `TableType | LazyTableType`, but the LazyJoinType branch below is a
@@ -667,7 +672,7 @@ class LazyTableResolver(TraversingVisitor):
                                 property.joined_subquery_field_name = "___".join(str(x) for x in field_chain)
                                 new_join.fields_accessed[property.joined_subquery_field_name] = field_chain
                             else:
-                                new_join.fields_accessed[field.name] = field_chain
+                                new_join.fields_accessed[_export_name(field, field_chain)] = field_chain
                     elif isinstance(inner_table_type, ast.LazyTableType):
                         table_name = get_long_table_name(select_type, table_type)
                         if table_name not in tables_to_add:
@@ -689,7 +694,7 @@ class LazyTableResolver(TraversingVisitor):
                                 property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                                 new_table.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
-                                new_table.fields_accessed[field.name] = chain
+                                new_table.fields_accessed[_export_name(field, chain)] = chain
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
@@ -912,6 +917,10 @@ class LazyTableResolver(TraversingVisitor):
                 continue
 
             if isinstance(field_or_property, ast.FieldType):
+                if isinstance(field_or_property.table_type, ast.VirtualTableType):
+                    field_or_property.name = _export_name(
+                        field_or_property, [field_or_property.table_type.field, field_or_property.name]
+                    )
                 field_or_property.table_type = table_type
             elif isinstance(field_or_property, ast.PropertyType):
                 field_or_property.field_type.table_type = table_type
