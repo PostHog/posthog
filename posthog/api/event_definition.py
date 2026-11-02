@@ -19,6 +19,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
+from rest_framework.permissions import SAFE_METHODS
 from rest_framework.settings import api_settings
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
@@ -52,7 +53,7 @@ from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.permissions import is_service_auth
+from posthog.permissions import is_scout_sandbox_request, is_service_auth
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
@@ -66,6 +67,7 @@ from posthog.taxonomy.definition_search import (
     bounded_count_sql,
     project_definition_scale,
 )
+from posthog.taxonomy.scout_writes import check_scout_event_definition_write
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
@@ -836,6 +838,11 @@ class EventDefinitionViewSet(
             return new_enterprise_event
 
         return EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).get(**filters)
+
+    def check_permissions(self, request: request.Request) -> None:
+        super().check_permissions(request)
+        if request.method not in SAFE_METHODS:
+            check_scout_event_definition_write(is_scout_sandbox_request(request), action=self.action, data=request.data)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

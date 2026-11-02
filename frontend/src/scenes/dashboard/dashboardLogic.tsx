@@ -5046,7 +5046,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 other_dashboard_count: otherDashboardCount,
                             })
                             return deleteInsightWithUndo({
-                                object: { ...insight, dashboards: dashboardIds },
+                                object: insight,
+                                dashboardIds,
                                 endpoint: `projects/${values.currentTeamId}/insights`,
                                 callback: (undo) => {
                                     const updatedInsight = {

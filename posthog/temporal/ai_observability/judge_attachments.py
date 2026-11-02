@@ -129,8 +129,12 @@ class JudgeAttachments:
         if not images:
             return user_prompt
 
+        # One lookup per file type: on OpenRouter each one reads the whole model catalogue from the cache.
+        transports = {
+            mime: attachment_transport(provider, model, mime) for mime in {image.mime_type for image in images}
+        }
         # Attachments this judge can't read take no slot, so they can't push out ones it can.
-        readable = [image for image in images if attachment_transport(provider, model, image.mime_type) is not None]
+        readable = [image for image in images if transports[image.mime_type] is not None]
         # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
         ranked = sorted(readable, key=lambda image: user_prompt.rfind(image.marker))
         # Gemini rejects a request over its video limit, and the text-only retry would drop everything else too.
@@ -147,7 +151,7 @@ class JudgeAttachments:
         attachments: dict[str, _Attachment] = {}
         inline_bytes = 0
         for image in kept:
-            attachment = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
+            attachment = self._attach(image, provider, transports[image.mime_type], MAX_INLINE_BYTES - inline_bytes)
             inline_bytes += attachment.inline_bytes
             attachments[image.marker] = attachment
 
@@ -181,8 +185,9 @@ class JudgeAttachments:
         logger.info("judge_attachments_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _attach(self, image: _Media, provider: str, model: str, inline_budget: int) -> _Attachment:
-        transport = attachment_transport(provider, model, image.mime_type)
+    def _attach(
+        self, image: _Media, provider: str, transport: Literal["url", "inline"] | None, inline_budget: int
+    ) -> _Attachment:
         if transport is None:
             return _Attachment(outcome="unavailable")
         provider_limit = MAX_IMAGE_BYTES.get(provider) if image.kind == "image" else _BYTE_LIMITS.get(image.kind)
