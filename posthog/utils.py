@@ -54,7 +54,6 @@ from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN, AvailableFeature
-from posthog.credentials_service.callers import CredentialsCaller
 from posthog.dataclasses import frozen
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
 from posthog.exceptions_capture import capture_exception
@@ -612,9 +611,6 @@ def _build_template_context(
     context: Optional[dict],
     team_for_public_context: Optional["Team"],
 ) -> dict:
-    # The credentials client imports settings.utils, which imports this module during settings initialization.
-    from posthog.credentials_service.settings_fallback import get_or_settings
-
     if context is None:
         context = {}
 
@@ -688,9 +684,7 @@ def _build_template_context(
         "anonymous": not request.user or not request.user.is_authenticated,
         "run_mode": run_mode().value,
         "batch_export_google_cloud_organization_id": settings.BATCH_EXPORT_GOOGLE_CLOUD_ORGANIZATION_ID,
-        "batch_export_bigquery_service_account": get_or_settings(
-            "BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", CredentialsCaller.BATCH_EXPORTS
-        ),
+        "batch_export_bigquery_service_account": settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
     }
 
     posthog_bootstrap: dict[str, Any] = {}

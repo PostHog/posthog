@@ -16,7 +16,6 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
-from posthog.credentials_service.errors import SecretMissingError
 from posthog.frontend_views import app_context
 from posthog.models import Team, User, UserHomeSettings
 from posthog.stable_chunks import StableChunks
@@ -185,15 +184,7 @@ class TestShouldDeferAppContext(SimpleTestCase):
 
 
 class TestGetContextForTemplate(APIBaseTest):
-    @parameterized.expand(
-        [
-            ("settings_fallback", None, "batch-exports@example.com"),
-            ("credentials_service", "runtime-account@example.com", "runtime-account@example.com"),
-        ]
-    )
-    def test_get_context_for_template(
-        self, _name: str, service_account: str | None, expected_service_account: str
-    ) -> None:
+    def test_get_context_for_template(self) -> None:
         with (
             self.settings(
                 STRIPE_PUBLIC_KEY=None,
@@ -204,16 +195,14 @@ class TestGetContextForTemplate(APIBaseTest):
             mock.patch("posthog.settings.CLOUD_DEPLOYMENT", "LOCAL"),
             mock.patch(
                 "posthog.credentials_service.client.CredentialsServiceClient.get",
-                return_value=service_account,
-                side_effect=SecretMissingError("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT")
-                if service_account is None
-                else None,
-            ),
+                side_effect=AssertionError("Template context must not resolve credentials"),
+            ) as credentials_get,
         ):
             actual = get_context_for_template(
                 "layout",
                 MagicMock(),
             )
+            credentials_get.assert_not_called()
 
         # Under self-capture, posthog-js evaluates PostHog's own flags with the dogfood-flags team's
         # token (first team by PK), which in this test is self.team — not the PH Cloud key.
@@ -230,7 +219,7 @@ class TestGetContextForTemplate(APIBaseTest):
                 "anonymous": False,
                 "run_mode": "LOCAL",
                 "batch_export_google_cloud_organization_id": "123456789012",
-                "batch_export_bigquery_service_account": expected_service_account,
+                "batch_export_bigquery_service_account": "batch-exports@example.com",
             },
             "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",
