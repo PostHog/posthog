@@ -550,7 +550,8 @@ class EventDefinitionViewSet(
         paginator = cast(CappedCountLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
-        params["limit"] = query.validated_data["limit"]
+        # The paginator builds `next` from its capped limit, so the SQL page has to use the same cap.
+        params["limit"] = min(query.validated_data["limit"], paginator.max_limit)
         params["offset"] = query.validated_data["offset"]
 
         conditions = search_query + filter_query
