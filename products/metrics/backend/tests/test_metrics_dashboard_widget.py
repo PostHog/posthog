@@ -133,7 +133,7 @@ class TestMetricsDashboardWidget(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(self._values(self._run(tile_id)), [10.0, 30.0])
-        cleared = {"date_from": None, "date_to": None, "metricFilters": []}
+        cleared: dict[str, Any] = {"date_from": None, "date_to": None, "metricFilters": []}
         self.assertEqual(self._values(self._run(tile_id, filters_override=cleared)), [10.0, 30.0, 180.0])
 
     def test_a_manual_refresh_skips_the_query_cache(self) -> None:
