@@ -24,6 +24,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.tasks.backend.facade.profiles import (
+    ContractCheck,
     GithubAccess,
     GithubResolution,
     PrAuthorship,
@@ -802,6 +803,46 @@ class TestTask(TestCase):
 
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
         self.assertEqual((task.runtime, state.get("sandbox_template")), expected)
+
+    @parameterized.expand(
+        [
+            ("run_in_log_mode", "create_and_run", frozenset(), True),
+            ("run_with_the_check_enforced", "create_and_run", frozenset({ContractCheck.RUNTIMES}), False),
+            ("run_with_another_check_enforced", "create_and_run", frozenset({ContractCheck.IDLE_MINUTES}), True),
+            ("without_run_in_log_mode", "create_without_run", frozenset(), True),
+            ("without_run_with_the_check_enforced", "create_without_run", frozenset({ContractCheck.RUNTIMES}), False),
+            (
+                "without_run_with_another_check_enforced",
+                "create_without_run",
+                frozenset({ContractCheck.SANDBOX_TEMPLATES}),
+                True,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_task_creation_checks_run_options_against_the_profile(
+        self, name: str, entry: str, enforced: frozenset[ContractCheck], created: bool, _mock_execute_workflow
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+        profile = replace(BUSINESS_KNOWLEDGE, key="test.checked", enforced_checks=enforced)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            create = partial(
+                getattr(Task, entry),
+                team=self.team,
+                title="t",
+                description="d",
+                profile=profile,
+                user_id=user.id,
+                options=TaskRunOptions(runtime="pi"),
+            )
+            if created:
+                self.assertEqual(create().runtime, "pi")
+            else:
+                with self.assertRaises(TaskRunOptionsError):
+                    create()
+
+        self.assertEqual(Task.objects.filter(team=self.team).exists(), created)
 
     @parameterized.expand([("caller_passes_the_key", "support"), ("caller_passes_none", None)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
