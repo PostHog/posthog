@@ -68,7 +68,13 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy, TaskProfile, get_task_profile
+from products.tasks.backend.facade.profiles import (
+    GithubResolution,
+    NetworkAccess,
+    NetworkPolicy,
+    TaskProfile,
+    get_task_profile,
+)
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
@@ -17689,6 +17695,41 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertIsNone(task.repository)
         self.assertEqual(task.repositories, [])
         self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
+
+    @parameterized.expand(
+        [
+            ("never_refuses_a_later_attachment", GithubResolution.NEVER, None, "attach", False),
+            ("with_repository_drops_both_when_the_repo_goes", GithubResolution.WITH_REPOSITORY, "a/b", "unset", False),
+            ("with_repository_keeps_both_while_the_repo_stays", GithubResolution.WITH_REPOSITORY, "a/b", "title", True),
+            ("always_takes_a_later_attachment", GithubResolution.ALWAYS, None, "attach", True),
+        ]
+    )
+    def test_update_follows_the_profile_github_resolution(
+        self, _name, resolution: GithubResolution, repository: str | None, change: str, attached: bool
+    ):
+        profile = replace(BUSINESS_KNOWLEDGE, key="test.github", github_resolution=resolution)
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = self.create_task()
+        task.profile = profile.key
+        if repository is not None:
+            task.repository = repository
+            task.repositories = [repository]
+            task.github_integration = integration
+            task.github_user_integration = _grant_user_github_access(self.user)
+        task.save()
+        payload = {
+            "attach": {"github_integration": integration.id},
+            "unset": {"repositories": []},
+            "title": {"title": "Renamed"},
+        }[change]
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
+        self.assertEqual(task.github_user_integration_id is not None, attached and repository is not None)
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_start_without_code_access_returns_403(self, mock_gate):

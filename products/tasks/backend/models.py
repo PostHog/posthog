@@ -1316,7 +1316,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         )
 
     @staticmethod
-    def _attaches_github(origin_product: str, profile: TaskProfile | None, *, has_repository: bool) -> bool:
+    def attaches_github(origin_product: str, profile: TaskProfile | None, *, has_repository: bool) -> bool:
         if profile is None:
             return Task._github_resolution_allowed(origin_product, has_repository=has_repository)
         if profile.github_resolution == GithubResolution.WITH_REPOSITORY:
@@ -1407,7 +1407,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_resolution_allowed = Task._attaches_github(origin_product, profile, has_repository=bool(repository))
+        github_resolution_allowed = Task.attaches_github(origin_product, profile, has_repository=bool(repository))
         github_integration = None
         if github_resolution_allowed:
             github_integration = next(

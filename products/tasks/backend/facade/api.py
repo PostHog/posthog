@@ -8466,6 +8466,14 @@ def update_task(
                 validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
             else:
                 validated_data.pop("repository")
+        profile = task.stored_profile
+        if profile is not None and not Task.attaches_github(
+            task.origin_product, profile, has_repository=bool(validated_data.get("repository", task.repository))
+        ):
+            validated_data.pop("github_integration", None)
+            validated_data.pop("github_user_integration", None)
+            task.github_integration = None
+            task.github_user_integration = None
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
         if "archived" in validated_data and validated_data["archived"] != task.archived:
