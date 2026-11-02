@@ -226,6 +226,43 @@ describe('AppMetricsAggregator', () => {
             await agg.stop()
         })
 
+        // A caller flush just after a tick moves lastFlushAt forward. If the next tick honoured the
+        // elapsed check it would skip, and the rows would wait until the tick after that: nearly
+        // twice the delay the window promises.
+        it('drains on the tick after a caller flush, not the one after that', async () => {
+            startClock()
+            const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })
+
+            jest.setSystemTime(new Date('2027-03-04T05:00:10.100Z'))
+            agg.queue(input())
+            await agg.flush()
+            expect(queueMessagesMock).toHaveBeenCalledTimes(1)
+
+            agg.queue(input({ app_source_id: 'fn-2' }))
+            await jest.advanceTimersByTimeAsync(10_000)
+
+            expect(queueMessagesMock).toHaveBeenCalledTimes(2)
+            await agg.stop()
+        })
+
+        it('runs one produce at a time, so a slow produce cannot hold two batches', async () => {
+            startClock()
+            let release: () => void = () => {}
+            queueMessagesMock.mockImplementation(() => new Promise<void>((resolve) => (release = resolve)))
+            const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })
+
+            agg.queue(input())
+            const first = agg.flush(true)
+            expect(queueMessagesMock).toHaveBeenCalledTimes(1)
+
+            agg.queue(input({ app_source_id: 'fn-2' }))
+            await jest.advanceTimersByTimeAsync(10_000)
+            expect(queueMessagesMock).toHaveBeenCalledTimes(1)
+
+            release()
+            await first
+        })
+
         it('produces inside the window once the buffer reaches the row cap', async () => {
             startClock()
             const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })

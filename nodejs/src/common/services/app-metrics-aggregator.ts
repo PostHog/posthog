@@ -91,20 +91,13 @@ export class AppMetricsAggregator {
             // A caller only flushes while it has work. Without this, the rows a quiet pod still holds
             // wait for its next batch, which may be far longer than the interval, or never come.
             this.drainTimer = setInterval(() => {
-                // One drain at a time. When a produce takes longer than the interval, starting
-                // another would queue a second batch behind the first and hold both in memory,
-                // outside the row cap. Skipping lets the rows collect for the next tick instead.
-                if (this.drainInFlight) {
-                    return
-                }
-                this.drainInFlight = this.flush()
-                    .catch(() => {
-                        // flush() reports its own failures through the caller. A rejection here has
-                        // no caller, and an unhandled one would take the process down.
-                    })
-                    .finally(() => {
-                        this.drainInFlight = null
-                    })
+                // Forced, so a caller flush that landed just after the previous tick cannot push
+                // these rows into the tick after this one and double the delay the window promises.
+                // flush() serializes the produce itself, so this cannot start a second one.
+                void this.flush(true).catch(() => {
+                    // flush() reports its own failures through the caller. A rejection here has no
+                    // caller, and an unhandled one would take the process down.
+                })
             }, this.minFlushIntervalMs)
             // The timer must not be the reason the process stays alive.
             this.drainTimer.unref()
@@ -147,6 +140,25 @@ export class AppMetricsAggregator {
         if (!force && this.buffer.size < MAX_BUFFERED_ROWS && Date.now() - this.lastFlushAt < this.minFlushIntervalMs) {
             return
         }
+        // One produce at a time. This empties the buffer before the produce resolves, so a second
+        // one started underneath it would hold both batches in memory, past the row cap, and queue
+        // both on the producer that billing rows also use.
+        if (this.drainInFlight) {
+            if (!force) {
+                return
+            }
+            await this.drainInFlight
+            if (this.buffer.size === 0) {
+                return
+            }
+        }
+        this.drainInFlight = this.produce().finally(() => {
+            this.drainInFlight = null
+        })
+        await this.drainInFlight
+    }
+
+    private async produce(): Promise<void> {
         this.lastFlushAt = Date.now()
         const drained = [...this.buffer.values()]
         this.buffer.clear()
