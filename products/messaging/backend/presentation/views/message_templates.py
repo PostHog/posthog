@@ -49,6 +49,7 @@ from products.messaging.backend.facade.api import (
 )
 from products.messaging.backend.facade.contracts import (
     TEMPLATE_KEY_MAX_LENGTH,
+    TemplateEditedInPostHog,
     TemplateManagedBy,
     TemplateManagedByCode,
     TemplateReleasedTo,
@@ -101,6 +102,7 @@ from products.messaging.backend.presentation.views.template_refusals import (
     TemplateRefusal,
     invalid_request,
     invalid_template_key,
+    template_edited_in_posthog,
 )
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
@@ -962,6 +964,14 @@ class UploadTemplateSerializer(serializers.Serializer):
         "The check covers the last 100 different contents the template replaced. Content outside those 100 "
         "publishes. Leave it out to publish the content in any case, such as to roll back to earlier content.",
     )
+    if_code_managed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Set it so the upload only updates a template that code manages. When the key names a template "
+        "edited in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. A new "
+        "key, or a template managed by code, uploads as usual. Leave it out to take over a template edited in "
+        "PostHog, so code manages it from then on.",
+    )
 
     def get_fields(self) -> dict[str, serializers.Field]:
         return with_field_named_source_that_drf_reserves(
@@ -1332,6 +1342,11 @@ class MessageTemplatesViewSet(
                 "default sender",
             ),
             404: OpenApiResponse(description="Sending email from code is not enabled for this project"),
+            409: OpenApiResponse(
+                response=TemplateErrorSerializer,
+                description="The upload set `if_code_managed` and the template is edited in PostHog, so nothing "
+                "changed",
+            ),
             429: OpenApiResponse(description="Rate limited"),
         },
         summary="Upload a template by key",
@@ -1340,8 +1355,9 @@ class MessageTemplatesViewSet(
             "repository. The first upload creates the template and makes it transactional with the project's "
             "default verified sender. A later upload publishes changed content at once, and answers `unchanged` "
             "when the content is the same. With `if_not_superseded`, an upload of content that is one of the last "
-            "100 different contents the template replaced changes nothing and answers `superseded`. An upload keeps "
-            "the template's sender and never turns a paused template back on."
+            "100 different contents the template replaced changes nothing and answers `superseded`. With "
+            "`if_code_managed`, an upload to a template edited in PostHog changes nothing and answers `409`. An "
+            "upload keeps the template's sender and never turns a paused template back on."
         ),
         parameters=[TEMPLATE_KEY_PARAMETER],
     )
@@ -1366,6 +1382,9 @@ class MessageTemplatesViewSet(
                 require_workflow_editor=self._require_workflow_editor,
                 require_workflow_create=self._require_workflow_create,
             )
+        except TemplateEditedInPostHog as e:
+            self._report_template_upload(request, {"result": "rejected", "error_code": e.code})
+            return Response(TemplateErrorSerializer(template_edited_in_posthog()).data, status=status.HTTP_409_CONFLICT)
         except TransactionalEmailError as e:
             self._report_template_upload(request, {"result": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e) from None
@@ -1397,6 +1416,7 @@ class MessageTemplatesViewSet(
             if source
             else None,
             if_not_superseded=data["if_not_superseded"],
+            if_code_managed=data["if_code_managed"],
         )
 
     @staticmethod

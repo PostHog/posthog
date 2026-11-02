@@ -123552,6 +123552,8 @@ export namespace Schemas {
       preheader?: string;
       /** Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content. */
       if_not_superseded?: boolean;
+      /** Set it so the upload only updates a template that code manages. When the key names a template edited in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. A new key, or a template managed by code, uploads as usual. Leave it out to take over a template edited in PostHog, so code manages it from then on. */
+      if_code_managed?: boolean;
       /** Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored. */
       source?: TemplateSource;
     }

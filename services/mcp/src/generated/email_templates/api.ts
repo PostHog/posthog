@@ -499,7 +499,7 @@ export const MessagingTemplatesMakeTransactionalCreateBody = () => zod.object({
 })
 
 /**
- * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused template back on.
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. With `if_code_managed`, an upload to a template edited in PostHog changes nothing and answers `409`. An upload keeps the template's sender and never turns a paused template back on.
  * @summary Upload a template by key
  */
 export const MessagingTemplatesByKeyUpdateParams = () => zod.object({
@@ -518,6 +518,7 @@ export const MessagingTemplatesByKeyUpdateParams = () => zod.object({
 export const messagingTemplatesByKeyUpdateBodyNameMax = 400
 
 export const messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault = false
+export const messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault = false
 export const messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax = 400
 
 export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
@@ -546,6 +547,12 @@ export const MessagingTemplatesByKeyUpdateBody = () => zod.object({
         .default(messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault)
         .describe(
             'Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content.'
+        ),
+    if_code_managed: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault)
+        .describe(
+            'Set it so the upload only updates a template that code manages. When the key names a template edited in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. A new key, or a template managed by code, uploads as usual. Leave it out to take over a template edited in PostHog, so code manages it from then on.'
         ),
     source: zod
         .object({

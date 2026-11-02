@@ -81,3 +81,14 @@ def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> FieldError:
     if isinstance(errors, list) and errors and not isinstance(errors[0], str):
         return first_field_error(errors[0], path)
     return FieldError(attr="__".join(path) or None, message=str(errors[0] if isinstance(errors, list) else errors))
+
+
+def template_edited_in_posthog() -> TemplateRefusal:
+    return TemplateRefusal(
+        code="template_edited_in_posthog",
+        detail="This template is edited in PostHog, not managed by code, so the upload changed nothing.",
+        attr="if_code_managed",
+        why="An upload with `if_code_managed` never replaces a template that people edit in PostHog.",
+        fix="To manage the template in code again, upload the file without `if_code_managed`. That replaces the "
+        "content edited in PostHog and sets `managed_by` to `code`.",
+    )

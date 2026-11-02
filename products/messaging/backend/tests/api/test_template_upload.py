@@ -559,3 +559,61 @@ class TestTemplateUpload(APIBaseTest):
         assert uploaded["content_hash"] == template["content_hash"]
         assert (template["content"]["email"]["subject"], template["source_ref"]) == (expected_subject, expected_ref)
         assert self._workflow(newer["transactional_hog_flow_id"])["version"] == expected_version
+
+    def _template_that_is(self, state: str) -> str | None:
+        if state == "new":
+            return None
+        if state == "made_in_posthog":
+            return str(
+                MessageTemplate.objects.create(
+                    team=self.team,
+                    name="Welcome",
+                    key="welcome",
+                    type="email",
+                    content={"email": {"subject": "Hello", "html": "<p>Hello</p>"}},
+                ).id
+            )
+        uploaded = self._upload(WELCOME)
+        if state == "edited_in_posthog":
+            for patch_body in (
+                {"managed_by": "gui"},
+                {"content": {"email": {"subject": "Edited", "html": "<p>E</p>"}}},
+            ):
+                edited = self.client.patch(
+                    f"/api/projects/{self.team.id}/messaging_templates/{uploaded['id']}/", patch_body, format="json"
+                )
+                assert edited.status_code == status.HTTP_200_OK, edited.json()
+        return uploaded["id"]
+
+    @parameterized.expand(
+        [
+            ("made_in_posthog", "made_in_posthog", WELCOME, status.HTTP_409_CONFLICT, None),
+            ("edited_in_posthog_over_superseded_content", "edited_in_posthog", WELCOME, status.HTTP_409_CONFLICT, None),
+            ("managed_by_code", "managed_by_code", GREETING, status.HTTP_200_OK, "updated"),
+            ("new_key", "new", WELCOME, status.HTTP_201_CREATED, "created"),
+        ]
+    )
+    def test_an_upload_if_code_managed_refuses_a_template_edited_in_posthog(
+        self, _post, _flag, _capture, _name, state, body, expected_status, expected_result
+    ):
+        template_id = self._template_that_is(state)
+        templates_before = list(MessageTemplate.objects.values())
+        workflows_before = list(HogFlow.objects.values("id", "version", "actions"))
+
+        with patch("products.messaging.backend.presentation.views.message_templates.publish_resource_edited") as edited:
+            response = self.psak.put(
+                self.url, {**body, "if_code_managed": True, "if_not_superseded": True}, format="json"
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_result is not None:
+            assert response.json()["result"] == expected_result
+            assert response.json()["managed_by"] == "code"
+            assert template_id in (None, response.json()["id"])
+            return
+        refusal = response.json()
+        assert (refusal["code"], refusal["attr"]) == ("template_edited_in_posthog", "if_code_managed")
+        assert "if_code_managed" in refusal["fix"]
+        assert list(MessageTemplate.objects.values()) == templates_before
+        assert list(HogFlow.objects.values("id", "version", "actions")) == workflows_before
+        edited.assert_not_called()
