@@ -2448,6 +2448,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT unhex('41FF') AS invalid_scalar, [unhex('42FF')] AS invalid_array, "
                 "map('key', unhex('43FF')) AS invalid_map",
                 team=self.team,
+                query_type="HogQLQuery",
             )
 
         self.assertEqual(
@@ -2463,15 +2464,38 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("41FF", "Qf8=")])
 
-    def test_invalid_utf8_map_keys_raise_an_actionable_error(self):
+    @parameterized.expand(
+        [
+            (
+                "sql_query",
+                "HogQLQuery",
+                "Query result column(s) 'invalid_map_keys' contain raw bytes that cannot be returned as JSON. "
+                "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original "
+                "bytes.",
+                False,
+            ),
+            (
+                "built_query",
+                "TrendsQuery",
+                "Some values in these results aren't valid text, so the results can't be shown. "
+                "Check the event and person properties used here for values with invalid characters.",
+                True,
+            ),
+        ]
+    )
+    @patch("posthog.hogql.query.capture_exception")
+    def test_invalid_utf8_map_keys_raise_an_actionable_error(
+        self, _name: str, query_type: str, expected_error: str, captured: bool, mock_capture_exception: mock.MagicMock
+    ) -> None:
         with self.assertRaises(QueryError) as error:
-            execute_hogql_query("SELECT map(unhex('FF'), 1, unhex('FE'), 2) AS invalid_map_keys", team=self.team)
+            execute_hogql_query(
+                "SELECT map(unhex('FF'), 1, unhex('FE'), 2) AS invalid_map_keys",
+                team=self.team,
+                query_type=query_type,
+            )
 
-        self.assertEqual(
-            str(error.exception),
-            "Query result column(s) 'invalid_map_keys' contain raw bytes that cannot be returned as JSON. "
-            "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes.",
-        )
+        self.assertEqual(str(error.exception), expected_error)
+        self.assertEqual(mock_capture_exception.called, captured)
 
     def test_non_transient_errors_are_not_retried(self):
         with (

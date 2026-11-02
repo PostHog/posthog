@@ -129,7 +129,9 @@ def _contains_raw_bytes(value: object) -> bool:
     return False
 
 
-def _raise_for_raw_bytes_in_string_results(rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]]) -> None:
+def _raise_for_raw_bytes_in_string_results(
+    rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]], query_type: str
+) -> None:
     """Reject raw bytes in String results because query responses and their cache use JSON."""
     columns_with_bytes: list[str] = []
     for column, (column_name, column_type) in enumerate(types):
@@ -138,12 +140,22 @@ def _raise_for_raw_bytes_in_string_results(rows: Sequence[Sequence[object]], typ
         if any(_contains_raw_bytes(row[column]) for row in rows):
             columns_with_bytes.append(column_name)
 
-    if columns_with_bytes:
+    if not columns_with_bytes:
+        return
+
+    if query_type == "HogQLQuery":
         column_names = ", ".join(repr(column_name) for column_name in columns_with_bytes)
         raise QueryError(
             f"Query result column(s) {column_names} contain raw bytes that cannot be returned as JSON. "
             "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes."
         )
+
+    error = QueryError(
+        "Some values in these results aren't valid text, so the results can't be shown. "
+        "Check the event and person properties used here for values with invalid characters."
+    )
+    capture_exception(error, {"query_type": query_type, "columns": columns_with_bytes})
+    raise error
 
 
 @frozen
@@ -1051,7 +1063,7 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
-                _raise_for_raw_bytes_in_string_results(self.results, self.types)
+                _raise_for_raw_bytes_in_string_results(self.results, self.types, self.query_type)
             except Exception as e:
                 if self.debug:
                     self.results = []
