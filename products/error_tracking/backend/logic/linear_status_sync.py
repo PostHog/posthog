@@ -12,7 +12,7 @@ that the tickets no longer have.
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -21,8 +21,17 @@ from redis.exceptions import LockError, LockNotOwnedError
 from posthog.event_usage import groups
 from posthog.ingress.contracts import DeliveryOwnership
 from posthog.ingress.dispatch.database import bounded_statement_timeout
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.activity_logging.activity_log import Trigger
-from posthog.models.integration import Integration, LinearIntegration, LinearRateLimitedError
+
+# `bounded_statement_timeout` gets the database alias of a read from the router, and the router needs
+# the model class. So `Integration` is imported only to cap the ownership lookup, and every read of a
+# row goes through the SDK.
+from posthog.models.integration import (  # nosemgrep: semgrep.rules.devex.integration-model-through-sdk
+    Integration,
+    LinearIntegration,
+    LinearRateLimitedError,
+)
 from posthog.ph_client import ph_scoped_capture
 from posthog.redis import get_client
 
@@ -33,9 +42,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingSettings,
 )
-
-if TYPE_CHECKING:
-    from django.db.models import QuerySet
 
 # Linear groups every workflow state into one of these categories. A team can rename its states
 # and add more of them, but it cannot add a category, so the category is what the sync reads.
@@ -98,20 +104,19 @@ def delivery_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
     if job is None:
         return DeliveryOwnership.UNDECIDED
     with bounded_statement_timeout(_WORKSPACE_LOOKUP_TIMEOUT_MS, models=[Integration]):
-        held_here = Integration.objects.filter(
-            kind=Integration.IntegrationKind.LINEAR.value, integration_id=job.organization_id
-        ).exists()
+        held_here = IntegrationManager.linear.oauth.exists_by_external_id(job.organization_id)
     return DeliveryOwnership.LOCAL if held_here else DeliveryOwnership.ELSEWHERE
 
 
 def sync_status(job: contracts.LinearStatusSyncJob) -> None:
-    opted_in_team_ids = _opted_in_team_ids(job)
-    _refresh_moved_identifiers(job, opted_in_team_ids)
+    workspace_rows = _opted_in_workspace_rows(job)
+    if not workspace_rows:
+        return
+    _refresh_moved_identifiers(job, workspace_rows)
     issues = (
         ErrorTrackingIssue.objects.filter(
-            team_id__in=opted_in_team_ids,
-            external_issue__integration__kind=Integration.IntegrationKind.LINEAR.value,
-            external_issue__integration__integration_id=job.organization_id,
+            team_id__in={row.team_id for row in workspace_rows},
+            external_issue__integration_id__in=[row.id for row in workspace_rows],
             external_issue__external_context__id__in=job.identifiers,
         )
         .distinct()
@@ -173,19 +178,20 @@ def _failure_to_retry(failures: list[Exception]) -> Exception:
     return busy[0] if busy else failures[0]
 
 
-def _opted_in_team_ids(job: contracts.LinearStatusSyncJob) -> "QuerySet[ErrorTrackingSettings, int]":
-    """The projects that connect the job's Linear workspace and turned the sync on."""
-    return ErrorTrackingSettings.objects.filter(
-        linear_status_sync_enabled=True,
-        team_id__in=Integration.objects.filter(
-            kind=Integration.IntegrationKind.LINEAR.value, integration_id=job.organization_id
-        ).values("team_id"),
-    ).values_list("team_id", flat=True)
+def _opted_in_workspace_rows(job: contracts.LinearStatusSyncJob) -> list[IntegrationRecord]:
+    """The integration rows that connect the job's Linear workspace to a project that turned the sync on."""
+    rows = IntegrationManager.linear.oauth.list_by_external_id(job.organization_id)
+    if not rows:
+        return []
+    opted_in_team_ids = set(
+        ErrorTrackingSettings.objects.filter(
+            linear_status_sync_enabled=True, team_id__in={row.team_id for row in rows}
+        ).values_list("team_id", flat=True)
+    )
+    return [row for row in rows if row.team_id in opted_in_team_ids]
 
 
-def _refresh_moved_identifiers(
-    job: contracts.LinearStatusSyncJob, opted_in_team_ids: "QuerySet[ErrorTrackingSettings, int]"
-) -> None:
+def _refresh_moved_identifiers(job: contracts.LinearStatusSyncJob, workspace_rows: list[IntegrationRecord]) -> None:
     """Point references that hold an identifier from before a team move at the ticket's current one.
 
     A reference stores only the identifier, and the state lookup finds a ticket by its current
@@ -196,9 +202,8 @@ def _refresh_moved_identifiers(
     if not previous:
         return
     stale = ErrorTrackingExternalReference.objects.filter(
-        issue__team_id__in=opted_in_team_ids,
-        integration__kind=Integration.IntegrationKind.LINEAR.value,
-        integration__integration_id=job.organization_id,
+        issue__team_id__in={row.team_id for row in workspace_rows},
+        integration_id__in=[row.id for row in workspace_rows],
         external_context__id__in=previous,
     )
     for reference in stale:
@@ -214,7 +219,7 @@ class _PreviousStateType:
         self._read = False
         self._value: str | None = None
 
-    def get(self, integration: Integration) -> str | None:
+    def get(self, integration: IntegrationRecord) -> str | None:
         if not self._read:
             self._value = LinearIntegration(integration).workflow_state_type(self._job.previous_state_id)
             self._read = True
@@ -224,16 +229,17 @@ class _PreviousStateType:
 def _sync_issue(
     issue: ErrorTrackingIssue, job: contracts.LinearStatusSyncJob, previous_state: _PreviousStateType
 ) -> None:
-    references = list(
-        ErrorTrackingExternalReference.objects.filter(
-            issue_id=issue.id, integration__kind=Integration.IntegrationKind.LINEAR.value
-        ).select_related("integration")
+    references = list(ErrorTrackingExternalReference.objects.filter(issue_id=issue.id))
+    # `get_many` returns only Linear rows, so the filter below also drops references to other providers.
+    rows = IntegrationManager.linear.oauth.get_many(
+        issue.team_id, {reference.integration_id for reference in references}
     )
+    references = [reference for reference in references if reference.integration_id in rows]
     trigger_identifiers = set(job.identifiers)
 
     def is_trigger(reference: ErrorTrackingExternalReference) -> bool:
         return (
-            reference.integration.integration_id == job.organization_id
+            rows[reference.integration_id].integration_id == job.organization_id
             and _stored_identifier(reference) in trigger_identifiers
         )
 
@@ -241,7 +247,9 @@ def _sync_issue(
     if not trigger_references:
         return
 
-    states = _current_state_types(references, current_trigger_identifier=job.identifiers[0], is_trigger=is_trigger)
+    states = _current_state_types(
+        references, rows, current_trigger_identifier=job.identifiers[0], is_trigger=is_trigger
+    )
     trigger_state = states.get(trigger_references[0].id)
     trigger = Trigger(
         job_type=_TRIGGER_JOB_TYPE,
@@ -263,7 +271,7 @@ def _sync_issue(
     elif trigger_state in _OPEN_STATE_TYPES:
         # Only a move out of a closed state is a reopen. A ticket that moves from "Todo" to
         # "In Progress" must not reactivate an issue that someone resolved in PostHog.
-        if previous_state.get(trigger_references[0].integration) in _CLOSED_STATE_TYPES:
+        if previous_state.get(rows[trigger_references[0].integration_id]) in _CLOSED_STATE_TYPES:
             _transition(
                 issue,
                 expected=ErrorTrackingIssue.Status.RESOLVED,
@@ -301,6 +309,7 @@ def _stored_identifier(reference: ErrorTrackingExternalReference) -> str | None:
 
 def _current_state_types(
     references: list[ErrorTrackingExternalReference],
+    rows: Mapping[int, IntegrationRecord],
     *,
     current_trigger_identifier: str,
     is_trigger: Callable[[ErrorTrackingExternalReference], bool],
@@ -310,17 +319,16 @@ def _current_state_types(
     A reference whose ticket Linear does not return is absent. The trigger ticket is read by the
     identifier it has now, because its reference can hold one from before a move between teams.
     """
-    lookups: dict[int, tuple[Integration, dict[UUID, str]]] = {}
+    lookups: dict[int, dict[UUID, str]] = {}
     for reference in references:
         identifier = current_trigger_identifier if is_trigger(reference) else _stored_identifier(reference)
         if identifier is None:
             continue
-        _, by_reference = lookups.setdefault(reference.integration.id, (reference.integration, {}))
-        by_reference[reference.id] = identifier
+        lookups.setdefault(reference.integration_id, {})[reference.id] = identifier
 
     states: dict[UUID, str] = {}
-    for integration, by_reference in lookups.values():
-        found = LinearIntegration(integration).issue_state_types(sorted(set(by_reference.values())))
+    for integration_id, by_reference in lookups.items():
+        found = LinearIntegration(rows[integration_id]).issue_state_types(sorted(set(by_reference.values())))
         for reference_id, identifier in by_reference.items():
             if identifier in found:
                 states[reference_id] = found[identifier]
