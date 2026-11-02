@@ -1,15 +1,23 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 
 import type { InsightLogicProps } from '~/types'
 
-import { getToolOutputRecord, useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
+import {
+    getToolOutputRecord,
+    runnerPanelLogic,
+    useAttachedContext,
+    useMcpToolApplyBack,
+} from 'products/posthog_ai/frontend/api/logics'
 
 import { explainChartLogic } from './explainChartLogic'
 
 export function ExplainChartAgentBridge({ insightProps }: { insightProps: InsightLogicProps }): null {
     useMountedLogic(explainChartLogic(insightProps))
+    // Closing the panel would otherwise drop the chat this explanation came from.
+    useMountedLogic(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
     const { explainAvailable, followUpContext } = useValues(explainChartLogic(insightProps))
     const { explainChartToolCompleted } = useActions(explainChartLogic(insightProps))
 
