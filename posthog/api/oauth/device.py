@@ -45,8 +45,10 @@ from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.oauth.client_assertion import resolve_client_assertion
 from posthog.auth import SessionAuthentication
 from posthog.helpers.two_factor_session import missing_two_factor_step
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes
 
@@ -440,6 +442,14 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                     "error": "two_factor_required",
                     "error_description": "This project's organization requires two-factor authentication. Set it up, then try again.",
                 },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        # The same gap for the verified-domain policy: session auth checks the current organization only.
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+            cast(User, request.user).email, team.organization
+        ):
+            return Response(
+                {"error": "verified_domain_required", "error_description": VERIFIED_DOMAIN_REQUIRED_ERROR},
                 status=status.HTTP_403_FORBIDDEN,
             )
 

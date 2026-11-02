@@ -306,8 +306,16 @@ class TestOAuthDeviceGrant(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
 
-    def test_approval_follows_the_2fa_policy_of_the_projects_organization(self) -> None:
-        strict = Organization.objects.create(name="Strict", enforce_2fa=True)
+    @parameterized.expand(
+        [
+            ("2FA", {"enforce_2fa": True}, "two_factor_required"),
+            ("verified email domains", {"enforce_verified_domains": True}, "verified_domain_required"),
+        ]
+    )
+    def test_approval_follows_the_policy_of_the_projects_organization(
+        self, _name: str, policy: dict, error: str
+    ) -> None:
+        strict = Organization.objects.create(name="Strict", **policy)
         strict_team = Team.objects.create(organization=strict, name="Strict project")
         self.user.join(organization=strict)
         self.user.current_organization = self.organization
@@ -320,7 +328,7 @@ class TestOAuthDeviceGrant(APIBaseTest):
         response = self._approve(started["user_code"], project_id=strict_team.id)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
-        self.assertEqual(response.json()["error"], "two_factor_required")
+        self.assertEqual(response.json()["error"], error)
         self.assertEqual(OAuthDeviceGrant.objects.get().status, OAuthDeviceGrant.AUTHORIZATION_PENDING)
 
     @parameterized.expand(
