@@ -46,6 +46,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_objec
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integer_field_bounds import BIG_INTEGER_FIELD_MAX, INTEGER_FIELD_MAX
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -559,7 +560,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         allow_null=True,
         min_value=1,
         # int4 bound: DRF never runs full_clean, so an over-int4 value would 500 in Postgres, not 400.
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text=(
             "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level "
             "cap. When reached, this scanner stops scanning until the period resets. It stays enabled and "
@@ -1410,7 +1411,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         # Cap at the Postgres bigint max the id column can hold: a larger value can't be a real PK,
         # and feeding it to the id lookup below raises NumericValueOutOfRange (a 500) instead of a 400.
         stripped = value.strip()
-        if not stripped.isdecimal() or not 1 <= int(stripped) <= 9223372036854775807:
+        if not stripped.isdecimal() or not 1 <= int(stripped) <= BIG_INTEGER_FIELD_MAX:
             raise ValidationError({"experiment_id": "Must be a positive integer."})
         experiment_id = int(stripped)
         # Gate on the caller's experiment access, mirroring validate_experiment_targeting and
@@ -2053,7 +2054,7 @@ class DraftScannerRequestSerializer(serializers.Serializer):
     experiment_id = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=9223372036854775807,
+        max_value=BIG_INTEGER_FIELD_MAX,
         help_text=(
             "A launched experiment the person picked for the scanner to watch. "
             "The draft is then an `experiment` scanner on it."
