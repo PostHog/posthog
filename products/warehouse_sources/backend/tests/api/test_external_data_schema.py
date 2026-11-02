@@ -5620,6 +5620,8 @@ class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
 
         assert second_page["count"] == 3
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
+
+
 class TestExternalDataSchemaIntrospection(SimpleTestCase):
     def test_schema_generation_needs_no_team_context(self) -> None:
         view = ExternalDataSchemaViewset()
