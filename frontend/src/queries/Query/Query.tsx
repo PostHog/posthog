@@ -2,7 +2,7 @@ import { BuiltLogic, LogicWrapper } from 'kea'
 import { ReactNode, Suspense, useEffect, useState } from 'react'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -54,7 +54,7 @@ import {
     WebVitalsRenderer,
 } from './queryNodeRenderers'
 
-// The skeleton fills the slot the renderer will fill, so the page does not jump when the chunk arrives.
+// The fallback fills the slot the renderer will fill, so the page does not jump when the chunk arrives.
 const CHART_FALLBACK = 'h-full min-h-80'
 const TILE_ROW_FALLBACK = 'h-24'
 
@@ -67,7 +67,16 @@ function LazyQueryNode({
 }): JSX.Element {
     return (
         <ChunkLoadErrorBoundary>
-            <Suspense fallback={<LemonSkeleton className={`w-full ${fallbackClassName}`} />}>{children}</Suspense>
+            {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
+            <Suspense
+                fallback={
+                    <div className={`flex w-full items-center justify-center ${fallbackClassName}`}>
+                        <Spinner className="text-3xl" />
+                    </div>
+                }
+            >
+                {children}
+            </Suspense>
         </ChunkLoadErrorBoundary>
     )
 }

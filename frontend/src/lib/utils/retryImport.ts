@@ -102,17 +102,19 @@ export function lazyWithPreload<T extends ComponentType<any>>(
             },
             (error) => {
                 pending = null
+                // React caches a rejection inside the lazy wrapper, so a remount after a failure needs a new one.
+                Lazy = lazy(load)
                 throw error
             }
         )
         return pending
     }
-    const Lazy = lazy(load)
+    let Lazy = lazy(load)
 
     function Component(props: ComponentProps<T>): JSX.Element {
         // Decided once per mount: switching from the lazy wrapper to the loaded component would remount it.
-        const [Loaded] = useState(() => loaded)
-        return createElement((Loaded ?? Lazy) as ComponentType<ComponentProps<T>>, props)
+        const [Resolved] = useState(() => loaded ?? Lazy)
+        return createElement(Resolved as ComponentType<ComponentProps<T>>, props)
     }
 
     return {

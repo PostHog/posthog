@@ -1,10 +1,22 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
-import { Suspense, createElement } from 'react'
+import { Component as ReactComponent, ReactNode, Suspense, createElement } from 'react'
 
 import { isChunkLoadError } from './isChunkLoadError'
 import { lazyWithPreload, retryBootImport, retryImport } from './retryImport'
+
+class FailedBoundary extends ReactComponent<{ children: ReactNode }, { failed: boolean }> {
+    override state = { failed: false }
+
+    static getDerivedStateFromError(): { failed: boolean } {
+        return { failed: true }
+    }
+
+    override render(): ReactNode {
+        return this.state.failed ? createElement('span', null, 'failed') : this.props.children
+    }
+}
 
 describe('retryImport', () => {
     beforeEach(() => {
@@ -134,6 +146,23 @@ describe('retryImport', () => {
             await preload()
 
             renderInSuspense(Component)
+
+            expect(await screen.findByText('hello max')).toBeInTheDocument()
+            expect(factory).toHaveBeenCalledTimes(2)
+        })
+
+        it('loads again when a render-time load fails', async () => {
+            jest.spyOn(console, 'error').mockImplementation(() => {})
+            const factory = jest.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ default: Greeting })
+            const { Component } = lazyWithPreload(factory)
+
+            render(
+                createElement(
+                    FailedBoundary,
+                    null,
+                    createElement(Suspense, { fallback: null }, createElement(Component, { name: 'max' }))
+                )
+            )
 
             expect(await screen.findByText('hello max')).toBeInTheDocument()
             expect(factory).toHaveBeenCalledTimes(2)
