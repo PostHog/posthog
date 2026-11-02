@@ -13,14 +13,17 @@ export function adaptiveLayout(
     railSide: 'left' | 'right'
     contentWidth: number
     paired: boolean
+    reportNavigation: boolean
 } {
     const safeWidth = Math.max(0, width - left - right)
-    const rail = height >= 480 && (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
+    const enoughHeight = height >= 480
+    const rail = enoughHeight && (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
     const contentWidth = Math.max(0, safeWidth - (rail ? NAV_RAIL_WIDTH : 0))
     return {
         rail,
         railSide: left > right ? 'left' : 'right',
         contentWidth,
-        paired: contentWidth >= INBOX_PANE_WIDTH + REPORT_MIN_WIDTH,
+        paired: enoughHeight && contentWidth >= INBOX_PANE_WIDTH + REPORT_MIN_WIDTH,
+        reportNavigation: enoughHeight && (rail || contentWidth >= 600),
     }
 }

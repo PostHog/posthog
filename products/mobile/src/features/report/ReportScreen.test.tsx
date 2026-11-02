@@ -44,11 +44,14 @@ const EXISTING = { uuid: 'existing-user', first_name: 'Existing', last_name: 'Re
 const ADDED = { uuid: 'added-user', first_name: 'Added', last_name: 'Reviewer', email: 'added@example.com' }
 
 describe('ReportScreen', () => {
-    test('the selected Home control returns to the inbox from an expanded report', async () => {
+    test.each([
+        { width: 951, height: 669, navigation: true },
+        { width: 874, height: 402, navigation: false },
+    ])('keeps report navigation usable at $width × $height', async ({ width, height, navigation }) => {
         mockNavigate.mockClear()
         useDemoMode.getState().setEnabled(true)
         const previous = Dimensions.get('window')
-        Dimensions.set({ window: { ...previous, width: 951, height: 669 } })
+        Dimensions.set({ window: { ...previous, width, height } })
         const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
         const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
             <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -56,8 +59,12 @@ describe('ReportScreen', () => {
         const view = render(<ReportScreen reportId="demo-report-load-time" from="inbox" />, { wrapper })
         try {
             await waitFor(() => expect(screen.getByTestId('report-screen')).toBeTruthy())
-            fireEvent.press(screen.getByTestId('inbox-nav-home'))
-            expect(mockNavigate).toHaveBeenCalledWith('/inbox')
+            if (navigation) {
+                fireEvent.press(screen.getByTestId('inbox-nav-home'))
+                expect(mockNavigate).toHaveBeenCalledWith('/inbox')
+            } else {
+                expect(screen.queryByTestId('inbox-nav-home')).toBeNull()
+            }
         } finally {
             view.unmount()
             client.clear()

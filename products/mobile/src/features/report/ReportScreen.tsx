@@ -77,8 +77,7 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
 export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
-    const { rail, railSide, paired, contentWidth } = useAppLayout()
-    const navigation = rail || contentWidth >= 600
+    const { rail, railSide, paired, reportNavigation: navigation } = useAppLayout()
     return (
         <OverlayHost>
             <View

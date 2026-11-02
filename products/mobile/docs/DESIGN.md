@@ -104,12 +104,13 @@ Layout follows the space in the current window, including independent left and r
 It does not identify devices by name or assume that an iPhone always has compact width.
 The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo display.
 
-- A wide window keeps the inbox beside the selected report when the list has 300pt and the report has at least 440pt.
+- A window at least 480pt tall keeps the inbox beside the selected report when the list has 300pt and the report has at least 440pt.
   Before selection, the detail area asks the person to choose a report. Opening the device does not mark a report read.
 - Folding or entering a narrow Split View hides the inbox pane without remounting the selected report or its sheets.
   The expanded inbox shows the same filters and actions as the main inbox and initially reveals the selected report.
 - Navigation uses a side rail in sufficiently tall, wide landscape windows, or when a side safe area signals side chrome.
-  The rail follows the side with the larger inset. Short windows keep horizontal navigation so targets remain reachable.
+  The rail follows the side with the larger inset. Short windows keep horizontal tab navigation and the report's Back control,
+  without adding a second navigation bar below its actions.
   Custom controls stay inside safe content; they do not occupy native reserved regions or infer a hinge angle.
 - Chat keeps a centered reading column up to 720pt wide. Resizing keeps the session, composer, queued messages and draft mounted.
 - Consecutive chart or number pins can share a row when each has enough width. Recent and Browse remain lists.
