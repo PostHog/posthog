@@ -2196,8 +2196,8 @@ class OAuthTokenView(TokenView):
         )
 
     def _handle_token_exchange_grant(self, request) -> JsonResponse:
-        """CI OIDC token exchange (RFC 8693). A CI job has no client registration, so the grant takes no
-        client authentication: the OIDC token, checked against a trust policy, is the only credential."""
+        """Workload OIDC token exchange (RFC 8693). A workload has no client registration, so the grant takes
+        no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
         grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
         try:
             issued = workload_token_exchange.exchange_workload_token(
