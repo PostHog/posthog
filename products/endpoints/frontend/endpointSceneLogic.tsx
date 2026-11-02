@@ -128,6 +128,7 @@ export interface MaterializationPreview {
 export interface endpointSceneLogicValues {
     endpoint: EndpointVersionType | null // endpointLogic
     endpointLoading: boolean // endpointLogic
+    endpointMissing: boolean // endpointLogic
     activeTab: EndpointTab
     breadcrumbs: Breadcrumb[]
     bucketOverrides: Record<string, string>
@@ -344,7 +345,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 'updateEndpointSuccess',
             ],
         ],
-        values: [endpointLogic(), ['endpoint', 'endpointLoading']],
+        values: [endpointLogic(), ['endpoint', 'endpointLoading', 'endpointMissing']],
     })),
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),
