@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import UUID, uuid5
 
 from django.utils import timezone
 
@@ -22,6 +23,8 @@ logger = get_logger(__name__)
 # Backstop against a runaway slice loop; at the endpoint's per-slice work budget this is far
 # beyond any real parked backlog.
 MAX_RESCHEDULE_SLICES = 500
+
+WORKFLOW_CREATED_EVENT = "workflows workflow created"
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -65,12 +68,16 @@ def refresh_affected_hog_flows(team_id: Optional[int] = None, action_id: Optiona
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
-def report_workflow_created(team_id: int, hog_flow_id: str, origin_product: str | None, actions_count: int) -> None:
+def report_workflow_created(
+    team_id: int, hog_flow_id: str, created_at: str, origin_product: str | None, actions_count: int
+) -> None:
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
         capture(
             distinct_id=str(team.uuid),
-            event="workflows workflow created",
+            event=WORKFLOW_CREATED_EVENT,
+            timestamp=created_at,
+            uuid=str(uuid5(UUID(hog_flow_id), WORKFLOW_CREATED_EVENT)),
             properties={
                 "workflow_id": hog_flow_id,
                 "origin_product": origin_product,

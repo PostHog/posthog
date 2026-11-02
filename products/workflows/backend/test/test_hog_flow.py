@@ -40,7 +40,11 @@ class TestHogFlow(TestCase):
             report_created.assert_not_called()
 
         report_created.assert_called_once_with(
-            team_id=self.team.id, hog_flow_id=str(flow.id), origin_product="broadcasts", actions_count=1
+            team_id=self.team.id,
+            hog_flow_id=str(flow.id),
+            created_at=flow.created_at.isoformat(),
+            origin_product="broadcasts",
+            actions_count=1,
         )
         get_client.assert_not_called()
 
