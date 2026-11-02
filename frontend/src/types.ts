@@ -2,7 +2,7 @@ import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
 import { eventWithTime } from 'posthog-js/rrweb-types'
-import { ReactNode } from 'react'
+import { ComponentType, ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
@@ -31,11 +31,11 @@ import {
     TeamMembershipLevel,
 } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { ProjectSecretAPIKeyAllowedScope } from 'lib/scopes'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
@@ -2961,6 +2961,7 @@ export interface OrganizationInviteType {
     level: OrganizationMembershipLevel
     is_expired: boolean
     emailing_attempt_made: boolean
+    email_suppressed: boolean
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
@@ -3615,7 +3616,6 @@ interface Person {
 
 export interface FunnelStep {
     // The type returned from the API.
-    action_id: string
     average_conversion_time: number | null
     median_conversion_time: number | null
     count: number
@@ -3623,7 +3623,6 @@ export interface FunnelStep {
     custom_name?: string | null
     order: number
     people?: string[]
-    type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
     breakdowns?: BreakdownKeyType[]
@@ -6240,6 +6239,7 @@ export enum ActivityScope {
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
+    TICKET_MACRO = 'TicketMacro',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
     KNOWLEDGE_LIBRARY = 'KnowledgeLibrary',
     INSTANCE_SETTING = 'InstanceSetting',
@@ -7969,6 +7969,8 @@ export interface ProductManifest {
     setupProbe?: ProductSetupProbe
     /** Aggregated into `productActivityDescribers`, which loads each one on demand. */
     activityDescribers?: Partial<Record<ActivityScope, () => Promise<Describer>>>
+    /** Aggregated into `productGlobalModals`. Each one renders on every logged-in page and owns its open state. */
+    globalModals?: Record<string, () => Promise<ComponentType>>
 }
 
 export interface ProjectTreeRef {

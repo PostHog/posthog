@@ -271,6 +271,7 @@ Idempotent. A reactivated check no longer matches.
 It reads its limits from the `personal-inbox-ranking` flag payload, and `"enabled": false` there stops every build.
 It prints the effective config first: the model, `reasoning_effort`, `rank_top`, `max_candidates`, `timeout_seconds` and `max_completion_tokens`.
 The model ranks only the best `rank_top` candidates. The other candidates follow in model order, with `ranked_by: model`.
+At most `top_max` entries (default 5) get the `top` tier and at most `worth_a_look_max` (default 10) get `worth_a_look`. An entry past a cap moves down to the next tier with room and keeps its rank.
 
 ```bash
 # Call the model, but store no PersonalInboxRanking row and capture no event
