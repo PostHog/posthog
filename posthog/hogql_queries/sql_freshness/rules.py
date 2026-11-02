@@ -51,7 +51,10 @@ def window_class(window: Window, facts: QueryFacts) -> SqlWindowClass:
         and window.end <= facts.now - FIXED_PAST_SETTLE_TIME
     ):
         return SqlWindowClass.FIXED_PAST
-    length = facts.now - window.start
+    return _class_for_length(facts.now - window.start)
+
+
+def _class_for_length(length: timedelta) -> SqlWindowClass:
     if length <= LIVE_WINDOW_MAX_LENGTH:
         return SqlWindowClass.LIVE
     if length <= SHORT_WINDOW_MAX_LENGTH:
@@ -79,9 +82,12 @@ def fresh_until(facts: QueryFacts) -> tuple[datetime, FreshnessReason]:
     """Every limit that applies holds at once, so the earliest one sets the expiry."""
     limits = [(facts.now + SQL_WINDOW_MAX_AGE[shortest_lived_window(facts)], FreshnessReason.WINDOW_AGE)]
     if facts.reads_clock or facts.relative_inputs:
-        next_midnight = min(facts.start_of_today, facts.start_of_utc_today) + timedelta(days=1)
-        limits.append((next_midnight, FreshnessReason.CLOCK_DAY))
-    reads_fixed_past = any(window_class(window, facts) == SqlWindowClass.FIXED_PAST for window in facts.windows)
-    if (facts.reads_now or facts.relative_inputs) and reads_fixed_past:
-        limits.append((facts.now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG], FreshnessReason.NOW_ANCHORED))
+        start_of_day = min(facts.start_of_today, facts.start_of_utc_today, facts.start_of_project_today)
+        limits.append((start_of_day + timedelta(days=1), FreshnessReason.CLOCK_DAY))
+    if facts.reads_now or facts.relative_inputs:
+        limits += [
+            (facts.now + SQL_WINDOW_MAX_AGE[_class_for_length(window.end - window.start)], FreshnessReason.NOW_ANCHORED)
+            for window in facts.windows
+            if window.end is not None and window_class(window, facts) == SqlWindowClass.FIXED_PAST
+        ]
     return min(limits, key=lambda limit: limit[0])

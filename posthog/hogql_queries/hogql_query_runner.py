@@ -142,6 +142,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             resolved,
             now=datetime.now(UTC),
             timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
+            project_timezone=self.team.timezone_info,
             week_start_day=self.team.week_start_day,
             relative_inputs=bool(relative_date_reads),
         )

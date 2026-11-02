@@ -659,8 +659,16 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
 
     @parameterized.expand(
         [
-            ("padded_relative_date_range", HogQLFilters(dateRange=DateRange(date_from="-3d ", date_to="-2d ")), 1),
-            ("sub_day_relative_date_range", HogQLFilters(dateRange=DateRange(date_from="-72h", date_to="-48h")), 1),
+            (
+                "padded_relative_date_range",
+                HogQLFilters(dateRange=DateRange(date_from="-3d ", date_to="-2d ")),
+                timedelta(hours=1),
+            ),
+            (
+                "sub_day_relative_date_range",
+                HogQLFilters(dateRange=DateRange(date_from="-72h", date_to="-48h")),
+                timedelta(minutes=30),
+            ),
             (
                 "relative_date_property_filter",
                 HogQLFilters(
@@ -668,23 +676,27 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
                         EventPropertyFilter(key="signed_up_at", operator=PropertyOperator.IS_DATE_AFTER, value="-7d")
                     ]
                 ),
-                1,
+                timedelta(hours=1),
             ),
-            ("static_property_filter", HogQLFilters(properties=[HogQLPropertyFilter(key="event = 'x'")]), 6),
+            (
+                "static_property_filter",
+                HogQLFilters(properties=[HogQLPropertyFilter(key="event = 'x'")]),
+                timedelta(hours=6),
+            ),
         ]
     )
     @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
-    def test_relative_filter_values_cap_a_past_window(self, _name: str, filters: HogQLFilters, hours: int) -> None:
+    def test_relative_filter_values_cap_a_past_window(self, _name: str, filters: HogQLFilters, age: timedelta) -> None:
         freshness = self._built_freshness(
             HogQLQuery(
-                query="select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-20' and {filters}",
+                query="select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-28' and {filters}",
                 filters=filters,
             )
         )
         assert isinstance(freshness, SqlFreshness)
         assert (freshness.window, freshness.fresh_until) == (
             SqlWindowClass.FIXED_PAST,
-            datetime(2026, 10, 29, 15, 0, tzinfo=UTC) + timedelta(hours=hours),
+            datetime(2026, 10, 29, 15, 0, tzinfo=UTC) + age,
         )
 
     @time_machine.travel("2026-10-29T23:55:00Z", tick=False)

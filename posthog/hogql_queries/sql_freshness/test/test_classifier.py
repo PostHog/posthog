@@ -19,6 +19,7 @@ NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
 NEXT_MIDNIGHT = datetime(2026, 10, 30, tzinfo=UTC)
 EVENING = datetime(2026, 10, 29, 20, 0, tzinfo=UTC)
 LOS_ANGELES = ZoneInfo("America/Los_Angeles")
+TOKYO = ZoneInfo("Asia/Tokyo")
 PAST_DAY = "select count() from events where timestamp >= '2026-10-28' and timestamp < '2026-10-29'"
 YESTERDAY = "select count() from events where toDate(timestamp) = yesterday()"
 
@@ -166,10 +167,34 @@ GRANT_CASES: list[tuple[Any, ...]] = [
         {"now": datetime(2026, 10, 29, 0, 30, tzinfo=UTC)},
     ),
     (
-        "relative_inputs_expire_within_the_hour",
+        "narrow_now_anchored_window_expires_within_its_width",
+        "select count() from events where timestamp >= now() - interval 25 hour and timestamp < now() - interval 24 hour",
+        SqlWindowClass.FIXED_PAST,
+        {"fresh_until": NOW + timedelta(minutes=5)},
+    ),
+    (
+        "relative_inputs_expire_within_the_window_width",
         PAST_DAY,
         SqlWindowClass.FIXED_PAST,
-        {"relative_inputs": True, "fresh_until": NOW + timedelta(hours=1)},
+        {"relative_inputs": True, "fresh_until": NOW + timedelta(minutes=30)},
+    ),
+    (
+        "relative_inputs_expire_at_the_project_midnight",
+        PAST_DAY,
+        SqlWindowClass.FIXED_PAST,
+        {
+            "timezone": UTC,
+            "project_timezone": TOKYO,
+            "now": datetime(2026, 10, 29, 14, 45, tzinfo=UTC),
+            "relative_inputs": True,
+            "fresh_until": datetime(2026, 10, 29, 15, 0, tzinfo=UTC),
+        },
+    ),
+    (
+        "date_truncation_plus_integer_adds_days",
+        "select count() from events where timestamp >= toStartOfMonth(toDate('2026-10-29')) "
+        "and timestamp < toStartOfMonth(toDate('2026-10-29')) + 31",
+        SqlWindowClass.UP_TO_NOW_LONG,
     ),
     (
         "today_bound_ends_at_the_project_midnight",
@@ -210,12 +235,14 @@ class TestClassify(BaseTest):
         now: datetime = NOW,
         relative_inputs: bool = False,
         timezone: Any = None,
+        project_timezone: Any = None,
     ):
         context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
         return classify(
             resolve_types(parse_select(sql), context, dialect="hogql"),
             now=now,
             timezone=timezone or self.team.timezone_info,
+            project_timezone=project_timezone or timezone or self.team.timezone_info,
             week_start_day=self.team.week_start_day,
             relative_inputs=relative_inputs,
         )
@@ -231,6 +258,7 @@ class TestClassify(BaseTest):
             now=now,
             relative_inputs=options.get("relative_inputs", False),
             timezone=options.get("timezone"),
+            project_timezone=options.get("project_timezone"),
         )
         assert isinstance(freshness, SqlFreshness)
         expected_fresh_until = options.get("fresh_until", now + SQL_WINDOW_MAX_AGE[expected_window])
@@ -246,6 +274,7 @@ class TestClassify(BaseTest):
             now=NEXT_MIDNIGHT - timedelta(minutes=5),
             relative_inputs=options.get("relative_inputs", False),
             timezone=options.get("timezone"),
+            project_timezone=options.get("project_timezone"),
         )
         assert isinstance(freshness, SqlFreshness)
         assert freshness.fresh_until <= NEXT_MIDNIGHT

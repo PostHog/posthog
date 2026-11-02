@@ -30,6 +30,7 @@ def classify(
     *,
     now: datetime,
     timezone: tzinfo,
+    project_timezone: tzinfo,
     week_start_day: Optional[int],
     relative_inputs: bool,
 ) -> SqlFreshness | Reject:
@@ -38,6 +39,7 @@ def classify(
             resolved_query,
             now=now,
             timezone=timezone,
+            project_timezone=project_timezone,
             week_start_day=week_start_day,
             relative_inputs=relative_inputs,
         )

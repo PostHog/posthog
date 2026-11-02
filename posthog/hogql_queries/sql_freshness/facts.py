@@ -26,6 +26,9 @@ from posthog.interval_specs import INTERVAL_SPECS, PERIOD_MAP
 
 _MONDAY = 1
 _SUB_DAY_UNITS = frozenset({"second", "minute", "hour"})
+_DATE_RESULT_FUNCTIONS = frozenset(
+    {"toDate", "toMonday", "toStartOfWeek", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"}
+)
 _JOINABLE_TABLES = (
     PersonsTable,
     PersonDistinctIdsTable,
@@ -73,6 +76,7 @@ class QueryFacts:
     now: datetime
     start_of_today: datetime
     start_of_utc_today: datetime
+    start_of_project_today: datetime
     windows: tuple[Window, ...]
     relative_inputs: bool
     unsupported_field: bool = False
@@ -339,7 +343,7 @@ class _Evaluator:
         if inner is None or inner.utc_day:
             return None
         aligned = self.align(inner.at, call.name, inner.timezone)
-        if call.name == "toDate":
+        if call.name in _DATE_RESULT_FUNCTIONS:
             return _Value(at=datetime(aligned.year, aligned.month, aligned.day, tzinfo=self.timezone), is_date=True)
         return _Value(at=aligned, is_date=False, timezone=inner.timezone)
 
@@ -426,6 +430,7 @@ def extract_facts(
     *,
     now: datetime,
     timezone: tzinfo,
+    project_timezone: tzinfo,
     week_start_day: Optional[int],
     relative_inputs: bool,
 ) -> QueryFacts:
@@ -460,6 +465,7 @@ def extract_facts(
         now=now,
         start_of_today=_start_of_day(now, timezone),
         start_of_utc_today=evaluator.start_of_utc_today,
+        start_of_project_today=_start_of_day(now, project_timezone),
         windows=tuple(windows),
         relative_inputs=relative_inputs,
         unsupported_field=scan.unsupported_field,
