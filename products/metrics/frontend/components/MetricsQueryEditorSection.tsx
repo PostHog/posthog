@@ -14,17 +14,28 @@ import { isBuilderCompatibleQuery } from './metricsViewerLogic'
 
 let uniqueEditor = 0
 
+// Only a builder query can draw a heatmap, so a switch to PromQL or SQL falls back to the default chart.
+function withoutHeatmapDisplay(query: MetricsQuery): MetricsQuery {
+    if (query.display?.type !== 'heatmap') {
+        return query
+    }
+    const { type: _type, ...display } = query.display
+    return { ...query, display }
+}
+
 /** The query editor of a saved metrics query: the builder / PromQL / SQL switch and the matching editor. */
 export function MetricsQueryEditorSection({
     query,
     setQuery,
     onRerun,
+    onUnrunTextChange,
     surface,
 }: {
     query: MetricsQuery
     setQuery: (query: MetricsQuery) => void
     /** Runs the current PromQL or SQL query again when Run is pressed without a change, as after a failure. */
     onRerun?: () => void
+    onUnrunTextChange?: (unrun: boolean) => void
     /** A widget offers every panel and the heatmap; an insight keeps the panels flag. */
     surface: 'insight' | 'widget'
 }): JSX.Element {
@@ -35,12 +46,21 @@ export function MetricsQueryEditorSection({
     const onSwitchLanguage = languagesEnabled
         ? (current: MetricsQuery, to: MetricsQueryLanguage): void =>
               switchMetricsQueryLanguage(current, to, (converted) => {
-                  setQuery(converted)
+                  setQuery(to === 'builder' ? converted : withoutHeatmapDisplay(converted))
                   setEditorKey(`MetricsQueryEditor.${uniqueEditor++}`)
               })
         : undefined
+    const language = queryLanguage(query)
 
-    if (queryLanguage(query) !== 'builder' || isBuilderCompatibleQuery(query)) {
+    if (language !== 'builder' && !languagesEnabled) {
+        return (
+            <LemonBanner type="info" className="w-full">
+                {`This ${surface} uses a ${language === 'promql' ? 'PromQL' : 'SQL'} query, which you can't edit here.`}
+            </LemonBanner>
+        )
+    }
+
+    if (language !== 'builder' || isBuilderCompatibleQuery(query)) {
         return (
             <MetricsQueryEditor
                 key={editorKey}
@@ -49,6 +69,7 @@ export function MetricsQueryEditorSection({
                 setQuery={setQuery}
                 onSwitchLanguage={onSwitchLanguage}
                 onRerun={onRerun}
+                onUnrunTextChange={onUnrunTextChange}
                 dataAttrPrefix={surface === 'widget' ? 'metrics-widget-editor' : 'metrics-query-editor'}
                 allPanels={surface === 'widget'}
             />

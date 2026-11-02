@@ -75,6 +75,7 @@ import {
     findNewlyAddedWidgetTiles,
     isWidgetStale,
     WIDGET_CLIENT_TTL_MS,
+    widgetDashboardFilters,
 } from 'scenes/dashboard/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -1162,7 +1163,8 @@ export interface dashboardLogicActions {
         forceRefresh?: boolean | undefined
         previewUnsavedFilters?: boolean | undefined
     }
-    refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
+    refreshDashboardWidgets: (payload: { filters?: DashboardFilter; forceRefresh?: boolean; tileIds: number[] }) => {
+        filters?: DashboardFilter | undefined
         forceRefresh?: boolean | undefined
         tileIds: number[]
     }
@@ -1765,7 +1767,8 @@ export interface dashboardLogicMeta {
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
         dashboardControlScopes: (
             insightTiles: DashboardTile[],
-            widgetTiles: DashboardTile[]
+            widgetTiles: DashboardTile[],
+            dashboardWidgetsEnabled: boolean
         ) => Record<DashboardControl, DashboardControlScope>
         itemsLoading: (
             dashboardLoading: boolean,
@@ -2041,7 +2044,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
             previewUnsavedFilters?: boolean
         }) => payload,
-        refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
+        /** `filters` are the dashboard filters the insights refresh with; the applied filters by default. */
+        refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean; filters?: DashboardFilter }) =>
+            payload,
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
         selectTileGroupTab: (sectionKey: string) => ({ sectionKey }),
         refreshOpenTileGroupsWaiting: true,
@@ -3994,14 +3999,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.text)],
         dashboardControlScopes: [
-            (s) => [s.insightTiles, s.widgetTiles],
+            (s) => [s.insightTiles, s.widgetTiles, s.dashboardWidgetsEnabled],
             (
                 insightTiles: DashboardTile[],
-                widgetTiles: DashboardTile[]
+                widgetTiles: DashboardTile[],
+                dashboardWidgetsEnabled: boolean
             ): Record<DashboardControl, DashboardControlScope> =>
                 getDashboardControlScopes(
                     insightTiles,
-                    widgetTiles.flatMap((tile) => {
+                    (dashboardWidgetsEnabled ? widgetTiles : []).flatMap((tile) => {
                         const widget = tile.widget
                         const dashboardControls = widget
                             ? tryGetDashboardWidgetCatalogEntry(widget.widget_type)?.dashboardControls
@@ -5451,6 +5457,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
+            let widgetsRefreshed = false
+            const refreshWidgets = (): void => {
+                if (
+                    widgetsRefreshed ||
+                    !values.dashboardWidgetsEnabled ||
+                    values.placement === DashboardPlacement.Export ||
+                    values.placement === DashboardPlacement.Public
+                ) {
+                    return
+                }
+                widgetsRefreshed = true
+                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
+                if (widgetTileIds.length > 0) {
+                    actions.refreshDashboardWidgets({
+                        tileIds: widgetTileIds,
+                        forceRefresh: !!forceRefresh,
+                        filters: combineDashboardFilters(settingsToRefresh.filters, values.externalFilters),
+                    })
+                }
+            }
             if (filterChange) {
                 filterChange.remainingInsightIds = new Set(
                     allInsightTiles
@@ -5830,6 +5856,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             staleTileIds.forEach((tileId) => cache.widgetLoadSignals.set(tileId, signal))
             actions.setWidgetRefreshStatuses(staleTileIds, true)
             await breakpoint()
+
+            // A later refresh of the same tile (after a filter change, say) wins, even when this one returns last.
+            cache.widgetRefreshGeneration = (cache.widgetRefreshGeneration ?? 0) + 1
+            const generation: number = cache.widgetRefreshGeneration
+            const latestRefreshByTileId: Record<number, number> = (cache.widgetLatestRefreshByTileId ??= {})
+            for (const tileId of staleTileIds) {
+                latestRefreshByTileId[tileId] = generation
+            }
+            const isLatest = (tileId: number): boolean => latestRefreshByTileId[tileId] === generation
 
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id

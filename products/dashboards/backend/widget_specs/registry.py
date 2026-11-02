@@ -94,9 +94,9 @@ class WidgetSpec:
     # Grid size of a new tile, in columns (of 12) and rows. The frontend catalog `defaultLayout` must match.
     default_width: int = 6
     default_height: int = 5
-    # Widgets that chart the same data as an insight tile follow the dashboard's filters (date range, metric
-    # label filters, metric variables) like one. run_widgets then passes `dashboard_id` and the effective
-    # `dashboard_filters` to `query_fn`.
+    # Widgets that chart the same data as an insight tile follow the dashboard's date range and metric label
+    # filters like one. run_widgets then passes `dashboard_id`, the effective `dashboard_filters` and
+    # `force_refresh` (a manual refresh) to `query_fn`.
     receives_dashboard_filters: bool = False
     # "widget": every run counts against the shared per-team widget query throttle. "query_runner": the
     # query runner enforces its own concurrency and budget limits, and serves repeat runs from the query cache,

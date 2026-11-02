@@ -37,10 +37,22 @@ export function chunkTileIds(tileIds: number[], chunkSize = 4): number[][] {
     return chunks
 }
 
+/** The dashboard filters `run_widgets` passes on: the date range and metric label filters. Other keys would
+ * only make a widget refetch for a change it ignores. */
+export function widgetDashboardFilters(filters: DashboardFilter): DashboardFilter {
+    return {
+        ...(filters.date_from ? { date_from: filters.date_from } : {}),
+        ...(filters.date_to ? { date_to: filters.date_to } : {}),
+        ...(filters.metricFilters?.length ? { metricFilters: filters.metricFilters } : {}),
+    }
+}
+
 export type FetchRunWidgetsOptions = {
     signal?: AbortSignal
     /** The dashboard's current filters, for widgets that follow them. */
     filtersOverride?: DashboardFilter
+    /** A manual refresh: widgets that follow dashboard filters skip their query cache. */
+    refresh?: boolean
 }
 
 export async function fetchRunWidgets(
@@ -62,6 +74,7 @@ export async function fetchRunWidgets(
             ...(filtersOverride && Object.keys(filtersOverride).length
                 ? { filters_override: JSON.stringify(filtersOverride) }
                 : {}),
+            ...(options?.refresh ? { refresh: true } : {}),
         },
         { signal: options?.signal }
     )

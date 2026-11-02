@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -25,7 +26,9 @@ function EditMetricsWidgetModalContents(): JSX.Element {
         defaultTitle,
         hasUnsavedChanges,
     } = useValues(editMetricsWidgetModalLogic)
-    const { setTileName, setTileDescription, setQuery, submit, requestClose } = useActions(editMetricsWidgetModalLogic)
+    const { setTileName, setTileDescription, setQuery, setHasUnrunQueryText, submit, requestClose } =
+        useActions(editMetricsWidgetModalLogic)
+    const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
 
     return (
         <LemonModal
@@ -33,7 +36,11 @@ function EditMetricsWidgetModalContents(): JSX.Element {
             onClose={requestClose}
             hasUnsavedInput={hasUnsavedChanges}
             title="Metric widget"
-            description="Pick a metric, or write a PromQL or SQL query, and choose how to chart it."
+            description={
+                languagesEnabled
+                    ? 'Pick a metric, or write a PromQL or SQL query, and choose how to chart it.'
+                    : 'Pick a metric and choose how to chart it.'
+            }
             width={1100}
             footer={
                 <>
@@ -57,7 +64,14 @@ function EditMetricsWidgetModalContents(): JSX.Element {
                 <section className="flex flex-col gap-3">
                     <h5 className="text-sm font-semibold m-0">{getDashboardWidgetGroupLabel('metrics')}</h5>
                     {fieldErrors.query ? <LemonBanner type="error">{fieldErrors.query}</LemonBanner> : null}
-                    <MetricsWidgetQueryEditor query={query} setQuery={setQuery} />
+                    <MetricsWidgetQueryEditor
+                        query={query}
+                        setQuery={setQuery}
+                        onUnrunTextChange={setHasUnrunQueryText}
+                    />
+                    <p className="text-xs text-secondary m-0">
+                        When the dashboard has a date range, the tile uses it instead of the range set here.
+                    </p>
                 </section>
                 <LemonDivider className="my-0" />
                 <EditWidgetModalTileDetailsSection
