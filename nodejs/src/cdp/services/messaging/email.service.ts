@@ -43,16 +43,17 @@ import {
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
 
+function logBookkeepingFailure(invocation: CyclotronJobInvocationHogFunction, message: string, error: unknown): void {
+    logger.error(message, {
+        invocationId: invocation.id,
+        error: error instanceof Error ? error.message : String(error),
+    })
+}
+
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
     help: 'SES API responses classified as throttle/rate-limit. Sustained nonzero rate means the local bucket is set too high vs. the SES quota.',
     labelNames: ['error_code'],
-})
-
-const emailBookkeepingFailuresTotal = new Counter({
-    name: 'cdp_email_bookkeeping_failures_total',
-    help: 'Email bookkeeping failures after the send outcome is known.',
-    labelNames: ['stage'],
 })
 
 /**
@@ -759,17 +760,8 @@ export class EmailService {
             // will actually be captured; `renderWorkflowLogMessage` renders it as the
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
-            if (!isTest && this.messageAssetsService) {
-                try {
-                    assetRow = this.messageAssetsService.buildRowForEmail(invocation, sendParams)
-                } catch (error) {
-                    emailBookkeepingFailuresTotal.inc({ stage: 'message_asset' })
-                    logger.error('Failed to build sent email asset', {
-                        invocationId: invocation.id,
-                        error: error instanceof Error ? error.message : String(error),
-                    })
-                    addLog('warn', 'Email sent, but its saved copy could not be created.')
-                }
+            if (!isTest) {
+                assetRow = this.buildSavedCopy(invocation, sendParams, addLog)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -848,25 +840,7 @@ export class EmailService {
         }
 
         const distinctId = resolveEmailEngagementDistinctId(invocation)
-        let captureEngagementEvents = false
-        if (distinctId && !isTest) {
-            try {
-                captureEngagementEvents = await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(
-                    invocation.teamId
-                )
-            } catch (error) {
-                if (!success) {
-                    throw error
-                }
-                emailBookkeepingFailuresTotal.inc({ stage: 'engagement_config' })
-                logger.error('Failed to read email engagement capture config', {
-                    invocationId: invocation.id,
-                    error: error instanceof Error ? error.message : String(error),
-                })
-                addLog('warn', 'Email sent, but its engagement event could not be recorded.')
-            }
-        }
-        if (distinctId && captureEngagementEvents) {
+        if (distinctId && !isTest && (await this.shouldCaptureEngagementEvents(invocation, addLog))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
@@ -888,6 +862,33 @@ export class EmailService {
         }
 
         return result
+    }
+
+    private buildSavedCopy(
+        invocation: CyclotronJobInvocationHogFunction,
+        sendParams: CyclotronInvocationQueueParametersEmailType,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): MessageAssetRow | null {
+        try {
+            return this.messageAssetsService?.buildRowForEmail(invocation, sendParams) ?? null
+        } catch (error) {
+            logBookkeepingFailure(invocation, 'Failed to build the saved copy of a sent email', error)
+            addLog('warn', 'Email sent, but its saved copy could not be created.')
+            return null
+        }
+    }
+
+    private async shouldCaptureEngagementEvents(
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<boolean> {
+        try {
+            return await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId)
+        } catch (error) {
+            logBookkeepingFailure(invocation, 'Failed to read the email engagement capture setting', error)
+            addLog('warn', 'Could not read the engagement setting, so no engagement event was recorded for this email.')
+            return false
+        }
     }
 
     /**

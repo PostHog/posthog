@@ -2146,7 +2146,7 @@ describe('EmailService', () => {
             },
             {
                 stage: 'reading the engagement setting',
-                warning: 'Email sent, but its engagement event could not be recorded.',
+                warning: 'Could not read the engagement setting, so no engagement event was recorded for this email.',
                 breakBookkeeping: () => {
                     jest.spyOn(
                         (service as any).teamWorkflowsConfigService,
@@ -2166,6 +2166,27 @@ describe('EmailService', () => {
             expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
             expect(result.logs).toContainEqual(expect.objectContaining({ level: 'warn', message: warning }))
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('records a failed send as failed when the engagement setting read also fails', async () => {
+            sendEmailSpy.mockRejectedValue(new Error('SES rejected the email'))
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockRejectedValue(
+                new Error('Engagement config fault')
+            )
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toContain('SES rejected the email')
+            expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
+            expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+            expect(result.capturedPostHogEvents).toEqual([])
+            expect(result.logs).toContainEqual(
+                expect.objectContaining({
+                    level: 'warn',
+                    message:
+                        'Could not read the engagement setting, so no engagement event was recorded for this email.',
+                })
+            )
         })
     })
 })
