@@ -1,6 +1,6 @@
 import type { Runtime } from '@/core/runtime'
 
-import type { StoreChoice, StoredSecret } from './credential-store'
+import { hostUrl, type StoreChoice, type StoredSecret } from './credential-store'
 import type { LoginRecord } from './settings'
 
 // What logging out did in PostHog.
@@ -37,12 +37,8 @@ export class PersonalApiKey implements Credential {
     constructor(
         readonly host: string,
         readonly projectId: string,
-        readonly apiKey: string
+        readonly token: string
     ) {}
-
-    get token(): string {
-        return this.apiKey
-    }
 
     async fresh(): Promise<Credential> {
         return this
@@ -52,12 +48,12 @@ export class PersonalApiKey implements Credential {
     async logout(): Promise<LogoutOutcome> {
         return {
             revoked: null,
-            revokeUrl: new URL('settings/user-api-keys', `${this.host.replace(/\/+$/, '')}/`).toString(),
+            revokeUrl: hostUrl(this.host, 'settings/user-api-keys').toString(),
         }
     }
 
     secret(): StoredSecret {
-        return { apiKey: this.apiKey }
+        return { apiKey: this.token }
     }
 
     record(store: StoreChoice): LoginRecord {

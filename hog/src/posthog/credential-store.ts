@@ -21,6 +21,8 @@ export type StoreChoice = Exclude<StoreKind, 'memory'>
 // this interface, so each store behaves the same to them.
 export interface CredentialStore {
     readonly kind: StoreKind
+    // The file that holds the secrets. Null for a store that isn't a file.
+    readonly path: string | null
     read(host: string): Promise<StoredSecret | undefined>
     write(host: string, secret: StoredSecret): Promise<void>
     // Resolves to false when the store held nothing for the host.
@@ -39,13 +41,22 @@ export function hostKey(host: string): string {
     return URL.canParse(host) ? new URL(host).origin : host
 }
 
+export function trimHost(host: string): string {
+    return host.replace(/\/+$/, '')
+}
+
+// Keeps the path a self-hosted PostHog can sit under, such as https://example.com/posthog.
+export function hostUrl(host: string, path: string): URL {
+    return new URL(path, `${trimHost(host)}/`)
+}
+
 // A stored value hog doesn't recognize, such as one a later version wrote, reads as no login.
 function parseSecret(value: unknown): StoredSecret | undefined {
     const item = value as Record<string, unknown> | null
     return typeof item?.apiKey === 'string' ? { apiKey: item.apiKey } : undefined
 }
 
-function parseJson(text: string): unknown {
+export function parseJson(text: string): unknown {
     try {
         return JSON.parse(text)
     } catch {
@@ -55,6 +66,7 @@ function parseJson(text: string): unknown {
 
 export class MemoryStore implements CredentialStore {
     readonly kind = 'memory'
+    readonly path = null
     private readonly items = new Map<string, StoredSecret>()
 
     async read(host: string): Promise<StoredSecret | undefined> {
@@ -171,6 +183,7 @@ async function keychainCall<T>(runtime: Runtime, operation: () => Promise<T>): P
 
 export class KeychainStore implements CredentialStore {
     readonly kind = 'keychain'
+    readonly path = null
 
     constructor(private readonly runtime: Runtime) {}
 

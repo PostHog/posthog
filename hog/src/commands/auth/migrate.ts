@@ -2,8 +2,8 @@ import { defineCommand } from '@/core/command'
 import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { PersonalApiKey } from '@/posthog/credential'
-import type { StoreChoice } from '@/posthog/credential-store'
-import { checkApiKey, checkHost, checkProjectId, DEFAULT_HOST, legacyCredentialsPath } from '@/posthog/credentials'
+import { parseJson, trimHost, type StoreChoice } from '@/posthog/credential-store'
+import { checkApiKey, checkHost, checkProjectId, DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
 import { saveLogin } from '@/posthog/login'
 
 type MigrateResult =
@@ -32,7 +32,7 @@ export default defineCommand({
 
     async run({ ctx }): Promise<MigrateResult> {
         const { runtime } = ctx
-        const legacyFile = legacyCredentialsPath(runtime)
+        const legacyFile = posthogFile(runtime, 'credentials.json')
         let text: string
         try {
             text = await runtime.readFile(legacyFile)
@@ -42,15 +42,10 @@ export default defineCommand({
             }
             throw error
         }
-        let stored: { token?: unknown; env_id?: unknown; host?: unknown } | undefined
-        try {
-            stored = JSON.parse(text)
-        } catch {
-            stored = undefined
-        }
+        const stored = parseJson(text) as { token?: unknown; env_id?: unknown; host?: unknown } | null | undefined
         const apiKey = typeof stored?.token === 'string' ? stored.token : ''
         const projectId = stored?.env_id === undefined ? '' : String(stored.env_id)
-        const host = (typeof stored?.host === 'string' ? stored.host : DEFAULT_HOST).replace(/\/+$/, '')
+        const host = trimHost(typeof stored?.host === 'string' ? stored.host : DEFAULT_HOST)
         const problem = checkApiKey(apiKey) ?? checkProjectId(projectId) ?? checkHost(host)
         if (problem) {
             throw new HogError(
