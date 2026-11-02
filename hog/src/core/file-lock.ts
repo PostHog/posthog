@@ -64,7 +64,10 @@ export async function withFileLock<T>(runtime: Runtime, name: string, work: () =
             }
             await runtime.writePrivateFile(lock, JSON.stringify({ id, createdAt: runtime.now() }))
         }
-    })()
+    })().catch(() => {
+        // A failed refresh only stops the refreshing. The lock may then look abandoned after
+        // LOCK_STALE_MS, which is the behavior without refreshing, and the work keeps going.
+    })
     try {
         return await work()
     } finally {
