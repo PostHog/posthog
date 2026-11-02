@@ -46,6 +46,7 @@ jobs:
                   sparse-checkout: |
                       /.github/actions/setup-uv/
                       /bin/hobby-ci.py
+                      /pyproject.toml
                   sparse-checkout-cone-mode: false
 
             - name: Install uv
