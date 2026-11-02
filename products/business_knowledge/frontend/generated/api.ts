@@ -22,6 +22,7 @@ import type {
     GapActionApi,
     GapTopicActionApi,
     GapTopicActionResultApi,
+    KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
     KnowledgeLibraryApi,
@@ -844,4 +845,22 @@ export const businessKnowledgeSourcesTextRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getBusinessKnowledgeSourcesAvailabilityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/sources/availability/`
+}
+
+/**
+ * Whether the project has any source and whether this environment has any selected GitHub repository.
+ * @summary Check whether business knowledge has content
+ */
+export const businessKnowledgeSourcesAvailabilityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeAvailabilityApi> => {
+    return apiMutator<KnowledgeAvailabilityApi>(getBusinessKnowledgeSourcesAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

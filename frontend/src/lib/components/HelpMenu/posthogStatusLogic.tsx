@@ -1,10 +1,10 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import type { NormalizedStatus } from 'lib/lemon-ui/LemonToast/incidentStatus'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { FakeStatusOverride } from '../Superpowers/superpowersLogic'
-import type { NormalizedStatus } from './incidentStatus'
 import { incidentStatusLogic } from './incidentStatusLogic'
 
 export type PostHogStatusType = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
@@ -57,10 +57,7 @@ export const posthogStatusLogic = kea<posthogStatusLogicType>([
         ],
     }),
     selectors({
-        postHogStatus: [
-            (s) => [s.status],
-            (status: import('./incidentStatus').NormalizedStatus): PostHogStatusType => status,
-        ],
+        postHogStatus: [(s) => [s.status], (status: NormalizedStatus): PostHogStatusType => status],
         isFakeStatus: [
             (s) => [s.superpowersEnabled, s.fakeStatusOverride],
             (

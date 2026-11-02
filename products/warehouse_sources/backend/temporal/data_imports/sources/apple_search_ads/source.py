@@ -91,6 +91,10 @@ class AppleSearchAdsSource(
         return ExternalDataSourceType.APPLESEARCHADS
 
     @property
+    def credential_kind(self) -> str | None:
+        return "apple-ads"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The stored private key is sent against whichever ad account (Platform API) or
         # organization (v5) is configured, so changing either retargets the saved credential at a
@@ -255,6 +259,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Report start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

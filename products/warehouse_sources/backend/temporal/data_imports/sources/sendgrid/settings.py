@@ -27,7 +27,9 @@ IncrementalParamFormat = Literal["epoch", "date"]
 # - "array":       the rows are the JSON body itself, or the array under `data_key`.
 # - "daily_stats": nested `[{date, stats: [{metrics: {...}}]}]` that flattens to one row per
 #                  metrics bucket with `date` merged in (the /stats family).
-ResponseShape = Literal["array", "daily_stats"]
+# - "category_stats": the same nesting, flattened to one row per date with the requested
+#                  `category` merged in (category_stats).
+ResponseShape = Literal["array", "daily_stats", "category_stats"]
 
 # /stats requires `start_date` on every request, so the first sync (no cursor yet) backfills this
 # far back. Daily aggregation means one row per day, so a year is cheap and gives enough history to
@@ -60,8 +62,9 @@ class SendGridEndpointConfig:
     response_shape: ResponseShape = "array"
     # Order rows arrive in across the whole sync. The Email Activity walk pages newest to oldest,
     # so it declares "desc" and the pipeline defers the incremental watermark to the end of a
-    # successful run instead of checkpointing it per batch.
-    sort_mode: Literal["asc", "desc"] = "asc"
+    # successful run instead of checkpointing it per batch. None when rows come one parent at a
+    # time, so they form no single ordered series.
+    sort_mode: Optional[Literal["asc", "desc"]] = "asc"
     # False for tables whose sync needs grants beyond what source creation validated: the schema
     # picker and one-shot source creation leave them unselected until the user opts in.
     should_sync_default: bool = True
@@ -73,11 +76,16 @@ class SendGridEndpointConfig:
     required_scope: str = ""
     # Appended to the missing-scope message where granting the scope may not be enough on its own.
     permission_note: Optional[str] = None
-    # Structural requirement of `FanoutEndpointLike` (see common/rest_source/fanout.py); no
-    # fan-out endpoint here syncs incrementally.
+    # Structural requirement of `FanoutEndpointLike` (see common/rest_source/fanout.py).
     default_incremental_field: Optional[str] = None
     # Set on a child endpoint whose path takes one id per row of a parent endpoint.
     fanout: Optional[DependentEndpointConfig] = None
+    # Placeholder parent value to probe the child path with, for a fan-out child that reads with a
+    # different scope than its parent. None probes the parent listing instead.
+    probe_resolve_value: Optional[str] = None
+    # Parent field to percent-encode into the fan-out `resolve_field`, for a parent value that is
+    # free text bound into the child path's query string.
+    encode_parent_field: Optional[str] = None
     # Endpoint to probe for permissions instead of this one, when this response is too large to
     # download on every schema-picker load. It must read with the same scope.
     probe_endpoint: Optional[str] = None
@@ -119,8 +127,8 @@ def _datetime_field(name: str) -> IncrementalField:
 
 # SendGrid (v3) endpoint catalog. The suppression endpoints expose a genuine server-side
 # `start_time` filter (Unix epoch seconds) over their immutable `created` field, so they sync
-# incrementally. `stats` filters on `start_date` (YYYY-MM-DD) over its daily aggregate date and
-# also syncs incrementally. Marketing/asm metadata endpoints offer no timestamp filter and ship as
+# incrementally. `stats` and `category_stats` filter on `start_date` (YYYY-MM-DD) over their daily
+# aggregate date and also sync incrementally. Marketing/asm metadata endpoints offer no timestamp filter and ship as
 # full refresh. See api_inventory.md for the per-endpoint research notes.
 SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
     "bounces": SendGridEndpointConfig(
@@ -189,6 +197,45 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
         response_shape="daily_stats",
         extra_params={"aggregated_by": "day"},
         required_scope="stats.read",
+    ),
+    "categories": SendGridEndpointConfig(
+        name="categories",
+        path="/categories",
+        primary_keys=["category"],
+        pagination="offset",
+        # The documented default. No maximum is documented, and a silently capped page would read
+        # as the short last page and end the walk early.
+        page_size=50,
+        required_scope="categories.read",
+    ),
+    # /categories/stats requires the `categories` param, so it fans out over the category listing
+    # one category per request. The listing reads with a different scope, so the probe hits this
+    # path itself.
+    "category_stats": SendGridEndpointConfig(
+        name="category_stats",
+        path="/categories/stats?categories={category}",
+        primary_keys=["category", "date"],
+        pagination="single",
+        partition_key="date",
+        incremental_fields=[_date_field("date")],
+        incremental_param="start_date",
+        incremental_param_format="date",
+        default_backfill_days=STATS_DEFAULT_BACKFILL_DAYS,
+        response_shape="category_stats",
+        sort_mode=None,
+        extra_params={"aggregated_by": "day"},
+        required_scope="categories.stats.read",
+        default_incremental_field="date",
+        fanout=DependentEndpointConfig(
+            parent_name="categories",
+            resolve_param="category",
+            resolve_field="category_param",
+            include_from_parent=["category"],
+            parent_field_renames={"category": "category"},
+        ),
+        probe_resolve_value="posthog",
+        # Category names are free text, and the resolved value is bound into the path unescaped.
+        encode_parent_field="category",
     ),
     "unsubscribe_groups": SendGridEndpointConfig(
         name="unsubscribe_groups",
@@ -260,6 +307,37 @@ SENDGRID_ENDPOINTS: dict[str, SendGridEndpointConfig] = {
             parent_field_renames={"id": "singlesend_id"},
             # A single send deleted between the parent listing and its child fetch must not fail
             # the whole table.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "automation_stats": SendGridEndpointConfig(
+        name="automation_stats",
+        path="/marketing/stats/automations",
+        # Without `group_by`, step_id is "all" and aggregation is "total", so each automation has
+        # one lifetime-total row. They stay in the key so a per-step or per-day row can never collide.
+        primary_keys=["id", "aggregation", "step_id"],
+        pagination="metadata",
+        data_key="results",
+        page_size=50,
+        required_scope="marketing.read",
+        permission_note=_MARKETING_CAMPAIGNS_NOTE,
+    ),
+    # The API has no automation listing, so the stats rows supply the automation ids.
+    "automation_link_stats": SendGridEndpointConfig(
+        name="automation_link_stats",
+        path="/marketing/stats/automations/{automation_id}/links",
+        primary_keys=["automation_id", "url", "url_location", "step_id"],
+        pagination="metadata",
+        data_key="results",
+        page_size=50,
+        required_scope="marketing.read",
+        permission_note=_MARKETING_CAMPAIGNS_NOTE,
+        fanout=DependentEndpointConfig(
+            parent_name="automation_stats",
+            resolve_param="automation_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "automation_id"},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

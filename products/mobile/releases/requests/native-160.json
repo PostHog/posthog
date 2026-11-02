@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-160",
+    "kind": "native",
+    "runtimeVersion": "1.6.0",
+    "previousRelease": "native-150",
+    "notes": "Chats now open full screen with Back navigation, an always-available New chat button, and a menu to copy a chat link or archive the conversation. Failed copy and archive actions show retry feedback. Insight tables show complete numbers and column headings, scroll horizontally when needed, and preserve readable widths after refreshes. Release retries also recover more safely after interruptions."
+}

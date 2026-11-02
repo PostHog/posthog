@@ -184,6 +184,7 @@ Set the region to match where your Algolia application is hosted. It selects the
                     ),
                     SourceFieldInputConfig(
                         name="index_name",
+                        sync_setting=True,
                         label="Index name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

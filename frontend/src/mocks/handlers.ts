@@ -15,7 +15,7 @@ import {
 
 import { HttpResponse } from 'msw'
 
-import { STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
+import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
@@ -102,6 +102,16 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/events_retention/': {
+            retention_months: null,
+            retained_from: null,
+            docs_url: 'https://posthog.com/docs/data/events-retention',
+            project_retention_months: null,
+            organization_retention_months: null,
+            plan_retention_months: 84,
+            min_retention_months: 1,
+            max_retention_months: 84,
+        },
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/data_catalog/metrics/': EMPTY_PAGINATED_RESPONSE,
@@ -167,6 +177,12 @@ export const defaultMocks: Mocks = {
             },
         ],
         '/api/organizations/:organization_id/roles/': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/events_retention_setting/': {
+            organization_retention_months: null,
+            plan_retention_months: 84,
+            min_retention_months: 1,
+            max_retention_months: 84,
+        },
         '/api/organizations/:organization_id/resource_access': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/members/': toPaginatedResponse([
             MOCK_DEFAULT_ORGANIZATION_MEMBER,
@@ -350,6 +366,11 @@ export const defaultMocks: Mocks = {
         '/api/team_sdk_versions/': teamSdkVersions,
         '/api/environments/:team_id/endpoints/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/signals/source_configs/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/signals/onboarding/': {
+            draft: null,
+            completed_at: null,
+            github_optional_available: false,
+        },
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},

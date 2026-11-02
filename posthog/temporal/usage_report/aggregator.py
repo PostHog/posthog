@@ -11,7 +11,7 @@ for Temporal. Activities import from here.
 
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import chain, groupby, islice
 from typing import Any
 
@@ -29,6 +29,7 @@ from posthog.tasks.usage_report import (
     _get_teams_for_usage_reports,
     convert_team_usage_rows_to_dict,
     has_non_zero_usage,
+    iter_reports_with_offline_evaluation_usage,
     serialize_full_org_report,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
@@ -49,6 +50,8 @@ from posthog.temporal.usage_report.types import (
 )
 from posthog.usage_counters import UsageCounterReport
 
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
+
 _SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_credits_used_in_period",
@@ -56,6 +59,13 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
 )
 _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
+_TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+_MCP_EVENT_COUNT_QUERY_NAME = "teams_with_mcp_event_count_in_period"
+_REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
+_REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS = (
+    "teams_with_replay_vision_scanner_projected_credits",
+    "teams_with_replay_vision_backfill_committed_credits",
+)
 
 
 def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
@@ -100,6 +110,28 @@ def add_pre_logs_distinct_patterns_patch_defaults(
 ) -> None:
     if not any(result.query_name == _LOGS_DISTINCT_PATTERNS_QUERY_NAME for result in query_results):
         all_data[_LOGS_DISTINCT_PATTERNS_QUERY_NAME] = {}
+
+
+def add_pre_transactional_emails_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _TRANSACTIONAL_EMAILS_QUERY_NAME for result in query_results):
+        all_data[_TRANSACTIONAL_EMAILS_QUERY_NAME] = {}
+
+
+def add_pre_mcp_event_count_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _MCP_EVENT_COUNT_QUERY_NAME for result in query_results):
+        all_data[_MCP_EVENT_COUNT_QUERY_NAME] = {}
+
+
+def add_pre_replay_vision_spend_projection_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME for result in query_results):
+        for key in _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS:
+            all_data[key] = {}
 
 
 def iter_chunk_lines(
@@ -206,7 +238,7 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def iter_org_reports(
+def _iter_ingested_org_reports(
     all_data: dict[str, dict[int, int]],
     ctx: WorkflowContext,
     org_user_counts: dict[str, int],
@@ -219,6 +251,20 @@ def iter_org_reports(
             team_report = _get_team_report(all_data, team)
             _add_team_report_to_org_reports(org_reports, team, team_report, ctx.period_start, org_user_counts)
         yield org_reports[org_id]
+
+
+def iter_org_reports(
+    all_data: dict[str, dict[int, int]],
+    ctx: WorkflowContext,
+    org_user_counts: dict[str, int],
+) -> Iterator[OrgReport]:
+    offline_usage = get_offline_evaluation_usage(ctx.period_start, ctx.period_start + timedelta(days=1))
+    yield from iter_reports_with_offline_evaluation_usage(
+        _iter_ingested_org_reports(all_data, ctx, org_user_counts),
+        offline_usage,
+        ctx.period_start,
+        organization_ids=ctx.organization_ids,
+    )
 
 
 def write_org_report_chunks(

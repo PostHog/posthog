@@ -214,6 +214,7 @@ AWS rewrites a whole billing period on each delivery and restates the previous m
                     ),
                     SourceFieldInputConfig(
                         name="prefix",
+                        sync_setting=True,
                         label="S3 path prefix (as set on the export, empty when none)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -222,6 +223,7 @@ AWS rewrites a whole billing period on each delivery and restates the previous m
                     ),
                     SourceFieldInputConfig(
                         name="export_name",
+                        sync_setting=True,
                         label="Export name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -230,6 +232,7 @@ AWS rewrites a whole billing period on each delivery and restates the previous m
                     ),
                     SourceFieldInputConfig(
                         name="first_billing_period",
+                        sync_setting=True,
                         label="First billing period to sync (YYYY-MM)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

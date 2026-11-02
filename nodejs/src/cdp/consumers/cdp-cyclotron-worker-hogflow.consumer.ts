@@ -110,6 +110,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
 
                     failedInvocations.push(item)
+                    this.invocationResultsService.emailStatusService.queueUnavailableRun(item)
 
                     return
                 }

@@ -174,6 +174,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="custom_properties",
+                        sync_setting=True,
                         label="Customize synced properties",
                         caption="Specify which properties to sync for each schema. Leave empty to use defaults. Changing properties requires a full resync.",
                         default=False,

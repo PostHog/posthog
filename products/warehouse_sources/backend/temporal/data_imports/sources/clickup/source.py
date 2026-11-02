@@ -50,6 +50,10 @@ class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
         return ExternalDataSourceType.CLICKUP
 
     @property
+    def credential_kind(self) -> str | None:
+        return "clickup"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # `workspace_id` selects which ClickUp workspace the stored API token is used against.
         # Editing it on an existing source must force the token to be re-entered — otherwise an

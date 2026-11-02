@@ -2,7 +2,7 @@ import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simpleweb
 import { expectLogic } from 'kea-test-utils'
 
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { useMocks } from '~/mocks/jest'

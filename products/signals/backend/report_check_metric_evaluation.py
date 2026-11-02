@@ -1,25 +1,27 @@
 from __future__ import annotations
 
+import ast
 import json
 import hashlib
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
-from posthog.dataclasses import frozen
 
 from products.signals.backend.report_check_evaluation import evaluate_check_value
 from products.signals.backend.report_check_evidence import (
+    EvidenceCount,
     EvidenceScope,
     EvidenceSource,
     MetricEvidence,
     qualify_metric_evidence,
 )
+from products.signals.backend.report_check_final_candidates import FinalCheck
 from products.signals.backend.report_check_timing import monitoring_metric_query
 from products.signals.backend.report_checks import (
     MetricThresholdConfig,
@@ -30,26 +32,62 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_monitoring_results import MonitoringEvaluation
 
-if TYPE_CHECKING:
-    from products.signals.backend.models import SignalReportCheck
-
 logger = structlog.get_logger(__name__)
 
 
-@frozen
-class FinalMetricCheck:
-    check: SignalReportCheck
-    attempt_id: UUID
-    definition_version: str
-    window_start: datetime
-    window_end: datetime
+def _metric_formula(config: MetricThresholdConfig) -> str | None:
+    assert config.query is not None
+    trends_filter = config.query["source"].get("trendsFilter") or {}
+    if nodes := trends_filter.get("formulaNodes"):
+        formula = nodes[0]["formula"] if len(nodes) == 1 else None
+    elif formulas := trends_filter.get("formulas"):
+        formula = formulas[0] if len(formulas) == 1 else None
+    else:
+        formula = trends_filter.get("formula")
+    return formula if isinstance(formula, str) else None
+
+
+def _rate_denominator_index(config: MetricThresholdConfig) -> int | None:
+    assert config.query is not None
+    series = config.query["source"]["series"]
+    if len(series) != 2 or any(
+        entity.get("math") not in (None, "total")
+        or entity.get("math_property") == "$session_duration"
+        or entity.get("math_property_type") == "session_properties"
+        for entity in series
+    ):
+        return None
+    formula = _metric_formula(config)
+    if formula is None:
+        return None
+    tree = ast.parse(formula.strip().lower())
+    if len(tree.body) != 1 or not isinstance(tree.body[0], ast.Expr):
+        return None
+    expression = tree.body[0].value
+    match expression:
+        case (
+            ast.BinOp(left=ratio, op=ast.Mult(), right=ast.Constant(value=100))
+            | ast.BinOp(left=ast.Constant(value=100), op=ast.Mult(), right=ratio)
+        ):
+            expression = ratio
+    match expression:
+        case ast.BinOp(left=ast.Name(id=numerator), op=ast.Div(), right=ast.Name(id=denominator)) if {
+            numerator,
+            denominator,
+        } == {"a", "b"}:
+            return ord(denominator) - ord("a")
+    return None
 
 
 def metric_evidence_source(config: MetricThresholdConfig) -> EvidenceSource:
     assert config.query is not None
     source = config.query["source"]
     series = source["series"]
-    if len(series) != 1 or source.get("samplingFactor") not in (None, 1):
+    if source.get("samplingFactor") not in (None, 1):
+        return "unsupported"
+    if _rate_denominator_index(config) is not None:
+        return "rate"
+    if len(series) != 1:
         return "unsupported"
     if any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes")):
         return "unsupported"
@@ -72,7 +110,7 @@ def metric_evidence_source(config: MetricThresholdConfig) -> EvidenceSource:
 
 
 def evaluate_final_metric(
-    member: FinalMetricCheck, *, submission_id: UUID, evaluated_at: datetime, deadline: float
+    member: FinalCheck, *, submission_id: UUID, evaluated_at: datetime, deadline: float
 ) -> MonitoringEvaluation:
     check = member.check
     evaluation = MonitoringEvaluation(
@@ -133,8 +171,23 @@ def evaluate_final_metric(
         )
     assert config.query is not None
     query = monitoring_metric_query(config.query, start=member.window_start, cutoff=member.window_end)
-    query_hash = hashlib.sha256(json.dumps(query, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    references = (f"signal-report-check:{check.id}:{member.definition_version}", f"trends-query:sha256:{query_hash}")
+    queries = [query]
+    formula = None
+    denominator_index = None
+    if source == "rate":
+        denominator_index = _rate_denominator_index(config)
+        assert denominator_index is not None
+        formula = _metric_formula(config)
+        query = deepcopy(query)
+        for key in ("formula", "formulas", "formulaNodes"):
+            query["source"]["trendsFilter"].pop(key, None)
+        queries.append(query)
+    query_references = (
+        "trends-query:sha256:"
+        + hashlib.sha256(json.dumps(item, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        for item in queries
+    )
+    references = (f"signal-report-check:{check.id}:{member.definition_version}", *query_references)
     try:
         measurement = measure_metric(
             query,
@@ -144,6 +197,7 @@ def evaluate_final_metric(
             require_full_timeout=True,
             ch_user=ClickHouseUser.SIGNALS,
             workload=Workload.OFFLINE,
+            formula=formula,
         )
         if measurement.measured_at < member.window_end:
             return replace(
@@ -154,7 +208,16 @@ def evaluate_final_metric(
                 explanation="The query result predates the end of the observation window. A fresh result is needed.",
                 evidence_refs=references,
             )
-        qualification = qualify_metric_evidence(MetricEvidence(scope=scope, source=source, value=measurement.value))
+        denominator = None
+        if denominator_index is not None:
+            counts = measurement.source_values
+            if counts is None or len(counts) != 2 or any(count < 0 or count % 1 != 0 for count in counts):
+                raise ValueError("A rate needs two non-negative integer counts.")
+            denominator = EvidenceCount(scope=scope, value=int(counts[denominator_index]))
+        qualification = qualify_metric_evidence(
+            MetricEvidence(scope=scope, source=source, value=measurement.value, denominator=denominator),
+            minimum_denominator=1 if source == "rate" else None,
+        )
         comparison = monitoring_comparison(config, member.window_end - member.window_start)
         verdict = evaluate_check_value(comparison=comparison, observed_value=measurement.value, subject=check.title)
     except MetricQueryBudgetExhausted:
@@ -170,10 +233,14 @@ def evaluate_final_metric(
             evidence_refs=references,
         )
     explanation = f"{verdict.explanation}. Query measured at {measurement.measured_at.isoformat()}."
-    if qualification.status == "insufficient":
+    if qualification.reason == "empty_denominator":
+        explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. The rate's denominator was zero in the observation window; the value cannot establish success or failure."
+    elif qualification.status == "insufficient":
         explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. Relevant activity for this metric's population has not been established; the value cannot establish success or failure."
     elif qualification.status == "unsupported":
         explanation = f"The final value was {measurement.value}, measured at {measurement.measured_at.isoformat()}. This value cannot establish success or failure under the metric's evidence policy."
+    if denominator is not None:
+        explanation += f" Denominator: {denominator.value}, measured at {measurement.measured_at.isoformat()}."
     return replace(
         evaluation,
         evidence_status=qualification.status,

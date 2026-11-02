@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -17,22 +18,50 @@ _DT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
+class HistoryWindow:
+    """How a history endpoint that takes a ``start``/``end`` Unix range is read."""
+
+    # Longest range one request covers. Each window is its own billed call.
+    size: timedelta
+    # Where a sync with no watermark starts: the first date the vendor has data for, or a lookback
+    # from the sync time when how far back the data goes depends on the customer's plan.
+    earliest_start: Optional[datetime] = None
+    lookback: Optional[timedelta] = None
+
+
+@dataclass(frozen=True)
 class OpenWeatherEndpointConfig:
     name: str
     path: str
     # Where rows live in the JSON response. ``None`` means the response *is* the row
-    # (current weather), ``"list"`` means rows are the elements of the ``list`` array
-    # (forecast, air pollution).
+    # (current weather) or a list of rows (geocoding), ``"list"`` means rows are the elements
+    # of the ``list`` array (forecast, air pollution).
     data_key: Optional[str]
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_DT_INCREMENTAL_FIELDS))
     # ``dt`` alone is not unique table-wide because rows aggregate across every configured
     # location, so the requested coordinates are part of the key.
     primary_keys: list[str] = field(default_factory=lambda: ["lat", "lon", "dt"])
-    # Stable datetime column used for partitioning (derived from ``dt``).
-    partition_key: str = "dt_iso"
+    # Unix timestamp column each row is stamped with an ISO 8601 copy of (``<field>_iso``).
+    timestamp_field: Optional[str] = "dt"
+    # Stable datetime column used for partitioning (derived from ``timestamp_field``).
+    partition_key: Optional[str] = "dt_iso"
     should_sync_default: bool = True
     description: Optional[str] = None
+    # Host serving the path, when it is not the main API host.
+    base_url: Optional[str] = None
+    extra_params: dict[str, Any] = field(default_factory=dict)
+    # Set for endpoints that take a ``start``/``end`` range; these filter server-side on ``dt``,
+    # so they support true incremental sync.
+    history_window: Optional[HistoryWindow] = None
+    supports_append: bool = True
+    # The row carries the coordinates of the place it describes (geocoding). They move to
+    # ``place_lat``/``place_lon`` so the requested ``lat``/``lon`` key stays stable.
+    has_place_coords: bool = False
+
+    @property
+    def supports_incremental(self) -> bool:
+        return self.history_window is not None
 
 
 # Opaque vendor version labels (never parsed or ordered). The Current Weather, 5 Day / 3 Hour
@@ -42,7 +71,27 @@ API_VERSION_2_5 = "2.5"
 API_VERSION_3_0 = "3.0"
 API_VERSION_4_0 = "4.0"
 
-# The 2.5 general-purpose APIs. Each endpoint is its own request per location per sync.
+# The Geocoding API is versioned on its own (`1.0`) and does not depend on the pinned product, so
+# every version exposes it as a lookup table over the configured locations.
+_SHARED_ENDPOINTS: dict[str, OpenWeatherEndpointConfig] = {
+    "geocoding": OpenWeatherEndpointConfig(
+        name="geocoding",
+        path="/geo/1.0/reverse",
+        data_key=None,
+        extra_params={"limit": 1},
+        incremental_fields=[],
+        primary_keys=["lat", "lon"],
+        timestamp_field=None,
+        partition_key=None,
+        supports_append=False,
+        has_place_coords=True,
+        description="Place name, state and country for each configured location, from reverse geocoding. "
+        "One row per location.",
+    ),
+}
+
+# The 2.5 general-purpose APIs. Each endpoint is its own request per location per sync, except the
+# history endpoints, which make one request per window per location.
 OPENWEATHER_ENDPOINTS: dict[str, OpenWeatherEndpointConfig] = {
     "current_weather": OpenWeatherEndpointConfig(
         name="current_weather",
@@ -69,6 +118,30 @@ OPENWEATHER_ENDPOINTS: dict[str, OpenWeatherEndpointConfig] = {
         data_key="list",
         description="Hourly air-quality forecast for each configured location.",
     ),
+    "air_pollution_history": OpenWeatherEndpointConfig(
+        name="air_pollution_history",
+        path="/data/2.5/air_pollution/history",
+        data_key="list",
+        # The API documents no range limit per call; 30 days keeps each response a few hundred rows.
+        history_window=HistoryWindow(size=timedelta(days=30), earliest_start=datetime(2020, 11, 27, tzinfo=UTC)),
+        description="Hourly historical air quality for each configured location, from 27 November 2020. "
+        "One row per hour per location.",
+    ),
+    "weather_history": OpenWeatherEndpointConfig(
+        name="weather_history",
+        path="/data/2.5/history/city",
+        base_url="https://history.openweathermap.org",
+        data_key="list",
+        extra_params={"type": "hour"},
+        # One week is the most the API returns per call. How far back data goes depends on the
+        # subscription, so the first sync reads only the last week and later syncs extend it.
+        history_window=HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)),
+        # Sold separately, so a key that passes validation can still get a 401 here.
+        should_sync_default=False,
+        description="Hourly historical weather observations for each configured location. The first sync reads "
+        "the last 7 days and each sync after it adds the hours since. Needs a History API subscription.",
+    ),
+    **_SHARED_ENDPOINTS,
 }
 
 # The One Call API 3.0 serves current weather plus forecasts from a single `/data/3.0/onecall`
@@ -83,6 +156,12 @@ OPENWEATHER_ENDPOINTS_3_0: dict[str, OpenWeatherEndpointConfig] = {
         description="Current weather snapshot for each configured location, from the One Call API 3.0. "
         "One row per location per sync; use append sync to accumulate a time series.",
     ),
+    "minutely": OpenWeatherEndpointConfig(
+        name="minutely",
+        path=_ONECALL_PATH,
+        data_key="minutely",
+        description="Minute-by-minute precipitation forecast for the next hour. One row per minute per location.",
+    ),
     "hourly": OpenWeatherEndpointConfig(
         name="hourly",
         path=_ONECALL_PATH,
@@ -95,6 +174,21 @@ OPENWEATHER_ENDPOINTS_3_0: dict[str, OpenWeatherEndpointConfig] = {
         data_key="daily",
         description="Daily weather forecast (8 days) for each configured location. One row per day.",
     ),
+    "alerts": OpenWeatherEndpointConfig(
+        name="alerts",
+        path=_ONECALL_PATH,
+        data_key="alerts",
+        # Alerts carry no `dt` or id; an issuer's alert is identified by its event and start time.
+        # Full refresh only: an alert stays in the response while active, so append would insert it again
+        # on every sync.
+        incremental_fields=[],
+        primary_keys=["lat", "lon", "sender_name", "event", "start"],
+        timestamp_field="start",
+        partition_key="start_iso",
+        supports_append=False,
+        description="Government weather alerts active at sync time for each configured location. One row per alert.",
+    ),
+    **_SHARED_ENDPOINTS,
 }
 
 # The One Call API 4.0 splits the 3.0 response into one endpoint per timeline step, so each table
@@ -139,6 +233,7 @@ OPENWEATHER_ENDPOINTS_4_0: dict[str, OpenWeatherEndpointConfig] = {
         data_key="data",
         description="Daily weather forecast timeline. One row per day, up to 10 days ahead of the sync time.",
     ),
+    **_SHARED_ENDPOINTS,
 }
 
 OPENWEATHER_ENDPOINTS_BY_VERSION: dict[str, dict[str, OpenWeatherEndpointConfig]] = {

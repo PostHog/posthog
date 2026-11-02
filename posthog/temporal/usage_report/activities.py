@@ -27,7 +27,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
     add_pre_logs_distinct_patterns_patch_defaults,
+    add_pre_mcp_event_count_patch_defaults,
+    add_pre_replay_vision_spend_projection_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
+    add_pre_transactional_emails_patch_defaults,
     get_org_user_counts,
     iter_org_reports,
     load_all_data,
@@ -86,7 +89,6 @@ SQS_QUEUE_NAME = "usage_reports_v2"
 async def plan_usage_counters(ctx: WorkflowContext) -> UsageCounterPlan:
     return await sync_to_async(UsageCounterService().resolve_plan, thread_sensitive=False)(
         DayRange(start=ctx.period_start, end=ctx.period_end),
-        caller="usage_reports_v2",
         complete=ctx.report_completeness == "complete",
     )
 
@@ -249,6 +251,9 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 all_data = load_all_data(inputs.query_results)
                 add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
                 add_pre_logs_distinct_patterns_patch_defaults(all_data, inputs.query_results)
+                add_pre_transactional_emails_patch_defaults(all_data, inputs.query_results)
+                add_pre_mcp_event_count_patch_defaults(all_data, inputs.query_results)
+                add_pre_replay_vision_spend_projection_patch_defaults(all_data, inputs.query_results)
                 check_cancelled()
                 counter_report = load_usage_counter_report(inputs)
                 all_data.update({field: dict(rows) for field, rows in counter_report.counts.items()})

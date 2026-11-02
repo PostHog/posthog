@@ -23,6 +23,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING, LEGACY_HISTORY_NAMING
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
+    HistoryTableNameTakenError,
+    history_naming,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
@@ -374,6 +379,71 @@ class TestRegisterCdcCompanionTableStamp:
         assert history is not None
         assert history.active == "orders_cdc__query_a"
         assert history.active_job_id == str(job.id)
+
+    @pytest.mark.parametrize(
+        ("resource_name", "validity", "expected"),
+        [
+            pytest.param("orders_history", HISTORY_NAMING, HISTORY_NAMING, id="new_table"),
+            pytest.param("orders_cdc", LEGACY_HISTORY_NAMING, LEGACY_HISTORY_NAMING, id="legacy_table"),
+        ],
+    )
+    def test_the_next_run_reads_the_naming_the_table_was_created_with(self, team, resource_name, validity, expected):
+        # Without the stamp, the next run would take its own `_history` table for another table's.
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name=resource_name,
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder=f"{resource_name}__query_a",
+                table_schema_dict={"id": "Int64", validity.valid_from: "DateTime", validity.valid_to: "DateTime"},
+            )
+
+        assert history_naming(ExternalDataSchema.objects.get(id=schema.id)) == expected
+
+    def test_does_not_take_the_record_of_a_source_table_with_the_history_name(self, team):
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        sibling_table = DataWarehouseTable.objects.create(
+            team=team,
+            name=build_table_name(source, "orders_cdc"),
+            format=DataWarehouseTableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders_cdc__query_a",
+            external_data_source=source,
+        )
+        ExternalDataSchema.objects.create(name="orders_cdc", team=team, source=source, table=sibling_table)
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with pytest.raises(HistoryTableNameTakenError):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_cdc",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_b",
+            )
+
+        sibling_table.refresh_from_db()
+        assert (sibling_table.url_pattern, sibling_table.is_history_table) == ("s3://bucket/orders_cdc__query_a", False)
 
     def test_records_the_companion_size_on_the_companion_table(self, team):
         # In `both` mode the schema's table is the snapshot table. The companion size must land on

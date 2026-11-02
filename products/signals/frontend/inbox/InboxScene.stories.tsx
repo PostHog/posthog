@@ -181,6 +181,11 @@ export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
 }
 
+export const Sources: Story = {
+    decorators: [routeTo(urls.inbox('sources'))],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
     decorators: [
@@ -228,45 +233,23 @@ export const InstallingSelfDriving: Story = {
 
 // Fresh project: nothing watching and nothing in the inbox → the full-pane welcome page (no tab row).
 export const SelfDrivingOnboarding: Story = {
-    name: 'Control onboarding with Wizard and manual setup',
-    parameters: {
-        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
-    },
+    name: 'Welcome page with GitHub and manual setup',
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
-                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'control' },
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null },
             },
             post: {
-                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'control' },
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null },
             },
         }),
     ],
 }
 
-export const FocusedOnboarding: Story = {
-    name: 'Guided onboarding with manual setup only',
-    parameters: {
-        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' },
-    },
-    decorators: [
-        ...(Array.isArray(SelfDrivingOnboarding.decorators) ? SelfDrivingOnboarding.decorators : []),
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'test-ui' },
-            },
-            post: {
-                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'test-ui' },
-            },
-        }),
-    ],
-}
-
-export const FocusedOnboardingComplete: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+export const GuidedOnboardingComplete: Story = {
     decorators: [
         ...(Array.isArray(Empty.decorators) ? Empty.decorators : []),
         mswDecorator({
@@ -282,7 +265,6 @@ export const FocusedOnboardingComplete: Story = {
                         implementation_priority: 'P1',
                     },
                     completed_at: '2026-06-11T10:00:00Z',
-                    variant: 'test-ui',
                 },
             },
         }),
@@ -309,13 +291,11 @@ export const SelfDrivingVerdictPending: Story = {
     ],
 }
 
-// Had self-driving before (reports exist) but nothing is watching now → the sleek re-enable banner
-// over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
-// inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.
+// Had self-driving before (reports exist) but nothing is watching now and the in-app setup never
+// completed → the sleek re-enable banner over the normal inbox, so existing work stays accessible.
+// Reports are mocked explicitly (not inherited) so "existing work" is unambiguous and the banner –
+// not the takeover – is shown.
 export const SelfDrivingPaused: Story = {
-    parameters: {
-        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
-    },
     play: async ({ canvas }) => {
         await expect(canvas.findByText('Self-driving is paused')).resolves.toBeVisible()
     },
@@ -328,11 +308,7 @@ export const SelfDrivingPaused: Story = {
                 ],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
-                '/api/projects/:id/signals/onboarding/': {
-                    draft: null,
-                    completed_at: '2026-06-11T10:00:00Z',
-                    variant: 'control',
-                },
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null },
             },
         }),
     ],

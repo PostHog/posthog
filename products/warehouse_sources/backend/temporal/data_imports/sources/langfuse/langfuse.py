@@ -335,6 +335,24 @@ def _coerce_float_fields(items: list[dict[str, Any]], float_fields: frozenset[st
                 item[field_name] = float(value)
 
 
+def _split_score_values(items: list[dict[str, Any]]) -> None:
+    """Keep score `value` numeric and move text values to `stringValue`, in place.
+
+    The type is read from the value and not from dataType, so a row without dataType still loads.
+    Booleans become 1.0 or 0.0 with "True" or "False" in `stringValue`, as in the legacy scores API.
+    """
+    for item in items:
+        value = item.get("value")
+        if isinstance(value, bool):
+            item["value"] = float(value)
+            item["stringValue"] = str(value)
+        elif isinstance(value, int | float):
+            item["value"] = float(value)
+        elif isinstance(value, str):
+            item["value"] = None
+            item["stringValue"] = value
+
+
 def _list_parent_ids(
     fetch_page: Callable[[str, dict[str, Any]], dict[str, Any]],
     url: str,
@@ -488,6 +506,8 @@ def get_rows(
         pages_fetched += 1
         items = data.get("data") or []
         _coerce_float_fields(items, config.float_fields)
+        if config.split_score_values:
+            _split_score_values(items)
         meta = data.get("meta") or {}
 
         if config.pagination == "page":

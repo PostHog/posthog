@@ -35,6 +35,7 @@ KAFKA_LOG_ENTRIES = f"{KAFKA_PREFIX}log_entries{SUFFIX}"
 KAFKA_LOG_ENTRIES_V2_TEST = f"{KAFKA_PREFIX}log_entries_v2_test{SUFFIX}"
 KAFKA_HOG_INVOCATION_RESULTS = f"{KAFKA_PREFIX}clickhouse_hog_invocation_results{SUFFIX}"
 KAFKA_MESSAGE_ASSETS = f"{KAFKA_PREFIX}clickhouse_message_assets{SUFFIX}"
+KAFKA_EMAIL_STATUS = f"{KAFKA_PREFIX}clickhouse_email_status{SUFFIX}"
 
 KAFKA_CLICKHOUSE_HEATMAP_EVENTS = f"{KAFKA_PREFIX}clickhouse_heatmap_events{SUFFIX}"
 KAFKA_CLICKHOUSE_AI_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_ai_events_json{SUFFIX}"

@@ -6,7 +6,7 @@ import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery } from '~/queries/schema/node-guards'
 
 export function HideIncompleteConversionWindowPeriodsFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

@@ -43,7 +43,6 @@ export const WithoutSetup: Story = {
     parameters: {
         featureFlags: {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: false,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: false,
         },
     },
 }

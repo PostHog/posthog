@@ -10,15 +10,16 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
-import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
+import { isInsightQueryWithBreakdown, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/schema/node-guards'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { isInsightQueryWithBreakdown, isInsightQueryWithSeries, isInsightVizNode } from '~/queries/utils'
 import type { DashboardTile, InsightLogicProps, IntervalType } from '~/types'
+
+import { TaxonomicBreakdownFilter } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 
 import { tileLogic } from './tileLogic'
 

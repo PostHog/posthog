@@ -40,9 +40,9 @@ const EXPERIMENT_HEALTH = {
     ],
     checks: [
         { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'finding', reason: null },
-        { key: 'flag_state', name: 'Feature flag rollout', status: 'passed', reason: null },
-        { key: 'flag_history', name: 'Feature flag history', status: 'passed', reason: null },
-        { key: 'no_metric', name: 'Metrics', status: 'passed', reason: null },
+        { key: 'flag_state', name: "Flag state that doesn't match the experiment", status: 'passed', reason: null },
+        { key: 'flag_history', name: 'Unreadable flag history', status: 'passed', reason: null },
+        { key: 'no_metric', name: 'Metrics not set up', status: 'passed', reason: null },
     ],
 }
 
@@ -83,6 +83,10 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         unknown_count: 0,
         no_access_count: 0,
         exposure_query_fails: false,
+        failures: [],
+    },
+    latest_calculation: {
+        finished_at: '2025-01-27T09:30:00Z',
         failures: [],
     },
     flag_history: {

@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.core.cache import cache
@@ -25,7 +26,7 @@ from posthog.security.url_validation import strip_userinfo
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
-from ..llm.decisions import DecisionClient, decision_evaluations_enabled
+from ..llm.decisions import DecisionClient
 from ..llm.providers.anthropic import (
     DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE,
     error_field_for_validation_message as anthropic_error_field,
@@ -81,10 +82,6 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
 
 def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    if provider == LLMProvider.SYSTEM_ONE and not decision_evaluations_enabled(
-        team_id, base_url=kwargs.get("base_url", "")
-    ):
-        raise exceptions.PermissionDenied("System One evaluations are not available for this project.")
     try:
         return Client.validate_key(provider, api_key, **kwargs)
     except Exception:
@@ -119,6 +116,14 @@ _PROVIDER_CONFIG_FIELDS: dict[str, tuple[str, ...]] = {
 _ALL_PROVIDER_CONFIG_FIELDS: tuple[str, ...] = tuple(
     {field for fields in _PROVIDER_CONFIG_FIELDS.values() for field in fields}
 )
+
+
+def _is_typesafe_host(url: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
+    except (ValueError, UnicodeError):
+        return False
+    return host == "typesafe.ai" or host.endswith(".typesafe.ai")
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -208,6 +213,11 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 return DecisionClient.normalize_base_url(value)
             except ValueError as error:
                 raise serializers.ValidationError(str(error)) from error
+        # TypeSafe is not a subprocessor. Only a team's own System One connection may send data there.
+        if _is_typesafe_host(value):
+            raise serializers.ValidationError(
+                "TypeSafe is not an approved subprocessor. Use a System One connection to send data to it."
+            )
         # `base_url_display` is readable by any project member while the API key is masked, and the
         # URL also reaches exception messages and log lines. A credential typed into this field
         # would leak through all three, so drop it before anything stores or echoes the value.

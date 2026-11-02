@@ -213,8 +213,14 @@ acts on it.
   kebab-case `data-attr` (match the surrounding scene's pattern) — it's how autocapture
   dashboards and Playwright find them. Once shipped it's frozen (see the table above).
 - **New presentational components ship with a story** (handbook rule). Each committed story
-  shows a state that no other story shows. A story adds a light and a dark visual review
-  baseline, and every later change to that surface must re-approve both. A quarantined story's
+  shows a state that no other story shows. By default a story also adds a light and a dark
+  visual review baseline, and every later change to that surface must re-approve both. Keep the
+  snapshot only when the component is shared (used by more than one scene, for example under
+  `lib/` or in quill) or has a visual contract to protect (a layout or state that a regression
+  already broke once). Otherwise set `testOptions: { snapshotBrowsers: [] }`: the runner renders
+  the story and runs its play function, and a render error fails CI
+  ([Snapshots](../../../common/storybook/docs/snapshots.md#themes-browsers-and-charts)). The
+  `test-skip` tag skips the story completely, so it does not fit here. A quarantined story's
   diff does not gate the PR. When your change alters that story, approve it by identifier.
   When it does not, leave the diff alone: it is the flake the quarantine hides
   ([triaging-visual-review-runs](../../../products/visual_review/skills/triaging-visual-review-runs/SKILL.md#quarantined-stories-in-your-run)).
@@ -245,5 +251,7 @@ before/after for the rules above. Read it when reviewing UI diffs.
 - [ ] Renames swept (`git grep` the old name returns nothing); wire strings untouched and pinned
 - [ ] New presentational component has a story; every committed story shows a distinct state,
       and no scratch story is committed
+- [ ] A story snapshots only if its component is shared or has a visual contract to protect;
+      other stories set `snapshotBrowsers: []`
 - [ ] Typecheck/lint cadence per [frontend/src/AGENTS.md](../../../frontend/src/AGENTS.md) —
       full check once at the end, `pnpm --filter=@posthog/frontend fix` before finishing

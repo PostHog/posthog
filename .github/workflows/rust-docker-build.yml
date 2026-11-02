@@ -86,7 +86,9 @@ jobs:
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
             timeout-minutes: 30
+            require-ecr: ${{ vars.CD_DEPLOY_ENABLED == 'true' }}
         secrets:
+            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
             # Deliberately reuses the frontend sourcemap upload key: sourcemaps and
@@ -259,17 +261,23 @@ jobs:
                       }
 
     ordered_image_alias:
-        name: publish ordered image aliases
+        name: publish ordered image aliases (${{ matrix.registry }})
         needs: build-images
         # Freight cadence v2 sorts releases by this tag, so every deployable rust image
         # gets one. Mirrors the posthog_build alias job in container-images-cd.yml,
-        # against ghcr instead of ECR. Best effort: a missing alias delays Freight for
-        # that build and never fails the deploy.
+        # against ghcr and the shared-services ECR. Best effort: a missing alias delays
+        # Freight for that build and never fails the deploy.
+        # One job per registry, so a stalled registry cannot spend the other's timeout.
+        strategy:
+            fail-fast: false
+            matrix:
+                registry: [ghcr, ecr]
         if: ${{ needs.build-images.result == 'success' && needs.build-images.outputs.digests != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         continue-on-error: true
         permissions:
+            id-token: write
             contents: read
             packages: write
 
@@ -344,21 +352,35 @@ jobs:
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Login to ghcr.io
-              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              if: ${{ steps.ordered-release.outputs.tag != '' && matrix.registry == 'ghcr' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Configure AWS credentials for the shared-services ECR
+              id: ecr-credentials
+              if: ${{ steps.ordered-release.outputs.tag != '' && matrix.registry == 'ecr' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to the shared-services ECR
+              id: ecr
+              if: ${{ steps.ecr-credentials.outcome == 'success' }}
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
             - name: Publish and reconcile ordered image aliases
-              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              if: ${{ steps.ordered-release.outputs.tag != '' && (matrix.registry == 'ghcr' || steps.ecr.outcome == 'success') }}
               timeout-minutes: 8
               shell: bash
               env:
                   DIGESTS: ${{ needs.build-images.outputs.digests }}
                   ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
-                  REGISTRY: ghcr.io/posthog/posthog
+                  # The build pushed each digest to both registries, so each gets the alias.
+                  REGISTRY: ${{ matrix.registry == 'ghcr' && 'ghcr.io/posthog/posthog' || steps.ecr.outputs.registry }}
               # Same reconciliation as PostHog/shared-actions container-image-metadata: read
               # the alias before publishing, accept it when it already resolves to this
               # build, and never move it when it resolves elsewhere. Kargo caches the alias
@@ -423,7 +445,7 @@ jobs:
                               failures=$((failures + 1))
                               ;;
                           *)
-                              echo "::error title=Ordered image alias read-back unavailable::${image}:${ORDERED_ALIAS} could not be read back from ghcr."
+                              echo "::error title=Ordered image alias read-back unavailable::${image}:${ORDERED_ALIAS} could not be read back from ${REGISTRY}."
                               failures=$((failures + 1))
                               ;;
                       esac

@@ -12,12 +12,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import { parseCsvParam, parseNumericParam, parseSortParam } from '../utils/urlParams'
 import { newScanner } from './newScanner'
+import { replayFiltersScannerLogic } from './replayFiltersScannerLogic'
 import {
     buildObservationListParams,
     goalSpendChoice,
@@ -30,6 +31,7 @@ import {
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import type { ScannerHandoffFromFilters } from './scannerHandoffFromFilters'
 import {
     consumeScannerHandoffIntent,
     markScannerGoalDraftIntent,
@@ -553,7 +555,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
             expect(draftSpy).not.toHaveBeenCalled()
 
-            markScannerGoalDraftIntent('tell me what to watch')
+            markScannerGoalDraftIntent({ goal: 'tell me what to watch' })
             router.actions.push(urls.replayVisionScannerGoal('new'))
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
             expect(logic.values.goalDraftInput).toEqual('tell me what to watch')
@@ -563,10 +565,87 @@ describe('replayScannerLogic', () => {
             expect(draftSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('a draft intent from the replay filters drafts against its query and spend, and a retry keeps the query', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const query: RecordingsQuery = {
+                kind: NodeKind.RecordingsQuery,
+                filter_test_accounts: true,
+                experiment_exposure: { experiment_id: 11, variant: 'test' },
+            }
+            markScannerGoalDraftIntent({
+                goal: 'find rage clicks',
+                query,
+                spend: { monthlyCreditBudget: 900 },
+                source: 'replay_filters',
+            })
+            router.actions.push(urls.replayVisionScannerGoal('new'))
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal({ goal: 'find rage clicks', spend: { monthlyCreditBudget: 900 } })
+            ).toFinishAllListeners()
+
+            const bodies = await Promise.all(
+                (draftSpy.mock.calls as unknown as [{ request: Request }][]).map(([{ request }]) => request.json())
+            )
+            expect(bodies).toEqual([
+                expect.objectContaining({ query, monthly_credit_budget: 900 }),
+                expect.objectContaining({ query }),
+            ])
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_creation_started',
+                expect.objectContaining({ creation_method: 'ai', entry_point: 'replay_filters' })
+            )
+        })
+
+        // A click in the consent dialog closes both popovers before the confirm button's own click.
+        it.each([
+            ['once the person confirms, even after the dialog closes the popovers', true, 1],
+            ['never, when the person dismisses before confirming', false, 0],
+        ])('a filters draft that waits on AI consent starts %s', async (_, confirmed, drafts) => {
+            const popover = replayFiltersScannerLogic()
+            popover.mount()
+            const handoff = { chosenQuery: { kind: NodeKind.RecordingsQuery } } as ScannerHandoffFromFilters
+            popover.actions.setGoal('find rage clicks')
+            popover.actions.requestConsent({ freeOnly: true })
+            popover.actions.setPopoverOpen(false)
+            popover.actions.cancelConsent()
+            if (confirmed) {
+                popover.actions.confirmConsent(handoff, { freeOnly: true })
+            }
+            // Past the plain intent's lifetime, as after an SSO reauthentication round trip.
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 5 * 60 * 1000)
+            try {
+                router.actions.push(urls.replayVisionScannerGoal('new'))
+                await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            } finally {
+                clock.mockRestore()
+            }
+
+            expect(draftSpy).toHaveBeenCalledTimes(drafts)
+            popover.unmount()
+        })
+
+        // A value the create API rejects would block the save, so it is dropped rather than sent.
+        it.each([
+            ['a valid slug', 'replay_upsell_player', 'replay_upsell_player'],
+            ['an invalid value', 'Replay-Upsell', null],
+        ])('an ?entry_point= param with %s reaches the creation-started event', async (_, param, expected) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            router.actions.push(urls.replayVisionScannerGoal('new'), { entry_point: param })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            logic.actions.startFromScratch()
+
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_creation_started',
+                expect.objectContaining({ creation_method: 'scratch', entry_point: expected })
+            )
+            expect(router.values.searchParams.entry_point).toBeUndefined()
+        })
+
         it('a draft intent older than a minute is dropped', async () => {
             const now = Date.now()
             const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
-            markScannerGoalDraftIntent('tell me what to watch')
+            markScannerGoalDraftIntent({ goal: 'tell me what to watch' })
             nowSpy.mockReturnValue(now + 61_000)
             router.actions.push(urls.replayVisionScannerGoal('new'))
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
@@ -739,6 +818,47 @@ describe('replayScannerLogic', () => {
                 'Scanner created. First scan in progress.',
                 expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
             )
+        })
+    })
+
+    describe('submit intent in the recordings-first arm', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test',
+            })
+        })
+
+        afterEach(() => {
+            // Flags persist across kea resets, so the variant would leak into later tests.
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it('moves from the recordings step to the prompt step', async () => {
+            router.actions.push('/replay-vision/new/triggers')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('does not hold the recordings step back on the prompt the user has not reached', async () => {
+            router.actions.push('/replay-vision/new/triggers')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('moves from the prompt step to the budget step', async () => {
+            router.actions.push('/replay-vision/new/configure')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/budget')
+        })
+
+        it('creates the scanner from the budget step', async () => {
+            router.actions.push('/replay-vision/new/budget')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -1333,6 +1453,7 @@ describe('replayScannerLogic', () => {
             observationBackfillFilter: null as string | null,
             observationVariantFilter: null as string | null,
             observationWatchGroupFilter: null as string | null,
+            observationWatchCategoryFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
@@ -1859,6 +1980,7 @@ describe('replayScannerLogic', () => {
             expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                 creation_method: 'scratch',
                 template_key: null,
+                entry_point: null,
             })
         })
 
@@ -1879,6 +2001,8 @@ describe('replayScannerLogic', () => {
                 expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     template_key: reportedKey,
+                    entry_point: null,
+                    query_pinned: false,
                     spend_mode: spendMode,
                     goal_length: 'find users who get stuck'.length,
                 })

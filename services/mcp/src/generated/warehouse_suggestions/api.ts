@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -17,6 +17,7 @@ export const WarehouseSuggestionsListParams = () => zod.object({
 })
 
 export const WarehouseSuggestionsListQueryParams = () => zod.object({
+    assignee_id: zod.number().optional().describe('Only return suggestions assigned to the user with this ID.'),
     kind: zod
         .enum(['certify', 'deprecate', 'materialize', 'unmaterialize'])
         .optional()
@@ -106,6 +107,28 @@ export const WarehouseSuggestionsAcceptCreateBody = () => zod.object({
         .optional()
         .describe(
             "Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it."
+        ),
+})
+
+export const warehouseSuggestionsAssignCreatePathIdRegExp = new RegExp(
+    '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
+
+export const WarehouseSuggestionsAssignCreateParams = () => zod.object({
+    id: zod.string().regex(warehouseSuggestionsAssignCreatePathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const WarehouseSuggestionsAssignCreateBody = () => zod.object({
+    assignee_id: zod
+        .number()
+        .nullable()
+        .describe(
+            'ID of the user to assign. They must be able to accept the suggestion: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. Null removes the assignee. The assignee gets a notification unless they assign themselves.'
         ),
 })
 

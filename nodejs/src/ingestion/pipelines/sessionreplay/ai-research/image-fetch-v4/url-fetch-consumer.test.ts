@@ -5,7 +5,7 @@ import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/top
 
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
-import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
+import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED, URL_TOO_OLD } from './fetch-runner'
 import { FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishFlushResult, RepublishResult } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
@@ -404,15 +404,18 @@ describe('UrlFetchConsumer', () => {
         ])
     })
 
-    it('records a terminal refusal when the remaining delay is over one hour', async () => {
+    it.each([
+        ['the remaining delay is over one hour', 'refused_delay', DELAY_TOO_LONG],
+        ['a delayed job is past the age limit', 'refused_age', URL_TOO_OLD],
+    ] as const)('records a terminal refusal when %s', async (_name, republishResult, outcome) => {
         const harness = build()
-        harness.republish.mockResolvedValue('refused_delay')
+        harness.republish.mockResolvedValue(republishResult)
         const early = candidate('a', { notBeforeMs: NOW_MS + 3_600_001 })
 
         await harness.consumer.handleBatch([message([early])], NOW_MS)
 
         expect(harness.history.writes[0]).toEqual([
-            expect.objectContaining({ kind: 'url', key: early.originalRef, outcome: DELAY_TOO_LONG }),
+            expect.objectContaining({ kind: 'url', key: early.originalRef, outcome }),
         ])
     })
 

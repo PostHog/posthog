@@ -105,6 +105,7 @@ The `logs` table runs your log search query through the Search Job API over roll
                     ),
                     SourceFieldInputConfig(
                         name="search_query",
+                        sync_setting=True,
                         label="Log search query",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,

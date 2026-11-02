@@ -82,8 +82,14 @@ class TestCounterHelpers:
             patch.object(metrics, "get_metric_meter", return_value=meter) as get_meter,
         ):
             metrics.increment_report_completed("not_actionable")
+            metrics.increment_report_completed(
+                "failed", failure_reason="agentic_activity_error", error_type="output_parse_failed"
+            )
 
-        assert get_meter.call_args[0][0] == {"result": "not_actionable"}
+        assert [call[0][0] for call in get_meter.call_args_list] == [
+            {"result": "not_actionable", "failure_reason": "", "error_type": ""},
+            {"result": "failed", "failure_reason": "agentic_activity_error", "error_type": "output_parse_failed"},
+        ]
 
     def test_dropped_labels(self):
         meter = _mock_meter()

@@ -165,6 +165,7 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
                     ),
                     SourceFieldSelectConfig(
                         name="unit",
+                        sync_setting=True,
                         label="Stats granularity",
                         required=True,
                         defaultValue=DEFAULT_STATS_UNIT,

@@ -69,6 +69,7 @@ Each sync fetches the current data for every configured crate. The dependency an
                 [
                     SourceFieldInputConfig(
                         name="crates",
+                        sync_setting=True,
                         label="Crates",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

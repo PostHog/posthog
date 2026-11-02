@@ -4,6 +4,8 @@ Constants and tunables for business_knowledge.
 
 import datetime
 
+import httpx
+
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
@@ -191,6 +193,7 @@ BK_RRF_SCORE_FLOOR = 0.015
 BK_RERANK_MODEL = "claude-haiku-4-5"
 # Max chars of chunk content included in the rerank prompt per candidate.
 BK_RERANK_SNIPPET_CHARS = 500
+BK_RERANK_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
@@ -240,3 +243,12 @@ BK_DRILLDOWN_DEFAULT_RADIUS = 5
 # Hard cap on drill-down radius. radius=15 => up to 31 chunks ~= 50k chars;
 # bounds how much one read_data call can pull.
 BK_DRILLDOWN_MAX_RADIUS = 15
+
+# Chats run in parallel, but the request throttles skip session auth, so this caps billable runs per person.
+MAX_OPEN_RUNS_PER_OWNER = 3
+
+BK_MCP_SCOPE = "business_knowledge:read"
+# The PostHog MCP server reads /api/users/@me/ to start a session, so without user:read it never connects.
+# It reads the project to find its organization, and the business knowledge tools sit behind a flag
+# targeted by organization, so without project:read the search tool is hidden.
+BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read", "project:read"]

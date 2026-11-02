@@ -43,21 +43,17 @@ from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone
 
 import structlog
-from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding, generate_embedding
 from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
-from posthog.models.organization import OrganizationMembership
+from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
 from posthog.models.scoping import team_scope, with_team_scope
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
-
-from ee.hogai.llm import MaxChatAnthropic
 
 from . import crawl, discover, file_parse, html_parse, llm_telemetry, url_fetch
 from .constants import (
@@ -71,6 +67,7 @@ from .constants import (
     BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
+    BK_RERANK_TIMEOUT,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
     BK_SEARCH_MAX_LIMIT,
@@ -598,7 +595,7 @@ def _library_ids_subquery() -> Subquery:
     return Subquery(
         KnowledgeLibrarySource.objects.filter(source_id=OuterRef("pk"))
         .values("source_id")
-        .annotate(_ids=ArrayAgg("library_id", ordering="library_id"))
+        .annotate(_ids=ArrayAgg("library_id", order_by="library_id"))
         .values("_ids")[:1]
     )
 
@@ -631,6 +628,12 @@ def list_for_team(
             queryset = queryset.filter(Q(name__icontains=term) | Q(source_url__icontains=term))
     # `id` breaks created_at ties so paging over the list can't skip or repeat a source.
     return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at", "id"))
+
+
+def has_sources(team_id: int) -> bool:
+    canonical_team_id = resolve_effective_team_id(team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        return KnowledgeSource.objects.filter(team_id=canonical_team_id).exists()
 
 
 @with_team_scope(canonical=True)
@@ -2935,18 +2938,6 @@ Return ONLY chunk_id UUIDs in order from most to least relevant, one UUID per li
 Do not include any other text."""
 
 
-def _resolve_active_org_user(team: Team) -> User:
-    membership = (
-        OrganizationMembership.objects.select_related("user")
-        .filter(organization=team.organization, user__is_active=True)
-        .order_by("id")
-        .first()
-    )
-    if not membership:
-        raise RuntimeError(f"No active users in organization '{team.organization.name}' (team {team.id})")
-    return membership.user
-
-
 def _build_rerank_user_prompt(query: str, results: list[KnowledgeSearchResult]) -> str:
     lines = [f"Query: {query}", "", "Candidates:"]
     for index, result in enumerate(results, start=1):
@@ -3000,34 +2991,25 @@ def rerank_chunks(
     valid_ids = {result.chunk_id for result in results}
     id_to_result = {result.chunk_id: result for result in results}
 
-    properties = llm_telemetry.retrieval_properties(
-        team_id=team.id, trace=trace, feature=llm_telemetry.RETRIEVAL_RERANK_FEATURE
-    )
     try:
-        user = _resolve_active_org_user(team)
-        llm = MaxChatAnthropic(
-            model=BK_RERANK_MODEL,
-            streaming=False,
-            user=user,
-            team=team,
-            max_tokens=1024,
-            billable=False,
-            inject_context=False,
-            posthog_properties=properties,
+        client = build_ai_gateway_anthropic_client(
+            ai_product=llm_telemetry.BK_AI_PRODUCT,
+            trace_id=trace.trace_id,
+            distinct_id=team_distinct_id(team.id),
+            team_id=team.id,
+            properties={"ai_feature": llm_telemetry.RETRIEVAL_RERANK_FEATURE, "surface": trace.surface},
         )
-        # MaxChatAnthropic captures no $ai_generation by itself. The cost reaches analytics only through this callback.
-        callback = llm_telemetry.trace_callback(team.id, trace_id=trace.trace_id, properties=properties)
-        response = llm.invoke(
-            [
-                SystemMessage(content=_RERANK_SYSTEM_PROMPT),
-                HumanMessage(content=_build_rerank_user_prompt(query, results)),
-            ],
-            config={"callbacks": [callback]} if callback is not None else None,
-        )
-        content = response.content
-        if isinstance(content, list):
-            content = "".join(str(item) for item in content)
-        ranked_ids = _parse_reranked_chunk_ids(str(content), valid_ids)
+        with client.with_options(timeout=BK_RERANK_TIMEOUT, max_retries=3) as bounded:
+            response = bounded.messages.create(
+                model=BK_RERANK_MODEL,
+                max_tokens=1024,
+                system=_RERANK_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": _build_rerank_user_prompt(query, results)}],
+                # Prompts and outputs contain customer content, so only token counts reach analytics.
+                extra_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"},
+            )
+        content = "".join(block.text for block in response.content if block.type == "text")
+        ranked_ids = _parse_reranked_chunk_ids(content, valid_ids)
         if ranked_ids is None:
             return original_order[:top_k]
 

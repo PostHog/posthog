@@ -108,6 +108,7 @@ class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Report start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -117,6 +118,7 @@ class CriteoSource(ResumableSource[CriteoSourceConfig, CriteoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="currency",
+                        sync_setting=True,
                         label="Report currency",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

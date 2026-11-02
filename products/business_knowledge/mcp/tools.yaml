@@ -34,9 +34,11 @@ tools:
         description: >
             Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with
             document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use
-            for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true
-            for a listwise LLM rerank pass when top-result precision matters. Pass library_id to search one library, and
-            pass that same id to repository search and file read. Omit library_id to search every ready source.
+            for a question about the user's own company: its product, internal terms, policies, decisions, or internal
+            docs. Do not use it to answer a question from project data, or for how PostHog works unless PostHog is the
+            user's own company; use docs-search for PostHog. Set rerank=true for a listwise LLM rerank pass when
+            top-result precision matters. Pass library_id to search one library, and pass that same id to repository
+            search and file read. Omit library_id to search every ready source.
         feature_flag: product-business-knowledge
     business-knowledge-libraries-create:
         operation: business_knowledge_libraries_create
@@ -126,7 +128,7 @@ tools:
             business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file
             contents. Pass library_id to read a repository in that library, using the same id as document search and
             repository search. Omit library_id to read any selected repository.
-        feature_flag: business-knowledge-github-repos
+        feature_flag: product-business-knowledge
     business-knowledge-repositories-search:
         operation: business_knowledge_repositories_search
         enabled: true
@@ -138,13 +140,14 @@ tools:
             idempotent: true
         title: Search selected repositories
         description: >
-            Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when
-            business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence.
-            Each repository in the response includes its GitHub description. When a description says the repository
-            holds a handbook or docs, search that repository for those words and read the file. Does not search inside
-            file contents and does not call GitHub code search. Pass library_id to search repositories in that library,
-            using the same id as document search and file read. Omit library_id to search every selected repository.
-        feature_flag: business-knowledge-github-repos
+            Search file paths and README text in the GitHub repositories selected for business knowledge. Use it for the
+            user's own code, and for company docs kept in a repository instead of in document search. Pass file names or
+            identifiers, not a full sentence. Each repository in the response includes its GitHub description. When a
+            description says the repository holds a handbook or docs, search that repository for those words and read
+            the file. Does not search inside file contents and does not call GitHub code search. Pass library_id to
+            search repositories in that library, using the same id as document search and file read. Omit library_id to
+            search every selected repository.
+        feature_flag: product-business-knowledge
     business-knowledge-sources-list:
         operation: business_knowledge_sources_list
         enabled: true

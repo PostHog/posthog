@@ -256,10 +256,11 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_starts_one_
 
 
 @pytest.mark.parametrize(
-    "fail_second_plan, expected",
+    "fail_second_plan, pool_full_rounds, expected",
     [
         (
             False,
+            0,
             [
                 "00000000-0000-0000-0000-000000000001",
                 "00000000-0000-0000-0000-000000000002",
@@ -267,11 +268,21 @@ async def test_a_batch_over_the_payload_budget_records_in_chunks_and_starts_one_
             ],
         ),
         # A later plan that fails stops admission, but the checks that already ran still record.
-        (True, ["00000000-0000-0000-0000-000000000001"]),
+        (True, 0, ["00000000-0000-0000-0000-000000000001"]),
+        # Other batches hold every slot at first. The batch waits for one rather than leave its checks to a later tick.
+        (
+            False,
+            2,
+            [
+                "00000000-0000-0000-0000-000000000001",
+                "00000000-0000-0000-0000-000000000002",
+                "00000000-0000-0000-0000-000000000003",
+            ],
+        ),
     ],
 )
 async def test_a_batch_refills_the_slots_its_finished_checks_free(
-    environment: WorkflowEnvironment, fail_second_plan: bool, expected: list[str]
+    environment: WorkflowEnvironment, fail_second_plan: bool, pool_full_rounds: int, expected: list[str]
 ) -> None:
     due = [f"00000000-0000-0000-0000-00000000000{n}" for n in range(1, 4)]
     plans: list[tuple[str, ...]] = []
@@ -284,6 +295,8 @@ async def test_a_batch_refills_the_slots_its_finished_checks_free(
         plans.append(inputs.exclude)
         if fail_second_plan and len(plans) == 2:
             raise ApplicationError("redis unavailable", non_retryable=True)
+        if len(plans) <= pool_full_rounds:
+            return []
         if set(inputs.exclude) - set(evaluated):
             return []
         return [

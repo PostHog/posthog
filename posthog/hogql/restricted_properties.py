@@ -17,6 +17,9 @@ from posthog.constants import GROUP_TYPES_LIMIT
 
 logger = structlog.get_logger(__name__)
 
+# Event property keys under which identify events carry person properties.
+PERSON_PROPERTY_CONTAINERS: tuple[str, ...] = ("$set", "$set_once")
+
 # JSON blob columns that hold a restrictable property class, so the printer knows which blob reads to wrap in
 # JSONDropKeys. Everything here must be covered by a branch in `restricted_property_keys_for_table_type`, and vice
 # versa — a blob whose table type maps to a property class but whose column is missing here is read unscrubbed.
@@ -140,7 +143,17 @@ def restricted_property_keys_for_table_type(
             or restriction.group_type_index == group_type_index
         )
     }
-    if restricted_keys and context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable)):
+    native_event_json = context.uses_new_events_schema() and isinstance(table, (EventsTable, EventsPersonSubTable))
+    if prop_def_type == PropertyDefinition.Type.EVENT:
+        # Identify events carry person properties inside `$set` / `$set_once`.
+        for restriction in context.restricted_properties:
+            if restriction.property_type == PropertyDefinition.Type.PERSON:
+                for container in PERSON_PROPERTY_CONTAINERS:
+                    restricted_keys.add(f"{container}.{restriction.name}")
+                    if native_event_json and "." in restriction.name:
+                        # Native JSON escapes dots in the property name, but not in the container.
+                        restricted_keys.add(f"{container}.{restriction.name.replace('.', '%2E')}")
+    if restricted_keys and native_event_json:
         # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
         # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
         restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
@@ -165,7 +178,22 @@ def key_read_overlaps_restriction(first_key: str, restricted_keys: Iterable[str]
     return False
 
 
-def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
-    if not context.restricted_properties or not context.uses_new_events_schema():
+def property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
+    """Whether `property_name` is a restricted key, sits under one, or holds one as a child.
+
+    A parent of a restricted child must not resolve to a physical column on either schema: a materialized column for
+    `$set` holds the restricted `email` inside it, and only the blob read is scrubbed.
+    """
+    if not context.restricted_properties:
         return False
     return key_read_overlaps_restriction(property_name, restricted_property_keys_for_table_type(table_type, context))
+
+
+def restricted_key_path(keys: Iterable[str | int], restricted_keys: set[str]) -> str | None:
+    """The first dotted prefix of `keys` that names a restricted key, or None when the path is readable."""
+    path = ""
+    for key in keys:
+        path = f"{path}.{key}" if path else str(key)
+        if path in restricted_keys:
+            return path
+    return None

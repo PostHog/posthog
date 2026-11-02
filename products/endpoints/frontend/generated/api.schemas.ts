@@ -130,7 +130,7 @@ export interface EndpointResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
@@ -287,7 +287,7 @@ export interface EndpointVersionResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string

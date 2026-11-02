@@ -157,6 +157,8 @@ describe('scoutFleetLogic', () => {
     let logic: ReturnType<typeof scoutFleetLogic.build>
 
     beforeEach(async () => {
+        // The roster filters persist to localStorage, which jsdom keeps between tests.
+        localStorage.clear()
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
@@ -868,6 +870,34 @@ describe('scoutFleetLogic', () => {
         // The filter persists and is written back so the restored view stays shareable.
         expect(logic.values.scoutEnabledFilter).toEqual('enabled')
         expect(router.values.searchParams.scoutEnabled).toEqual('enabled')
+    })
+
+    it('restores the persisted roster filters and sort on a fresh visit to the bare roster URL', async () => {
+        logic.actions.setScoutEnabledFilter('enabled')
+        logic.actions.setScoutTagFilter(['revenue'])
+        logic.actions.setScoutOwnerFilter(OWNER.uuid)
+        logic.actions.setScoutRosterSort('last_run')
+        logic.actions.setScoutSearch('rev')
+        logic.unmount()
+
+        // A new tab: a fresh store mounts the roster on the bare URL, which kea-router reports as a POP.
+        initKeaTests()
+        router.actions.push(urls.inbox('scouts'))
+        logic = scoutFleetLogic()
+        logic.mount()
+
+        expect(logic.values).toMatchObject({
+            scoutEnabledFilter: 'enabled',
+            selectedScoutTags: ['revenue'],
+            selectedScoutOwner: OWNER.uuid,
+            scoutRosterSort: 'last_run',
+            scoutSearch: '',
+        })
+        expect(router.values.searchParams).toEqual({
+            scoutEnabled: 'enabled',
+            scoutTags: 'revenue',
+            scoutOwner: OWNER.uuid,
+        })
     })
 
     it('drops a typed search that a URL hydration has already replaced', async () => {

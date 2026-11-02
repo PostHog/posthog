@@ -63,6 +63,15 @@ An action dispatched from a story can run after the snapshot, or a load that fin
 A decorator in a story or meta, such as `mswDecorator`, sits inside all of them.
 Before each render, Storybook also waits for the Inter and RoundHog fonts. Canvas charts measure text when they paint and never paint again after a font arrives.
 
+## Parameter types
+
+`frontend/src/@types/storybook-parameters.d.ts` types every parameter that a global decorator or the test runner reads, including each `testOptions` key.
+The typecheck rejects an unknown key, so a typo such as `testOptions: { skip: true }` fails before it can silently do nothing.
+When a decorator or the runner starts to read a new parameter, add it to that file.
+The file lives under `frontend/` on purpose: story files resolve a different copy of the `storybook` package from `common/storybook/`, and a type declared from there never reaches them.
+
+A file-local parameter, read only by that file's own `render` or decorator, has no type. Read it through a `Decorator`, whose `parameters` accept any key.
+
 ## How story and meta parameters combine
 
 Storybook merges a story's `parameters` into the meta's.
@@ -157,6 +166,7 @@ parameters: {
 - `docs`, `controls`, `actions` and `options` are standard Storybook parameters for the Storybook UI. The runner ignores them.
 - `parameters.msw.mocks` works only with `mswDecorator` on the story or meta. No global decorator reads it. See [Mocking data](mocking-data.md).
 - A parameter that only one file uses, such as `narrow`, `width` or `tab`, is read by that file's own `render` or `beforeEach`. Read the file before you copy one.
+- A derived story that needs a base story's mocks imports a shared `Mocks` constant, for example `BI_MODE_WORKSHEET_MOCKS` in `SQLEditorScene.stories.tsx`. Don't read them back out of `BaseStory.parameters.msw.mocks`.
 
 ## Story functions: `render`, `play`, `beforeEach`, `loaders`
 

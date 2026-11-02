@@ -32,7 +32,7 @@ import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, ExportedAssetType, ExporterFormat } from '~/types'
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
-import { CodeEnumApi, DatasetExportReadStatusEnumApi } from '../generated/api.schemas'
+import { CodeEnumApi, ExportStatusEnumApi } from '../generated/api.schemas'
 import type {
     DatasetExportReadApi,
     DatasetItemReadApi,
@@ -114,7 +114,7 @@ function datasetExportToExportedAsset(datasetExport: DatasetExportReadApi): Expo
     return {
         id: datasetExport.id,
         export_format: ExporterFormat.JSONL,
-        has_content: datasetExport.status === DatasetExportReadStatusEnumApi.Complete,
+        has_content: datasetExport.status === ExportStatusEnumApi.Complete,
         filename: datasetExport.filename,
         created_at: datasetExport.created_at,
         expires_after: datasetExport.expires_after,
@@ -1181,7 +1181,7 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
         },
 
         exportDatasetSuccess: ({ datasetExport }) => {
-            if (datasetExport.status === DatasetExportReadStatusEnumApi.Failed) {
+            if (datasetExport.status === ExportStatusEnumApi.Failed) {
                 lemonToast.error(datasetExport.exception || "Couldn't start dataset export. Try again.")
                 return
             }

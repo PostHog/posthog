@@ -55,13 +55,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Upsert concurrency: {}", config.upsert_concurrency);
     tracing::info!("Metrics port: {}", config.metrics_port);
 
-    let store = EtcdStore::connect(StoreConfig {
+    let store = EtcdStore::connect_with_member_failover(StoreConfig {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     })
     .await?;
     let store = Arc::new(PersonhogStore::new(store));
-    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL).await?;
+    // No signal handler is installed until the lifecycle monitor starts,
+    // so SIGTERM ends the process during this wait.
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &CancellationToken::new(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
     if loaded.writer_group != config.kafka_consumer_group {
         return Err(format!(
             "config/changelog names writer group {} but KAFKA_CONSUMER_GROUP is {}",

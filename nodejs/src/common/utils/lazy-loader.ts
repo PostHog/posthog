@@ -233,56 +233,57 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
-        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name, span: false }, async () => {
-            // No prototype, for the same reason as the cache: keys are caller-supplied, and this
-            // object is handed back to callers who may iterate or spread it.
-            const results: Record<string, T | null> = Object.create(null)
-            const keysToLoad = new Set<string>()
+        // No prototype, for the same reason as the cache: keys are caller-supplied, and this
+        // object is handed back to callers who may iterate or spread it.
+        const results: Record<string, T | null> = Object.create(null)
+        const keysToLoad = new Set<string>()
 
-            for (const key of keys) {
-                const cached = this.cache[key]
+        for (const key of keys) {
+            const cached = this.cache[key]
 
-                if (cached !== undefined) {
-                    results[key] = cached.value
-                    cached.lastUsed = Date.now()
+            if (cached !== undefined) {
+                results[key] = cached.value
+                cached.lastUsed = Date.now()
 
-                    const cacheUntil = cached.cacheUntil
-                    const backgroundRefreshAfter = cached.backgroundRefreshAfter
+                const cacheUntil = cached.cacheUntil
+                const backgroundRefreshAfter = cached.backgroundRefreshAfter
 
-                    if (Date.now() > cacheUntil) {
-                        keysToLoad.add(key)
-                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                        continue
-                    }
-
-                    if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
-                        void this.load([key]).catch((err) => {
-                            logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
-                                key,
-                                error: String(err),
-                            })
-                        })
-                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
-                        continue
-                    }
-                } else {
+                if (Date.now() > cacheUntil) {
                     keysToLoad.add(key)
                     lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
                     continue
                 }
 
-                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
+                    void this.load([key]).catch((err) => {
+                        logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
+                            key,
+                            error: String(err),
+                        })
+                    })
+                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
+                    continue
+                }
+            } else {
+                keysToLoad.add(key)
+                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                continue
             }
 
-            if (keysToLoad.size === 0) {
-                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-                return results
-            }
+            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+        }
 
-            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+        if (keysToLoad.size === 0) {
+            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+            return results
+        }
 
-            // Only a miss gets a span: with one span per lookup, hits outnumber every other span in a trace.
-            return await withTracingSpan(
+        lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+
+        // Only a miss is instrumented: hits would outnumber every other span in a trace, and on a hit the
+        // instrumentation costs more than the lookup.
+        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name, span: false }, () =>
+            withTracingSpan(
                 'instrumented_function',
                 'lazyLoader.loadViaCache',
                 { tag: this.options.name },
@@ -301,7 +302,7 @@ export class LazyLoader<T> {
                     return results
                 }
             )
-        })
+        )
     }
 
     private spanAttributes(keys: string[], keysToLoad: Set<string>, outcome: LazyLoaderSpanOutcome): Attributes {
