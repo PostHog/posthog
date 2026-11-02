@@ -71,40 +71,6 @@ describe('todaySpacesLogic', () => {
             : expectation.toNotHaveDispatchedActions(['loadRecentTasks']))
     })
 
-    it.each<[string, object[], number, string[]]>([
-        ['provisions the personal space when the list has none', [], 200, ['general', 'me']],
-        [
-            'keeps the listed spaces when provisioning fails',
-            [{ id: 'general', system_role: 'general' }],
-            500,
-            ['general'],
-        ],
-        ['skips provisioning when the personal space exists', [{ id: 'me', system_role: 'personal' }], 500, ['me']],
-    ])('loading spaces %s', async (_, listed, provisionStatus, expectedIds) => {
-        useMocks({
-            get: { '/api/projects/:team_id/task_channels/': listed },
-            post: {
-                '/api/projects/:team_id/task_channels/provision_defaults/': () => [
-                    provisionStatus,
-                    {
-                        channels: [
-                            { id: 'general', system_role: 'general' },
-                            { id: 'me', system_role: 'personal' },
-                        ],
-                        personal_created: true,
-                        general_created: false,
-                    },
-                ],
-            },
-        })
-        initKeaTests()
-        const logic = todaySpacesLogic()
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActions(['loadSpacesSuccess'])
-        expect(logic.values.spaces.map((space) => space.id)).toEqual(expectedIds)
-    })
-
     it.each<[string, number | undefined, boolean]>([
         ['a rail that has never loaded refreshes', undefined, true],
         ['a return moments later keeps what it has', 14_000, false],
