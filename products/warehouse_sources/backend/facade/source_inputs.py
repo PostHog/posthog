@@ -15,6 +15,8 @@ from products.warehouse_sources.backend.logic import (
 
 
 class SourceInputsStore:
+    # The model fields that `assign` stages. A caller that saves with `update_fields` after `assign` lists them all.
+    update_fields = _store.INPUTS_UPDATE_FIELDS
     load = staticmethod(_store.SourceInputsStore.load)
     load_many = staticmethod(_store.SourceInputsStore.load_many)
     preload = staticmethod(_store.SourceInputsStore.preload)
@@ -24,6 +26,7 @@ class SourceInputsStore:
     save = staticmethod(_store.SourceInputsStore.save)
     create = staticmethod(_store.SourceInputsStore.create)
     update_runtime = staticmethod(_store.SourceInputsStore.update_runtime)
+    update_oauth_inputs = staticmethod(_store.SourceInputsStore.update_oauth_inputs)
     aload = staticmethod(_store.SourceInputsStore.aload)
     asave = staticmethod(_store.SourceInputsStore.asave)
     requested_credentials_reference = staticmethod(_rollout.requested_credentials_reference)

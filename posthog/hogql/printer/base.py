@@ -1356,8 +1356,7 @@ class BasePrinter(Visitor[str]):
         return self._unsafe_json_extract_trim_quotes(self.visit(node.expr), self._json_property_args(node.keys))
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
-        # SAMPLE 1 means no sampling, skip it entirely
-        if node.sample_value.left.value == 1 and node.sample_value.right is None and node.offset_value is None:
+        if node.samples_all_rows():
             return None
 
         sample_value = self.visit_ratio_expr(node.sample_value)

@@ -75,7 +75,6 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "entry_fbclid": DatabaseField(name="entry_fbclid", nullable=False),
     "entry_has_gclid": DatabaseField(name="entry_has_gclid", nullable=False),
     "entry_has_fbclid": DatabaseField(name="entry_has_fbclid", nullable=False),
-    "entry_ad_ids_map": DatabaseField(name="entry_ad_ids_map", nullable=False),
     "entry_ad_ids_set": DatabaseField(name="entry_ad_ids_set", nullable=False),
     "entry_channel_type_properties": DatabaseField(name="entry_channel_type_properties", nullable=False),
     "pageview_uniq": DatabaseField(name="pageview_uniq", nullable=False),
@@ -156,7 +155,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_gad_source": DatabaseField(name="$entry_gad_source"),
     "$entry_has_fbclid": BooleanDatabaseField(name="$entry_has_fbclid"),
     "$entry_has_gclid": BooleanDatabaseField(name="$entry_has_gclid"),
-    # "counts" - actually uses uniqExact behind the scenes
+    # "counts" - actually uses uniq behind the scenes
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     "$screen_count": IntegerDatabaseField(name="$screen_count"),
@@ -193,6 +192,43 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
     LAZY_SESSIONS_FIELDS["$entry_" + session_ad_id] = StringDatabaseField(name="$entry_" + session_ad_id)
     LAZY_SESSIONS_FIELDS["$entry_has_" + session_ad_id] = BooleanDatabaseField(name="$entry_has_" + session_ad_id)
+
+
+# entry_ad_ids_set stores flat "key=value" strings; these helpers pull one key's value or presence out of it
+def ad_id_value_from_set_expr(set_expr: ast.Expr, session_ad_id: str) -> ast.Call:
+    prefix = session_ad_id + "="
+    # arrayFirst guarantees the prefix sits at position 0, so replaceOne strips exactly the prefix
+    return ast.Call(
+        name="replaceOne",
+        args=[
+            ast.Call(
+                name="arrayFirst",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.Call(name="startsWith", args=[ast.Field(chain=["x"]), ast.Constant(value=prefix)]),
+                    ),
+                    set_expr,
+                ],
+            ),
+            ast.Constant(value=prefix),
+            ast.Constant(value=""),
+        ],
+    )
+
+
+def ad_id_present_in_set_expr(set_expr: ast.Expr, session_ad_id: str) -> ast.Call:
+    prefix = session_ad_id + "="
+    return ast.Call(
+        name="arrayExists",
+        args=[
+            ast.Lambda(
+                args=["x"],
+                expr=ast.Call(name="startsWith", args=[ast.Field(chain=["x"]), ast.Constant(value=prefix)]),
+            ),
+            set_expr,
+        ],
+    )
 
 
 def get_binary_fields(table: Table) -> set[str]:
@@ -295,9 +331,9 @@ def select_from_sessions_table_v3(
         "$entry_has_gclid": arg_min_merge_field("entry_has_gclid"),
         "$entry_has_fbclid": arg_min_merge_field("entry_has_fbclid"),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
-        "$pageview_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
-        "$screen_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
-        "$autocapture_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
+        "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
+        "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
+        "$autocapture_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
         "$page_screen_count_up_to": ast.Call(
             name="uniqUpToMerge",
             params=[ast.Constant(value=1)],
@@ -307,7 +343,6 @@ def select_from_sessions_table_v3(
             name="max",
             args=[ast.Field(chain=[table_name, "has_autocapture"])],
         ),
-        "$entry_ad_ids_map": arg_min_merge_field("entry_ad_ids_map"),
         "$entry_ad_ids_set": arg_min_merge_field("entry_ad_ids_set"),
         "$entry_channel_type_properties": arg_min_merge_field("entry_channel_type_properties"),
         "$has_replay_events": ast.Call(name="max", args=[ast.Field(chain=[table_name, "has_replay_events"])]),
@@ -318,16 +353,11 @@ def select_from_sessions_table_v3(
 
     # Add ad ids fields
     for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
-        aggregate_fields["$entry_" + session_ad_id] = ast.Call(
-            name="arrayElement",
-            args=[
-                aggregate_fields["$entry_ad_ids_map"],
-                ast.Constant(value=session_ad_id),
-            ],
+        aggregate_fields["$entry_" + session_ad_id] = ad_id_value_from_set_expr(
+            aggregate_fields["$entry_ad_ids_set"], session_ad_id
         )
-        aggregate_fields["$entry_has_" + session_ad_id] = ast.Call(
-            name="has",
-            args=[aggregate_fields["$entry_ad_ids_set"], ast.Constant(value=session_ad_id)],
+        aggregate_fields["$entry_has_" + session_ad_id] = ad_id_present_in_set_expr(
+            aggregate_fields["$entry_ad_ids_set"], session_ad_id
         )
 
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
@@ -601,9 +631,8 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR: dict[str, ast.Expr] = {
 }
 
 for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
-    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR["$entry_" + session_ad_id] = ast.Call(
-        name="arrayElement",
-        args=[finalize_aggregation("entry_ad_ids_map"), ast.Constant(value=session_ad_id)],
+    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR["$entry_" + session_ad_id] = ad_id_value_from_set_expr(
+        finalize_aggregation("entry_ad_ids_set"), session_ad_id
     )
 
 

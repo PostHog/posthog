@@ -20,6 +20,11 @@ from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -714,19 +719,52 @@ class TestResaveCohortsCommandTeamSelection(BaseTest):
         assert cohort_b.condition_type is not None
         assert cohort_c.condition_type is None
 
-    def test_realtime_allowlist_processes_only_allowlisted_teams(self):
+    @parameterized.expand([("env_listed", True), ("granted", False)])
+    def test_realtime_allowlist_processes_only_realtime_teams(self, _name: str, env_listed: bool):
         team_b: Team = Team.objects.create(organization=self.organization)
         cohort_a = Cohort.objects.create(team=self.team, name="rt_a", filters=_make_realtime_filters())
         cohort_b = Cohort.objects.create(team=team_b, name="rt_b", filters=_make_realtime_filters())
         Cohort.objects.filter(id__in=[cohort_a.id, cohort_b.id]).update(condition_type=None)
+        if not env_listed:
+            RealtimeCohortTeamAccess.objects.create(
+                team=team_b, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
 
-        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(team_b.id)):
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(team_b.id) if env_listed else "none"):
             call_command("resave_cohorts", realtime_allowlist=True)
 
         cohort_a.refresh_from_db()
         cohort_b.refresh_from_db()
         assert cohort_b.condition_type is not None
         assert cohort_a.condition_type is None
+
+    @parameterized.expand([("triggers_on", False, 1), ("triggers_suppressed", True, 0)])
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none", COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="none")
+    def test_no_backfill_triggers_overrides_a_granted_team_trigger(
+        self, _name: str, no_backfill_triggers: bool, expected_enqueues: int
+    ):
+        access = RealtimeCohortTeamAccess.objects.create(
+            team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+        )
+        person_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "exact", "value": "a@example.com"}],
+            }
+        }
+        cohort = Cohort.objects.create(team=self.team, name="rt", filters=person_filters)
+        # A stale person hash makes the resave an edit of the person shape, which enqueues a run.
+        Cohort.objects.filter(id=cohort.id).update(condition_type=None, person_filters_shape_hash="stale")
+        access.save_triggers_backfill = True
+        access.save()
+
+        with (
+            patch("django.db.transaction.on_commit", side_effect=lambda func: func()),
+            patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            call_command("resave_cohorts", team_id=[self.team.id], no_backfill_triggers=no_backfill_triggers)
+
+        assert enqueue.call_count == expected_enqueues
 
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     def test_realtime_allowlist_matching_every_team_processes_every_team(self):

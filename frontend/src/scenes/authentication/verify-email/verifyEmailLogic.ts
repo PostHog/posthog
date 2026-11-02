@@ -5,7 +5,6 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getRelativeNextPath } from 'lib/utils/url'
-import { captureAuthStepViewed } from 'scenes/authentication/shared/authStepViewed'
 import {
     clearPendingVerificationEmail,
     isValidVerificationCode,
@@ -282,7 +281,10 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     searchParams.email_sent !== 'false'
                 )
                 actions.setView('pending')
-                captureAuthStepViewed('verify_email', null)
+                // Lazy: authStepViewed reads the OAuth cookie through `he`, which every logged-in page would otherwise load.
+                void import('scenes/authentication/shared/authStepViewed')
+                    .then(({ captureAuthStepViewed }) => captureAuthStepViewed('verify_email', null))
+                    .catch(() => {})
             }
         }
         return {

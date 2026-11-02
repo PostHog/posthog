@@ -3,8 +3,9 @@
 A row has the kind of the credential provider (`postgresql`, `stripe`, `ab-tasty`) and the auth type
 that the typed-in fields have (`token` or `credentials`). See `credential_auth_types.py`. The row holds
 the connection fields under `sensitive_config["fields"]`, and `config` holds the
-`warehouse_source_type` marker. A source points at its row with the `credentials_integration_id`
-key in its inputs. An OAuth source keeps its own `*_integration_id` key and has no row here.
+`warehouse_source_type` marker. A source points at its row with its `credentials_integration_id`
+column, in the string form of `IntegrationReference`. An OAuth source keeps its own `*_integration_id`
+key in its inputs and has no row here.
 
 Every read and write goes through `IntegrationManager.source(kind)` of the integrations SDK, which sees
 only marked rows of the kind and auth type.
@@ -23,19 +24,25 @@ from typing import Any
 from urllib.parse import parse_qsl, unquote, urlsplit
 from uuid import UUID, uuid4
 
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, AuthAccessor, IntegrationNotFound, IntegrationUsage
+from posthog.integrations import (
+    SOURCE_MARKER_CONFIG_KEY,
+    AuthAccessor,
+    IntegrationNotFound,
+    IntegrationReference,
+    IntegrationUsage,
+)
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import (
-    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
-    WAREHOUSE_SOURCE_USAGE_TYPE,
-    SharedCredentialsError,
-)
+from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
 from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 # Decrypts leaves with the same keys as `Integration.sensitive_config`. The keys come from the settings.
 _SENSITIVE_CONFIG_FIELD = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
@@ -57,18 +64,28 @@ class CredentialsUnreadable:
 
 class WarehouseSourceCredentialsStore:
     @staticmethod
-    def get(source: ExternalDataSource, ref: int | str | None) -> dict[str, Any] | None:
-        """The connection fields in the row that `ref` points at, or None when there is no such row.
+    def get(source: ExternalDataSource) -> dict[str, Any] | None:
+        """The connection fields in the row that the source points at, or None when there is no such row.
 
         Raises `CredentialsUnreadableError` when the row exists but cannot be read. Callers must not
         treat that as "no fields".
         """
-        pk = _pk(ref)
+        pk = _pk(source)
+        if pk is None:
+            return None
+        return WarehouseSourceCredentialsStore.get_at(source, IntegrationReference.from_legacy_id(pk))
+
+    @staticmethod
+    def get_at(source: ExternalDataSource, reference: IntegrationReference) -> dict[str, Any] | None:
+        """`get` for the row that ``reference`` points at, in place of the row in the source's column.
+
+        Use it to check a row before the source points at it. Raises `CredentialsUnreadableError` as `get` does.
+        """
         rows = _accessor_or_none(source)
-        if pk is None or rows is None:
+        if reference.legacy_id is None or rows is None:
             return None
         try:
-            row = rows.get(source.team_id, pk)
+            row = rows.get(source.team_id, reference.legacy_id)
         except IntegrationNotFound:
             return None
         fields = _fields_of(row.sensitive_config)
@@ -77,31 +94,15 @@ class WarehouseSourceCredentialsStore:
         return fields
 
     @staticmethod
-    def usable_by(source: ExternalDataSource, ref: int | str | None) -> bool:
-        """True when `ref` points at a row that the source can use: a warehouse source row of the source's
-        team and kind, with the auth type of the source's typed-in credentials."""
-        pk = _pk(ref)
-        rows = _accessor_or_none(source)
-        if pk is None or rows is None:
-            return False
-        try:
-            rows.get(source.team_id, pk)
-        except IntegrationNotFound:
-            return False
-        return True
-
-    @staticmethod
-    def get_many(
-        pairs: Iterable[tuple[ExternalDataSource, int | str | None]],
-    ) -> dict[UUID, dict[str, Any] | CredentialsUnreadable]:
-        """`get` for each `(source, ref)` pair, keyed by source id, with one query per team and source type.
+    def get_many(sources: Iterable[ExternalDataSource]) -> dict[UUID, dict[str, Any] | CredentialsUnreadable]:
+        """`get` for each source, keyed by source id, with one query per team and source type.
 
         A source without a row is left out. A source whose row cannot be read maps to
         `CredentialsUnreadable`, so one bad row does not fail a whole list.
         """
         groups: dict[tuple[int, str], list[tuple[ExternalDataSource, int]]] = {}
-        for source, ref in pairs:
-            pk = _pk(ref)
+        for source in sources:
+            pk = _pk(source)
             if pk is not None:
                 groups.setdefault((source.team_id, str(source.source_type)), []).append((source, pk))
 
@@ -120,9 +121,11 @@ class WarehouseSourceCredentialsStore:
         return result
 
     @staticmethod
-    def create(source: ExternalDataSource, fields: Mapping[str, Any]) -> int:
-        """Create a row with the connection fields of the source. Returns its pk, which the caller
-        stores under `CREDENTIALS_REFERENCE_KEY` in the source's inputs.
+    def create(source: ExternalDataSource, fields: Mapping[str, Any]) -> IntegrationReference:
+        """Create a row with the connection fields of the source, and point the source at it.
+
+        The source is not saved. The caller saves it with its inputs (`SourceInputsStore.save` or
+        `create`, or a full model save), so the source never points at a row that its inputs do not use.
 
         Raises ValueError for a source without typed-in credentials (an OAuth-only source, or Custom).
         """
@@ -138,22 +141,23 @@ class WarehouseSourceCredentialsStore:
             sensitive_config={"fields": dict(fields)},
             created_by_id=source.created_by_id,
         )
-        return row.id
+        return _point_at(source, row.id)
 
     @staticmethod
     def update(
-        source: ExternalDataSource, ref: int | str, fields: Mapping[str, Any], *, allow_shared: bool = False
-    ) -> int:
-        """Write the connection fields to the row that `ref` points at. Returns the pk of the row that
-        now holds them: `ref`, or a new row.
+        source: ExternalDataSource, fields: Mapping[str, Any], *, allow_shared: bool = False
+    ) -> IntegrationReference:
+        """Write the connection fields to the row that the source points at. Returns the reference of
+        the row that now holds them: the same row, or a new row.
 
         When other sources or products also use the row, a change to an identifying field (host,
-        account) makes a new row, so the other users keep their connection. A change to the other
-        fields (a secret rotation) raises `SharedCredentialsError` with the other users, unless
-        `allow_shared` confirms it. A write that changes no field writes nothing and needs no
-        confirmation. Raises `CredentialsNotFoundError` when there is no row.
+        account) makes a new row, so the other users keep their connection. The source then points at
+        the new row, and the caller saves it as for `create`. A change to the other fields (a secret
+        rotation) raises `SharedCredentialsError` with the other users, unless `allow_shared` confirms
+        it. A write that changes no field writes nothing and needs no confirmation. Raises
+        `CredentialsNotFoundError` when there is no row.
         """
-        pk = _pk(ref)
+        pk = _pk(source)
         if pk is None:
             raise CredentialsNotFoundError(f"Source {source.id} has no credentials reference")
         source_type = str(source.source_type)
@@ -166,15 +170,9 @@ class WarehouseSourceCredentialsStore:
         # Each save of a source writes all its inputs again, so most writes change no field. Such a
         # write needs no confirmation, also when the row is shared.
         if current is not None and same_connection_fields(current, fields):
-            return pk
+            return IntegrationReference.from_legacy_id(pk)
         try:
-            # A source whose inputs do not decode may use the row, so it blocks a delete. It does not make an
-            # edit shared: else one broken source of the kind would block every edit of every row of the kind.
-            others = [
-                usage
-                for usage in _other_usages(rows, source, row.id)
-                if usage.type != UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE
-            ]
+            others = _other_usages(rows, source, row.id)
         except IntegrationNotFound as error:
             raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
         if others:
@@ -188,22 +186,22 @@ class WarehouseSourceCredentialsStore:
             rows.update(source.team_id, pk, sensitive_config_patch={"fields": dict(fields)})
         except IntegrationNotFound as error:
             raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
-        return pk
+        return IntegrationReference.from_legacy_id(pk)
 
     @staticmethod
-    async def aget(source: ExternalDataSource, ref: int | str | None) -> dict[str, Any] | None:
-        return await database_sync_to_async_pool(WarehouseSourceCredentialsStore.get)(source, ref)
+    async def aget(source: ExternalDataSource) -> dict[str, Any] | None:
+        return await database_sync_to_async_pool(WarehouseSourceCredentialsStore.get)(source)
 
     @staticmethod
-    async def acreate(source: ExternalDataSource, fields: Mapping[str, Any]) -> int:
+    async def acreate(source: ExternalDataSource, fields: Mapping[str, Any]) -> IntegrationReference:
         return await database_sync_to_async_pool(WarehouseSourceCredentialsStore.create)(source, fields)
 
     @staticmethod
     async def aupdate(
-        source: ExternalDataSource, ref: int | str, fields: Mapping[str, Any], *, allow_shared: bool = False
-    ) -> int:
-        def _update() -> int:
-            return WarehouseSourceCredentialsStore.update(source, ref, fields, allow_shared=allow_shared)
+        source: ExternalDataSource, fields: Mapping[str, Any], *, allow_shared: bool = False
+    ) -> IntegrationReference:
+        def _update() -> IntegrationReference:
+            return WarehouseSourceCredentialsStore.update(source, fields, allow_shared=allow_shared)
 
         return await database_sync_to_async_pool(_update)()
 
@@ -216,14 +214,26 @@ def _accessor_or_none(source: ExternalDataSource) -> AuthAccessor | None:
         return None
 
 
-def _pk(ref: int | str | None) -> int | None:
-    # Encrypted inputs store every leaf as a string, so "12" and 12 are the same reference.
-    if ref is None or isinstance(ref, bool):
+def _point_at(source: ExternalDataSource, pk: int) -> IntegrationReference:
+    reference = IntegrationReference.from_legacy_id(pk)
+    source.credentials_integration_id = str(reference)
+    return reference
+
+
+def _pk(source: ExternalDataSource) -> int | None:
+    """The legacy id in the reference column, or None when the source points at no row the SDK can read."""
+    stored = source.credentials_integration_id
+    if stored is None:
         return None
     try:
-        return int(ref)
-    except (TypeError, ValueError):
+        reference = IntegrationReference.parse(stored)
+    except ValueError:
+        # Only the store writes the column, so this is a bad write. The source then has no row: a read
+        # finds no credentials and an update raises, and neither reads a row of another source.
+        logger.warning("warehouse_source_credentials_reference_invalid", team_id=source.team_id, source_id=source.id)
         return None
+    # A UUID points at a row in the credentials service, which the SDK cannot read yet.
+    return reference.legacy_id
 
 
 def _other_usages(rows: AuthAccessor, source: ExternalDataSource, pk: int) -> list[IntegrationUsage]:

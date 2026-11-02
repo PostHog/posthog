@@ -1,11 +1,14 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 from posthog.schema import AlertCondition, AlertConditionType, IntervalType
 
 from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
+from posthog.interval_specs import interval_spec
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -122,6 +125,25 @@ def execution_mode_for_alert(interval: IntervalType | None, *, high_frequency: b
     return ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
+def cache_age_seconds_for_alert(interval: IntervalType | None, *, now: datetime, team: Team) -> int | None:
+    """Max cache age for this check, counted from the start of the bucket ``now`` falls in.
+    None leaves the shared staleness rule in place.
+
+    The cache key holds the relative date range (``-1h``), so consecutive checks share a key while
+    scoring different buckets. Ageing from the bucket start rejects a result from the previous bucket.
+    """
+    if interval is None:
+        return None
+    spec = interval_spec(interval)
+    local_now = now.astimezone(ZoneInfo(team.timezone))
+    # A DST transition can put the aligned bucket start after local_now.
+    elapsed = max(int((local_now - spec.align(local_now, team.week_start_day)).total_seconds()), 0)
+    if spec.staleness_default is None:
+        return None
+    # The override replaces the shared threshold, so cap it there to only ever tighten it.
+    return min(elapsed, int(spec.staleness_default.total_seconds()))
+
+
 @dataclass(frozen=False)
 class SimulationContext:
     """Alert-less inputs for a read-only detector simulation. Each extractor reads only the fields its
@@ -138,10 +160,15 @@ class SimulationContext:
 
 
 class Extractor(Protocol):
-    # The dispatcher resolves execution_mode once (via execution_mode_for_alert) and passes it in, so
-    # the cache/recompute decision lives at one site instead of being re-derived in each extractor.
+    # The dispatcher resolves execution_mode and cache_age_seconds once and passes them in, so the
+    # cache/recompute decision lives at one site instead of being re-derived in each extractor.
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: object, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: object,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult: ...
 
 

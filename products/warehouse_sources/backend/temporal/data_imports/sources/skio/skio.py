@@ -4,10 +4,14 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.skio.settings import (
@@ -18,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.skio.setti
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
+MAX_RETRY_ATTEMPTS = 5
 
 # Skio's Hasura instance answers an invalid or revoked token with HTTP 200 and this message in the
 # GraphQL errors body (verified against the live API), so credential failures are classified on the
@@ -55,6 +60,15 @@ def _format_timestamp(value: Any) -> str:
     return str(value)
 
 
+@retry_with_deadline(
+    # Skio's GraphQL endpoint is queried over POST, which the tracked session's transport-level
+    # retry does not cover (it only retries idempotent methods), so a read timeout or dropped
+    # connection would otherwise fail the whole import attempt on the first blip.
+    retry=retry_if_exception_type((requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=2, max=60),
+    reraise=True,
+)
 def _post_query(
     session: requests.Session,
     api_token: str,

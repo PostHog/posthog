@@ -14,6 +14,7 @@ from posthog import settings
 
 from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
+    PROJECT_VECTOR_KINDS,
     REPORT_EMBEDDINGS_EXTRA,
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
@@ -160,6 +161,26 @@ def test_an_experiment_must_name_a_registered_serving_baseline_and_an_expiry():
     assert family_problems((serving, _experiment("first", datetime.date(2026, 12, 31)), chained)) == [
         "experiment chained names baseline first, which is not a serving family"
     ]
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: ModelFamily(
+            name="served_fixed",
+            feature_set=REPORT_EMBEDDINGS_FEATURE_SET,
+            project_vector_kinds=(*PROJECT_VECTOR_KINDS, "fixed"),
+        ),
+        lambda: dataclasses.replace(_pair_experiment("pair_fixed"), project_vector_kinds=("typical", "fixed")),
+        lambda: dataclasses.replace(
+            _experiment("unknown_kind", datetime.date(2026, 12, 31)), project_vector_kinds=("typical", "seen")
+        ),
+    ],
+    ids=["serving_family", "pair_experiment", "unknown_kind"],
+)
+def test_only_a_report_experiment_can_read_other_project_vector_kinds(build):
+    with pytest.raises(ValueError, match="project vector kinds"):
+        build()
 
 
 @pytest.mark.parametrize(
@@ -356,6 +377,18 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
     assert block["heads"][first]["pooled"] == paired
     assert block["heads"][third]["within_team"]["paired_seeds"] == 0
     assert block["heads"][third]["within_team"]["mean_delta_auc"] is None
+
+    # The dogfood team ranks backwards, so only the read without it sees the customer team's order.
+    dogfood = (table.rows["report_team_id"].to_numpy() == DOGFOOD_TEAM_ID)[:, None]
+    mixed = vs_baseline_block(
+        table,
+        baseline=NN_MODEL_NAME,
+        seeds=(0,),
+        experiment_scores=[np.where(dogfood, inverted, perfect)],
+        baseline_scores=[inverted],
+    )
+    assert mixed["heads"][first]["within_team"]["experiment_aucs"] == [0.5]
+    assert mixed["heads"][first]["within_team_non_dogfood"]["experiment_aucs"] == [1.0]
 
 
 def _signal_log(signals: list[tuple[str, str, str, str]]) -> bytes:

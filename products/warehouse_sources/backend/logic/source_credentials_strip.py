@@ -1,10 +1,16 @@
-"""Strip the connection fields from the `job_inputs` of warehouse sources, restore them, and prune the backups.
+"""Strip the credentials from the `job_inputs` of warehouse sources, restore them, and prune the backups.
 
-A strip is the last step of the move of connection fields to the credentials rows. After it, the row is the
-only storage of the credentials, so the strip runs only for a source whose reference points at a row that
-verifies, and it writes a backup of the full `job_inputs` first. A source without a reference is refused:
-run the backfill first. A source with an OAuth connection has nothing to strip. Each source is locked while it changes, so a concurrent write either
-runs before the check or replaces the stripped value with a full one, which a later run strips again.
+A strip is the last step of the move of credentials out of `job_inputs`. After it, the source's
+`credentials_integration_id` column is the only storage of the row it uses:
+
+- A source with typed-in credentials loses its connection fields. The strip runs only when the column points
+  at a row that holds the same fields.
+- An OAuth source loses its OAuth pointers (the in-use one and stale ones under options that are not
+  selected). The strip runs only when the column holds the in-use pointer.
+
+A source without a reference in its column is refused: run the backfill first. The strip writes a backup of
+the full `job_inputs` first. Each source is locked while it changes, so a concurrent write either runs before
+the check or replaces the stripped value with a full one, which a later run strips again.
 """
 
 from collections import Counter
@@ -19,8 +25,9 @@ from django.utils import timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationReference
 
-from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
 from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsNotFoundError,
@@ -29,6 +36,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
 )
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     connection_fields_equal,
+    in_use_oauth_slot,
     is_stripped,
     read_enabled,
     split_connection_fields,
@@ -38,6 +46,11 @@ from products.warehouse_sources.backend.logic.source_credentials_sync import nex
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.source_inputs_backup import ExternalDataSourceInputsBackup
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
+    OAuthPointerShapeError,
+    pointer_at,
+    with_pointer_at,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -49,6 +62,8 @@ SKIPPED_NO_REFERENCE = "skipped_no_reference"
 SKIPPED_MISSING_ROW = "skipped_missing_row"
 SKIPPED_UNREADABLE_ROW = "skipped_unreadable_row"
 SKIPPED_ROW_DIFFERS = "skipped_row_differs"
+SKIPPED_REFERENCE_DIFFERS = "skipped_reference_differs"
+SKIPPED_UNREADABLE_SHAPE = "skipped_unreadable_shape"
 SKIPPED_UNREADABLE_INPUTS = "skipped_unreadable_inputs"
 SKIPPED_UNKNOWN_TYPE = "skipped_unknown_type"
 SKIPPED_GONE = "skipped_gone"
@@ -80,10 +95,11 @@ def strip_connection_fields(
 ) -> OutcomeCounts:
     """Strip each non-deleted source that passes all checks. With ``execute`` false, only count.
 
-    The checks, in order: the read flag is on for the team, `job_inputs` decodes and is not stripped, the source
-    has typed-in connection fields, `job_inputs` holds a credentials reference, and the row it points at exists,
-    is readable and holds the same connection fields as `job_inputs`. Then the backup is written (an existing
-    backup is kept), and then `job_inputs` keeps only its references, selectors, settings and runtime state.
+    The checks, in order: the read flag is on for the team, and `job_inputs` decodes and is not stripped. For an
+    OAuth source, `job_inputs` holds an in-use pointer and the column holds the same row. For a source with
+    typed-in connection fields, the column holds a reference, and the row it points at exists, is readable and
+    holds the same connection fields as `job_inputs`. Then the backup is written (a strip after a restore
+    replaces it), and then `job_inputs` loses its connection fields and its OAuth pointers.
     """
     counts: OutcomeCounts = Counter()
     last_id: UUID | None = None
@@ -198,19 +214,23 @@ def _check(source: ExternalDataSource) -> tuple[str, dict[str, Any] | None]:
     if is_stripped(stored_inputs):
         return ALREADY_STRIPPED, None
     try:
+        slot = in_use_oauth_slot(str(source.source_type), stored_inputs)
+        if slot is not None:
+            return _check_oauth(source, stored_inputs, slot), stored_inputs
         # Decrypted as the backfill wrote them, so a leaf with extra encryption layers still compares equal.
         expected = stored_connection_fields(source, stored_inputs)
+    except OAuthPointerShapeError:
+        return SKIPPED_UNREADABLE_SHAPE, None
     except UnreadableSourceInputsError:
         return SKIPPED_UNREADABLE_INPUTS, None
     except ValueError:
         return SKIPPED_UNKNOWN_TYPE, None
     if not expected or not has_typed_in_credentials(str(source.source_type)):
         return SKIPPED_NO_ROW_NEEDED, None
-    ref = stored_inputs.get(CREDENTIALS_REFERENCE_KEY)
-    if ref is None:
+    if source.credentials_integration_id is None:
         return SKIPPED_NO_REFERENCE, None
     try:
-        row = WarehouseSourceCredentialsStore.get(source, ref)
+        row = WarehouseSourceCredentialsStore.get(source)
     except CredentialsUnreadableError:
         return SKIPPED_UNREADABLE_ROW, None
     if row is None:
@@ -218,6 +238,18 @@ def _check(source: ExternalDataSource) -> tuple[str, dict[str, Any] | None]:
     if not connection_fields_equal(row, expected):
         return SKIPPED_ROW_DIFFERS, None
     return STRIPPED, stored_inputs
+
+
+def _check_oauth(source: ExternalDataSource, stored_inputs: dict[str, Any], slot: tuple[str, ...]) -> str:
+    pointer = pointer_at(stored_inputs, slot)
+    if pointer is None:
+        # No pointer is in use, so the column cannot be checked and nothing is in use to strip.
+        return SKIPPED_NO_ROW_NEEDED
+    if source.credentials_integration_id is None:
+        return SKIPPED_NO_REFERENCE
+    if source.credentials_integration_id != str(IntegrationReference.from_legacy_id(pointer.integration_id)):
+        return SKIPPED_REFERENCE_DIFFERS
+    return STRIPPED
 
 
 def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bool) -> str:
@@ -228,41 +260,78 @@ def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bo
         stored_inputs = SourceInputsStore.load_stored(source)
         if not is_stripped(stored_inputs):
             return NOT_STRIPPED
+        slot = in_use_oauth_slot(str(source.source_type), stored_inputs)
+        if slot is not None:
+            return _restore_oauth(source, stored_inputs, slot, execute, prefer_backup)
 
-        ref = stored_inputs.get(CREDENTIALS_REFERENCE_KEY)
         connection: dict[str, Any] | None = None
         outcome = RESTORED_FROM_ROW
         if not prefer_backup:
             try:
-                connection = WarehouseSourceCredentialsStore.get(source, ref)
+                connection = WarehouseSourceCredentialsStore.get(source)
             except CredentialsUnreadableError:
                 connection = None
         if connection is None:
-            backup = ExternalDataSourceInputsBackup.objects.for_team(source.team_id).filter(source_id=source.id).first()
+            backup = _backup_of(source)
             if backup is None:
                 return NO_CREDENTIALS
             connection = split_connection_fields(str(source.source_type), backup.inputs)
             outcome = RESTORED_FROM_BACKUP
             if execute:
                 # Credentials first, like every other write, so the row and `job_inputs` agree after the restore.
-                ref = _write_backup_to_row(source, ref, connection)
+                _write_backup_to_row(source, connection)
         if execute:
-            SourceInputsStore.write_restored(source, {**connection, **stored_inputs, CREDENTIALS_REFERENCE_KEY: ref})
+            SourceInputsStore.write_restored(source, {**connection, **stored_inputs})
     return outcome
 
 
-def _write_backup_to_row(source: ExternalDataSource, ref: Any, connection: dict[str, Any]) -> int:
-    """Write the backup to the row that ``ref`` points at, or to a new row when there is none. Returns its pk.
+def _restore_oauth(
+    source: ExternalDataSource,
+    stored_inputs: dict[str, Any],
+    slot: tuple[str, ...],
+    execute: bool,
+    prefer_backup: bool,
+) -> str:
+    """Put the OAuth pointer of the column back at the path of the in-use OAuth field. The backup gives it when
+    the column holds no legacy id, or with ``prefer_backup``, and then the column gets it too."""
+    integration_id: int | None = None
+    if not prefer_backup and source.credentials_integration_id is not None:
+        try:
+            integration_id = IntegrationReference.parse(source.credentials_integration_id).legacy_id
+        except ValueError:
+            integration_id = None
+    outcome = RESTORED_FROM_ROW
+    if integration_id is None:
+        backup = _backup_of(source)
+        pointer = pointer_at(backup.inputs, slot) if backup is not None else None
+        if pointer is None:
+            return NO_CREDENTIALS
+        integration_id = pointer.integration_id
+        outcome = RESTORED_FROM_BACKUP
+        source.credentials_integration_id = str(IntegrationReference.from_legacy_id(integration_id))
+    if execute:
+        SourceInputsStore.write_restored(source, with_pointer_at(stored_inputs, slot, integration_id))
+    return outcome
+
+
+def _backup_of(source: ExternalDataSource) -> ExternalDataSourceInputsBackup | None:
+    return ExternalDataSourceInputsBackup.objects.for_team(source.team_id).filter(source_id=source.id).first()
+
+
+def _write_backup_to_row(source: ExternalDataSource, connection: dict[str, Any]) -> None:
+    """Write the backup to the row that the column points at, or to a new row when there is none. Sets the
+    column on the source.
 
     A row that other objects also use raises `SharedCredentialsError`, so an old backup never changes their
     credentials without a person's decision.
     """
-    if ref is not None:
+    if source.credentials_integration_id is not None:
         try:
-            return WarehouseSourceCredentialsStore.update(source, ref, connection)
+            WarehouseSourceCredentialsStore.update(source, connection)
+            return
         except CredentialsNotFoundError:
             pass
-    return WarehouseSourceCredentialsStore.create(source, connection)
+    WarehouseSourceCredentialsStore.create(source, connection)
 
 
 def _lock(source_id: UUID, team_id: int) -> ExternalDataSource | None:
@@ -270,7 +339,7 @@ def _lock(source_id: UUID, team_id: int) -> ExternalDataSource | None:
         ExternalDataSource.objects.select_for_update(of=("self",))
         .select_related(None)
         .exclude(deleted=True)
-        .only("id", "team_id", "source_type", "job_inputs", "prefix", "created_by_id")
+        .only("id", "team_id", "source_type", "job_inputs", "credentials_integration_id", "prefix", "created_by_id")
         .filter(team_id=team_id, id=source_id)
         .first()
     )
@@ -280,7 +349,7 @@ def _get(source_id: UUID, team_id: int) -> ExternalDataSource | None:
     return (
         ExternalDataSource.objects.select_related(None)
         .exclude(deleted=True)
-        .only("id", "team_id", "source_type", "job_inputs", "prefix", "created_by_id")
+        .only("id", "team_id", "source_type", "job_inputs", "credentials_integration_id", "prefix", "created_by_id")
         .filter(team_id=team_id, id=source_id)
         .first()
     )
