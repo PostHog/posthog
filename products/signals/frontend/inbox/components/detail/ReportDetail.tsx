@@ -13,7 +13,9 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -35,6 +37,7 @@ import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabil
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
+import { ReportSpendSection } from '../spend/ReportSpendSection'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
@@ -517,6 +520,9 @@ export function InboxDetailFrame({
                         {/* The pull request picker (when present), then reviewers, runs, and activity. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
+                        <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                            <ReportSpendSection reportId={report.id} />
+                        </FlaggedFeature>
                         <ReportTasksSection report={report} />
                         <ReportChecksSection report={report} />
                         <ReportActivitySection report={report} />

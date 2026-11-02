@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from string import ascii_lowercase
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 import time_machine
 from posthog.test.base import (
@@ -53,8 +53,6 @@ class FunnelStepResult:
     breakdown: Union[list[str], str]
     average_conversion_time: Optional[float] = None
     median_conversion_time: Optional[float] = None
-    type: Literal["events", "actions", "data_warehouse"] = "events"
-    action_id: Optional[str] = None
 
 
 def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
@@ -76,20 +74,17 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
                 return {
-                    "action_id": step.name if step.type == "events" else step.action_id,
                     "name": step.name,
                     "custom_name": None,
                     "order": order,
                     "people": [],
                     "count": step.count,
-                    "type": step.type,
                     "average_conversion_time": step.average_conversion_time,
                     "median_conversion_time": step.median_conversion_time,
                     "breakdown": step.breakdown,
                     "breakdown_value": step.breakdown,
                     **(
                         {
-                            "action_id": None,
                             "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
                         }
                         if funnel_order_type == FunnelOrderType.UNORDERED
@@ -1947,8 +1942,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         name="user signed up",
                         count=1,
                         breakdown=["https://posthog.com/docs/x"],
-                        type="actions",
-                        action_id=user_signed_up_action.id,
                     ),
                     FunnelStepResult(
                         name="paid",
@@ -3503,8 +3496,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             name="posthog_test_test_table_1",
                             count=1,
                             breakdown=["Chrome"],
-                            type="data_warehouse",
-                            action_id=None,
                             average_conversion_time=259200,
                             median_conversion_time=259200,
                         ),
@@ -3535,7 +3526,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                                 name="",
                                 count=0,
                                 breakdown=[""],
-                                type="data_warehouse",
                             ),
                         ],
                     )
@@ -3562,8 +3552,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             name="posthog_test_test_table_1",
                             count=0,
                             breakdown=["Firefox"],
-                            type="data_warehouse",
-                            action_id=None,
                             average_conversion_time=None,
                             median_conversion_time=None,
                         ),
@@ -3646,8 +3634,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             name="posthog_test_test_table_1",
                             count=1,
                             breakdown=["val1"],
-                            type="data_warehouse",
-                            action_id=None,
                             average_conversion_time=259200,
                             median_conversion_time=259200,
                         ),
@@ -3678,7 +3664,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                                 name="",
                                 count=0,
                                 breakdown=[""],
-                                type="data_warehouse",
                             ),
                         ],
                     )
@@ -3705,8 +3690,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             name="posthog_test_test_table_1",
                             count=0,
                             breakdown=["val2"],
-                            type="data_warehouse",
-                            action_id=None,
                             average_conversion_time=None,
                             median_conversion_time=None,
                         ),
@@ -3775,8 +3758,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             name="posthog_test_test_table_1",
                             count=1,
                             breakdown=["payment_succeeded"],
-                            type="data_warehouse",
-                            action_id=None,
                         ),
                         FunnelStepResult(
                             name="$pageview",
@@ -3804,8 +3785,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             name="posthog_test_test_table_1",
                             count=3,
                             breakdown=[""],
-                            type="data_warehouse",
-                            action_id=None,
                         ),
                         FunnelStepResult(
                             name="$pageview",
@@ -3835,8 +3814,6 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                             name="posthog_test_test_table_1",
                             count=1,
                             breakdown=["payment_failed"],
-                            type="data_warehouse",
-                            action_id=None,
                         ),
                         FunnelStepResult(name="$pageview", count=0, breakdown=["payment_failed"]),
                     ],
@@ -3900,20 +3877,17 @@ def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
         def _assert_funnel_breakdown_result_is_correct(self, result, steps: list[FunnelStepResult]):
             def funnel_result(step: FunnelStepResult, order: int) -> dict[str, Any]:
                 return {
-                    "action_id": step.name if step.type == "events" else step.action_id,
                     "name": step.name,
                     "custom_name": None,
                     "order": order,
                     "people": [],
                     "count": step.count,
-                    "type": step.type,
                     "average_conversion_time": step.average_conversion_time,
                     "median_conversion_time": step.median_conversion_time,
                     "breakdown": step.breakdown,
                     "breakdown_value": step.breakdown,
                     **(
                         {
-                            "action_id": None,
                             "name": f"Completed {order + 1} step{'s' if order > 0 else ''}",
                         }
                         if funnel_order_type == FunnelOrderType.UNORDERED

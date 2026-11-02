@@ -1,28 +1,27 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { useEffect, useMemo, useRef } from 'react'
-
-import { IconWrench } from '@posthog/icons'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
+import { reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
+import { attachedContextItemKey } from '~/layout/ai/attachedContext'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { todayAiChatLogic } from '~/layout/today/todayAiChatLogic'
 import { SidePanelTab } from '~/types'
 
-import { attachedContextItemKey, attachedContextLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
-
-import { ToolDefinition, ToolRegistration, getToolDefinition } from './max-constants'
-import { maxGlobalLogic } from './maxGlobalLogic'
-import { sidePanelMaxLogic } from './maxLogic'
-import { createSuggestionGroup } from './utils'
+import type { ToolDefinition, ToolRegistration } from './max-constants'
 
 export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'description'> {
     /** Whether MaxTool functionality is active. When false, tool is not registered. */
@@ -36,12 +35,47 @@ export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'desc
 }
 
 export interface UseMaxToolReturn {
-    /** Tool definition - null if the tool is inactive (i.e. `active` is false or Max is not available) */
+    /** Tool definition - null if the tool is inactive (i.e. `active` is false or Max is not available), or while the tool table loads */
     definition: ToolDefinition | null
     /** Whether the Max side panel is currently open */
     isMaxOpen: boolean
-    /** Function to open Max with the optional initialMaxPrompt and suggestions - null if the tool is inactive */
-    openMax: (() => void) | null
+    /** Function to open Max with the optional initialMaxPrompt and suggestions - null if the tool is inactive.
+     * It resolves once the panel is open: the first call waits for the Max chunk. */
+    openMax: (() => Promise<void>) | null
+}
+
+// The chat logics stay out of the shell chunk. The shell loads them on the first open.
+const loadMaxToolOpener = (): Promise<typeof import('./maxToolOpener')> => retryImport(() => import('./maxToolOpener'))
+
+// The tool table stays out of the shell chunk, and loads once a page turns a tool on.
+type ToolDefinitionsModule = typeof import('./max-constants')
+let loadedToolDefinitions: ToolDefinitionsModule | null = null
+async function loadToolDefinitions(): Promise<ToolDefinitionsModule> {
+    loadedToolDefinitions ??= await retryImport(() => import('./max-constants'))
+    return loadedToolDefinitions
+}
+
+function useToolDefinitions(active: boolean): ToolDefinitionsModule | null {
+    const [toolDefinitions, setToolDefinitions] = useState(loadedToolDefinitions)
+    useEffect(() => {
+        if (!active || toolDefinitions) {
+            return
+        }
+        let cancelled = false
+        loadToolDefinitions().then(
+            (module) => {
+                if (!cancelled) {
+                    setToolDefinitions(module)
+                }
+            },
+            // A failed load only hides the tool name. A click on openMax tells the person to reload.
+            () => {}
+        )
+        return (): void => {
+            cancelled = true
+        }
+    }, [active, toolDefinitions])
+    return toolDefinitions
 }
 
 const MAX_TOOL_CONTEXT_LENGTH = 4096
@@ -77,7 +111,8 @@ export function useMaxTool({
     initialMaxPrompt,
     onMaxOpen,
 }: UseMaxToolOptions): UseMaxToolReturn {
-    const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
+    const { registerTool, deregisterTool } = useActions(aiShellLogic)
+    const { effectivePhaiView } = useValues(aiShellLogic)
     const { registerContext, deregisterContext, undismissContext } = useActions(attachedContextLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
@@ -88,14 +123,19 @@ export function useMaxTool({
     const { activeCreation } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
     const openChat = activeCreation ? (activeCreation.taskId ? 'task' : 'draft') : null
 
-    const definition = getToolDefinition(identifier)
+    const definition = useToolDefinitions(active)?.getToolDefinition(identifier) ?? null
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
     const activeIdentifierRef = useRef<string | null>(null)
     const hookIdRef = useRef<string>(uuid())
+    const unmountedRef = useRef(false)
+    // openMax reads these after the chunk loads, so a change made meanwhile decides what reaches the chat.
+    const latestRef = useRef({ context, active })
+    latestRef.current = { context, active }
     const contextKey = useMemo(() => JSON.stringify(context), [context])
 
+    // Register before the tool table loads, so a message sent at once still carries the tool context.
     useEffect(() => {
-        if (!active || !definition) {
+        if (!active) {
             if (activeIdentifierRef.current) {
                 deregisterTool(activeIdentifierRef.current)
                 activeIdentifierRef.current = null
@@ -110,8 +150,8 @@ export function useMaxTool({
         activeIdentifierRef.current = identifier
         registerTool({
             identifier,
-            name: definition.name,
-            description: definition.description,
+            name: definition?.name,
+            description: definition?.description,
             context,
             contextDescription,
             introOverride,
@@ -156,7 +196,9 @@ export function useMaxTool({
 
     useEffect(() => {
         const hookId = hookIdRef.current
+        unmountedRef.current = false
         return (): void => {
+            unmountedRef.current = true
             if (activeIdentifierRef.current) {
                 deregisterTool(activeIdentifierRef.current)
                 activeIdentifierRef.current = null
@@ -173,34 +215,35 @@ export function useMaxTool({
         isMaxOpen,
         openMax: !active
             ? null
-            : (): void => {
-                  const { startNewConversation, setActiveGroup } = sidePanelMaxLogic().actions
-                  // Start a new conversation so the prompt doesn't get added to an existing session
-                  if (featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
-                      // The Today panel can show a task chat too, so its own logic starts the new chat.
-                      const unmount = todayAiChatLogic.mount()
-                      todayAiChatLogic.actions.startNewChatForTool()
-                      unmount()
-                  } else if (maxGlobalLogic.values.effectivePhaiView === 'new') {
-                      const runner = runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID })
-                      const unmount = runner.mount()
-                      runner.actions.clearActiveCreation()
-                      runner.actions.setHistoryExpanded(false)
-                      unmount()
-                  } else {
-                      startNewConversation()
+            : async (): Promise<void> => {
+                  let opener: Awaited<ReturnType<typeof loadMaxToolOpener>>
+                  let toolDefinitions: ToolDefinitionsModule
+                  try {
+                      ;[opener, toolDefinitions] = await Promise.all([loadMaxToolOpener(), loadToolDefinitions()])
+                  } catch (error) {
+                      // Click handlers drop a rejected promise, and no error boundary sees it.
+                      lemonToast.error("Couldn't open PostHog AI. Reload the page to try again.", {
+                          button: { label: 'Reload', action: () => reloadAfterChunkLoadError(error) },
+                      })
+                      return
                   }
-                  if (maxGlobalLogic.values.effectivePhaiView === 'new') {
+                  const { startToolChat, showToolSuggestions } = opener
+                  startToolChat({ todayRailNav: !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV], effectivePhaiView })
+                  // The page may have closed, or the tool turned off, while the chunk loaded. Its context would then outlive the hook.
+                  if (effectivePhaiView === 'new' && !unmountedRef.current && latestRef.current.active) {
                       toolPageContextOwner = hookIdRef.current
-                      const items = toolPageContextItems(identifier, context, TOOL_PAGE_CONTEXT_PROVIDER_ID)
+                      const items = toolPageContextItems(
+                          identifier,
+                          latestRef.current.context,
+                          TOOL_PAGE_CONTEXT_PROVIDER_ID
+                      )
                       undismissContext(attachedContextItemKey(items[0]), TOOL_PAGE_CONTEXT_PROVIDER_ID)
                       registerContext(TOOL_PAGE_CONTEXT_PROVIDER_ID, items)
                   }
                   // Show the suggestions from this specific tool
-                  if (definition && suggestions && suggestions.length > 0) {
-                      setActiveGroup(
-                          createSuggestionGroup(definition.name, React.createElement(IconWrench), suggestions)
-                      )
+                  const toolDefinition = toolDefinitions.getToolDefinition(identifier)
+                  if (toolDefinition && suggestions && suggestions.length > 0) {
+                      showToolSuggestions(toolDefinition.name, suggestions)
                   }
                   openSidePanel(SidePanelTab.Max, initialMaxPrompt)
                   onMaxOpen?.()

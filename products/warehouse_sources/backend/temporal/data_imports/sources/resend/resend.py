@@ -131,7 +131,7 @@ def _simple_resource(
         "paginator": _paginator(config),
         # A missing `data` key yields a zero-row page (the API returns {"data": [...]}); tolerant,
         # matching the previous implementation's `data.get("data") or []`.
-        "data_selector": "data",
+        "data_selector": config.data_selector,
     }
 
     rest_config: RESTAPIConfig = {
