@@ -52,9 +52,11 @@ class TestBuildParams:
         )
         assert params == {"limit": PAGE_LIMIT, "created_since_utc": EPOCH}
 
-    def test_endpoint_without_since_param_never_filters(self) -> None:
+    # SpotRates must not get a date window: unlike Calendar, from/to are optional and would drop past overrides.
+    @parameterized.expand([("properties", "Properties"), ("spot_rates", "SpotRates")])
+    def test_endpoint_without_since_param_never_filters(self, _name: str, endpoint: str) -> None:
         params = _build_params(
-            OWNERREZ_ENDPOINTS["Properties"],
+            OWNERREZ_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )

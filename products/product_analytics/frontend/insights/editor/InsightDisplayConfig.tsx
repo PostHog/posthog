@@ -13,7 +13,8 @@ import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/u
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { hasBreakdownFilter, isWebAnalyticsInsightQuery } from '~/queries/utils'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
+import { isWebAnalyticsInsightQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { InsightDateFilter } from 'products/product_analytics/frontend/insights/editor/filters/InsightDateFilter'
