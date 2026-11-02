@@ -250,6 +250,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", {"enabled": True}, format="json")
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["code"], "ai_data_processing_not_approved")
+        listed = self.client.get(self.scanners_url).json()["results"]
+        self.assertEqual([row["unrunnable_reason"] for row in listed], ["no_ai_consent"])
 
     @parameterized.expand(
         [
@@ -277,6 +279,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         if not creator_left:
             self.organization.members.add(creator)
         scanner = self._create_scanner(enabled=False, created_by=creator)
+        listed = self.client.get(self.scanners_url).json()["results"]
+        self.assertEqual(
+            [row["unrunnable_reason"] for row in listed], ["creator_lost_access" if creator_left else None]
+        )
 
         with patch(
             "products.replay_vision.backend.api.scanners.recording_viewer_access",
