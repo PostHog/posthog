@@ -1,6 +1,7 @@
 //! Image URLs in CSS: the `url()`s of an image property, or of a custom property that reaches one through `var()`.
 //! Font URLs are the `url()`s in the `src` descriptor of an `@font-face` rule.
 
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use url::Url;
@@ -20,7 +21,7 @@ const MAX_IMAGE_SET_CANDIDATES: usize = 32;
 pub enum CssUrl<'a> {
     Image(&'a str),
     Unshown(&'a str),
-    /// A resolved root-relative URL. The block holds only the relative text, which its rewrite replaces.
+    /// A URL that the block holds only as other text, root-relative or written with CSS escapes, which its rewrite replaces.
     Resolved(&'a str),
     /// A root-relative `url()` that did not resolve. Its text keeps no rewrite, which another window would apply here.
     Unresolved(&'a str),
@@ -30,7 +31,7 @@ pub enum CssUrl<'a> {
         url: &'a str,
         family: Option<&'a str>,
     },
-    /// A resolved root-relative font URL of a family that the renderer does not ship.
+    /// A [`CssUrl::Resolved`] font URL of a family that the renderer does not ship.
     ResolvedFont(&'a str),
 }
 
@@ -116,32 +117,19 @@ pub fn rewrite_functions(
             position = skip_comment(bytes, position).unwrap_or(bytes.len());
             continue;
         }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        let image_set = if function_at(bytes, position, b"image-set") {
-            Some(b"image-set".len())
-        } else if function_at(bytes, position, b"-webkit-image-set") {
-            Some(b"-webkit-image-set".len())
-        } else {
-            None
-        };
-        let end = if let Some(name_len) = image_set {
-            // The inspector stops at an unterminated set, and each later opener would scan to the end again.
-            let Some(end) = matching_paren(bytes, position + name_len) else {
-                break;
-            };
-            end
-        } else if function_at(bytes, position, b"url") {
-            scan_url_function(css, position).0
-        } else {
-            position += 1;
-            continue;
+        let end = match function_at(bytes, position) {
+            Some(CssFunction::ImageSet(name_len)) => {
+                // The inspector stops at an unterminated set, and each later opener would scan to the end again.
+                let Some(end) = matching_paren(bytes, position + name_len) else {
+                    break;
+                };
+                end
+            }
+            Some(CssFunction::Url(name_len)) => scan_url_function(css, position, name_len).0,
+            None => {
+                position = skip_token(bytes, position);
+                continue;
+            }
         };
         if let Some(replaced) = replacement(&css[position..end]) {
             let out = out.get_or_insert_with(|| String::with_capacity(css.len()));
@@ -194,30 +182,35 @@ pub fn urls(css: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUr
     for declaration in &declarations {
         let value = &css[declaration.start..declaration.end];
         match declaration.kind {
-            DeclarationKind::Image => value_urls(value, resolver, found),
+            DeclarationKind::Image => value_urls(value, resolver, EscapedSources::Skipped, found),
             DeclarationKind::FontSrc(face) => {
                 let family = families.get(face).copied().flatten();
                 let resolved_kind = match family.and_then(bundled_font) {
                     Some(slug) => RemoteKind::BundledFont(slug),
                     None => RemoteKind::Font,
                 };
-                value_urls(value, resolver, &mut |url| match url {
-                    CssUrl::Image(url) => found(CssUrl::Font { url, family }),
-                    CssUrl::Resolved(url) if resolved_kind == RemoteKind::Font => {
-                        found(CssUrl::ResolvedFont(url))
-                    }
-                    CssUrl::Rewrite(mut rewrite) => {
-                        if let Some(resolved) = &mut rewrite.resolved {
-                            resolved.kind = resolved_kind;
+                value_urls(
+                    value,
+                    resolver,
+                    EscapedSources::Decoded,
+                    &mut |url| match url {
+                        CssUrl::Image(url) => found(CssUrl::Font { url, family }),
+                        CssUrl::Resolved(url) if resolved_kind == RemoteKind::Font => {
+                            found(CssUrl::ResolvedFont(url))
                         }
-                        found(CssUrl::Rewrite(rewrite));
-                    }
-                    CssUrl::Unresolved(text) => found(CssUrl::Unresolved(text)),
-                    CssUrl::Resolved(_)
-                    | CssUrl::Unshown(_)
-                    | CssUrl::Font { .. }
-                    | CssUrl::ResolvedFont(_) => {}
-                });
+                        CssUrl::Rewrite(mut rewrite) => {
+                            if let Some(resolved) = &mut rewrite.resolved {
+                                resolved.kind = resolved_kind;
+                            }
+                            found(CssUrl::Rewrite(rewrite));
+                        }
+                        CssUrl::Unresolved(text) => found(CssUrl::Unresolved(text)),
+                        CssUrl::Resolved(_)
+                        | CssUrl::Unshown(_)
+                        | CssUrl::Font { .. }
+                        | CssUrl::ResolvedFont(_) => {}
+                    },
+                );
             }
             DeclarationKind::FontFamily(_) => {}
         }
@@ -230,8 +223,8 @@ pub fn declaration_image_urls(
     resolver: &mut Resolver<'_>,
     found: &mut impl FnMut(CssUrl<'_>),
 ) {
-    if can_hold_image(property.trim()) {
-        value_urls(value, resolver, found);
+    if can_hold_image(&declaration_name(property.trim())) {
+        value_urls(value, resolver, EscapedSources::Skipped, found);
     }
 }
 
@@ -339,12 +332,13 @@ fn declarations(css: &str) -> Vec<Declaration> {
                     .is_none_or(|previous| position >= previous.end) =>
             {
                 // Each colon trims only the whitespace before it, so a long selector list stays linear.
-                let property = css[segment_start.unwrap_or(position)..position].trim_end();
+                let property =
+                    declaration_name(css[segment_start.unwrap_or(position)..position].trim_end());
                 let kind = match open_font_face {
                     Some(face) if face.inner_brace_depth == brace_depth => {
-                        font_descriptor(property, face.index)
+                        font_descriptor(&property, face.index)
                     }
-                    _ => can_hold_image(property).then_some(DeclarationKind::Image),
+                    _ => can_hold_image(&property).then_some(DeclarationKind::Image),
                 };
                 if let Some(kind) = kind {
                     ranges.push(Declaration {
@@ -371,25 +365,15 @@ fn font_descriptor(descriptor: &str, face: usize) -> Option<DeclarationKind> {
     }
 }
 
-/// Only the at-keyword, with whitespace and comments around it, opens a font face. A selector such as `.\@font-face` holds an escaped `@`, and the image URLs of its rule must still be named.
+/// Only the at-keyword, with whitespace and comments around it, opens a font face. A browser reads it through CSS escapes,
+/// as in `@\66 ont-face`, but a selector such as `.\@font-face` holds an escaped `@`, and the image URLs of its rule must
+/// still be named.
 fn is_font_face_prelude(prelude: &str) -> bool {
-    let mut rest = prelude;
-    let mut keyword = None;
-    loop {
-        rest = rest.trim_start();
-        if let Some(comment) = rest.strip_prefix("/*") {
-            rest = comment.find("*/").map_or("", |end| &comment[end + 2..]);
-        } else if keyword.is_none() && !rest.is_empty() {
-            let end = rest
-                .find(|c: char| c.is_ascii_whitespace() || c == '/')
-                .unwrap_or(rest.len());
-            keyword = Some(&rest[..end]);
-            rest = &rest[end..];
-        } else {
-            break;
-        }
-    }
-    rest.is_empty() && keyword.is_some_and(|keyword| keyword.eq_ignore_ascii_case("@font-face"))
+    let bytes = prelude.as_bytes();
+    let start = skip_space_and_comments(bytes, 0);
+    bytes.get(start) == Some(&b'@')
+        && name_end(bytes, start + 1, b"font-face")
+            .is_some_and(|end| skip_space_and_comments(bytes, end) == bytes.len())
 }
 
 fn declaration_end(bytes: &[u8], start: usize, brace_depth: usize) -> usize {
@@ -454,7 +438,19 @@ fn is_image_property(property: &str) -> bool {
         )
 }
 
-fn value_urls(value: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
+/// An image source that holds a CSS escape is skipped, as v3 skips it. A font has no v3 to match, and its URL must not stay.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EscapedSources {
+    Skipped,
+    Decoded,
+}
+
+fn value_urls(
+    value: &str,
+    resolver: &mut Resolver<'_>,
+    escaped: EscapedSources,
+    found: &mut impl FnMut(CssUrl<'_>),
+) {
     let bytes = value.as_bytes();
     let mut position = 0;
     while position < bytes.len() {
@@ -462,38 +458,30 @@ fn value_urls(value: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(C
             position = skip_comment(bytes, position).unwrap_or(bytes.len());
             continue;
         }
-        if bytes[position] == b'\\' {
-            position = skip_escape(bytes, position);
-            continue;
-        }
-        if matches!(bytes[position], b'\'' | b'"') {
-            position = skip_quoted(bytes, position).unwrap_or(bytes.len());
-            continue;
-        }
-        let image_set = if function_at(bytes, position, b"image-set") {
-            Some(b"image-set".len())
-        } else if function_at(bytes, position, b"-webkit-image-set") {
-            Some(b"-webkit-image-set".len())
-        } else {
-            None
-        };
-        if let Some(name_len) = image_set {
-            let Some(end) = matching_paren(bytes, position + name_len) else {
-                return;
-            };
-            image_set_urls(&value[position..end], name_len, resolver, found);
-            position = end;
-            continue;
-        }
-        if function_at(bytes, position, b"url") {
-            let (resume_at, source) = scan_url_function(value, position);
-            if let Some(source) = source.as_deref().and_then(collectable) {
-                url_function_urls(&value[position..resume_at], source, resolver, found);
+        match function_at(bytes, position) {
+            Some(CssFunction::ImageSet(name_len)) => {
+                let Some(end) = matching_paren(bytes, position + name_len) else {
+                    return;
+                };
+                image_set_urls(&value[position..end], name_len, resolver, found);
+                position = end;
             }
-            position = resume_at;
-            continue;
+            Some(CssFunction::Url(name_len)) => {
+                let (resume_at, source) = scan_url_function(value, position, name_len);
+                let function = &value[position..resume_at];
+                if let Some(source) = source.as_deref() {
+                    match collectable(source) {
+                        Some(source) => url_function_urls(function, source, resolver, found),
+                        None if escaped == EscapedSources::Decoded => {
+                            escaped_url_function_urls(function, source, resolver, found)
+                        }
+                        None => {}
+                    }
+                }
+                position = resume_at;
+            }
+            None => position = skip_token(bytes, position),
         }
-        position += 1;
     }
 }
 
@@ -525,6 +513,80 @@ fn url_function_urls(
         None if is_root_relative(source) => found(CssUrl::Unresolved(function)),
         None => found(CssUrl::Image(source)),
     }
+}
+
+/// The block does not hold the URL a browser reads from an escaped source, so the rewrite replaces the whole `url()`.
+fn escaped_url_function_urls(
+    function: &str,
+    source: &str,
+    resolver: &mut Resolver<'_>,
+    found: &mut impl FnMut(CssUrl<'_>),
+) {
+    let source = source.trim();
+    if !source.contains('\\') {
+        return;
+    }
+    let Some(decoded) = unescape_css(source) else {
+        return;
+    };
+    if is_root_relative(&decoded) {
+        return url_function_urls(function, &decoded, resolver, found);
+    }
+    // A serialized URL percent-encodes `"` and holds no backslash, so the quotes of the rewrite hold it.
+    let Some(absolute) = Url::parse(&decoded)
+        .ok()
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .map(String::from)
+    else {
+        return;
+    };
+    found(CssUrl::Resolved(&absolute));
+    found(CssUrl::Rewrite(CssRewrite {
+        text: function.to_owned(),
+        replacement: url_function(&absolute),
+        dropped: Vec::new(),
+        resolved: Some(RemoteUrl {
+            url: absolute,
+            kind: RemoteKind::Image,
+        }),
+    }));
+}
+
+/// `None` for an escaped newline, which a URL cannot hold.
+fn unescape_css(text: &str) -> Option<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        let escape = &rest[at + 1..];
+        let digits = escape
+            .bytes()
+            .take(6)
+            .take_while(u8::is_ascii_hexdigit)
+            .count();
+        if digits == 0 {
+            let escaped = escape.chars().next().unwrap_or('\u{FFFD}');
+            if matches!(escaped, '\n' | '\r' | '\x0c') {
+                return None;
+            }
+            out.push(escaped);
+            rest = &escape[escaped.len_utf8().min(escape.len())..];
+        } else {
+            let value = u32::from_str_radix(&escape[..digits], 16).ok()?;
+            out.push(
+                char::from_u32(value)
+                    .filter(|&ch| ch != '\0')
+                    .unwrap_or('\u{FFFD}'),
+            );
+            let after = &escape[digits..];
+            rest = after
+                .strip_prefix("\r\n")
+                .or_else(|| after.strip_prefix([' ', '\t', '\n', '\r', '\x0c']))
+                .unwrap_or(after);
+        }
+    }
+    out.push_str(rest);
+    Some(out)
 }
 
 fn is_root_relative(source: &str) -> bool {
@@ -683,8 +745,8 @@ fn image_set_candidate(candidate: &str) -> Option<ImageSetCandidate<'_>> {
         return None;
     }
     let bytes = candidate.as_bytes();
-    let (source, descriptors) = if function_at(bytes, 0, b"url") {
-        let (resume_at, source) = scan_url_function(candidate, 0);
+    let (source, descriptors) = if let Some(name_len) = function_name_len(bytes, 0, b"url") {
+        let (resume_at, source) = scan_url_function(candidate, 0, name_len);
         (source, &candidate[resume_at..])
     } else if matches!(bytes[0], b'\'' | b'"') {
         let end = skip_quoted(bytes, 0)?;
@@ -709,9 +771,9 @@ fn parse_descriptors(descriptors: &str) -> Option<f64> {
         if position == bytes.len() {
             break;
         }
-        if function_at(bytes, position, b"type") {
-            let end = matching_paren(bytes, position + 4)?;
-            let media_type = descriptors[position + 5..end - 1]
+        if let Some(name_len) = function_name_len(bytes, position, b"type") {
+            let end = matching_paren(bytes, position + name_len)?;
+            let media_type = descriptors[position + name_len + 1..end - 1]
                 .trim()
                 .trim_matches(['"', '\'']);
             if !is_fetched_image_type(media_type) {
@@ -748,13 +810,13 @@ fn parse_resolution(token: &str) -> Option<f64> {
     }
 }
 
-fn scan_url_function(value: &str, start: usize) -> (usize, Option<String>) {
+fn scan_url_function(value: &str, start: usize, name_len: usize) -> (usize, Option<String>) {
     let bytes = value.as_bytes();
-    let Some(resume_at) = matching_paren(bytes, start + 3) else {
+    let Some(resume_at) = matching_paren(bytes, start + name_len) else {
         return (bytes.len(), None);
     };
     let contents_end = resume_at - 1;
-    let mut position = start + 4;
+    let mut position = start + name_len + 1;
     skip_whitespace(bytes, &mut position);
     let source = if matches!(bytes.get(position), Some(b'\'' | b'"')) {
         let content_start = position + 1;
@@ -771,19 +833,123 @@ fn scan_url_function(value: &str, start: usize) -> (usize, Option<String>) {
         &value[position..contents_end]
     };
     let source = source.trim();
-    (
-        resume_at,
-        (!source.is_empty() && !source.contains('\\')).then(|| source.to_owned()),
-    )
+    (resume_at, (!source.is_empty()).then(|| source.to_owned()))
 }
 
-fn function_at(bytes: &[u8], start: usize, name: &[u8]) -> bool {
-    bytes
-        .get(start..start + name.len())
-        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(name))
-        && bytes.get(start + name.len()) == Some(&b'(')
-        && (start == 0
-            || !matches!(bytes[start - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-'))
+enum CssFunction {
+    /// The length of its name, which CSS escapes can make longer than `image-set`.
+    ImageSet(usize),
+    Url(usize),
+}
+
+fn function_at(bytes: &[u8], start: usize) -> Option<CssFunction> {
+    function_name_len(bytes, start, b"image-set")
+        .or_else(|| function_name_len(bytes, start, b"-webkit-image-set"))
+        .map(CssFunction::ImageSet)
+        .or_else(|| function_name_len(bytes, start, b"url").map(CssFunction::Url))
+}
+
+/// So that `\75 rl(` is a `url(`, as a browser reads it.
+fn function_name_len(bytes: &[u8], start: usize, name: &[u8]) -> Option<usize> {
+    if start > 0
+        && matches!(bytes[start - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-')
+    {
+        return None;
+    }
+    let end = name_end(bytes, start, name)?;
+    (bytes.get(end) == Some(&b'(')).then_some(end - start)
+}
+
+/// Where the text at `start` ends if it spells `name`, a lowercase ASCII name, in any letter case and through CSS
+/// escapes.
+fn name_end(bytes: &[u8], start: usize, name: &[u8]) -> Option<usize> {
+    let mut position = start;
+    for &expected in name {
+        let (byte, next) = match *bytes.get(position)? {
+            b'\\' => escaped_ascii(bytes, position)?,
+            byte => (byte, position + 1),
+        };
+        if !byte.eq_ignore_ascii_case(&expected) {
+            return None;
+        }
+        position = next;
+    }
+    Some(position)
+}
+
+/// The character that the CSS escape at `start` names, and where the escape ends, as CSS Syntax 4.3.7 reads it. `None`
+/// for an escaped newline, which ends a name, and for a non-ASCII character, which no name here holds.
+fn escaped_ascii(bytes: &[u8], start: usize) -> Option<(u8, usize)> {
+    let digits_start = start + 1;
+    let digits = bytes
+        .get(digits_start..)?
+        .iter()
+        .take(6)
+        .take_while(|byte| byte.is_ascii_hexdigit())
+        .count();
+    if digits == 0 {
+        let byte = *bytes.get(digits_start)?;
+        return (byte.is_ascii() && !matches!(byte, b'\n' | b'\r' | b'\x0c'))
+            .then_some((byte, digits_start + 1));
+    }
+    let digits_end = digits_start + digits;
+    let value = u32::from_str_radix(
+        std::str::from_utf8(&bytes[digits_start..digits_end]).ok()?,
+        16,
+    )
+    .ok()?;
+    let end = match bytes.get(digits_end..) {
+        Some([b'\r', b'\n', ..]) => digits_end + 2,
+        Some([b' ' | b'\t' | b'\n' | b'\r' | b'\x0c', ..]) => digits_end + 1,
+        _ => digits_end,
+    };
+    let byte = u8::try_from(value)
+        .ok()
+        .filter(|byte| byte.is_ascii() && *byte != 0)?;
+    Some((byte, end))
+}
+
+/// A longer declaration name stays as written, so that a long selector before a colon costs no decoding.
+const MAX_ESCAPED_NAME_LEN: usize = 256;
+
+fn declaration_name(property: &str) -> Cow<'_, str> {
+    if property.len() > MAX_ESCAPED_NAME_LEN || !property.contains('\\') {
+        return Cow::Borrowed(property);
+    }
+    let bytes = property.as_bytes();
+    let mut name = Vec::with_capacity(bytes.len());
+    let mut position = 0;
+    while position < bytes.len() {
+        let (byte, next) = match bytes[position] {
+            b'\\' => match escaped_ascii(bytes, position) {
+                Some(decoded) => decoded,
+                None => return Cow::Borrowed(property),
+            },
+            byte => (byte, position + 1),
+        };
+        name.push(byte);
+        position = next;
+    }
+    String::from_utf8(name).map_or(Cow::Borrowed(property), Cow::Owned)
+}
+
+/// Past an escape or a quoted string as one token, so that neither can start a function.
+fn skip_token(bytes: &[u8], position: usize) -> usize {
+    match bytes[position] {
+        b'\\' => skip_escape(bytes, position),
+        b'\'' | b'"' => skip_quoted(bytes, position).unwrap_or(bytes.len()),
+        _ => position + 1,
+    }
+}
+
+fn skip_space_and_comments(bytes: &[u8], mut position: usize) -> usize {
+    loop {
+        skip_whitespace(bytes, &mut position);
+        if !starts_with(bytes, position, b"/*") {
+            return position;
+        }
+        position = skip_comment(bytes, position).unwrap_or(bytes.len());
+    }
 }
 
 fn matching_paren(bytes: &[u8], open: usize) -> Option<usize> {
@@ -897,6 +1063,10 @@ mod tests {
             ".a{font-family:Inter;src:url(https://cdn.example.com/not-a-face.woff2);background:url(https://cdn.example.com/a.png)}",
             ".\\@font-face{src:url(https://cdn.example.com/escaped.woff2);background:url(https://cdn.example.com/escaped.png)}",
             "@font-face/* trailing */{font-family:Trail;src:url(https://cdn.example.com/trail.woff2)}",
+            "@\\66 ont-face{font-family:Keyword;src:url(https://cdn.example.com/keyword.woff2)}",
+            "@font-face{font-family:Descriptor;\\73 rc:url(https://cdn.example.com/descriptor.woff2)}",
+            "@font-face{font-family:Function;src:\\75 rl(https://cdn.example.com/function.woff2)}",
+            "@font-face{font-family:Source;src:url(https://cdn.example.com/source\\2e woff2)}",
         );
         assert_eq!(
             found(css, Some("https://app.example.com/")),
@@ -910,6 +1080,11 @@ mod tests {
                 "image https://cdn.example.com/a.png",
                 "image https://cdn.example.com/escaped.png",
                 "font https://cdn.example.com/trail.woff2 Some(\"Trail\")",
+                "font https://cdn.example.com/keyword.woff2 Some(\"Keyword\")",
+                "font https://cdn.example.com/descriptor.woff2 Some(\"Descriptor\")",
+                "font https://cdn.example.com/function.woff2 Some(\"Function\")",
+                "resolved font https://cdn.example.com/source.woff2",
+                "rewrite url(https://cdn.example.com/source\\2e woff2) => url(\"https://cdn.example.com/source.woff2\") dropping []",
             ]
         );
     }
@@ -917,12 +1092,14 @@ mod tests {
     #[test]
     fn reads_past_escapes_outside_strings() {
         // Tailwind escapes brackets, parentheses and quotes in its arbitrary value class names.
-        let css = r".bg-\[url\(\'\/hero\.png\'\)\]{background-image:url('/hero.png')}.a{background:url(https://cdn.example.com/a.png)}";
+        let css = r".bg-\[url\(\'\/hero\.png\'\)\]{background-image:url('/hero.png')}.a{background:url(https://cdn.example.com/a.png)}.p{background-\69mage:url(https://cdn.example.com/p.png)}.f{background:\75 rl(https://cdn.example.com/f.png)}";
         assert_eq!(
             found(css, None),
             [
                 "unresolved url('/hero.png')",
-                "image https://cdn.example.com/a.png"
+                "image https://cdn.example.com/a.png",
+                "image https://cdn.example.com/p.png",
+                "image https://cdn.example.com/f.png",
             ]
         );
     }

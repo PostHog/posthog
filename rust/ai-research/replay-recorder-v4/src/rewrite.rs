@@ -225,10 +225,9 @@ impl Iterator for CssStrings<'_> {
     }
 }
 
-fn holds_font_face(bytes: &[u8]) -> bool {
-    bytes
-        .windows(b"font-face".len())
-        .any(|window| window.eq_ignore_ascii_case(b"font-face"))
+/// CSS escapes can spell `font-face` in many ways, but never its `@`.
+fn holds_at_rule(bytes: &[u8]) -> bool {
+    bytes.contains(&b'@')
 }
 
 /// The metric label of a rewrite: the inspector rewrites a whole `url()` only to resolve a relative URL.
@@ -669,13 +668,13 @@ impl UrlRewrite {
 
     /// Runs before the scrub, which would leave an image marker where the renderer loads a font.
     fn mark_unchecked_fonts<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
-        if !self.font_source_scrubber.replaces_tokens() || !holds_font_face(bytes) {
+        if !self.font_source_scrubber.replaces_tokens() || !holds_at_rule(bytes) {
             return Cow::Borrowed(bytes);
         }
         let mut out: Option<Vec<u8>> = None;
         let mut copied_to = 0;
         for string in CssStrings::new(bytes) {
-            if !holds_font_face(&bytes[string.0..string.1]) {
+            if !holds_at_rule(&bytes[string.0..string.1]) {
                 continue;
             }
             let Ok(css) = unescape(bytes, string) else {

@@ -968,6 +968,7 @@ mod tests {
         let fonts = vec![
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": faces}, "childNodes": [], "id": 2}),
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": "@\\66 ont-face{font-family:Escaped;src:url(https://fonts.example.com/escaped.woff2)}"}, "childNodes": [], "id": 4}),
         ];
         use posthog_replay_anonymizer::v4_image_refs::{
             FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
@@ -1019,7 +1020,7 @@ mod tests {
             {"type": 3, "timestamp": 2, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": compressed}},
             {"type": 3, "timestamp": 3, "data": {"source": 0, "adds": [], "removes": [], "texts": [], "attributes": [{"id": 9, "attributes": {"class": "bg-[url(/img/a.png)]"}}, {"id": 10, "attributes": {"class": "bg-[url(https://cdn.example.com/t.png)]"}}]}},
             {"type": 3, "timestamp": 4, "data": {"source": 8, "id": 3, "replaceSync": ".\\/\\/cdn\\.example\\.com\\/p\\.png\\?X-Amz-Signature\\=abc123{background:url(//cdn.example.com/p.png?X-Amz-Signature=abc123)}"}},
-            {"type": 3, "timestamp": 5, "data": {"source": 8, "id": 4, "replaceSync": "@font-face{font-family:Brand;src:url(/fonts/brand.woff2)}@font-face{font-family:Roboto;src:url(/fonts/roboto.woff2)}"}},
+            {"type": 3, "timestamp": 5, "data": {"source": 8, "id": 4, "replaceSync": "@font-face{font-family:Brand;src:url(/fonts/brand.woff2)}@font-face{font-family:Roboto;src:url(/fonts/roboto.woff2)}@font-face{font-family:Escaped;src:url(https://fonts.example.com/escaped\\2e woff2)}"}},
         ]);
         let lines = stored_lines(&events.to_string(), &[]);
         let reference = |url: &str| {
@@ -1056,6 +1057,18 @@ mod tests {
                 .1
             ),
             r#"src:url(\"fonturl:v4:bundled:roboto\")"#.to_owned(),
+            format!(
+                r#"src:url(\"{}\")"#,
+                crate::urls::url_reference(
+                    "https://fonts.example.com/escaped.woff2",
+                    UrlAsset::Font,
+                    7,
+                    "2026-10",
+                    &replay_core_v4::seal::image_url_key(&[6; 32]),
+                )
+                .unwrap()
+                .1
+            ),
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
@@ -1072,7 +1085,14 @@ mod tests {
         ] {
             assert!(lines.contains(&expected), "{expected} in {lines}");
         }
-        for gone in [":url(/img/a.png)", "1x.png", "1x,", "Signature", "/fonts/"] {
+        for gone in [
+            ":url(/img/a.png)",
+            "1x.png",
+            "1x,",
+            "Signature",
+            "/fonts/",
+            "fonts.example.com",
+        ] {
             assert!(!lines.contains(gone), "{gone} in {lines}");
         }
     }
