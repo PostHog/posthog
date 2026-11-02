@@ -24,8 +24,7 @@ export function inlineAppContextUrl(href: string): string {
 }
 
 /**
- * Adds the user's data to the app context when the page left it out. Code that reads the app context
- * when its module loads must not load before this resolves.
+ * Adds the user's data to the app context when the page left it out. The app must not boot before this resolves.
  */
 export async function applyDeferredAppContext(): Promise<void> {
     const request = window.POSTHOG_APP_CONTEXT_REQUEST
