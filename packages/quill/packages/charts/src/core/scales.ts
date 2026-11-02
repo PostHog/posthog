@@ -145,16 +145,15 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): Sca
 }
 
 export function createTimeXScale(
-    { parse, domain: [from, to] }: TimeScale,
+    { parse, domain }: TimeScale,
     dimensions: ChartDimensions
 ): (label: string) => number | undefined {
-    const span = to - from
+    const scale = scaleLinear()
+        .domain(domain)
+        .range([dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth])
     return (label) => {
         const t = parse(label)
-        if (!(t >= from && t <= to)) {
-            return undefined
-        }
-        return dimensions.plotLeft + (span > 0 ? (t - from) / span : 0.5) * dimensions.plotWidth
+        return t >= domain[0] && t <= domain[1] ? scale(t) : undefined
     }
 }
 

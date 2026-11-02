@@ -522,7 +522,7 @@ export interface TimeScale {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
-    /** Place each label at its time instead of evenly by index. Memoize it. */
+    /** Place each label at its time instead of evenly by index. Labels must be ascending. Memoize it. */
     timeScale?: TimeScale
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
