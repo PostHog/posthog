@@ -819,7 +819,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         explicitly set `reasoning_effort` survives injection; the default triple's effort
         only fills a gap.
         """
-        if self.internal or self.runtime == Task.Runtime.PI:
+        profile = self.stored_profile
+        inherits = profile.inherit_user_defaults if profile is not None else not self.internal
+        if not inherits or self.runtime == Task.Runtime.PI:
             return
 
         from products.tasks.backend.logic.services.ai_run_defaults import (  # noqa: PLC0415 — breaks the circular import with ai_run_defaults, which imports this module
@@ -956,6 +958,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             # Later runs keep the image the task was first provisioned with.
             if carry_sandbox_template and previous_state.get("sandbox_template"):
                 state["sandbox_template"] = previous_state["sandbox_template"]
+            elif carry_sandbox_template and (stored_profile := task.stored_profile) is not None:
+                state["sandbox_template"] = stored_profile.sandbox_templates[0]
             if task._resolves_pr_authorship_per_run() and "pr_authorship_mode" not in state:
                 from products.tasks.backend.temporal.process_task.utils import (
                     PrAuthorshipMode,
@@ -1627,7 +1631,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 profile=profile,
                 source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
             )
-        runtime = Task.Runtime.ACP.value
+        runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         if options is not None:
             settings = apply_run_options(
                 options,
@@ -1639,7 +1643,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 ),
                 creates_run=False,
             )
-            runtime = settings.runtime
+            if options.runtime is not None:
+                runtime = settings.runtime
             repositories = settings.repositories
             output_schema = settings.output_schema
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
@@ -1706,7 +1711,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
-        runtime: str = "acp",
+        runtime: str | None = None,
         runtime_adapter: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
@@ -1767,7 +1772,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             settings = apply_run_options(
                 options,
                 RunSettings(
-                    runtime=runtime,
+                    runtime=runtime or Task.Runtime.ACP.value,
                     runtime_adapter=runtime_adapter,
                     model=model,
                     reasoning_effort=reasoning_effort,
@@ -1784,7 +1789,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     extra_run_state=extra_run_state,
                 ),
             )
-            runtime = settings.runtime
+            if options.runtime is not None:
+                runtime = settings.runtime
             runtime_adapter = settings.runtime_adapter
             model = settings.model
             reasoning_effort = settings.reasoning_effort
@@ -1798,6 +1804,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             initial_permission_mode = settings.initial_permission_mode
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
             extra_run_state = settings.extra_run_state
+        if runtime is None:
+            runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         task, extra_state = Task._build_task(
             team=team,
             title=title,
@@ -4074,22 +4082,28 @@ class SandboxEnvironment(UUIDModel):
         pattern = r"^[A-Za-z_][A-Za-z0-9_]*$"
         return bool(re.match(pattern, key))
 
-    def get_effective_domains(self) -> list[str]:
-        if self.network_access_level == self.NetworkAccessLevel.FULL:
+    @staticmethod
+    def effective_domains(level: str, allowed_domains: Iterable[str], *, include_default_domains: bool) -> list[str]:
+        if level == SandboxEnvironment.NetworkAccessLevel.FULL:
             return []
 
-        if self.network_access_level == self.NetworkAccessLevel.TRUSTED:
+        if level == SandboxEnvironment.NetworkAccessLevel.TRUSTED:
             return DEFAULT_TRUSTED_DOMAINS.copy()
 
-        if self.network_access_level == self.NetworkAccessLevel.CUSTOM:
-            domains = list(self.allowed_domains)
-            if self.include_default_domains:
+        if level == SandboxEnvironment.NetworkAccessLevel.CUSTOM:
+            domains = list(allowed_domains)
+            if include_default_domains:
                 for domain in DEFAULT_TRUSTED_DOMAINS:
                     if domain not in domains:
                         domains.append(domain)
             return domains
 
         return []
+
+    def get_effective_domains(self) -> list[str]:
+        return SandboxEnvironment.effective_domains(
+            self.network_access_level, self.allowed_domains, include_default_domains=self.include_default_domains
+        )
 
 
 class SandboxCustomImage(TeamScopedRootMixin):

@@ -1,7 +1,7 @@
 import { generateText } from '@tiptap/core'
 
+import { DEFAULT_EXTENSIONS } from 'lib/components/RichContentEditor/LemonRichContentEditor'
 import { JSONContent, RichContentNodeType } from 'lib/components/RichContentEditor/types'
-import { DEFAULT_EXTENSIONS } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 
 import { ActivityScope, OrganizationMemberType } from '~/types'
 

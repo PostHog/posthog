@@ -1,8 +1,8 @@
 import api from 'lib/api'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { hogql } from 'lib/utils/hogql'
 
 import { HogQLQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { EventDefinitionType } from '~/types'
 
 // Keep in sync with the `setupProbe` in ../../manifest.tsx (the boot-time approximation of this check).

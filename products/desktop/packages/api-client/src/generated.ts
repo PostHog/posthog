@@ -9974,6 +9974,7 @@ export namespace Schemas {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9998,7 +9999,8 @@ export namespace Schemas {
         | "bucketing_changed_mid_run"
         | "release_conditions_changed_mid_run"
         | "new_flag_no_traffic"
-        | "early_significance";
+        | "early_significance"
+        | "metrics_not_matured";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10054,6 +10056,7 @@ export namespace Schemas {
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10109,6 +10112,7 @@ export namespace Schemas {
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
@@ -10131,6 +10135,7 @@ export namespace Schemas {
         | "exposure_criteria_cannot_match"
         | "exposure_filters"
         | "early_significance"
+        | "metrics_not_matured"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
@@ -10166,6 +10171,7 @@ export namespace Schemas {
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
@@ -10948,6 +10954,10 @@ export namespace Schemas {
         label: string | null;
         table: Record<string, unknown> | null;
         /**
+         * The id of the warehouse table this schema syncs into. Set before the first sync for a table the schema already names, such as a migrated one. Null when there is none.
+         */
+        table_id: string | null;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         should_sync?: boolean | undefined;
@@ -11071,6 +11081,7 @@ export namespace Schemas {
             user_access_level: string | null;
             api_version: string | null;
             supported_api_versions: Array<string>;
+            file_name: string | null;
         }> | null;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
@@ -12542,6 +12553,7 @@ export namespace Schemas {
      * * `Soniox` - Soniox
      * * `Nango` - Nango
      * * `Fathom` - Fathom
+     * * `Stamped` - Stamped
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13957,7 +13969,8 @@ export namespace Schemas {
         | "WooPayments"
         | "Soniox"
         | "Nango"
-        | "Fathom";
+        | "Fathom"
+        | "Stamped";
     /**
      * * `web` - web
      * * `api` - api
@@ -15382,6 +15395,7 @@ export namespace Schemas {
          * * `Soniox` - Soniox
          * * `Nango` - Nango
          * * `Fathom` - Fathom
+         * * `Stamped` - Stamped
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15489,6 +15503,10 @@ export namespace Schemas {
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
         supports_column_selection: boolean;
+        /**
+         * The name of the file a file upload source imports. Null for other sources or when it is unknown.
+         */
+        file_name: string | null;
         /**
          * Vendor API version this source is pinned to (an opaque vendor label, e.g. a Stripe date version). Null resolves to the source type's default version at sync time.
          */
@@ -19621,6 +19639,7 @@ export namespace Schemas {
         user_access_level: string | null;
         supports_webhooks: boolean;
         supports_column_selection: boolean;
+        file_name: string | null;
         api_version: string | null;
         api_version_deprecation: ExternalDataSourceApiVersionDeprecation | null;
         connection_warning: string | null;
