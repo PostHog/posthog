@@ -474,6 +474,10 @@ class ExperimentMetricResult(models.Model):
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
+    # The version 1 key of the calculation config the row was computed from, salted like `fingerprint` on a
+    # recalculation row. It hashes only inputs the experiment owns, so the chart still shows the row after a team
+    # setting moves `fingerprint` away from the current key. No reuse check reads it.
+    display_key = models.CharField(max_length=64, null=True, blank=True)
     query_from = models.DateTimeField()
     query_to = models.DateTimeField()
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
