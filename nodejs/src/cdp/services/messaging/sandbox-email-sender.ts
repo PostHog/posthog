@@ -3,6 +3,8 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import { DeadlineSlots } from '../../utils/deadline-slots'
+
 export interface SandboxEmailSenderConfig {
     enabled: boolean
     tenantName: string
@@ -35,8 +37,7 @@ export const MAX_OPEN_STORE_CALLS = 10
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
-    private openStoreCalls = 0
-    private storeSlotWaiters: (() => void)[] = []
+    private storeSlots = new DeadlineSlots(MAX_OPEN_STORE_CALLS)
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -81,35 +82,7 @@ export class SandboxEmailSender {
     }
 
     private async withStoreSlot(deadline: Promise<void>, work: () => Promise<void>): Promise<void> {
-        if (this.openStoreCalls < MAX_OPEN_STORE_CALLS) {
-            this.openStoreCalls++
-        } else {
-            const granted = await new Promise<boolean>((resolve) => {
-                const waiter = (): void => resolve(true)
-                this.storeSlotWaiters.push(waiter)
-                void deadline.then(() => {
-                    const index = this.storeSlotWaiters.indexOf(waiter)
-                    if (index !== -1) {
-                        this.storeSlotWaiters.splice(index, 1)
-                        resolve(false)
-                    }
-                })
-            })
-            if (!granted) {
-                return
-            }
-        }
-        try {
-            await work()
-        } finally {
-            // Hand the slot straight to the next waiter, so the open count never drops below what runs.
-            const next = this.storeSlotWaiters.shift()
-            if (next) {
-                next()
-            } else {
-                this.openStoreCalls--
-            }
-        }
+        await this.storeSlots.run(deadline, work)
     }
 
     private async captureBlockedEvent(
