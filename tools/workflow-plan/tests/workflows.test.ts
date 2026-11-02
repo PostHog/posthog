@@ -1053,6 +1053,40 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
     })
 
+    it.each([
+        ['PR', pullRequest(), true, true],
+        ['fork', pullRequest({ fork: true }), true, true],
+        ['merge queue', mergeQueue(), true, true],
+        ['unrelated PR', pullRequest(), false, false],
+        ['push', push(), true, false],
+        ['schedule', schedule(), true, false],
+    ] as const)('Node Rust resolver on %s', (name, github, rustChanged, runs) => {
+        const plan = planWorkflow(workflow('ci-nodejs.yml'), {
+            name,
+            github,
+            steps: { changes: { filter: pathsFilter({ rust: rustChanged }) } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(plan.jobs.changes?.steps.find((step) => step.id === 'rust-changed-files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['success', 'true', 'false'],
+        ['success', 'false', 'true'],
+        ['success', '', 'true'],
+        ['failure', 'true', 'true'],
+    ])('Node Rust fallback for resolver %s, resolved=%j', (outcome, resolved, rebuildAll) => {
+        const step = workflow('ci-nodejs.yml').jobs.changes?.steps?.find((step) => step.id === 'rust-affected')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(
+            evaluateValue(
+                step?.with?.['rebuild-all'],
+                { steps: { 'rust-changed-files': { outcome, outputs: { resolved } } } },
+                functions
+            )
+        ).toBe(rebuildAll)
+    })
+
     it.each(['success', 'failure'] as const)(
         'sccache counters survive a %s build without changing its verdict',
         (outcome) => {
