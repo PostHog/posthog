@@ -1876,7 +1876,8 @@ class SessionRecordingViewSet(
             STREAM_RESPONSE_TO_CLIENT_HISTOGRAM, {"blob_version": "v2", "decompress": str(decompress)}
         ):
             blocks = asyncio.run(self._fetch_and_validate_blocks(recording, timer, min_blob_key, max_blob_key))
-            etag = _blob_range_etag(blocks[min_blob_key : max_blob_key + 1], decompress)
+            # The same indices the fetch reads, including negative ones, so the tag always names the bytes served.
+            etag = _blob_range_etag([blocks[i] for i in range(min_blob_key, max_blob_key + 1)], decompress)
 
             response: HttpResponse
             if _if_none_match_includes(request.headers.get("If-None-Match"), etag) and self._recording_not_deleted(

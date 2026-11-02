@@ -202,8 +202,6 @@ export class RecordingApi {
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
 
-        const statePath = '/api/projects/:team_id/recordings/:session_id/state'
-
         const encryptPath = '/api/projects/:team_id/recordings/:session_id/encrypt'
 
         const auth = (op: RecordingApiOp) =>
@@ -229,33 +227,9 @@ export class RecordingApi {
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))
-        router.get(statePath, asyncHandler(this.getSessionState))
         router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
-    }
-
-    private getSessionState = async (req: express.Request, res: express.Response): Promise<void> => {
-        const paramsResult = RecordingParamsSchema.safeParse(req.params)
-        if (!paramsResult.success) {
-            res.status(400).json({ error: paramsResult.error.issues[0].message })
-            return
-        }
-        if (!this.recordingService) {
-            res.status(503).json({ error: 'Recording service not initialized' })
-            return
-        }
-        const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const result = await this.recordingService.getSessionState(sessionId, teamId)
-        if (!result.ok) {
-            res.status(410).json({
-                error: 'recording_deleted',
-                deleted_at: result.deletedAt,
-                deleted_by: result.deletedBy,
-            })
-            return
-        }
-        res.status(200).json({ state: 'active' })
     }
 
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {

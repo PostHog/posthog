@@ -113,25 +113,6 @@ describe('RecordingService', () => {
         })
     })
 
-    describe('getSessionState', () => {
-        it.each([
-            ['active for a ciphertext key', { sessionState: 'ciphertext' }, { ok: true }],
-            ['active for a session with no key', { sessionState: 'cleartext' }, { ok: true }],
-            [
-                'deleted for a shredded key',
-                { sessionState: 'deleted', deletedAt: 1700000000, deletedBy: 'user@example.com' },
-                { ok: false, error: 'deleted', deletedAt: 1700000000, deletedBy: 'user@example.com' },
-            ],
-        ])('returns %s', async (_, key, expected) => {
-            mockKeyStore.getKey.mockResolvedValue(key as any)
-
-            const result = await service.getSessionState('session-123', 1)
-
-            expect(result).toEqual(expected)
-            expect(mockS3Send).not.toHaveBeenCalled()
-        })
-    })
-
     describe('getBlock', () => {
         const validParams = {
             sessionId: 'session-123',

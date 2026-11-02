@@ -102,7 +102,6 @@ describe('RecordingApi', () => {
             validateS3Key: jest.fn().mockReturnValue(true),
             formatS3KeyError: jest.fn().mockReturnValue('Invalid key format'),
             getBlock: jest.fn(),
-            getSessionState: jest.fn(),
             listBlocks: jest.fn(),
             deleteRecordings: jest.fn(),
             encryptBlocks: jest.fn(),
@@ -211,41 +210,6 @@ describe('RecordingApi', () => {
             const router = recordingApi.router()
 
             expect(router).toBeDefined()
-        })
-    })
-
-    describe('getSessionState endpoint', () => {
-        let app: express.Application
-        let server: Server
-
-        beforeEach(async () => {
-            const recordingApi = new RecordingApi({} as RecordingApiConfig, mockPostgres, mockOutputs)
-            await recordingApi.start(mockService)
-            app = express()
-            app.use('/', recordingApi.router())
-            server = app.listen(0, () => {})
-        })
-
-        afterEach(() => {
-            server.close()
-        })
-
-        it.each([
-            ['200 for an active recording', { ok: true }, 200, { state: 'active' }],
-            [
-                '410 for a deleted recording',
-                { ok: false, error: 'deleted', deletedAt: 1700000000, deletedBy: 'user@example.com' },
-                410,
-                { error: 'recording_deleted', deleted_at: 1700000000, deleted_by: 'user@example.com' },
-            ],
-        ])('returns %s', async (_, result, expectedStatus, expectedBody) => {
-            mockService.getSessionState.mockResolvedValue(result as any)
-
-            const res = await supertest(app).get('/api/projects/1/recordings/session-123/state')
-
-            expect(res.status).toBe(expectedStatus)
-            expect(res.body).toEqual(expectedBody)
-            expect(mockService.getSessionState).toHaveBeenCalledWith('session-123', 1)
         })
     })
 

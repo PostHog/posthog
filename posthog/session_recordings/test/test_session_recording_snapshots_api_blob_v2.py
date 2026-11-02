@@ -998,3 +998,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert shifted.status_code == status.HTTP_200_OK
         assert shifted.headers["ETag"] != etag
         assert mock_storage.fetch_block.await_count == 3
+
+        # Negative keys index from the end like the fetch does, so a new tail block must change the tag.
+        tail_url = url.replace("start_blob_key=1&end_blob_key=1", "start_blob_key=-1&end_blob_key=-1")
+        tail_etag = self.client.get(tail_url).headers["ETag"]
+        mock_list_blocks.return_value = [*mock_list_blocks.return_value, self._block("tail", 200)]
+        assert self.client.get(tail_url, headers={"If-None-Match": tail_etag}).status_code == status.HTTP_200_OK

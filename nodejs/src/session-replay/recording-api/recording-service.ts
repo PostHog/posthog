@@ -27,8 +27,6 @@ export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: 
 
 export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
 
-export type GetSessionStateResult = { ok: true } | RecordingDeletedResult
-
 export type EncryptBlocksResult =
     | { ok: true; blocks: Buffer[] }
     | { ok: false; error: 'recording_exists' }
@@ -106,20 +104,6 @@ export class RecordingService {
 
     formatS3KeyError(): string {
         return `Invalid key format: must match ${this.s3Prefix}/{${ValidRetentionPeriods.join(',')}}/{timestamp}-{hex}`
-    }
-
-    // Lets a caller confirm a recording is still playable without reading any block from S3.
-    async getSessionState(sessionId: string, teamId: number): Promise<GetSessionStateResult> {
-        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
-        if (sessionKey.sessionState === 'deleted') {
-            return {
-                ok: false,
-                error: 'deleted',
-                deletedAt: sessionKey.deletedAt,
-                deletedBy: sessionKey.deletedBy ?? '',
-            }
-        }
-        return { ok: true }
     }
 
     async getBlock(params: GetBlockParams): Promise<GetBlockResult> {
