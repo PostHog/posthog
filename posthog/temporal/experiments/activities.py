@@ -463,7 +463,13 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     # Each link that shares this uuid was queued under its own key.
-    link = links[0] if len(links) == 1 else saved_metric_link_for_calculation_key(experiment, links, fingerprint)
+    if len(links) == 1:
+        link: ExperimentToSavedMetric | None = links[0]
+    else:
+        link_id = saved_metric_link_for_calculation_key(
+            experiment_id, team_id=experiment.team_id, metric_uuid=metric_uuid, calculation_key=fingerprint
+        )
+        link = next((candidate for candidate in links if candidate.id == link_id), None)
     if link is None:
         _log_settings_drift(experiment_id, metric_uuid)
         return ExperimentSavedMetricResult(
