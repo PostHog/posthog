@@ -924,9 +924,9 @@ export class EmailService {
      * caller must not tell the customer it hit one.
      *
      * Transactional sends are charged but never delayed, because a password reset that arrives
-     * two hours late has already failed the person waiting on it. Charging them is what bounds
-     * the exemption: transactional volume comes out of the allowance the team's marketing draws
-     * on, so the team cannot raise its total send rate by relabeling.
+     * two hours late has already failed the person waiting on it. The charge does not bound the
+     * exemption: claimUpTo records no debt, so once a bucket empties further transactional sends
+     * cost nothing. The SES account limiter and the daily tier sweep carry that case.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
@@ -996,9 +996,7 @@ export class EmailService {
         }
 
         // Shadow mode, and transactional sends in any mode: the send goes out regardless, so
-        // drain each bucket by what the send costs and log the first cap that would have delayed
-        // it. The label separates the two, so the shadow counts stay a true forecast of what
-        // enforce would delay instead of including sends enforce lets through.
+        // drain each bucket and log the cap. Separate labels keep shadow a forecast of enforce.
         const observedMode = isTransactional ? 'transactional' : mode
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {

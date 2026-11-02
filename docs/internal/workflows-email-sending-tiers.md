@@ -59,9 +59,14 @@ An email step categorized as transactional is never delayed by the send-time buc
 A password reset or a receipt that arrives two hours late has already failed the person waiting for it, so pacing it achieves nothing that dropping it would not.
 This matches the billing quota, which transactional email already bypasses.
 
-The send still drains both buckets by what it costs.
-That is what keeps the exemption from becoming a way to uncap a project: transactional volume comes out of the same allowance the project's marketing draws on, so the project's total send rate stays bounded however it labels its messages.
-A project that spends its whole allowance on transactional email therefore has nothing left for marketing, which is the intended trade.
+The send still drains both buckets by what it costs, so transactional volume displaces the project's marketing while tokens remain.
+A project that spends its whole allowance on transactional email has nothing left for marketing, which is the intended trade.
+
+The charge does not bound the exemption.
+The buckets record no debt, so once a project empties them its further transactional sends cost nothing and this cap stops pacing it.
+A project that labels all of its email transactional is therefore not paced per team at all.
+Two controls outside this cap cover that: the SES account rate limiter, which every send still passes, and the daily sweep, which demotes a project on its complaint and bounce rates.
+Making the cap itself bound the case needs overdraw in the shared token bucket, which is a change to `RateLimiterService` and is not done here.
 
 The category is self-declared in the email step, same as everywhere else it is read.
 That is not a new trust boundary: the same field already exempts a send from recipient opt-outs and from the billing quota, both larger levers than pacing.
