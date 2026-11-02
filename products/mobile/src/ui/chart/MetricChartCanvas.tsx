@@ -175,6 +175,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
             {width > 0 ? (
                 <>
                     <MetricChartRenderer
+                        key={`${geometry.width}:${geometry.height}`}
                         geometry={geometry}
                         kind={kind}
                         variant={variant}

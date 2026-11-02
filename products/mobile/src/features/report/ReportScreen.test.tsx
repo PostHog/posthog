@@ -59,6 +59,8 @@ describe('ReportScreen', () => {
         const view = render(<ReportScreen reportId="demo-report-load-time" from="inbox" />, { wrapper })
         try {
             await waitFor(() => expect(screen.getByTestId('report-screen')).toBeTruthy())
+            expect(screen.getByTestId('action-chat')).toBeTruthy()
+            expect(screen.queryByTestId('inbox-chat')).toBeNull()
             if (navigation) {
                 fireEvent.press(screen.getByTestId('inbox-nav-home'))
                 expect(mockNavigate).toHaveBeenCalledWith('/inbox')

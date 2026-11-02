@@ -10,6 +10,7 @@ import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, type TabKey, useTabHeader, useTabHeaderStore } from './tabHeaderStore'
 
+jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
 // The router's testing library mocks Reanimated with this module after the hoisted mocks run, so the patch goes here.
 jest.mock('react-native-reanimated/mock', () => ({

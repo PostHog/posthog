@@ -1,6 +1,5 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
-import { KeyboardStickyView } from 'react-native-keyboard-controller'
 
 import type { ActionBarState, ReportActions, ReportView } from '@/model/types'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
@@ -112,50 +111,45 @@ export function ActionBar({
     )
 
     return (
-        <KeyboardStickyView offset={{ opened: insets.bottom }}>
-            <View
-                style={[styles.bar, { paddingBottom: bottomOffset(insets, 38) }]}
-                testID={`action-bar-${footerState}`}
-            >
-                {notice ? (
-                    <Text style={styles.notice} accessibilityRole="alert" testID="handoff-notice">
-                        {notice}
-                    </Text>
-                ) : null}
-                {hasPullRequests ? (
-                    <PullRequestCard
-                        pullRequests={state.pullRequests}
-                        onTaskChat={onTaskChat ? () => onTaskChat('pr_card') : undefined}
-                        reportId={report.id}
-                    >
-                        {activity || state.request || state.answer ? activityContent : null}
-                    </PullRequestCard>
-                ) : activity || state.request || state.answer ? (
-                    <View style={styles.panel}>{activityContent}</View>
-                ) : null}
-                {showHandoff ? (
-                    <HandoffSplitButton
-                        report={report}
-                        onHandOff={() => void actions.handOff()}
-                        onOpenPicker={onOpenHandoff}
-                        pending={actions.pending.handOff}
-                    />
-                ) : null}
-                <View style={styles.pillRow}>
-                    <ActionPill onReassign={onReassign} onResolve={onResolve} onDismiss={onDismiss} />
-                    <Pressable44
-                        onPress={onChat}
-                        accessibilityLabel="Chat"
-                        pressedBackground={colors.inkHover}
-                        style={[styles.chat, shadows.fab]}
-                        haptic="selection"
-                        testID="action-chat"
-                    >
-                        <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
-                    </Pressable44>
-                </View>
+        <View style={[styles.bar, { paddingBottom: bottomOffset(insets, 38) }]} testID={`action-bar-${footerState}`}>
+            {notice ? (
+                <Text style={styles.notice} accessibilityRole="alert" testID="handoff-notice">
+                    {notice}
+                </Text>
+            ) : null}
+            {hasPullRequests ? (
+                <PullRequestCard
+                    pullRequests={state.pullRequests}
+                    onTaskChat={onTaskChat ? () => onTaskChat('pr_card') : undefined}
+                    reportId={report.id}
+                >
+                    {activity || state.request || state.answer ? activityContent : null}
+                </PullRequestCard>
+            ) : activity || state.request || state.answer ? (
+                <View style={styles.panel}>{activityContent}</View>
+            ) : null}
+            {showHandoff ? (
+                <HandoffSplitButton
+                    report={report}
+                    onHandOff={() => void actions.handOff()}
+                    onOpenPicker={onOpenHandoff}
+                    pending={actions.pending.handOff}
+                />
+            ) : null}
+            <View style={styles.pillRow}>
+                <ActionPill onReassign={onReassign} onResolve={onResolve} onDismiss={onDismiss} />
+                <Pressable44
+                    onPress={onChat}
+                    accessibilityLabel="Chat"
+                    pressedBackground={colors.inkHover}
+                    style={[styles.chat, shadows.fab]}
+                    haptic="selection"
+                    testID="action-chat"
+                >
+                    <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
+                </Pressable44>
             </View>
-        </KeyboardStickyView>
+        </View>
     )
 }
 

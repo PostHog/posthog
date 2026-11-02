@@ -84,7 +84,7 @@ export function NavMenu({
     const insets = useScreenInsets()
     const { width: windowWidth } = useSceneDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
-    const width = Math.round(windowWidth * 0.75) + 22
+    const width = Math.min(400, Math.round(windowWidth * 0.75) + 22)
     const [pickingProject, setPickingProject] = useState(false)
 
     useEffect(() => {

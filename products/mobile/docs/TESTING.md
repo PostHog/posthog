@@ -202,8 +202,18 @@ Insert the resulting pinned image URLs into the existing PR description without 
   then use `adb -s "$capture_device" shell input tap <x-pixels> <y-pixels>` and `adb ... exec-out screencap -p` if needed.
   Recalculate coordinates for each device and posture. Do not reuse the old screen's coordinates.
 - If the dedicated emulator stops answering shell requests, restart that AVD rather than restarting the shared `adb` server.
-- Capture landscape chat separately even when it fails the visual check. The reference iPhone keyboard covers the composer toolbar;
-  Gboard uses a full-screen editor. Record these limitations until a layout change resolves them.
+- Capture landscape chat with the keyboard open on both platforms. The input, model and mode controls, and Send must remain visible.
+  Gboard must keep the app composer visible rather than opening its full-screen editor.
+  Scroll the empty-state suggestions, send a demo reply, and rotate with an unsent draft to check that the draft survives.
+
+For a complete layout review, also capture sign-in, Settings and its project picker, inbox filters and row actions,
+full report details, handoff options, verdict and decision sheets, saved chats, Views browse and detail screens,
+full-screen charts, and the Errors and Sessions lists and details.
+When demo mode cannot supply a detail screen, use invented diagnostic fixtures and label those captures separately;
+record the provider substitutions and do not claim live data or replay playback coverage.
+Capture every distinct screen on the open Duo, then repeat affected screens in portrait and on the closed cover.
+Keep matching ordinary-phone screenshots for each changed screen. Record unreachable states as missing coverage.
+After returning from chat, rotate a report and check that its footer stays attached to the content with one compose action.
 
 ## Chat navigation and header
 

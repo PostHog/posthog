@@ -17,7 +17,8 @@ export function adaptiveLayout(
 } {
     const safeWidth = Math.max(0, width - left - right)
     const enoughHeight = height >= 480
-    const rail = enoughHeight && (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
+    const rail =
+        enoughHeight && safeWidth >= 600 && (Math.max(left, right) >= 44 || (safeWidth >= 840 && safeWidth > height))
     const contentWidth = Math.max(0, safeWidth - (rail ? NAV_RAIL_WIDTH : 0))
     return {
         rail,

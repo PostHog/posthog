@@ -25,7 +25,7 @@ export function useScreenInsets(): ScreenInsets {
 }
 
 export function topOffset(insets: Pick<ScreenInsets, 'top'>, designTop: number): number {
-    return insets.top + designTop - layout.designStatusBar
+    return Math.max(insets.top, layout.minTopInset) + designTop - layout.designStatusBar
 }
 
 export function bottomOffset(insets: Pick<ScreenInsets, 'bottom'>, designBottom: number): number {

@@ -1,5 +1,5 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { actionErrorMessage } from '@/lib/errors'
 import type { Person, Reviewer } from '@/model/types'
 import { Avatar } from '@/ui/Avatar'
@@ -11,6 +11,7 @@ import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { usePickerCardStyle } from '@/ui/usePickerCardStyle'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
@@ -79,8 +80,12 @@ export function AssigneeSheet({
     const { colors, scheme } = useTheme()
     const insets = useScreenInsets()
     const { height: windowHeight } = useSceneDimensions()
+    const { width: windowWidth } = useWindowDimensions()
+    const side = Math.max(14, (windowWidth - insets.left - insets.right - 600) / 2)
+    const compact = windowHeight < 480
     const top = topOffset(insets, 120)
     const cardHeight = Math.max(320, Math.round((windowHeight - top) * 0.52))
+    const cardStyle = usePickerCardStyle(top, cardHeight)
     const [query, setQuery] = useState('')
     const [selected, setSelected] = useState<Set<string>>(() => new Set())
     const [limitHit, setLimitHit] = useState(false)
@@ -141,35 +146,53 @@ export function AssigneeSheet({
             onClose={onClose}
             accessibilityLabel="Assignee"
             testID="assignee-sheet"
-            style={[styles.card, { top, height: cardHeight }]}
+            style={[styles.card, compact && styles.cardCompact, { left: side, right: side }, cardStyle]}
         >
-            <View style={styles.header}>
-                <Text style={styles.title}>Assignee</Text>
-                <View style={styles.headerActions}>
-                    {changed ? (
+            <View style={compact ? styles.controlsCompact : undefined}>
+                <View style={[styles.header, compact && styles.headerCompact]}>
+                    <Text style={styles.title}>Assignee</Text>
+                    <View style={styles.headerActions}>
+                        {changed ? (
+                            <Pressable44
+                                onPress={() => void save()}
+                                disabled={pending || overLimit}
+                                accessibilityState={{ busy: pending, disabled: pending || overLimit }}
+                                pressedBackground={colors.inkHover}
+                                style={styles.done}
+                                testID="assignee-done"
+                            >
+                                {pending ? (
+                                    <ActivityIndicator size="small" color={colors.onInk} />
+                                ) : (
+                                    <Text style={styles.doneText}>Done</Text>
+                                )}
+                            </Pressable44>
+                        ) : null}
                         <Pressable44
-                            onPress={() => void save()}
-                            disabled={pending || overLimit}
-                            accessibilityState={{ busy: pending, disabled: pending || overLimit }}
-                            pressedBackground={colors.inkHover}
-                            style={styles.done}
-                            testID="assignee-done"
+                            onPress={onClose}
+                            accessibilityLabel="Close"
+                            pressedBackground={colors.hairline}
+                            style={styles.close}
                         >
-                            {pending ? (
-                                <ActivityIndicator size="small" color={colors.onInk} />
-                            ) : (
-                                <Text style={styles.doneText}>Done</Text>
-                            )}
+                            <CloseIcon size={iconSizes.control} />
                         </Pressable44>
-                    ) : null}
-                    <Pressable44
-                        onPress={onClose}
-                        accessibilityLabel="Close"
-                        pressedBackground={colors.hairline}
-                        style={styles.close}
-                    >
-                        <CloseIcon size={iconSizes.control} />
-                    </Pressable44>
+                    </View>
+                </View>
+                <View style={[styles.search, compact && styles.searchCompact]}>
+                    <SearchIcon size={iconSizes.control} />
+                    <TextInput
+                        value={query}
+                        onChangeText={setQuery}
+                        placeholder="Assign to…"
+                        placeholderTextColor={colors.tertiary}
+                        keyboardAppearance={scheme}
+                        autoFocus
+                        autoCorrect={false}
+                        disableFullscreenUI
+                        style={styles.input}
+                        accessibilityLabel="Search people"
+                        testID="assignee-search"
+                    />
                 </View>
             </View>
             {error ? (
@@ -182,21 +205,6 @@ export function AssigneeSheet({
                     {limitMessage(githubOnlyCount)}
                 </Text>
             ) : null}
-            <View style={styles.search}>
-                <SearchIcon size={iconSizes.control} />
-                <TextInput
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder="Assign to…"
-                    placeholderTextColor={colors.tertiary}
-                    keyboardAppearance={scheme}
-                    autoFocus
-                    autoCorrect={false}
-                    style={styles.input}
-                    accessibilityLabel="Search people"
-                    testID="assignee-search"
-                />
-            </View>
             <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
                 {trimmed ? null : (
                     <Pressable44
@@ -247,6 +255,22 @@ export function AssigneeSheet({
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    cardCompact: {
+        paddingTop: 8,
+        paddingBottom: 8,
+    },
+    controlsCompact: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    headerCompact: {
+        gap: 12,
+    },
+    searchCompact: {
+        flex: 1,
+        marginTop: 0,
+    },
     card: {
         left: 14,
         right: 14,

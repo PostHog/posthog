@@ -1,5 +1,5 @@
 import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native'
 import { type AuthProject, useAuthStore } from '@/auth/authStore'
 import { DEMO_PROJECT_NAME } from '@/demo/briefings'
 import { useDemoMode } from '@/demo/demoMode'
@@ -10,6 +10,7 @@ import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { iconSizes, inputReset, radii, type } from '@/ui/tokens'
+import { usePickerCardStyle } from '@/ui/usePickerCardStyle'
 import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
@@ -57,8 +58,12 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
     const { colors, scheme } = useTheme()
     const insets = useScreenInsets()
     const { height: windowHeight } = useSceneDimensions()
+    const { width: windowWidth } = useWindowDimensions()
+    const side = Math.max(14, (windowWidth - insets.left - insets.right - 600) / 2)
+    const compact = windowHeight < 480
     const top = topOffset(insets, 120)
     const cardHeight = Math.max(320, Math.round((windowHeight - top) * 0.52))
+    const cardStyle = usePickerCardStyle(top, cardHeight)
     const demo = useDemoMode((state) => state.enabled)
     const storeProjects = useAuthStore((state) => state.projects)
     const storeProjectId = useAuthStore((state) => state.projectId)
@@ -172,34 +177,37 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
             onClose={onClose}
             accessibilityLabel="Project"
             testID="project-sheet"
-            style={[styles.card, { top, height: cardHeight }]}
+            style={[styles.card, compact && styles.cardCompact, { left: side, right: side }, cardStyle]}
         >
-            <View style={styles.header}>
-                <Text style={styles.title}>Project</Text>
-                <Pressable44
-                    onPress={onClose}
-                    accessibilityLabel="Close"
-                    pressedBackground={colors.hairline}
-                    style={styles.close}
-                >
-                    <CloseIcon size={iconSizes.control} />
-                </Pressable44>
-            </View>
-            <View style={styles.search}>
-                <SearchIcon size={iconSizes.control} />
-                <TextInput
-                    value={query}
-                    onChangeText={setQuery}
-                    placeholder="Find a project…"
-                    placeholderTextColor={colors.tertiary}
-                    keyboardAppearance={scheme}
-                    autoFocus
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    style={styles.input}
-                    accessibilityLabel="Search projects"
-                    testID="project-search"
-                />
+            <View style={compact ? styles.controlsCompact : undefined}>
+                <View style={[styles.header, compact && styles.headerCompact]}>
+                    <Text style={styles.title}>Project</Text>
+                    <Pressable44
+                        onPress={onClose}
+                        accessibilityLabel="Close"
+                        pressedBackground={colors.hairline}
+                        style={styles.close}
+                    >
+                        <CloseIcon size={iconSizes.control} />
+                    </Pressable44>
+                </View>
+                <View style={[styles.search, compact && styles.searchCompact]}>
+                    <SearchIcon size={iconSizes.control} />
+                    <TextInput
+                        value={query}
+                        onChangeText={setQuery}
+                        placeholder="Find a project…"
+                        placeholderTextColor={colors.tertiary}
+                        keyboardAppearance={scheme}
+                        autoFocus
+                        autoCorrect={false}
+                        disableFullscreenUI
+                        autoCapitalize="none"
+                        style={styles.input}
+                        accessibilityLabel="Search projects"
+                        testID="project-search"
+                    />
+                </View>
             </View>
             <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
                 {content}
@@ -209,6 +217,22 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    cardCompact: {
+        paddingTop: 8,
+        paddingBottom: 8,
+    },
+    controlsCompact: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    headerCompact: {
+        gap: 12,
+    },
+    searchCompact: {
+        flex: 1,
+        marginTop: 0,
+    },
     card: {
         left: 14,
         right: 14,

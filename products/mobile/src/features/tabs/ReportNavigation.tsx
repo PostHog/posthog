@@ -17,7 +17,6 @@ export function ReportNavigation(): ReactElement {
             onChats={() => router.navigate('/chats')}
             onViews={() => router.navigate('/views')}
             onPin={(pin) => router.navigate(pin === 'errors' ? '/errors' : '/replay')}
-            onNewChat={() => router.push({ pathname: '/chat', params: { entry: 'compose' } })}
         />
     )
 }

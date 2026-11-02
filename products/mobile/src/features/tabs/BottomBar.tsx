@@ -28,7 +28,7 @@ interface BottomBarProps {
     onChats: () => void
     onViews: () => void
     onPin: (pin: NavPin) => void
-    onNewChat: () => void
+    onNewChat?: () => void
 }
 
 const BAR_GUTTER = 20
@@ -197,21 +197,23 @@ export function BottomBar({
                     )
                 })}
             </View>
-            <Pressable44
-                onPress={onNewChat}
-                accessibilityLabel="Chat"
-                pressedBackground={colors.inkHover}
-                style={[
-                    styles.chat,
-                    shadows.fab,
-                    rail && { width: 56, paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
-                ]}
-                haptic="selection"
-                testID="inbox-chat"
-            >
-                <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
-                {rail ? null : <Text style={styles.chatText}>Chat</Text>}
-            </Pressable44>
+            {onNewChat ? (
+                <Pressable44
+                    onPress={onNewChat}
+                    accessibilityLabel="Chat"
+                    pressedBackground={colors.inkHover}
+                    style={[
+                        styles.chat,
+                        shadows.fab,
+                        rail && { width: 56, paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
+                    ]}
+                    haptic="selection"
+                    testID="inbox-chat"
+                >
+                    <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
+                    {rail ? null : <Text style={styles.chatText}>Chat</Text>}
+                </Pressable44>
+            ) : null}
         </View>
     )
 }
