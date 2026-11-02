@@ -158,7 +158,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
 
 // Credentials that pass validation, plus NO_COLOR so text output has no escape codes.
 export const TEST_CREDENTIALS = {
-    HOG_API_KEY: 'phx_test',
+    HOG_PERSONAL_API_KEY: 'phx_test',
     HOG_PROJECT_ID: '7',
     HOG_HOST: 'https://ph.example.com',
     NO_COLOR: '1',
