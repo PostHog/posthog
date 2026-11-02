@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
     const mockStop = vi.fn()
@@ -97,7 +97,12 @@ describe('ToolExecutor metrics', () => {
     let catalog: ToolCatalog
     let executor: ToolExecutor
 
-    beforeEach(async () => {
+    beforeAll(async () => {
+        catalog = new ToolCatalog()
+        await catalog.warmup()
+    })
+
+    beforeEach(() => {
         mockToolCallsInc.mockClear()
         mockToolDurationObserve.mockClear()
         mockToolDurationStartTimer.mockClear()
@@ -106,8 +111,6 @@ describe('ToolExecutor metrics', () => {
         vi.mocked(trackExecuteSqlGeneration).mockClear()
         vi.mocked(trackToolSpan).mockClear()
 
-        catalog = new ToolCatalog()
-        await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 

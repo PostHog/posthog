@@ -5,6 +5,7 @@ import copy
 import json
 import math
 import logging
+import builtins
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
@@ -33,6 +34,7 @@ from drf_spectacular.utils import (
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -95,14 +97,14 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.approvals.backend.decorators import approval_gate
-from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
+from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.filters_schema import (
     FEATURE_FLAG_OPERATOR_ALIASES,
     FEATURE_FLAG_PROPERTY_TYPES,
@@ -147,7 +149,10 @@ from products.feature_flags.backend.facade.config import (
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
-from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_analytics import (
+    increment_local_evaluation_request_counts,
+    increment_request_count,
+)
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     STALE_ACTIVE_PARAM_DESCRIPTION,
@@ -319,6 +324,13 @@ EARLY_EXIT_FLAG = "feature-flag-early-exit"
 ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
 
 ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for flags with encrypted payloads."
+ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE = (
+    "Historical evaluation is not available for flags with encrypted payloads."
+)
+TOMBSTONED_KEY_REUSED_UNAVAILABLE = (
+    "Historical evaluation is not available for this flag. Deleting it renamed its key, "
+    "and a newer flag now uses the original key, so the original bucketing can't be reproduced."
+)
 
 # What a config version 2 write may change, in request-field names; everything else stays unsupported
 # until the task that owns it lands. Disabling and soft-deleting are incident controls and need no admission.
@@ -1449,8 +1461,31 @@ def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> di
     }
 
 
+def _attach_live_experiments(flags: Sequence[FeatureFlag]) -> None:
+    """Load the experiments that the serializer lists for each flag, in one query for all the flags. The experiments
+    product owns the experiment model, so the flag queryset cannot prefetch them."""
+    if not flags:
+        return
+    # The experiments facade imports this module, so a module-level import would be circular.
+    from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+    experiments = experiments_api.live_experiments_by_flag([flag.id for flag in flags])
+    for flag in flags:
+        flag._active_experiments = experiments.get(flag.id, ())
+
+
+def _live_experiments(flag: FeatureFlag) -> tuple[LinkedExperiment, ...]:
+    if hasattr(flag, "_active_experiments"):
+        return flag._active_experiments
+    # The experiments facade imports this module, so a module-level import would be circular.
+    from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+    return experiments_api.live_experiments_by_flag([flag.id]).get(flag.id, ())
+
+
 class FeatureFlagListSerializer(serializers.ListSerializer):
-    """Loads the condition cohorts of every flag on a page in one query, instead of one query per flag.
+    """Loads the experiments and the condition cohorts of every flag on a page, one query each, instead of one query
+    per flag.
 
     The cohort ids live in each flag's JSON filters, so a queryset prefetch cannot select them. This is
     the only hook DRF gives that sees the whole page.
@@ -1459,6 +1494,7 @@ class FeatureFlagListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> Any:
         flags = list(data)
         assert isinstance(self.child, FeatureFlagSerializer)
+        _attach_live_experiments(flags)
         self.child.context[CONDITION_COHORTS_CONTEXT_KEY] = _load_condition_cohorts(
             flags, self.child.context["project_id"]
         )
@@ -3293,20 +3329,12 @@ class FeatureFlagSerializer(
         return representation
 
     def get_experiment_set(self, obj: FeatureFlag) -> list[int]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            return [exp.id for exp in obj._active_experiments]
-        return [exp.id for exp in obj.experiment_set.filter(deleted=False)]
+        return [exp.id for exp in _live_experiments(obj)]
 
     @extend_schema_field(FeatureFlagExperimentSetMetadataSerializer(many=True))
     def get_experiment_set_metadata(self, obj: FeatureFlag) -> list[dict]:
-        # Use the prefetched active experiments
-        if hasattr(obj, "_active_experiments"):
-            experiments = obj._active_experiments
-        else:
-            experiments = obj.experiment_set.filter(deleted=False)
         # `is_running` mirrors the deletion guard: only a running experiment blocks flag deletion
-        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in experiments]
+        return [{"id": exp.id, "name": exp.name, "is_running": exp.is_running} for exp in _live_experiments(obj)]
 
 
 # Migration 0546 backfilled `creation_mode="template"` onto dashboards matching these, so together
@@ -3792,7 +3820,10 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:
             return cached
-        return flag_has_live_experiment(feature_flag.pk)
+        # The experiments facade imports this module, so a module-level import would be circular.
+        from products.experiments.backend.facade import api as experiments_api  # noqa: PLC0415
+
+        return experiments_api.flag_has_live_experiment(feature_flag.pk)
 
 
 class MyFlagsResponseSerializer(serializers.Serializer):
@@ -4313,18 +4344,15 @@ class FeatureFlagViewSet(
         """
         return replay_gated_flags(self.project_id)
 
+    def safely_get_object(self, queryset: QuerySet) -> FeatureFlag:
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        flag = get_object_or_404(queryset, **{self.lookup_field: self.kwargs[lookup_url_kwarg]})
+        _attach_live_experiments([flag])
+        return flag
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
-
-        # Always prefetch experiment_set since it's used in both list and retrieve
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "experiment_set",
-                queryset=Experiment.objects.filter(deleted=False),
-                to_attr="_active_experiments",
-            )
-        )
 
         # `features` is serialized on every action (list/retrieve/create/update), and
         # MinimalEarlyAccessFeatureSerializer resolves the assignee's name, so join the
@@ -4489,7 +4517,7 @@ class FeatureFlagViewSet(
     def list(self, request, *args, **kwargs):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             # Add request for analytics only if request coming with personal API key authentication
-            increment_request_count(self.team.pk, 1, FlagRequestType.LOCAL_EVALUATION)
+            increment_local_evaluation_request_counts(self.team.pk)
 
         response = super().list(request, *args, **kwargs)
         feature_flags_data = response.data.get("results", [])
@@ -5163,6 +5191,21 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    def _ids_user_can_edit(self, queryset: QuerySet[FeatureFlag]) -> builtins.list[int]:
+        """IDs of the flags in `queryset` that the user can edit, with the same check as the serializer's `get_can_edit`."""
+        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+
+        # The access check reads created_by_id, so a deferred column costs a query per flag
+        flags = list(queryset.only("id", "created_by_id"))
+        self.user_access_control.preload_object_access_controls(cast(list, flags))
+
+        editable_ids = []
+        for flag in flags:
+            user_access_level = self.user_access_control.get_user_access_level(flag)
+            if user_access_level and access_level_satisfied_for_resource("feature_flag", user_access_level, "editor"):
+                editable_ids.append(flag.id)
+        return editable_ids
+
     @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def matching_ids(self, request: request.Request, **kwargs):
         """
@@ -5170,8 +5213,6 @@ class FeatureFlagViewSet(
         Uses the same filtering logic as the list endpoint.
         Returns only IDs that the user has permission to edit.
         """
-        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-
         # Build queryset with same filtering as list endpoint
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
 
@@ -5192,20 +5233,7 @@ class FeatureFlagViewSet(
         if not self.user_access_control:
             editable_ids = list(queryset.values_list("id", flat=True))
         else:
-            # Load only the id field to minimize data transfer
-            flags = list(queryset.only("id"))
-
-            # Preload access controls to avoid N+1 queries
-            self.user_access_control.preload_object_access_controls(cast(list, flags))
-
-            # Filter to only flags the user can edit (same logic as serializer's get_can_edit)
-            editable_ids = []
-            for flag in flags:
-                user_access_level = self.user_access_control.get_user_access_level(flag)
-                if user_access_level and access_level_satisfied_for_resource(
-                    "feature_flag", user_access_level, "editor"
-                ):
-                    editable_ids.append(flag.id)
+            editable_ids = self._ids_user_can_edit(queryset)
 
         return Response(
             {
@@ -5244,7 +5272,6 @@ class FeatureFlagViewSet(
         from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
         from posthog.tasks.remote_config import update_team_remote_config
 
-        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
         from products.feature_flags.backend.flags_cache import enqueue_evaluation_cache_invalidation
         from products.feature_flags.backend.tasks import update_team_flags_cache
 
@@ -5314,20 +5341,8 @@ class FeatureFlagViewSet(
 
         # Apply access control - filter to only editable flags
         if self.user_access_control:
-            # Fetch just IDs for access control check (lightweight query)
-            flags_for_access_check = list(queryset.only("id"))
-            self.user_access_control.preload_object_access_controls(cast(list, flags_for_access_check))
-
-            editable_ids = []
-            for flag in flags_for_access_check:
-                user_access_level = self.user_access_control.get_user_access_level(flag)
-                if user_access_level and access_level_satisfied_for_resource(
-                    "feature_flag", user_access_level, "editor"
-                ):
-                    editable_ids.append(flag.id)
-
             # Filter the existing queryset to only editable flags (preserves all exclusions)
-            queryset = queryset.filter(id__in=editable_ids)
+            queryset = queryset.filter(id__in=self._ids_user_can_edit(queryset))
 
         # Prefetch related data for validation (only for flags we'll actually process)
         queryset = queryset.prefetch_related("features", "experiment_set")
@@ -5439,7 +5454,7 @@ class FeatureFlagViewSet(
             # Prepare activity log entry
             activity_log_entries.append(
                 LogActivityEntry(
-                    organization_id=flag.team.organization_id,
+                    organization_id=self.team.organization_id,
                     team_id=flag.team_id,
                     user=current_user,
                     was_impersonated=was_impersonated,
@@ -5506,7 +5521,7 @@ class FeatureFlagViewSet(
                     update_flag(
                         flag,
                         {"deleted": True, "version": flag.version or 0},
-                        team=flag.team,
+                        team=self.team,
                         user=request.user,
                         request=FlagLifecycleWriteRequest(request),
                         serializer_context=self.get_serializer_context(),
@@ -5948,6 +5963,17 @@ class FeatureFlagViewSet(
         evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else sorted(distinct_ids)[0]
         person_properties: dict[str, Any] = {}
 
+        # Mirror the versions endpoint: encrypted payloads are only served through
+        # /remote_config, which handles decryption. The reconstructed override would
+        # otherwise hand the flags service the stored ciphertext for a flag that the
+        # team's flag list deliberately excludes, and the evaluation response would
+        # echo it back as the payload.
+        if timestamp and feature_flag.has_encrypted_payloads:
+            return Response(
+                {"error": ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Build person properties at timestamp if provided
         if timestamp:
             try:
@@ -5996,6 +6022,16 @@ class FeatureFlagViewSet(
                     timestamp=timestamp,
                     team_id=self.team_id,
                 )
+                # `has_encrypted_payloads` is mutable: a flag downgraded to plaintext keeps
+                # ciphertext in the activity log the reconstruction reads, so gate on the
+                # reconstructed version's own state too (same rule as the versions endpoint).
+                # Index rather than .get(): if a refactor ever drops the field from
+                # reconstruction, this gate must fail loud, not quietly open.
+                if reconstructed_flag_data["has_encrypted_payloads"]:
+                    return Response(
+                        {"error": ENCRYPTED_HISTORICAL_EVALUATION_UNAVAILABLE},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 evaluation_filters = reconstructed_flag_data.get("filters") or {}
 
             except VersionNotFound:
@@ -6022,6 +6058,24 @@ class FeatureFlagViewSet(
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
+        # Bucketing hashes the flag key, and soft-deleting a flag linked to an
+        # experiment renames its key to "<key>:deleted:<id>". A historical
+        # evaluation must run under the original key, or users land in a
+        # different hash bucket than they did historically and get a wrong
+        # variant. If a live flag has reclaimed the original key, the flags
+        # service would match that flag by key and answer with its current
+        # state, so refuse instead.
+        evaluation_key = feature_flag.key
+        if timestamp and feature_flag.deleted:
+            original_key = feature_flag.key_without_tombstone()
+            if original_key != feature_flag.key:
+                if FeatureFlag.objects.filter(team_id=feature_flag.team_id, key=original_key).exists():
+                    return Response(
+                        {"error": TOMBSTONED_KEY_REUSED_UNAVAILABLE},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                evaluation_key = original_key
+
         # Evaluate the flag
         try:
             # Get team API token for Rust service
@@ -6042,13 +6096,21 @@ class FeatureFlagViewSet(
                     flag_dict: dict[str, Any] = {
                         k: reconstructed_flag_data[k] for k in RUST_FLAG_FIELDS if k in reconstructed_flag_data
                     }
-                    flag_dict.update({"id": feature_flag.id, "key": feature_flag.key, "team_id": feature_flag.team_id})
+                    flag_dict.update({"id": feature_flag.id, "key": evaluation_key, "team_id": feature_flag.team_id})
+
+                    # Reconstruction succeeded, so find_version_at_timestamp proved the
+                    # flag was not deleted at the timestamp. The reconstructed `deleted`
+                    # can still be True: a config-v1 bulk delete sets deleted=True
+                    # without a version bump and logs empty changes, so the walk-back
+                    # never undoes it. The flags service skips deleted flags, so the
+                    # override must ship deleted=False.
+                    flag_dict["deleted"] = False
 
                     # Stringify datetime fields for JSON serialization.
                     if flag_dict.get("created_at") and hasattr(flag_dict["created_at"], "isoformat"):
                         flag_dict["created_at"] = flag_dict["created_at"].isoformat()
 
-                    override_definitions = {feature_flag.key: flag_dict}
+                    override_definitions = {evaluation_key: flag_dict}
                 except Exception as e:
                     logger.exception("Failed to serialize flag for override")
                     capture_exception(e)
@@ -6071,7 +6133,7 @@ class FeatureFlagViewSet(
                 detailed_analysis=True,
                 person_properties=person_properties,
                 only_use_override_person_properties=timestamp is not None,
-                flag_keys=[feature_flag.key],
+                flag_keys=[evaluation_key],
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
                 # A pooled connection that the service closed fails once with a reset, so retry it.
@@ -6081,7 +6143,7 @@ class FeatureFlagViewSet(
 
             # Extract the flag result from the Rust response
             flags = rust_response.get("flags", {})
-            flag_result = flags.get(feature_flag.key)
+            flag_result = flags.get(evaluation_key)
 
             # Initialize defaults
             condition_index = None
@@ -6106,6 +6168,26 @@ class FeatureFlagViewSet(
                     reason_description = reason_data.get("description") if reason_data else None
                     condition_index = reason_data.get("condition_index") if reason_data else None
                     payload = metadata.get("payload") if metadata else None
+                    # A failed per-flag result also comes back without conditions.
+                    # Split it by cause: a dependency the definition cannot resolve
+                    # is deterministic, so a 400 tells the caller the request itself
+                    # cannot succeed. Anything else (timeouts, connection
+                    # exhaustion) is transient service trouble, so keep a logged
+                    # 5xx that retries and alerting can see.
+                    if timestamp and flag_result.get("failed"):
+                        if reason.startswith(("dependency_not_found", "dependency_cycle")):
+                            return Response(
+                                {"error": f"Historical evaluation failed: {reason_description or reason}."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+                        logger.error(
+                            "Historical evaluation failed in the flags service",
+                            extra={"flag_key": feature_flag.key, "reason": reason},
+                        )
+                        return Response(
+                            {"error": f"Historical evaluation failed: {reason_description or reason}. Try again."},
+                            status=status.HTTP_502_BAD_GATEWAY,
+                        )
                     # Extract conditions from flag result (only valid path per Rust FlagDetails contract).
                     # When ``timestamp`` is set, missing conditions almost certainly means Rust
                     # rejected the internal token and silently fell back to current-state

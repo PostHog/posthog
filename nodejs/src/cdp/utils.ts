@@ -275,6 +275,8 @@ export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
     sortedLogs.forEach((logEntry) => {
         // TRICKY: The clickhouse table dedupes logs with the same timestamp - we need to ensure they are unique by simply plus-ing 1ms
         // if the timestamp is the same as the previous one
+        // Changes the caller's entry in place, not only the copy below. HogFunctionMonitoringService relies on this to
+        // send the same timestamps to the logs product, and its test fails by 1 ms if this stops.
         if (logEntry.timestamp <= previousTimestamp) {
             logEntry.timestamp = previousTimestamp.plus(1)
         }

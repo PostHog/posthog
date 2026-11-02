@@ -3,8 +3,9 @@ import { type CSSProperties, memo, useCallback, useMemo, useRef } from 'react'
 
 import { LemonSegmentedButton, type LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import type { TraceDialogSource } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import type { SpanTreeNode } from '~/queries/schema/schema-general'
 
@@ -14,7 +15,6 @@ import type { ErrorScope } from 'products/tracing/frontend/errorCorrelation'
 import { TraceCompareFlame } from 'products/tracing/frontend/TraceCompareFlame'
 import type { SpanInspectorTab, TraceViewMode } from 'products/tracing/frontend/types'
 
-import type { TraceDialogSource } from '../TraceDialog/traceDialogLogic'
 import { TraceDialogSpanTree } from '../TraceDialog/TraceDialogSpanTree'
 import { TraceLoadMoreFooter } from './TraceLoadMoreFooter'
 import { type TraceOperationsScope, traceViewLogic, type TraceViewSurface } from './traceViewLogic'

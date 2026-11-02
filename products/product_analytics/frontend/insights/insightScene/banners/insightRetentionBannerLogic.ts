@@ -1,8 +1,8 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import type { DateRange, Node } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'

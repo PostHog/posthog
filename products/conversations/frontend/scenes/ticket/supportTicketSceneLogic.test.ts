@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
@@ -71,6 +72,11 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsMacrosUsedCreate: jest.fn().mockResolvedValue({}),
+    conversationsMacrosList: jest.fn().mockResolvedValue({ results: [], next: null }),
+    conversationsMacrosCreate: jest.fn(),
+    conversationsMacrosPartialUpdate: jest.fn(),
+    conversationsMacrosDestroy: jest.fn(),
 }))
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -431,6 +437,27 @@ describe('supportTicketSceneLogic applyAiDraft', () => {
             message_id: 'msg-ai-1',
             outcome: 'used',
         })
+    })
+
+    it('fills the customer and agent names into the composer and keeps a private draft private', async () => {
+        logic.actions.setTicket({
+            ...makeTicket(),
+            anonymous_traits: { email: 'jane@example.com' },
+            person: { properties: { name: 'Jane Doe' } },
+        } as unknown as Ticket)
+        logic.actions.setDraftIsPrivate(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.insertMacro(
+                { id: 'macro-1', body: 'Hi {{customer.first_name}},\n{{agent.first_name}}' },
+                'button'
+            )
+        }).toFinishAllListeners()
+
+        expect(logic.values.composerInsertAt).toBe(1)
+        expect(logic.values.pendingComposerInsert).toContain('Jane')
+        expect(logic.values.pendingComposerInsert).toContain('John')
+        expect(logic.values.draftIsPrivate).toBe(true)
     })
 })
 
@@ -911,6 +938,30 @@ describe('supportTicketSceneLogic send outcome handling', () => {
             is_private: false,
         })
         expect(logic.values.messageSending).toBe(false)
+    })
+})
+
+describe('supportTicketSceneLogic staff actions context', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+
+    beforeEach(() => {
+        initKeaTests()
+        ticketGetMock.mockReset().mockResolvedValue(makeTicket())
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    // The staff actions panel renders only after the ticket loads, so the scene must hold the shared logic open.
+    it('keeps the ticket context for staff actions when nothing else mounts the impersonation logic', async () => {
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setTicketContext'])
+
+        expect(impersonationNoticeLogic.values.ticketContext).toMatchObject({ ticketId: 'ticket-1' })
     })
 })
 

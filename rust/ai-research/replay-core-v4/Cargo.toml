@@ -31,6 +31,7 @@ md5 = "0.8"
 memchr = "2"
 moka = { workspace = true, optional = true }
 percent-encoding = { workspace = true }
+posthog-replay-anonymizer = { path = "../../replay-anonymizer", default-features = false }
 public-suffix = { workspace = true }
 rand = { workspace = true, optional = true }
 serde = { workspace = true }

@@ -434,6 +434,8 @@ export const invitesCreateBodyTargetEmailMax = 254
 
 export const invitesCreateBodyFirstNameMax = 30
 
+export const invitesCreateBodyMessageMax = 1000
+
 export const invitesCreateBodySendEmailDefault = true
 export const invitesCreateBodyCombinePendingInvitesDefault = false
 
@@ -444,7 +446,11 @@ export const InvitesCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()
@@ -457,6 +463,8 @@ export const invitesBulkCreateBodyTargetEmailMax = 254
 
 export const invitesBulkCreateBodyFirstNameMax = 30
 
+export const invitesBulkCreateBodyMessageMax = 1000
+
 export const invitesBulkCreateBodySendEmailDefault = true
 export const invitesBulkCreateBodyCombinePendingInvitesDefault = false
 
@@ -467,7 +475,11 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.literal(1), zod.literal(8), zod.literal(15)])
         .optional()
         .describe('\* `1` - member\n\* `8` - administrator\n\* `15` - owner'),
-    message: zod.string().nullish(),
+    message: zod
+        .string()
+        .max(invitesBulkCreateBodyMessageMax)
+        .nullish()
+        .describe('Optional personal message in the invite email.'),
     private_project_access: zod
         .unknown()
         .optional()
@@ -1732,7 +1744,7 @@ export const UsersProductIntroSeenPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Request body for PATCH \/api\/users\/@me\/product_intro_seen.')
 
 /**
- * Idempotent upsert: if the (user, token) pair already exists, `platform` and `last_seen_at` are refreshed. Otherwise a new row is created.
+ * Register the device for the authenticated user, removing registrations for the same token belonging to other users on this instance. Re-registration refreshes `platform` and `last_seen_at`.
  * @summary Register a push notification token
  */
 export const usersPushTokensCreateBodyTokenMax = 512

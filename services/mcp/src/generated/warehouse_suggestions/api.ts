@@ -16,6 +16,8 @@ export const WarehouseSuggestionsListParams = () => zod.object({
         ),
 })
 
+export const warehouseSuggestionsListQueryLimitMax = 100
+
 export const WarehouseSuggestionsListQueryParams = () => zod.object({
     assignee_id: zod.number().optional().describe('Only return suggestions assigned to the user with this ID.'),
     kind: zod
@@ -24,7 +26,11 @@ export const WarehouseSuggestionsListQueryParams = () => zod.object({
         .describe(
             'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize\n\* `unmaterialize` - Unmaterialize'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(warehouseSuggestionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     status: zod
         .enum(['proposed', 'accepted', 'dismissed', 'expired', 'auto_resolved'])

@@ -41,7 +41,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.experiments.backend.facade.enums import PrecomputeSkipReason
+from products.experiments.backend.facade.enums import ExposuresPath, PrecomputeSkipReason
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
@@ -196,6 +196,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
         self._is_precomputed: bool = False  # exposures precompute
+        self.exposures_path: ExposuresPath | None = None
         self._metric_events_precomputed: bool = False
 
     def _get_breakdowns_for_builder(self) -> list | None:
@@ -343,7 +344,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     exposure_job_ids = [str(job_id) for job_id in result.job_ids]
-                    self._is_precomputed = True
+                    self._is_precomputed = builder.reads_precomputed_exposures(exposure_job_ids)
                 elif result.capacity_rejected:
                     # ClickHouse refused the build because the pool is full. The direct scan
                     # below would hold a slot for minutes and starve the next builds too, so
@@ -510,14 +511,14 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         experiment_query_ast = self._get_experiment_query()
 
         # Tag after _get_experiment_query() which sets the precompute flags
-        exposures_path = "precomputed" if self._is_precomputed else "direct_scan"
+        self.exposures_path = ExposuresPath.PRECOMPUTED if self._is_precomputed else ExposuresPath.DIRECT_SCAN
         metric_events_path = self.metric_events_path
         skip_reason = self._precompute_skip_reason()
         tag_queries(
-            experiment_exposures_path=exposures_path,
+            experiment_exposures_path=self.exposures_path.value,
             experiment_metric_events_path=metric_events_path,
             experiment_metric_events_skip_reason=self._metric_events_ineligibility_reason(),
-            experiment_execution_path=exposures_path,
+            experiment_execution_path=self.exposures_path.value,
             experiment_precompute_skip_reason=skip_reason.value if skip_reason is not None else None,
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,

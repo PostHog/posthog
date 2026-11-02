@@ -1,9 +1,11 @@
 import re
 import uuid
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.db.models.manager import BaseManager
 
 import boto3
 import posthoganalytics
@@ -53,6 +55,7 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_url_pattern,
     denied_table_ids,
     hosted_upload_s3_path,
+    pending_source_ids_for_tables,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -68,6 +71,7 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     hosted_upload_in_use,
     is_legacy_upload_url,
     is_safe_upload_filename,
+    object_storage_sources_enabled,
     read_upload_in_place,
     replace_file_upload,
     sanitize_upload_filename,
@@ -117,6 +121,27 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
     EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
 }
+
+
+SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
+    "You can't create self-managed tables when managed object storage sources are enabled. "
+    "Add {provider} as a source instead."
+)
+
+MANAGED_SOURCE_NAME_BY_HOST_SUFFIX = (
+    ("r2.cloudflarestorage.com", "Cloudflare R2"),
+    ("amazonaws.com", "Amazon S3"),
+    ("googleapis.com", "Google Cloud Storage"),
+    ("blob.core.windows.net", "Azure Blob Storage"),
+)
+
+
+def _managed_source_name_for_url(url_pattern: str | None) -> str:
+    host = (urlparse(url_pattern or "").hostname or "").lower()
+    for suffix, name in MANAGED_SOURCE_NAME_BY_HOST_SUFFIX:
+        if host == suffix or host.endswith(f".{suffix}"):
+            return name
+    return "your bucket's provider (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2)"
 
 
 def resolve_created_via(request: request.Request) -> str:
@@ -256,6 +281,22 @@ class CredentialSerializer(serializers.ModelSerializer):
         }
 
 
+class TableListSerializer(serializers.ListSerializer):
+    """Resolves the pending source of every table in the page with one query."""
+
+    def to_representation(self, data):
+        tables = list(data.all() if isinstance(data, BaseManager) else data)
+        unsourced = [table for table in tables if table.external_data_source_id is None]
+        if unsourced:
+            team_ids = {table.team_id for table in unsourced}
+            cache = self.context.setdefault("pending_source_ids", {})
+            for team_id in team_ids:
+                ids = [table.id for table in unsourced if table.team_id == team_id]
+                found = pending_source_ids_for_tables(team_id, ids)
+                cache.update({table_id: found.get(table_id) for table_id in ids})
+        return super().to_representation(tables)
+
+
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
@@ -267,6 +308,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
+    pending_source_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The managed source that will import this self-managed table on its first sync, if one is linked.",
+    )
     options = serializers.DictField(
         required=False,
         default=dict,
@@ -303,9 +348,11 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "options",
             "user_access_level",
         ]
+        list_serializer_class = TableListSerializer
         read_only_fields = [
             "id",
             "created_by",
@@ -315,6 +362,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "user_access_level",
         ]
         extra_kwargs = {
@@ -378,6 +426,15 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             )
             for field in serializes_fields
         ]
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_pending_source_id(self, table: DataWarehouseTable) -> uuid.UUID | None:
+        if table.external_data_source_id is not None:
+            return None
+        cache = self.context.get("pending_source_ids")
+        if cache is not None and table.id in cache:
+            return cache[table.id]
+        return pending_source_ids_for_tables(table.team_id, [table.id]).get(table.id)
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
@@ -595,7 +652,13 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
                 bool,
                 description="Include table columns. Disable for lightweight table existence or name lookups.",
                 default=True,
-            )
+            ),
+            OpenApiParameter(
+                "pending_source",
+                bool,
+                description="Only return self-managed tables that a managed source will import on its first sync.",
+                default=False,
+            ),
         ]
     )
 )
@@ -623,13 +686,18 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return context
 
     def safely_get_queryset(self, queryset):
-        return (
+        queryset = (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
             .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
+        if self.action == "list" and self.request.query_params.get("pending_source", "").lower() == "true":
+            queryset = queryset.filter(id__in=list(pending_source_ids_for_tables(self.team_id))).select_related(
+                "credential"
+            )
+        return queryset
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         queryset = super()._filter_queryset_by_access_level(queryset)
@@ -642,6 +710,17 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         # The generic filter reads rules on tables only. A table also resolves through its source,
         # so a rule that denies the source must hide its tables from the list too.
         return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Checked before the serializer runs, so a blocked request never reaches URL validation.
+        if object_storage_sources_enabled(self.team_id):
+            url_pattern = request.data.get("url_pattern") if hasattr(request.data, "get") else None
+            raise serializers.ValidationError(
+                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
+                    provider=_managed_source_name_for_url(url_pattern if isinstance(url_pattern, str) else None)
+                )
+            )
+        return super().create(request, *args, **kwargs)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
@@ -692,11 +771,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         old_csv_allow_double_quotes = instance.csv_allow_double_quotes
         was_history_table = instance.is_history_table
+        had_ph_history_naming = instance.has_ph_history_naming
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        # The sync owns this marker, and an `options` edit through this API must not drop it.
+        # The sync owns these markers, and an `options` edit through this API must not drop them.
         if was_history_table:
-            instance.mark_as_history_table()
+            instance.mark_as_history_table(ph_naming=had_ph_history_naming)
 
         if (
             instance._is_csv_format()

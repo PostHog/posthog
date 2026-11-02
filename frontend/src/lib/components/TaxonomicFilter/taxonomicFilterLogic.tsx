@@ -87,7 +87,7 @@ import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
 } from 'scenes/hog-functions/filters/productEventFilterOptions'
-import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
@@ -2745,7 +2745,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const isPropertyFilterLogicGroup =
                     PROPERTY_TAXONOMIC_GROUP_TYPES.has(sourceGroupType) ||
                     SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
-                    sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+                    sourceGroupType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
                 const recordHereNow = props.selectingKeyOnly || hasCompletePropertyFilter || !isPropertyFilterLogicGroup
 
                 if (recordHereNow && !isQuickFilterItem(item)) {
