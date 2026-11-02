@@ -104,6 +104,13 @@ const UPLOAD_FAILED = "Your files didn't upload. Try again."
 
 const LOADING: SessionHistory = { status: 'loading', error: null }
 const IDLE: SessionHistory = { status: 'idle', error: null }
+const OFFLINE: SessionHistory = {
+    status: 'error',
+    error: {
+        kind: 'network',
+        message: "You're offline. This chat will reconnect when your connection returns.",
+    },
+}
 
 const UNKNOWN_RUN_CONFIG: TrackedRunConfig = {
     runtimeAdapter: null,
@@ -817,13 +824,7 @@ export function useSession(options: SessionOptions): Session {
         }
         if (useConnectivity.getState().status === 'offline') {
             bootstrapRetryable.current = true
-            setHistory({
-                status: 'error',
-                error: {
-                    kind: 'network',
-                    message: "You're offline. This chat will reconnect when your connection returns.",
-                },
-            })
+            setHistory(OFFLINE)
             return
         }
         const controller = new AbortController()
@@ -922,6 +923,9 @@ export function useSession(options: SessionOptions): Session {
         const available = active && online
         const recovered = available && !wasAvailable.current
         wasAvailable.current = available
+        if (!online && !demo && scopeIsCurrent()) {
+            setHistory((current) => (current.status === 'loading' ? OFFLINE : current))
+        }
         if (!available && !demo && !follow && bootController.current) {
             bootstrapRetryable.current = true
             bootController.current.abort()

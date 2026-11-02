@@ -198,11 +198,14 @@ describe('useSession', () => {
                 await act(async () => {
                     useConnectivity.setState({ status: 'offline' })
                 })
-                const stream = liveStream()
+                expect(result.current.history).toMatchObject({ status: 'error', error: { kind: 'network' } })
+                const stream = liveStream(false)
                 mocked.openTaskRunStream.mockResolvedValueOnce(stream.response)
                 await act(async () => {
                     useConnectivity.setState({ status: 'connected' })
                 })
+                expect(result.current.history.status).toBe('loading')
+                await act(async () => stream.push({}, undefined, 'keepalive'))
                 expect(result.current.history.status).toBe('idle')
                 expect(mocked.getTask).toHaveBeenCalledTimes(initial === 'offline' ? 1 : 2)
                 expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
@@ -211,6 +214,30 @@ describe('useSession', () => {
             }
         }
     )
+
+    test('interrupted initial hydration shows offline feedback until the stream resumes', async () => {
+        const first = liveStream(false)
+        const second = liveStream(false)
+        mocked.getTask.mockResolvedValue(task(run({ status: 'in_progress' })))
+        mocked.openTaskRunStream.mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response)
+        const { result, unmount } = renderHook(() => useSession({ taskId: TASK_ID }))
+        try {
+            await act(async () => {})
+            expect(result.current.history.status).toBe('loading')
+            await act(async () => useConnectivity.setState({ status: 'offline' }))
+            expect(result.current.history).toMatchObject({ status: 'error', error: { kind: 'network' } })
+            expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(1)
+            await act(async () => useConnectivity.setState({ status: 'connected' }))
+            expect(result.current.history.status).toBe('loading')
+            expect(mocked.openTaskRunStream).toHaveBeenCalledTimes(2)
+            await act(async () => second.push({}, undefined, 'keepalive'))
+            expect(result.current.history.status).toBe('idle')
+            expect(mocked.sendTaskRunCommand).not.toHaveBeenCalled()
+            expect(mocked.startTaskRun).not.toHaveBeenCalled()
+        } finally {
+            unmount()
+        }
+    })
 
     test('a completed stream stays ended when the link returns', async () => {
         const stream = liveStream()
