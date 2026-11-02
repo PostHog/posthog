@@ -62,7 +62,11 @@ const meta: Meta<typeof EditMetricsWidgetModalStory> = {
     parameters: {
         layout: 'fullscreen',
         ...widgetStorybookParameters,
-        featureFlags: [FEATURE_FLAGS.METRICS, FEATURE_FLAGS.METRICS_QUERY_LANGUAGES],
+        featureFlags: [
+            FEATURE_FLAGS.METRICS,
+            FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
+            FEATURE_FLAGS.METRICS_QUERY_LANGUAGES,
+        ],
     },
     decorators: [metricsApiMock],
 }

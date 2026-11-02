@@ -1,3 +1,4 @@
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { MetricsWidgetChart } from 'products/metrics/frontend/widgets/MetricsWidgetChart'
@@ -11,13 +12,15 @@ function isRunResult(result: unknown): boolean {
 }
 
 export function MetricsWidget({ config, result, onEdit }: DashboardWidgetComponentProps): JSX.Element {
+    const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
+
     // The config decides this state, so a tile saved a moment ago never shows the last run's result.
     if (metricsWidgetNeedsConfiguration(config)) {
         return (
             <WidgetCardBodyMessage>
                 <div className="flex flex-col items-center gap-2">
                     <span>Choose a metric to chart on this tile.</span>
-                    {onEdit ? (
+                    {onEdit && builderEnabled ? (
                         <LemonButton type="primary" size="small" onClick={onEdit} data-attr="metrics-widget-configure">
                             Choose a metric
                         </LemonButton>
