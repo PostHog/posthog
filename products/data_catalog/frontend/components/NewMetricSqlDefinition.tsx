@@ -23,15 +23,14 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
         sqlPreviewLoading,
         sqlPreviewError,
         sqlPreviewStale,
-        sqlEditorError,
         sqlValidationMessage,
     } = useValues(dataCatalogNewMetricSceneLogic)
-    const { testSqlQuery, setSqlEditorError, setSqlMetadata, openInSqlEditor } =
+    const { testSqlQuery, setSqlEditorError, setSqlMetadata, setSqlMetadataLoading, openInSqlEditor } =
         useActions(dataCatalogNewMetricSceneLogic)
 
     const testDisabledReason = !metricForm.sql.trim()
         ? 'Write a query before testing it'
-        : (sqlEditorError ?? undefined)
+        : (sqlValidationMessage ?? undefined)
 
     return (
         <div className="flex flex-col gap-2">
@@ -45,7 +44,11 @@ export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void })
                         sourceQuery={sqlSourceQuery}
                         onError={setSqlEditorError}
                         onMetadata={setSqlMetadata}
+                        onMetadataLoading={setSqlMetadataLoading}
                         metadataDebounceMs={SQL_VALIDATION_DEBOUNCE_MS}
+                        // This result disables saving, and save validates against fresh sources. Cached
+                        // sources can miss a new table and would block a query that save accepts.
+                        metadataFreshSources
                         onPressCmdEnter={testSqlQuery}
                         options={{ placeholder: SQL_PLACEHOLDER }}
                         minHeight="10rem"

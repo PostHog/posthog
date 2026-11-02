@@ -34665,6 +34665,14 @@ class HogQLMetadata(BaseModel):
             "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
         ),
     )
+    freshSources: bool | None = Field(
+        default=None,
+        description=(
+            "Validate on the Python validator with freshly fetched sources, the same"
+            " sources query execution uses. Adds a sources fetch on every request, so"
+            " only set it where the result blocks an action."
+        ),
+    )
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
     includeOutputTypes: bool | None = Field(
         default=None,

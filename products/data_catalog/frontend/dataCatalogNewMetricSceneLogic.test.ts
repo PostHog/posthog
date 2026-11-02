@@ -102,6 +102,17 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         logic.unmount()
     })
 
+    function showInvalidQuery(form: Partial<NewMetricFormValues> = {}): void {
+        logic.actions.setMetricFormValues({ ...SQL_FORM, ...form })
+        logic.actions.setSqlEditorError('Error on line 10, column 5')
+        logic.actions.setSqlMetadata({
+            query: SQL_FORM.sql,
+            errors: [{ message: 'Unable to resolve field: foo' }],
+            warnings: [],
+            notices: [],
+        })
+    }
+
     it.each([
         ['Create and approve', true, 1, 'Metric created and approved'],
         ['Save as proposed', false, 0, 'Metric saved as proposed'],
@@ -141,10 +152,22 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         ['insight', false],
         ['markdown', false],
     ] as const)('known query error with a %s definition disables saving: %s', (definitionType, disabled) => {
-        logic.actions.setMetricFormValues({ definitionType })
-        logic.actions.setSqlEditorError('Error on line 10, column 5')
+        showInvalidQuery({ definitionType })
 
         expect(!!logic.values.saveDisabledReason).toBe(disabled)
+    })
+
+    it.each([
+        ['the edited query is still validating', true, 'Error on line 10, column 5: Unable to resolve field: foo'],
+        ['validation of the edited query failed', false, null],
+    ])('after an edit when %s', (_case, loading, message) => {
+        showInvalidQuery()
+
+        logic.actions.setMetricFormValues({ sql: 'SELECT 1' })
+        logic.actions.setSqlMetadataLoading(loading)
+
+        expect(logic.values.sqlValidationMessage).toEqual(message)
+        expect(!!logic.values.saveDisabledReason).toBe(!!message)
     })
 
     it('never approves a confirmed overwrite', async () => {
@@ -178,14 +201,12 @@ describe('dataCatalogNewMetricSceneLogic', () => {
     })
 
     it('shows the validation message until the query is valid', () => {
-        const invalid = { errors: [{ message: 'Unable to resolve field: foo' }], warnings: [], notices: [] }
-        logic.actions.setSqlEditorError('Error on line 10, column 5')
-        logic.actions.setSqlMetadata(invalid)
+        showInvalidQuery()
 
         expect(logic.values.sqlValidationMessage).toEqual('Error on line 10, column 5: Unable to resolve field: foo')
 
         logic.actions.setSqlEditorError(null)
-        logic.actions.setSqlMetadata({ errors: [], warnings: [], notices: [] })
+        logic.actions.setSqlMetadata({ query: SQL_FORM.sql, errors: [], warnings: [], notices: [] })
 
         expect(logic.values.sqlValidationMessage).toBeNull()
     })

@@ -119,6 +119,7 @@ def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool
             and query.variables is None
             and not query.debug
             and not query.includeOutputTypes
+            and not query.freshSources
         )
     return common and (query.sourceQuery is None or isinstance(query.sourceQuery, HogQLQuery))
 

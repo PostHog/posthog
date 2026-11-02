@@ -64393,6 +64393,8 @@ export namespace Schemas {
       debug?: boolean | null;
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
+      /** Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action. */
+      freshSources?: boolean | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
       /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */

@@ -132,12 +132,14 @@ export interface dataCatalogNewMetricSceneLogicValues {
     showMetricFormErrors: boolean
     sqlEditorError: string | null
     sqlMetadataError: string | null
+    sqlMetadataLoading: boolean
     sqlNameTaken: boolean
     sqlPreview: SqlPreview | null
     sqlPreviewError: string | null
     sqlPreviewLoading: boolean
     sqlPreviewStale: boolean
     sqlSourceQuery: HogQLQuery
+    sqlValidatedQuery: string | null
     sqlValidationMessage: string | null
 }
 
@@ -243,6 +245,9 @@ export interface dataCatalogNewMetricSceneLogicActions {
     setSqlMetadata: (metadata: HogQLMetadataResponse | null) => {
         metadata: HogQLMetadataResponse | null
     }
+    setSqlMetadataLoading: (loading: boolean) => {
+        loading: boolean
+    }
     submitMetric: (approve: boolean) => {
         approve: boolean
     }
@@ -274,7 +279,13 @@ export interface dataCatalogNewMetricSceneLogicActions {
 export interface dataCatalogNewMetricSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sqlSourceQuery: (metricForm: NewMetricFormValues) => HogQLQuery
-        sqlValidationMessage: (sqlEditorError: string | null, sqlMetadataError: string | null) => string | null
+        sqlValidationMessage: (
+            sqlEditorError: string | null,
+            sqlMetadataError: string | null,
+            sqlValidatedQuery: string | null,
+            sqlMetadataLoading: boolean,
+            metricForm: NewMetricFormValues
+        ) => string | null
         saveDisabledReason: (metricForm: NewMetricFormValues, sqlValidationMessage: string | null) => string | null
         sqlPreviewStale: (sqlPreview: SqlPreview | null, metricForm: NewMetricFormValues) => boolean
         sqlNameTaken: (allMetrics: DataCatalogMetricApi[], metricForm: NewMetricFormValues) => boolean
@@ -310,6 +321,7 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
         setInsightSearch: (search: string) => ({ search }),
         setSqlEditorError: (error: string | null) => ({ error }),
         setSqlMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
+        setSqlMetadataLoading: (loading: boolean) => ({ loading }),
         testSqlQuery: true,
         openInSqlEditor: true,
         setLeaving: true,
@@ -408,6 +420,18 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
                 setSqlMetadata: (_, { metadata }) => metadata?.errors?.[0]?.message ?? null,
             },
         ],
+        sqlValidatedQuery: [
+            null as string | null,
+            {
+                setSqlMetadata: (_, { metadata }) => metadata?.query ?? null,
+            },
+        ],
+        sqlMetadataLoading: [
+            false,
+            {
+                setSqlMetadataLoading: (_, { loading }) => loading,
+            },
+        ],
         leaving: [
             false,
             {
@@ -446,9 +470,21 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
             (form: NewMetricFormValues): HogQLQuery => ({ kind: NodeKind.HogQLQuery, query: form.sql }),
         ],
         sqlValidationMessage: [
-            (s) => [s.sqlEditorError, s.sqlMetadataError],
-            (sqlEditorError: string | null, sqlMetadataError: string | null): string | null =>
-                [sqlEditorError, sqlMetadataError].filter(Boolean).join(': ') || null,
+            (s) => [s.sqlEditorError, s.sqlMetadataError, s.sqlValidatedQuery, s.sqlMetadataLoading, s.metricForm],
+            (
+                sqlEditorError: string | null,
+                sqlMetadataError: string | null,
+                sqlValidatedQuery: string | null,
+                sqlMetadataLoading: boolean,
+                form: NewMetricFormValues
+            ): string | null => {
+                // Keep the error during a pending validation so that the banner does not flicker while typing.
+                // A failed validation reports nothing, so an error for other text must not outlive it.
+                if (!sqlMetadataLoading && sqlValidatedQuery !== form.sql) {
+                    return null
+                }
+                return [sqlEditorError, sqlMetadataError].filter(Boolean).join(': ') || null
+            },
         ],
         saveDisabledReason: [
             (s) => [s.metricForm, s.sqlValidationMessage],

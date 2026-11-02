@@ -836,6 +836,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
             ),
             ("non_sql_source", {"sourceQuery": {"kind": "EventsNode"}}),
             ("variables", {"variables": {}}),
+            ("fresh_sources", {"freshSources": True}),
         ]
     )
     @patch("posthog.api.services.query.LanguageServiceClient")

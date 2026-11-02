@@ -86,6 +86,24 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
+    def test_fresh_sources_resolve_a_view_that_cached_sources_miss(self) -> None:
+        query = "SELECT a FROM just_created_view"
+        self.assertEqual(len(self._select(query).errors), 1)
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="just_created_view",
+            query={"query": "SELECT 1 AS a"},
+            columns={"a": "Int64"},
+        )
+
+        self.assertEqual(len(self._select(query).errors), 1)
+        fresh = get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, freshSources=True),
+            team=self.team,
+        )
+        self.assertEqual(fresh.errors, [])
+
     def _select_with_variables(
         self, query: str, variables: Optional[dict[str, dict]] = None, globals: Optional[dict] = None
     ) -> HogQLMetadataResponse:
