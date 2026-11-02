@@ -463,10 +463,16 @@ export const OAuthAuthorize = (): JSX.Element => {
                                             <li key={row.key} className="flex items-center space-x-2">
                                                 <IconCheck color="var(--success)" className="shrink-0" />
                                                 <span className="font-medium">{row.description}</span>
-                                                {!allScopesRequired && (
-                                                    <Tooltip title={`${appName} requires this permission`}>
-                                                        <LemonTag>Required</LemonTag>
+                                                {row.alreadyGranted ? (
+                                                    <Tooltip title={`You granted this to ${appName} before`}>
+                                                        <LemonTag>Already granted</LemonTag>
                                                     </Tooltip>
+                                                ) : (
+                                                    !allScopesRequired && (
+                                                        <Tooltip title={`${appName} requires this permission`}>
+                                                            <LemonTag>Required</LemonTag>
+                                                        </Tooltip>
+                                                    )
                                                 )}
                                             </li>
                                         ))}

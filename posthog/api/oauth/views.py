@@ -70,7 +70,7 @@ from posthog.api.oauth.metadata import (
     openid_provider_metadata,
     protected_resource_metadata,
 )
-from posthog.api.oauth.step_up import live_granted_scopes_covering, resolve_step_up_grant
+from posthog.api.oauth.step_up import resolve_step_up_grant
 from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
@@ -1476,10 +1476,6 @@ def authenticated_oauth_client(view, request, *, resolve_cimd: bool = False) -> 
     return oauth_request.client
 
 
-def _step_up_hidden_scopes_session_key(application: OAuthApplication) -> str:
-    return f"oauth_step_up_hidden_scopes:{application.pk}"
-
-
 class OAuthAuthorizationView(OAuthLibMixin, APIView):
     """
     This view handles incoming requests to /authorize.
@@ -1760,11 +1756,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             except OAuthToolkitError as error:
                 return self.error_response(error, application, state=request.query_params.get("state"))
 
-        consent_scopes = scope_str.split()
-        if step_up_grant:
-            consent_scopes = step_up_grant.consent_scopes
-            if is_read_only_impersonation(request):
-                consent_scopes = downgrade_scopes_to_read_only(" ".join(consent_scopes)).split()
+        # The consent screen shows these as granted and not removable, and submits them with the rest.
+        already_granted_scopes = step_up_grant.already_granted_scopes if step_up_grant else []
+        if already_granted_scopes and is_read_only_impersonation(request):
+            already_granted_scopes = downgrade_scopes_to_read_only(" ".join(already_granted_scopes)).split()
 
         template_context: dict[str, object] = {
             "oauth_application": {
@@ -1788,8 +1783,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # from the URL, so a request the server defaulted or repaired cannot show the
             # user a narrower list than the token gets.
             "oauth_scope_resolution": {
-                "scopes": consent_scopes,
+                "scopes": scope_str.split(),
                 "was_defaulted": scopes_were_defaulted,
+                **({"already_granted_scopes": already_granted_scopes} if already_granted_scopes else {}),
             },
         }
 
@@ -1802,18 +1798,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         if scopes_were_defaulted:
             oauth_mcp_consent = build_oauth_mcp_consent_context(
-                request.query_params.get("resource"), scopes=consent_scopes if step_up_grant else None
+                request.query_params.get("resource"), scopes=scope_str.split() if step_up_grant else None
             )
             if oauth_mcp_consent is not None:
                 template_context["oauth_mcp_consent"] = oauth_mcp_consent
-
-        # The consent POST cannot tell a step-up screen from any other, so the scopes this screen
-        # leaves out travel in the session, never in the form the browser submits.
-        hidden_scopes_key = _step_up_hidden_scopes_session_key(application)
-        if step_up_grant and step_up_grant.hidden_scopes:
-            request.session[hidden_scopes_key] = {"consent": consent_scopes, "hidden": step_up_grant.hidden_scopes}
-        else:
-            request.session.pop(hidden_scopes_key, None)
 
         return render_template("index.html", request, context=template_context)
 
@@ -1853,10 +1841,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 credentials[field] = serializer.validated_data[field]
 
         scopes = serializer.validated_data.get("scope", "")
-        hidden_scopes_key = _step_up_hidden_scopes_session_key(application)
-        restored_scopes = self._restorable_step_up_scopes(request, application, serializer.validated_data, scopes)
-        if restored_scopes:
-            scopes = " ".join(sorted(set(scopes.split()) | restored_scopes))
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 
@@ -1921,7 +1905,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             )
 
         except OAuthToolkitError as error:
-            request.session.pop(hidden_scopes_key, None)
             logger.warning(
                 "oauth_authorize_toolkit_error",
                 client_id=serializer.validated_data["client_id"],
@@ -1959,7 +1942,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return response
 
         logger.debug("Success url for the request: %s", uri)
-        request.session.pop(hidden_scopes_key, None)
 
         redirect = self.redirect(uri, application)
 
@@ -1970,34 +1952,6 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         response = Response({"redirect_to": redirect.url}, status=status.HTTP_200_OK)
         clear_pending_oauth_connection_cookie(request, response)
         return response
-
-    @staticmethod
-    def _restorable_step_up_scopes(
-        request, application: OAuthApplication, validated_data: dict, submitted_scope: str
-    ) -> set[str]:
-        """Scopes a step-up consent screen left out, which the consent POST adds back.
-
-        They come back only when this POST answers that screen: the submitted scopes are ones it
-        listed. A POST from another consent screen for the same app, such as a second tab showing
-        the full list, keeps exactly what its user picked. Only scopes the user still holds on a
-        grant covering the newly picked projects come back, so a revoke in between or a different
-        project never widens the grant.
-        """
-        stored = request.session.get(_step_up_hidden_scopes_session_key(application))
-        if not validated_data["allow"] or not application.supports_step_up or not isinstance(stored, dict):
-            return set()
-        listed = set(stored.get("consent", [])) | set(application.required_scopes) | ALWAYS_ALLOWED_SCOPES
-        # The consent picker lets the user downgrade a listed write scope to its read half.
-        listed |= {f"{scope.removesuffix(':write')}:read" for scope in listed if scope.endswith(":write")}
-        if not set(submitted_scope.split()) <= listed:
-            return set()
-        still_granted = live_granted_scopes_covering(
-            application=application,
-            user_id=request.user.id,
-            scoped_teams=validated_data.get("scoped_teams") or [],
-            scoped_organizations=validated_data.get("scoped_organizations") or [],
-        )
-        return set(stored.get("hidden", [])) & still_granted
 
     def _redirect_and_finish_connection(self, request, uri: str, application: OAuthApplication) -> HttpResponse:
         response = self.redirect(uri, application)

@@ -43,6 +43,8 @@ export type OAuthScopeRow = ScopePickerRow & {
     maxLevel: Exclude<ScopeAccessLevel, 'none'>
     /** True when minLevel === maxLevel: nothing to choose, rendered as a locked checkmark row. */
     locked: boolean
+    /** True when the floor comes from an earlier grant to this app rather than the app's required scopes. */
+    alreadyGranted: boolean
 }
 
 export type OAuthScopeGroup = ScopePickerGroup<OAuthScopeRow>
@@ -53,10 +55,23 @@ export type OAuthScopeGroup = ScopePickerGroup<OAuthScopeRow>
 const oauthDisabledReasons = (
     minLevel: ScopeAccessLevel,
     maxLevel: ScopeAccessLevel,
-    appName: string
+    appName: string,
+    alreadyGranted: boolean
 ): Partial<Record<ScopeAccessLevel, string>> => ({
-    ...(minLevel !== 'none' ? { none: `${appName} requires at least ${minLevel} access` } : {}),
-    ...(minLevel === 'write' ? { read: `${appName} requires write access` } : {}),
+    ...(minLevel !== 'none'
+        ? {
+              none: alreadyGranted
+                  ? `Already granted to ${appName}`
+                  : `${appName} requires at least ${minLevel} access`,
+          }
+        : {}),
+    ...(minLevel === 'write'
+        ? {
+              read: alreadyGranted
+                  ? `Write access is already granted to ${appName}`
+                  : `${appName} requires write access`,
+          }
+        : {}),
     ...(maxLevel !== 'write' ? { write: `Not requested by ${appName}` } : {}),
 })
 
@@ -226,6 +241,8 @@ export interface oauthAuthorizeLogicValues {
     redirectUrl: string
     requiredAccessLevel: 'organization' | 'team' | null
     requiredScopeLevels: Map<string, RequiredLevel>
+    alreadyGrantedScopes: string[]
+    alreadyGrantedScopeLevels: Map<string, RequiredLevel>
     requiredScopeRows: OAuthScopeRow[]
     scopeAccessSelections: {
         bulk: ScopeAccessLevel | null
@@ -334,6 +351,9 @@ export interface oauthAuthorizeLogicActions {
     setScopes: (scopes: string[]) => {
         scopes: string[]
     }
+    setAlreadyGrantedScopes: (alreadyGrantedScopes: string[]) => {
+        alreadyGrantedScopes: string[]
+    }
     setScopesWereDefaulted: (scopesWereDefaulted: boolean) => {
         scopesWereDefaulted: boolean
     }
@@ -387,7 +407,12 @@ export interface oauthAuthorizeLogicMeta {
         ) => TeamBasicType[] | null
         identityScopeDescriptions: (scopes: string[]) => string[]
         requiredScopeLevels: (oauthApplication: OAuthApplicationPublicMetadata | null) => Map<string, RequiredLevel>
-        consentResourceScopes: (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null) => string[]
+        alreadyGrantedScopeLevels: (alreadyGrantedScopes: string[]) => Map<string, RequiredLevel>
+        consentResourceScopes: (
+            scopes: string[],
+            oauthApplication: OAuthApplicationPublicMetadata | null,
+            alreadyGrantedScopes: string[]
+        ) => string[]
         scopeRows: (
             consentResourceScopes: string[],
             scopeAccessSelections: {
@@ -395,6 +420,7 @@ export interface oauthAuthorizeLogicMeta {
                 overrides: Record<string, ScopeAccessLevel>
             },
             requiredScopeLevels: Map<string, RequiredLevel>,
+            alreadyGrantedScopeLevels: Map<string, RequiredLevel>,
             appName: string
         ) => OAuthScopeRow[]
         requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
@@ -406,7 +432,8 @@ export interface oauthAuthorizeLogicMeta {
         effectiveScopes: (
             scopes: string[],
             scopeRows: OAuthScopeRow[],
-            oauthApplication: OAuthApplicationPublicMetadata | null
+            oauthApplication: OAuthApplicationPublicMetadata | null,
+            alreadyGrantedScopes: string[]
         ) => string[]
         redirectDomain: (oauthApplication: OAuthApplicationPublicMetadata | null) => string
     }
@@ -426,6 +453,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     })),
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
+        setAlreadyGrantedScopes: (alreadyGrantedScopes: string[]) => ({ alreadyGrantedScopes }),
         setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
         setScopeGroupAccess: (scopeObjects: string[], level: ScopeAccessLevel) => ({ scopeObjects, level }),
         setAllScopeAccess: (level: ScopeAccessLevel) => ({ level }),
@@ -527,6 +555,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             [] as string[],
             {
                 setScopes: (_, { scopes }) => scopes,
+            },
+        ],
+        alreadyGrantedScopes: [
+            [] as string[],
+            {
+                setAlreadyGrantedScopes: (_, { alreadyGrantedScopes }) => alreadyGrantedScopes,
             },
         ],
         // The user's picks. `bulk` is the last bulk action (Select all / Read-only / Deselect
@@ -801,6 +835,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             (oauthApplication: OAuthApplicationPublicMetadata | null): Map<string, RequiredLevel> =>
                 requiredLevelsFromScopes(oauthApplication?.required_scopes ?? []),
         ],
+        // A step-up keeps what the user granted this app before, so those scopes set a floor
+        // like required scopes do, with their own label.
+        alreadyGrantedScopeLevels: [
+            (s) => [s.alreadyGrantedScopes],
+            (alreadyGrantedScopes: string[]): Map<string, RequiredLevel> =>
+                requiredLevelsFromScopes(alreadyGrantedScopes),
+        ],
         // Requested plus required resource scopes, collapsed to the highest action per
         // object. Both the rows and the grant derive from this one set, so the consent
         // screen always displays exactly what authorizing will grant — required scopes
@@ -810,14 +851,18 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         // `*` survives because the server resolves it separately (`wildcard_read_scopes`)
         // rather than matching it against the ceiling.
         consentResourceScopes: [
-            (s) => [s.scopes, s.oauthApplication],
-            (scopes: string[], oauthApplication: OAuthApplicationPublicMetadata | null): string[] => {
+            (s) => [s.scopes, s.oauthApplication, s.alreadyGrantedScopes],
+            (
+                scopes: string[],
+                oauthApplication: OAuthApplicationPublicMetadata | null,
+                alreadyGrantedScopes: string[]
+            ): string[] => {
                 const grantable = oauthApplication?.grantable_scopes
                 const grantableSet = grantable ? new Set(grantable) : null
                 const requested = grantableSet
                     ? scopes.filter((scope) => scope === '*' || !scope.includes(':') || grantableSet.has(scope))
                     : scopes
-                const required = (oauthApplication?.required_scopes ?? []).filter(
+                const required = [...(oauthApplication?.required_scopes ?? []), ...alreadyGrantedScopes].filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
                 return getMinimumEquivalentScopes([...requested, ...required]).filter(
@@ -829,18 +874,29 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         // sets the floor, and the user's selection is clamped between the two — so no pick
         // (including bulk actions) can grant more than requested or less than required.
         scopeRows: [
-            (s) => [s.consentResourceScopes, s.scopeAccessSelections, s.requiredScopeLevels, s.appName],
+            (s) => [
+                s.consentResourceScopes,
+                s.scopeAccessSelections,
+                s.requiredScopeLevels,
+                s.alreadyGrantedScopeLevels,
+                s.appName,
+            ],
             (
                 consentResourceScopes: string[],
                 scopeAccessSelections: { bulk: ScopeAccessLevel | null; overrides: Record<string, ScopeAccessLevel> },
                 requiredScopeLevels: Map<string, RequiredLevel>,
+                alreadyGrantedScopeLevels: Map<string, RequiredLevel>,
                 appName: string
             ): OAuthScopeRow[] => {
                 const rows = consentResourceScopes.map((scope): OAuthScopeRow => {
                     const key = scopeObjectKey(scope)
                     const maxLevel: 'read' | 'write' = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
-                    const minLevel: ScopeAccessLevel = requiredScopeLevels.get(key) ?? 'none'
-                    const disabledReasons = oauthDisabledReasons(minLevel, maxLevel, appName)
+                    const requiredLevel = requiredScopeLevels.get(key)
+                    const grantedLevel = alreadyGrantedScopeLevels.get(key)
+                    const alreadyGranted =
+                        grantedLevel !== undefined && (grantedLevel === 'write' || requiredLevel !== 'write')
+                    const minLevel: ScopeAccessLevel = (alreadyGranted ? grantedLevel : requiredLevel) ?? 'none'
+                    const disabledReasons = oauthDisabledReasons(minLevel, maxLevel, appName, alreadyGranted)
                     const selected = scopeAccessSelections.overrides[key] ?? scopeAccessSelections.bulk ?? maxLevel
                     const value = clampScopeLevel({ key, label: key, value: selected, disabledReasons }, selected)
                     const apiScope = key === '*' ? undefined : API_SCOPES.find((s) => s.key === key)
@@ -857,6 +913,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         maxLevel,
                         value,
                         locked: minLevel === maxLevel,
+                        alreadyGranted,
                     }
                 })
                 return rows.sort((a, b) => a.label.localeCompare(b.label))
@@ -892,11 +949,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 adjustableScopeRows.some((row) => row.maxLevel === 'write'),
         ],
         effectiveScopes: [
-            (s) => [s.scopes, s.scopeRows, s.oauthApplication],
+            (s) => [s.scopes, s.scopeRows, s.oauthApplication, s.alreadyGrantedScopes],
             (
                 scopes: string[],
                 scopeRows: OAuthScopeRow[],
-                oauthApplication: OAuthApplicationPublicMetadata | null
+                oauthApplication: OAuthApplicationPublicMetadata | null,
+                alreadyGrantedScopes: string[]
             ): string[] => {
                 const identity = scopes.filter((scope) => IDENTITY_SCOPES.includes(scope))
                 const resources = scopeRows.flatMap((row) => {
@@ -918,7 +976,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 })
                 // Also grant the required strings verbatim: collapsing read+write pairs above
                 // could otherwise drop a literal entry the server's set-difference check expects.
-                const required = (oauthApplication?.required_scopes ?? []).filter(
+                const required = [...(oauthApplication?.required_scopes ?? []), ...alreadyGrantedScopes].filter(
                     (scope) => scope.includes(':') || scope === '*'
                 )
                 return Array.from(new Set([...identity, ...resources, ...required]))
@@ -967,6 +1025,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const teamHint = Number.isInteger(teamIdParam) && teamIdParam > 0 ? teamIdParam : null
 
             actions.setScopesWereDefaulted(scopesWereDefaulted)
+            actions.setAlreadyGrantedScopes(scopeResolution?.already_granted_scopes ?? [])
             actions.setTeamHint(teamHint)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
             actions.loadOAuthApplication()

@@ -256,6 +256,20 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toHaveLength(3)
     })
 
+    it('locks scopes granted before, labels them, and keeps them in the grant under bulk actions', () => {
+        logic.actions.setScopes(['openid', 'insight:write', 'comment:write'])
+        logic.actions.setAlreadyGrantedScopes(['openid', 'insight:write'])
+        logic.actions.setAllScopeAccess('none')
+
+        expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
+            locked: true,
+            alreadyGranted: true,
+            value: 'write',
+        })
+        expect(logic.values.scopeRows.find((r) => r.key === 'comment')).toMatchObject({ alreadyGranted: false })
+        expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+    })
+
     it('clamps an optional write above a required read floor to the floor, never below', () => {
         logic.actions.setScopes(['openid', 'feature_flag:write'])
         withRequiredScopes(['feature_flag:read'])

@@ -364,42 +364,39 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("step_up", True, MCP_RESOURCE_PARAM, None, "comment:write", {"openid", "insight:write", "comment:write"}),
-            ("no_step_up", False, MCP_RESOURCE_PARAM, None, "comment:write", {"comment:write"}),
-            ("step_up_outside_mcp", True, "", None, "comment:write", {"comment:write"}),
-            # The prior grant covers another project, so its scopes do not come back for this one.
-            ("step_up_other_project", True, MCP_RESOURCE_PARAM, [987654], "comment:write", {"comment:write"}),
-            # A grant for this project's organization covers the project.
             (
-                "step_up_organization_grant",
+                "step_up",
                 True,
                 MCP_RESOURCE_PARAM,
-                "organization",
-                "comment:write",
+                "comment:write insight:write openid",
+                ["comment:write", "insight:write", "openid"],
+                ["insight:write", "openid"],
                 {"openid", "insight:write", "comment:write"},
             ),
+            ("no_step_up", False, MCP_RESOURCE_PARAM, "comment:write", ["comment:write"], None, {"comment:write"}),
+            ("step_up_outside_mcp", True, "", "comment:write", ["comment:write"], None, {"comment:write"}),
+            # A tampered form still gets nothing outside the app's ceiling.
             (
-                "step_up_downgraded_to_read",
+                "step_up_tampered_form",
                 True,
                 MCP_RESOURCE_PARAM,
-                None,
-                "comment:read",
-                {"openid", "insight:write", "comment:read"},
-            ),
-            # A POST from another consent screen keeps exactly what its user picked.
-            (
-                "step_up_other_screen",
-                True,
-                MCP_RESOURCE_PARAM,
-                None,
-                "openid insight:read comment:write",
-                {"openid", "insight:read", "comment:write"},
+                "comment:write insight:write openid llm_gateway:read",
+                ["comment:write", "insight:write", "openid"],
+                ["insight:write", "openid"],
+                {"openid", "insight:write", "comment:write"},
             ),
         ]
     )
     @time_machine.travel("2026-03-01 12:00:00", tick=False)
-    def test_mcp_reauthorize_keeps_prior_scopes_only_for_a_step_up_app(
-        self, _name, supports_step_up, resource_param, prior_access, submitted_scope, expected
+    def test_mcp_reauthorize_lists_prior_scopes_as_already_granted_for_a_step_up_app(
+        self,
+        _name,
+        supports_step_up,
+        resource_param,
+        submitted_scope,
+        expected_consent,
+        expected_already_granted,
+        expected_token_scopes,
     ):
         self.confidential_application.supports_step_up = supports_step_up
         self.confidential_application.save()
@@ -409,8 +406,6 @@ class TestOAuthAPI(APIBaseTest):
             token="pha_prior_grant",
             expires=timezone.now() - timedelta(hours=1),
             scope="openid insight:write",
-            scoped_teams=prior_access if prior_access != "organization" else None,
-            scoped_organizations=[str(self.organization.id)] if prior_access == "organization" else None,
         )
         OAuthRefreshToken.objects.create(
             application=self.confidential_application,
@@ -421,19 +416,15 @@ class TestOAuthAPI(APIBaseTest):
 
         consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{resource_param}")
         authorize = self.client.post(
-            "/oauth/authorize/",
-            {
-                **self.base_authorization_post_body,
-                "scope": submitted_scope,
-                "access_level": OAuthApplicationAccessLevel.TEAM.value,
-                "scoped_teams": [self.team.id],
-            },
+            "/oauth/authorize/", {**self.base_authorization_post_body, "scope": submitted_scope}
         )
         code = authorize.json()["redirect_to"].split("code=")[1].split("&")[0]
         token = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
 
-        self.assertEqual(consent.context["posthog_app_context"]["oauth_scope_resolution"]["scopes"], ["comment:write"])
-        self.assertEqual(set(token["scope"].split()), expected)
+        resolution = consent.context["posthog_app_context"]["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], expected_consent)
+        self.assertEqual(resolution.get("already_granted_scopes"), expected_already_granted)
+        self.assertEqual(set(token["scope"].split()), expected_token_scopes)
 
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):

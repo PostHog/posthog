@@ -7937,6 +7937,8 @@ export type OAuthScopeResolution = {
     scopes: string[]
     /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
     was_defaulted: boolean
+    /** Scopes of `scopes` the user granted this app before, which a step-up keeps. Shown as granted and not removable. */
+    already_granted_scopes?: string[]
 }
 
 export type OAuthApplicationPublicMetadata = {

@@ -5,7 +5,6 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.team import Team
 from posthog.scopes import scopes_not_covered
 
 # What a step-up app gets on its first connection to the MCP resource. The list comes from MCP
@@ -88,11 +87,9 @@ STEP_UP_DEFAULT_RESOURCE_SCOPES: frozenset[str] = frozenset(
 @frozen
 class StepUpGrant:
     scopes: list[str]
-    """What the grant carries."""
-    consent_scopes: list[str]
-    """What the consent screen lists: the whole grant on a first connection, only the added scopes on a step-up."""
-    hidden_scopes: list[str]
-    """Scopes of the grant the consent screen leaves out, because the user granted them before."""
+    """What the grant carries, which the consent screen lists in full."""
+    already_granted_scopes: list[str]
+    """Scopes of the grant this user granted the app before, which the screen shows as granted."""
 
 
 def resolve_step_up_grant(
@@ -112,18 +109,11 @@ def resolve_step_up_grant(
         # scopes alone would only force a second consent for the scope it asked for.
         if not any(":" in scope for scope in narrowed):
             narrowed = requested
-        scopes = sorted(_union(narrowed, required))
-        return StepUpGrant(scopes=scopes, consent_scopes=scopes, hidden_scopes=[])
+        return StepUpGrant(scopes=sorted(_union(narrowed, required)), already_granted_scopes=[])
 
     scopes = sorted(_union(granted, requested, required))
-    added = [scope for scope in scopes if scopes_not_covered(granted, [scope])]
-    if not added:
-        # An empty list would render no permissions and submit a blank scope, so a request that
-        # adds nothing shows what the grant already holds.
-        return StepUpGrant(scopes=scopes, consent_scopes=scopes, hidden_scopes=[])
-    return StepUpGrant(
-        scopes=scopes, consent_scopes=added, hidden_scopes=[scope for scope in scopes if scope not in added]
-    )
+    already_granted = [scope for scope in scopes if not scopes_not_covered(granted, [scope])]
+    return StepUpGrant(scopes=scopes, already_granted_scopes=already_granted)
 
 
 def narrow_to_step_up_default(requested: Iterable[str]) -> list[str]:
@@ -154,53 +144,10 @@ def live_granted_scopes(*, application: OAuthApplication, user_id: int) -> set[s
     return granted
 
 
-def live_granted_scopes_covering(
-    *, application: OAuthApplication, user_id: int, scoped_teams: list[int], scoped_organizations: list[str]
-) -> set[str]:
-    """Scopes from live grants whose project and organization access covers the new selection.
-
-    Restoring only these never widens where a scope applies: a scope granted for one project does
-    not come back on a grant for another.
-    """
-    team_organizations = {
-        str(organization_id)
-        for organization_id in Team.objects.filter(id__in=scoped_teams).values_list("organization_id", flat=True)
-    }
-    granted: set[str] = set()
-    for scope_string, token_teams, token_organizations in _live_access_tokens(application, user_id).values_list(
-        "scope", "scoped_teams", "scoped_organizations"
-    ):
-        if _access_covers(
-            token_teams or [], token_organizations or [], scoped_teams, scoped_organizations, team_organizations
-        ):
-            granted |= set((scope_string or "").split())
-    return granted
-
-
 def _live_access_tokens(application: OAuthApplication, user_id: int) -> QuerySet[OAuthAccessToken]:
     return OAuthAccessToken.objects.filter(
         application=application, user_id=user_id, impersonated_by__isnull=True
     ).filter(Q(expires__gt=timezone.now()) | Q(refresh_token__isnull=False, refresh_token__revoked__isnull=True))
-
-
-def _access_covers(
-    token_teams: list[int],
-    token_organizations: list[str],
-    scoped_teams: list[int],
-    scoped_organizations: list[str],
-    team_organizations: set[str],
-) -> bool:
-    # A token with neither list reaches everything the user can reach.
-    if not token_teams and not token_organizations:
-        return True
-    if scoped_teams:
-        # A grant for an organization covers every project in it.
-        return set(scoped_teams) <= set(token_teams) or (
-            bool(team_organizations) and team_organizations <= set(token_organizations)
-        )
-    if scoped_organizations:
-        return set(scoped_organizations) <= set(token_organizations)
-    return False
 
 
 def _union(*scope_lists: Iterable[str]) -> list[str]:
