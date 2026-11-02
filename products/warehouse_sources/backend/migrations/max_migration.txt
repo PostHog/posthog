@@ -1,1 +1,1 @@
-0190_repin_qualys_vmdr_api_version_6_0
+0190_repin_profound_api_version_v2
