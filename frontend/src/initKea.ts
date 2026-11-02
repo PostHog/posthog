@@ -14,9 +14,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
     ensureRoutablePathname,
-    removeProjectIdIfPresent,
-    stripTrailingSlash,
+    pathFromWindowToRoutes,
     stripTrailingSlashFromUrl,
+    urlPatternOptions,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
@@ -259,11 +259,7 @@ export function initKea({
         routerPlugin({
             history: routerHistory,
             location: routerLocation,
-            urlPatternOptions: {
-                // :TRICKY: What chars to allow in named segment values i.e. ":key"
-                // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
-                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
-            },
+            urlPatternOptions,
             pathFromRoutesToWindow: (path) => {
                 return addProjectIdIfMissing(path)
             },
@@ -277,9 +273,7 @@ export function initKea({
                 // navigation that runs every `urlToAction` of the scene again.
                 return addProjectIdIfMissing(stripTrailingSlashFromUrl(ensureRoutablePathname(path)))
             },
-            pathFromWindowToRoutes: (path) => {
-                return stripTrailingSlash(removeProjectIdIfPresent(path))
-            },
+            pathFromWindowToRoutes,
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
         }),
