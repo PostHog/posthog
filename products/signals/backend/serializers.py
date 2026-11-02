@@ -81,6 +81,8 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
     from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
+
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, ActionabilityChoice, SourceSuggestion, priority_from_judgment
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
@@ -1901,12 +1903,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     def get_repository_confirmation_required(self, obj: SignalReport) -> bool:
         data = self._get_repo_selection_artefact_data(obj)
-        return bool(
-            data
-            and data.get("repository")
-            and data.get("autostart_eligible") is False
-            and (data.get("research_context") or {}).get("mode") == "repository_discovery"
-        )
+        return RepoSelectionResult.model_validate(data).requires_confirmation if data else False
 
     startup_failure = ReportStartupFailureSerializer(
         read_only=True,

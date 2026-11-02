@@ -1,8 +1,9 @@
 from datetime import timedelta
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github_readiness import (
     GitHubAccessUnavailable,
     GitHubReadiness,
@@ -23,8 +24,9 @@ def get_team_github_readiness(team_id: int, *, verify: bool = False, repository:
     team_id = Team.objects.values_list("parent_team_id", flat=True).get(id=team_id) or team_id
     candidates: list[GitHubIntegrationBase] = [
         GitHubIntegration(row, source="github_readiness", priority=Priority.BATCH)
-        for row in Integration.objects.filter(team_id=team_id, kind="github").order_by(
-            "config__account__type", "created_at", "id"
+        for row in sorted(
+            IntegrationManager.github.oauth.list(team_id),
+            key=lambda row: (row.config.get("account") or {}).get("type") or "",
         )
     ]
     blocked = GitHubReadiness(status=GitHubReadinessStatus.NOT_CONNECTED)

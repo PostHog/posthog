@@ -1028,6 +1028,9 @@ class TestScoutReportRepository(BaseTest):
         corrected = persisted_repo_selection(report_id)
         assert corrected is not None and corrected.research_context == context
         assert self._set(report_id, "acme/widgets") is False
+        if mode == "repository_discovery":
+            assert self._set(report_id, None)
+            assert self._set(report_id, "acme/widgets")
         selection = (
             SignalReportArtefact.objects.filter(
                 report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION

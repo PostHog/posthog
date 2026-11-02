@@ -1005,6 +1005,10 @@ def _create_implementation_task_if_absent(
     return True
 
 
+def _runner_has_project_access(team: Team, user: User) -> bool:
+    return user.is_active and UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
+
+
 def start_requested_implementation(
     request: RequestedImplementation,
     *,
@@ -1012,7 +1016,7 @@ def start_requested_implementation(
 ) -> str:
     team = Team.objects.select_related("organization").get(id=request.team_id)
     user = User.objects.filter(id=request.user_id, is_active=True, organization__id=team.organization_id).first()
-    if user is None or UserPermissions(user=user, team=team).current_team.effective_membership_level is None:
+    if user is None or not _runner_has_project_access(team, user):
         raise RequestedImplementationUnavailable("The requested user cannot access the report's project")
 
     report = SignalReport.objects.filter(id=request.report_id, team_id=request.team_id).first()
@@ -1433,13 +1437,13 @@ async def maybe_autostart_implementation_task(
         return AutostartOutcome(status="cancelled", reason="Report no longer exists")
     if resume is not None and (
         report.status != SignalReport.Status.READY
-        or report.run_count != (report.implemented_at_run_count or 0)
-        or (report.content_revision_count or 0) != (report.implemented_at_revision_count or 0)
         or not await SignalReport.objects.filter(
             id=report_id,
             team_id=team_id,
             report_tasks__task_id=resume.task_id,
             report_tasks__relationship="implementation",
+            report_tasks__report_run_count=report.run_count,
+            report_tasks__report_content_revision_count=report.content_revision_count or 0,
         ).aexists()
     ):
         return AutostartOutcome(status="cancelled", reason="The report or implementation has changed")
@@ -1664,6 +1668,7 @@ async def maybe_autostart_implementation_task(
         if (
             not team.organization.is_ai_data_processing_approved
             or not task_user.is_active
+            or not await database_sync_to_async(_runner_has_project_access, thread_sensitive=False)(team, task_user)
             or task_user.id != resume.user_id
             or repository.casefold() != resume.repository.casefold()
         ):

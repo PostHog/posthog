@@ -271,6 +271,9 @@ def create_scout_report(
                 title=title,
                 summary=summary,
                 scout_idempotency_key=idempotency_key,
+                first_publication_event={"publication_status": status, "origin": "scout"}
+                if status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+                else None,
                 triggering_signal_id=document_ids[0],
                 signal_count=len(signals),
                 total_weight=total_weight,
@@ -1319,7 +1322,9 @@ def set_scout_report_repository(
         # naming it is the decision that lifts it, so that correction must still land.
         previous = persisted_repo_selection(report_id)
         selection.research_context = previous.research_context if previous is not None else None
-        selection.confirmation_required = bool(previous and previous.requires_confirmation)
+        selection.confirmation_required = bool(
+            previous and (previous.confirmation_required or previous.requires_confirmation)
+        )
         if selection.confirmation_required:
             selection.autostart_eligible = False
         if previous == selection:
@@ -1445,7 +1450,9 @@ def set_scout_report_inferred_repository(
                 repository=repository,
                 reason=INFERRED_REPOSITORY_REASON,
                 autostart_eligible=False,
-                confirmation_required=bool(previous and previous.requires_confirmation),
+                confirmation_required=bool(
+                    previous and (previous.confirmation_required or previous.requires_confirmation)
+                ),
                 research_context=previous.research_context if previous is not None else None,
             ),
             attribution=attribution,

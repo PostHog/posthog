@@ -1672,6 +1672,11 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             # Read by capture_status_change_analytics's post_save receiver (same instance, same
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
+            if "first_publication_event" in updated_fields:
+                report.first_publication_event = {
+                    "publication_status": SignalReport.Status.PENDING_INPUT,
+                    "pending_reason": input.pending_reason,
+                }
             report.save(update_fields=updated_fields)
             _write_research_checks(report, input)
             if input.note is not None:

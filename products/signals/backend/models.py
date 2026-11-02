@@ -482,7 +482,7 @@ class SignalReport(UUIDModel):
     # field or never surfaced.
     first_visible_at = models.DateTimeField(null=True, blank=True)
     first_publication_event_sent_at = models.DateTimeField(null=True, blank=True)
-    _publishing_first_time: bool = False
+    first_publication_event = models.JSONField(null=True, blank=True)
     research_context = models.JSONField(null=True, blank=True)
     research_blocked_reason = models.CharField(max_length=64, null=True, blank=True)
     research_blocked_at = models.DateTimeField(null=True, blank=True)
@@ -528,6 +528,11 @@ class SignalReport(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
+            models.Index(
+                fields=["first_visible_at", "id"],
+                condition=models.Q(first_publication_event__isnull=False, first_publication_event_sent_at__isnull=True),
+                name="signals_report_publication_due",
+            ),
             models.Index(
                 fields=["team", "research_blocked_at"],
                 condition=models.Q(status="candidate", research_blocked_reason__isnull=False),
@@ -666,8 +671,6 @@ class SignalReport(UUIDModel):
                 updated_fields.add("promoted_at")
 
             case (S.CANDIDATE, S.IN_PROGRESS):
-                self.research_blocked_reason = None
-                updated_fields.add("research_blocked_reason")
                 if signals_at_run_increment is None:
                     raise ValueError("signals_at_run_increment is required for candidate -> in_progress")
                 self.last_run_at = timezone.now()
@@ -804,6 +807,11 @@ class SignalReport(UUIDModel):
         # report only ever counts once toward SignalTeamConfig.max_reports_per_day.
         if new_status in (S.READY, S.PENDING_INPUT, S.FAILED) and self.first_visible_at is None:
             self.first_visible_at = timezone.now()
+            self.first_publication_event = {
+                "publication_status": new_status,
+                "pending_reason": getattr(self, "_pending_reason", None),
+            }
+            updated_fields.add("first_publication_event")
             updated_fields.add("first_visible_at")
 
         if new_status in (S.READY, S.PENDING_INPUT, S.FAILED):
@@ -2359,6 +2367,8 @@ class SignalReportTask(UUIDModel):
     # "repo_selection". Nullable because the brief link-only window allowed unlabelled rows; the
     # backfill maps those to default artefacts.
     relationship = models.CharField(max_length=200, null=True, blank=True)
+    report_run_count = models.IntegerField(null=True, blank=True)
+    report_content_revision_count = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

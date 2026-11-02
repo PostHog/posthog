@@ -8333,12 +8333,15 @@ def create_task(
             )
         if signal_report_id and signal_report_task_relationship in (None, "implementation"):
             from products.signals.backend.facade.github_optional import (
-                require_repository_confirmation,  # noqa: PLC0415 - keeps the signals model graph off the facade import path
+                repository_confirmation_matches,  # noqa: PLC0415 - keeps the signals model graph off the facade import path
             )
 
-            require_repository_confirmation(
+            if not repository_confirmation_matches(
                 team_id, signal_report_id, confirmed_report_repository, validated_data.get("repository")
-            )
+            ):
+                raise ValidationError(
+                    {"repository": "Confirm the recommended repository before starting implementation."}
+                )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship

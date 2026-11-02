@@ -207,6 +207,7 @@ class ResumedSandboxState:
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
     # reset by a continuation. None on payloads written before this field existed.
     chain_started_at: Optional[str] = None
+    github_suspended_seconds: float = 0
     agent_active: Optional[bool] = None
     end_of_turn_received: Optional[bool] = None
     last_turn_succeeded: bool = False
@@ -425,6 +426,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # wall-clock cap measures the whole chain rather than restarting per run.
         # None on the first execution, where workflow.info().start_time is the anchor.
         self._chain_started_at: Optional[datetime] = None
+        self._github_suspended_duration = timedelta(0)
         # Tracks which progress step is currently in-progress (step, label,
         # group) so we can emit a "failed" transition from the workflow-level
         # exception handler onto the right card.
@@ -630,7 +632,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         `workflow.info().start_time` are deterministic across replays, so recomputing the
         remaining time on each loop iteration is replay-safe.
         """
-        elapsed = workflow.now() - self._chain_start_time()
+        elapsed = workflow.now() - self._chain_start_time() - self._github_suspended_duration
         remaining = (cap - elapsed).total_seconds()
         if remaining > 0:
             await workflow.sleep(remaining)
@@ -1865,6 +1867,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
                 accepted_message_ids=self._accepted_message_ids,
                 chain_started_at=self._chain_start_time().isoformat(),
+                github_suspended_seconds=self._github_suspended_duration.total_seconds(),
                 agent_active=self._agent_active,
                 end_of_turn_received=self._end_of_turn_received,
                 last_turn_succeeded=self._last_turn_succeeded,
@@ -1904,6 +1907,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     def _restore_resumed_state(self, resumed: ResumedSandboxState) -> None:
         self._sandbox_rotation_idle = resumed.sandbox_rotation_idle
         self._chain_started_at = datetime.fromisoformat(resumed.chain_started_at) if resumed.chain_started_at else None
+        self._github_suspended_duration = timedelta(seconds=resumed.github_suspended_seconds)
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
         self._dev_stack_preview_enabled = resumed.dev_stack_preview_enabled
         self._ci_repetitions = resumed.ci_repetitions
@@ -1945,6 +1949,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._github_access_version += 1
 
     async def _wait_for_github_readiness(self, run_id: str) -> bool:
+        suspended_at: datetime | None = None
         while not self._task_completed:
             version = self._github_access_version
             readiness = await workflow.execute_activity(
@@ -1954,6 +1959,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if readiness.status == "ready":
+                if suspended_at is not None:
+                    self._github_suspended_duration += workflow.now() - suspended_at
                 return True
             if readiness.status in ("cancelled", "expired"):
                 await self._update_task_run_status(
@@ -1965,6 +1972,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
                 return False
             assert readiness.retry_until is not None
+            suspended_at = suspended_at or workflow.now()
             remaining = readiness.retry_until - workflow.now()
             if remaining <= timedelta(0):
                 await self._update_task_run_status(

@@ -1,4 +1,6 @@
 from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.models import SignalReportArtefact
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 
 def github_optional_pilot_enabled(team_id: int) -> bool:
@@ -9,14 +11,9 @@ def pilot_repository_integration_id(team_id: int, repository: str) -> int | None
     return ResearchAccessPolicy.repository_integration_id(team_id, repository)
 
 
-def require_repository_confirmation(
+def repository_confirmation_matches(
     team_id: int, report_id: str, confirmed_repository: str | None, implementation_repository: str | None
-) -> None:
-    from rest_framework.exceptions import ValidationError
-
-    from products.signals.backend.models import SignalReportArtefact
-    from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
-
+) -> bool:
     row = (
         SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type="repo_selection")
         .order_by("-created_at", "-id")
@@ -24,11 +21,10 @@ def require_repository_confirmation(
     )
     selection = RepoSelectionResult.model_validate_json(row.content) if row else None
     if not confirmed_repository and not (selection and selection.requires_confirmation):
-        return
+        return True
     target = (selection.repository or "").casefold() if selection else ""
-    if (
-        not target
-        or (confirmed_repository or "").casefold() != target
-        or (implementation_repository or "").casefold() != target
-    ):
-        raise ValidationError({"repository": "Confirm the recommended repository before starting implementation."})
+    return bool(
+        target
+        and (confirmed_repository or "").casefold() == target
+        and (implementation_repository or "").casefold() == target
+    )

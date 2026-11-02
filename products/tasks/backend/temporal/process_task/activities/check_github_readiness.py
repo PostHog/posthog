@@ -39,6 +39,9 @@ def check_self_driving_github_readiness(run_id: str) -> GitHubRecoveryCheck:
             run.task.origin_product != Task.OriginProduct.SIGNAL_REPORT
             or run.environment == TaskRun.Environment.LOCAL
             or run.status != TaskRun.Status.QUEUED
+            or not run.task.signal_report_tasks.filter(
+                team_id=run.team_id, report_id=run.task.signal_report_id, relationship="implementation"
+            ).exists()
         ):
             return GitHubRecoveryCheck(status="ready")
         state = dict(run.state or {})

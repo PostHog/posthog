@@ -7,7 +7,7 @@ from posthog.sync import database_sync_to_async
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.quota import self_driving_quota_gate
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
@@ -25,9 +25,12 @@ def _manual_implementation_may_resume(
         or self_driving_free_trial_enabled(team)
     ):
         return False
-    report = SignalReport.objects.filter(
-        team_id=team_id, id=report_id, report_tasks__task_id=task_id, report_tasks__relationship="implementation"
-    ).first()
+    link = (
+        SignalReportTask.objects.select_related("report")
+        .filter(team_id=team_id, report_id=report_id, task_id=task_id, relationship="implementation")
+        .first()
+    )
+    report = link.report if link else None
     row = (
         SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type="repo_selection")
         .order_by("-created_at", "-id")
@@ -36,9 +39,10 @@ def _manual_implementation_may_resume(
     selection = RepoSelectionResult.model_validate_json(row.content) if row else None
     return bool(
         report
+        and link
         and report.status == SignalReport.Status.READY
-        and report.run_count == (report.implemented_at_run_count or 0)
-        and (report.content_revision_count or 0) == (report.implemented_at_revision_count or 0)
+        and report.run_count == link.report_run_count
+        and (report.content_revision_count or 0) == link.report_content_revision_count
         and selection
         and selection.repository
         and selection.repository.casefold() == repository.casefold()

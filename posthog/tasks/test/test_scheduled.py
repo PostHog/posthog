@@ -32,6 +32,13 @@ class TestPrivacyTaskScheduling(SimpleTestCase):
             if call.kwargs.get("name") == "process-ai-training-privacy"
         ]
         self.assertEqual(len(calls), expected_count)
+        recovery = [
+            call
+            for call in sender.add_periodic_task.call_args_list
+            if call.kwargs.get("name") == "resume github-blocked signal reports"
+        ]
+        self.assertEqual(len(recovery), 1)
+        self.assertEqual(recovery[0].args[0].minute, set(range(0, 60, 5)))
         if calls:
             self.assertEqual(calls[0].args[1].type.queue, "ai_research_privacy")
 

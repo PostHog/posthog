@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from typing import Literal
-
-from django.db import models
 from django.db.models import Q
 
 import structlog
@@ -21,6 +18,7 @@ from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
+from products.signals.backend.facade.enums import ResearchAccessMode
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
@@ -31,16 +29,9 @@ GITHUB_OPTIONAL_FLAGS = (GITHUB_OPTIONAL_FLAG, "self-driving-ubp")
 GITHUB_OPTIONAL_ACTIVATION = "github_optional"
 
 
-class ResearchAccessMode(models.TextChoices):
-    CODE = "code", "Code research"
-    REPOSITORY_DISCOVERY = "repository_discovery", "Repository discovery"
-    DATA_ONLY = "data_only", "Project data research"
-    BLOCKED = "blocked", "Research blocked"
-
-
 @frozen
 class ResearchAccess:
-    mode: Literal["code", "repository_discovery", "data_only", "blocked"]
+    mode: ResearchAccessMode
     blocker: str | None = None
 
 
@@ -49,13 +40,13 @@ def research_access(
 ) -> ResearchAccess:
     if github_status == GitHubReadinessStatus.READY:
         if repository:
-            return ResearchAccess(mode="code")
+            return ResearchAccess(mode=ResearchAccessMode.CODE)
         if github_optional_allowed:
-            return ResearchAccess(mode="repository_discovery")
-        return ResearchAccess(mode="blocked", blocker="repo_selection_required")
+            return ResearchAccess(mode=ResearchAccessMode.REPOSITORY_DISCOVERY)
+        return ResearchAccess(mode=ResearchAccessMode.BLOCKED, blocker="repo_selection_required")
     if github_optional_allowed:
-        return ResearchAccess(mode="data_only")
-    return ResearchAccess(mode="blocked", blocker=github_status.value)
+        return ResearchAccess(mode=ResearchAccessMode.DATA_ONLY)
+    return ResearchAccess(mode=ResearchAccessMode.BLOCKED, blocker=github_status.value)
 
 
 class RepositoryAccessTemporarilyUnavailable(APIException):

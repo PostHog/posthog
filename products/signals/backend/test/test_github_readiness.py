@@ -19,6 +19,7 @@ from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
 
+@time_machine.travel("2026-01-01T12:00:00Z", tick=False)
 class TestGitHubReadiness(BaseTest):
     def test_recovery_respects_source_scout_and_scanner_controls(self) -> None:
         scanner_id = "00000000-0000-4000-8000-000000000001"

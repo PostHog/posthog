@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from products.signals.backend.github_optional import ResearchAccessMode
+from products.signals.backend.facade.enums import ResearchAccessMode
 
 
 class ResearchAccessSerializer(serializers.Serializer):

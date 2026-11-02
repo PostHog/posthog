@@ -112,10 +112,10 @@ def check_fleet_gates(
     return None
 
 
-def check_research_access(team_id: int) -> ScoutRunRejection | None:
+def check_research_access(team_id: int, *, verify: bool = True) -> ScoutRunRejection | None:
     if ResearchAccessPolicy.enabled(team_id):
         return None
-    readiness = get_team_github_readiness(team_id, verify=True)
+    readiness = get_team_github_readiness(team_id, verify=verify)
     if readiness.status == GitHubReadinessStatus.READY:
         return None
     capture_research_access_event(team_id=team_id, origin="scout", reason=readiness.status, fallback=False)

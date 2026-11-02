@@ -624,7 +624,8 @@ def _collect_planned_runs(
     skipped_without_consent = 0
     reconcile_by_team = operational_configs_needing_reconcile() if enrollment.wildcard else {}
     for team, needs_seed in _participating_teams(enrollment, reconcile_team_ids=set(reconcile_by_team)):
-        if check_research_access(team.id) is not None:
+        access_rejection = check_research_access(team.id, verify=False)
+        if access_rejection is not None and access_rejection.reason != "temporarily_unavailable":
             continue
         # Scouts held back from this team via the `withheld_skills` denylist (resolved most-
         # specific-first from this team's `team_configs` entry, then the fleet `default_team_config`):

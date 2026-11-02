@@ -64,6 +64,13 @@ def _is_github_access_failure(error: Exception) -> bool:
 logger = structlog.get_logger(__name__)
 
 
+def _retain_confirmation(result: RepoSelectionResult, previous: RepoSelectionResult | None) -> RepoSelectionResult:
+    if previous and (previous.confirmation_required or previous.requires_confirmation):
+        result.confirmation_required = True
+        result.autostart_eligible = False
+    return result
+
+
 @frozen
 class SelectRepositoryInput:
     team_id: int
@@ -204,11 +211,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
         team.organization,
         input.report_id,
     )
-    research_ids: dict[str, str] = {}
-
-    def capture_research_session(task_id: str, run_id: str) -> None:
-        research_ids.update(task_id=task_id, task_run_id=run_id)
-
+    unconfirmed_previous: RepoSelectionResult | None = None
     try:
         async with Heartbeater():
             sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
@@ -218,6 +221,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             previous = await aretry_on_db_connection_drop(
                 lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
             )
+            unconfirmed_previous = previous
             # Outside the pilot, research resolves its sandbox user from the team's GitHub integration
             # and raises when there is none. A team that disconnected GitHub after the first run must
             # go back through selection, which returns no repository and asks for a selection.
@@ -281,11 +285,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                         result="data_only",
                         failure_reason=availability.repository_status,
                     )
-                    return RepoSelectionResult(
-                        repository=None,
-                        reason="Research will use project data without code access.",
-                        research_context=availability,
-                        autostart_eligible=False,
+                    return _retain_confirmation(
+                        RepoSelectionResult(
+                            repository=None,
+                            reason="Research will use project data without code access.",
+                            research_context=availability,
+                            autostart_eligible=False,
+                        ),
+                        unconfirmed_previous,
                     )
 
             user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
@@ -307,7 +314,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     input.report_id,
                     result="no_repo",
                 )
-                return no_repo_result
+                return _retain_confirmation(no_repo_result, unconfirmed_previous)
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id,
                 SIGNALS_REPO_DISCOVERY_ENV_NAME,
@@ -374,7 +381,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 )
                 if readiness.status != GitHubReadinessStatus.READY:
                     result.blocked_reason = readiness.status
-            return result
+            return _retain_confirmation(result, unconfirmed_previous)
     except Exception as e:
         if input.github_optional and _is_github_access_failure(e):
             await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
@@ -401,11 +408,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 task_id=research_ids.get("task_id"),
                 task_run_id=research_ids.get("task_run_id"),
             )
-            return RepoSelectionResult(
-                repository=None,
-                reason="GitHub is unavailable. Research will use project data.",
-                research_context=ReportResearchContext(mode="data_only", repository_status="github_unavailable"),
-                autostart_eligible=False,
+            return _retain_confirmation(
+                RepoSelectionResult(
+                    repository=None,
+                    reason="GitHub is unavailable. Research will use project data.",
+                    research_context=ReportResearchContext(mode="data_only", repository_status="github_unavailable"),
+                    autostart_eligible=False,
+                ),
+                unconfirmed_previous,
             )
         _capture_repo_research_event(
             "signals_repo_research_completed",

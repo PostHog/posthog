@@ -3866,6 +3866,7 @@ class TestContinueAsNew:
         )
         wf = self._idle_enabled_workflow()
         wf.context.sandbox_backend = "hogland"
+        wf._github_suspended_duration = timedelta(days=2)
         wf._sandbox_url = "https://sandbox.example"
         wf._sandbox_connect_token = "tok"
         wf._ci_repetitions = 2
@@ -3933,6 +3934,7 @@ class TestContinueAsNew:
         # The wall-clock cap anchors on the chain start, so the first execution seeds it from
         # its own start_time and every later continuation carries that same value forward.
         assert restored._chain_started_at == chain_start
+        assert restored._github_suspended_duration == timedelta(days=2)
         assert restored._chain_start_time() == chain_start
         second_hop = restored._build_resumed_input(ProcessTaskInput(run_id="run-id"), sandbox_id="sb-2")
         assert second_hop.resumed_sandbox is not None

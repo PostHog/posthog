@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError, transaction
@@ -2649,6 +2650,7 @@ def test_resolve_priority_response(response, previous, expected_explanation, exp
     "recommended,accessible,expected",
     [("example/app", True, "example/app"), ("example/app", False, None), ("other/private", True, None)],
 )
+@time_machine.travel("2026-01-01T12:00:00Z", tick=False)
 def test_discovery_recommendations_require_project_access(team, recommended, accessible, expected):
     report = SignalReport.objects.create(team=team, status=SignalReport.Status.IN_PROGRESS)
     Integration.objects.create(

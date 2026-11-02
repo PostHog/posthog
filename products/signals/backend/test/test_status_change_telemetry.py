@@ -52,6 +52,28 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
             assert events[0]["properties"]["origin"] == "pipeline"
             assert events[0]["properties"]["publication_status"] == "ready"
 
+    def test_failed_publication_retries_with_the_same_event_id(self) -> None:
+        from products.signals.backend.publication_telemetry import capture_first_publication
+
+        with patch("products.signals.backend.publication_telemetry.ph_scoped_capture") as scoped_capture:
+            capture = scoped_capture.return_value.__enter__.return_value
+            scoped_capture.return_value.__exit__.side_effect = [RuntimeError("Synthetic delivery failure"), None]
+            with self.captureOnCommitCallbacks(execute=True):
+                report = self._create_report(SignalReport.Status.IN_PROGRESS)
+                report.save(
+                    update_fields=report.transition_to(
+                        SignalReport.Status.READY, title=report.title, summary=report.summary
+                    )
+                )
+            report.refresh_from_db()
+            assert report.first_publication_event_sent_at is None
+            capture_first_publication(self.team.id, str(report.id), "ready")
+            events = [call.kwargs for call in capture.call_args_list]
+            assert len(events) == 2
+            assert events[0]["uuid"] == events[1]["uuid"]
+            report.refresh_from_db()
+            assert report.first_publication_event_sent_at is not None
+
     @parameterized.expand(
         [
             ("dismiss", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}),

@@ -169,6 +169,9 @@ class TestTaskRunArtefacts(BaseTest):
 
     def test_record_implementation_task_writes_gate_row_and_artefact(self):
         report = self._report()
+        report.run_count = 3
+        report.content_revision_count = 2
+        report.save(update_fields=["run_count", "content_revision_count"])
         task = self._task()
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
 
@@ -185,6 +188,13 @@ class TestTaskRunArtefacts(BaseTest):
         # Idempotent on the gate row for the same task — re-recording doesn't duplicate the link.
         record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
         assert SignalReportTask.objects.filter(report=report, task=task).count() == 1
+        link = SignalReportTask.objects.get(report=report, task=task)
+        assert (link.report_run_count, link.report_content_revision_count) == (3, 2)
+        report.run_count = 4
+        report.save(update_fields=["run_count"])
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        link.refresh_from_db()
+        assert link.report_run_count == 3
 
     def test_claimer_starts_implementation_under_their_own_claim(self):
         report = self._report()

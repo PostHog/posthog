@@ -3168,27 +3168,42 @@ class TestSignalReportListAPI(APIBaseTest):
         repository: str | None,
         created_at: datetime | None = None,
         research_context: dict[str, str] | None = None,
+        confirmation_required: bool = False,
     ) -> SignalReportArtefact:
         art = SignalReportArtefact(
             team=self.team,
             report=report,
             type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-            content=json.dumps({"repository": repository, "reason": "pick", "research_context": research_context}),
+            content=json.dumps(
+                {
+                    "repository": repository,
+                    "reason": "pick",
+                    "research_context": research_context,
+                    "confirmation_required": confirmation_required,
+                }
+            ),
         )
         art.save()
         if created_at is not None:
             SignalReportArtefact.objects.filter(pk=art.pk).update(created_at=created_at)
         return art
 
-    def test_list_surfaces_latest_repo_slug(self):
+    @parameterized.expand([False, True])
+    def test_list_surfaces_latest_repo_slug(self, confirmation_required):
         report = self._create_report()
         self._repo_selection_artefact(report, repository="acme/old", created_at=timezone.now() - timedelta(days=1))
-        self._repo_selection_artefact(report, repository="acme/new")
+        self._repo_selection_artefact(
+            report,
+            repository="acme/new",
+            confirmation_required=confirmation_required,
+            research_context={"mode": "code", "repository_status": "available"},
+        )
 
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] == "acme/new"
+        assert row["repository_confirmation_required"] is confirmation_required
 
     def test_list_prefetches_only_latest_repo_selection(self):
         report = self._create_report()
