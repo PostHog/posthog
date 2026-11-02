@@ -45,7 +45,8 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailError,
     TransactionalEmailPaused,
 )
-from products.messaging.backend.models import MessageCategory, MessageTemplate, TransactionalEmailKey
+from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
+from products.messaging.backend.models.first_code_send import FIRST_CODE_SEND_CONSTRAINT
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.models.transactional_email_key import TRANSACTIONAL_EMAIL_KEY_CONSTRAINT
 from products.messaging.backend.services.html_text import text_from_html
@@ -412,6 +413,34 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
         if TRANSACTIONAL_EMAIL_KEY_CONSTRAINT not in str(error):
             raise
     return keys.get(key=key).hog_flow_id
+
+
+def first_code_send_recorded(team_id: int) -> bool:
+    return FirstCodeSend.objects.for_team(team_id).exists()
+
+
+def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:
+    if not _claim_first_code_send(team_id):
+        return
+    captured = False
+    try:
+        captured = capture()
+    finally:
+        if not captured:
+            FirstCodeSend.objects.for_team(team_id).delete()
+
+
+def _claim_first_code_send(team_id: int) -> bool:
+    if first_code_send_recorded(team_id):
+        return False
+    try:
+        with transaction.atomic():
+            FirstCodeSend.objects.for_team(team_id).create(team_id=team_id)
+    except IntegrityError as error:
+        if FIRST_CODE_SEND_CONSTRAINT not in str(error):
+            raise
+        return False
+    return True
 
 
 def require_code_email_access(

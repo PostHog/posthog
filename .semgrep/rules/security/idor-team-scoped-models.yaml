@@ -243,6 +243,7 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
+                              |FirstCodeSend
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -749,6 +750,7 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
+                        |FirstCodeSend
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan

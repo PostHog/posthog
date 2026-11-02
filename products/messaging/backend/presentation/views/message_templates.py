@@ -6,7 +6,10 @@ from email.utils import parseaddr
 from types import SimpleNamespace
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+    ValidationError as DjangoValidationError,
+)
 from django.core.validators import validate_email
 from django.db import transaction
 
@@ -32,10 +35,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
-from posthog.models import User
+from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.tag import tagify
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
@@ -72,6 +75,7 @@ from products.messaging.backend.facade.transactional_email import (
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
+    report_first_code_send,
     require_code_email_access,
     send_code_email,
     send_transactional_email,
@@ -407,6 +411,7 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
+FIRST_CODE_SEND_EVENT = "email first code send"
 
 
 DISTINCT_ID_HELP_TEXT = (
@@ -627,15 +632,25 @@ def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
 
 
+def email_from_code_enabled(team: Any) -> bool:
+    return _flag_enabled(team, EMAIL_FROM_CODE_FLAG)
+
+
 def _require_flag(team: Any, flag: str) -> None:
-    if not posthoganalytics.feature_enabled(
-        flag,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
-    ):
+    if not _flag_enabled(team, flag):
         raise NotFound()
+
+
+def _flag_enabled(team: Any, flag: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def transactional_email_throttles() -> list[BaseThrottle]:
@@ -765,6 +780,8 @@ class TransactionalEmailSendMixin:
         finally:
             with transactional_email_stage("usage_event"):
                 self._report_transactional_email_send(request, {**addressed, **outcome})
+        if not queued.replayed:
+            self._report_first_code_send_after_commit(request, route, addressed.get("addressed_by", "template_id"))
         return Response(
             SendTransactionalEmailResponseSerializer(queued).data,
             status=status.HTTP_202_ACCEPTED,
@@ -795,6 +812,33 @@ class TransactionalEmailSendMixin:
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
+    def _report_first_code_send_after_commit(self, request: Any, route: str, addressed_by: str) -> None:
+        if route != "send_email" or not isinstance(request.user, ProjectSecretAPIKeyUser):
+            return
+        if not email_from_code_enabled(self.team):
+            return
+        key = request.user.project_secret_api_key
+        if key.created_by_id is not None:
+            transaction.on_commit(lambda: self._report_first_code_send(key, addressed_by))
+
+    def _report_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> None:
+        try:
+            report_first_code_send(self.team_id, lambda: self._capture_first_code_send(key, addressed_by))
+        except Exception as e:
+            logger.warning("Failed to capture the first code send", team_id=self.team_id, error=str(e))
+
+    def _capture_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> bool:
+        key_creator = _current_creator(key)
+        if key_creator is None:
+            return False
+        queued = posthoganalytics.capture(
+            distinct_id=key_creator.distinct_id,
+            event=FIRST_CODE_SEND_EVENT,
+            properties={"team_id": self.team_id, "addressed_by": addressed_by},
+            groups=groups(self.organization, self.team),
+        )
+        return queued is not None
+
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
         try:
@@ -812,6 +856,14 @@ class TransactionalEmailSendMixin:
             )
         except Exception as e:
             logger.warning("Failed to capture transactional email usage event", error=str(e))
+
+
+def _current_creator(key: ProjectSecretAPIKey) -> User | None:
+    try:
+        key.refresh_from_db(fields=["created_by"])
+        return key.created_by
+    except ObjectDoesNotExist:
+        return None
 
 
 @extend_schema_view(
