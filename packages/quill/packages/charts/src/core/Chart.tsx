@@ -169,6 +169,7 @@ export function Chart<Meta = unknown>({
         margins: marginsOverride,
         maxCategoryLabelWidth: baseMaxCategoryLabelWidth,
         yAxes,
+        xTickLabels,
     } = config ?? {}
 
     // Width from the last layout. Margins feed the canvas size, so the cap can only react to it one render later.
@@ -198,9 +199,10 @@ export function Chart<Meta = unknown>({
     const renderTooltip =
         renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} {...defaultTooltipOptions} />)
 
+    const tickLabels = xTickLabels ?? labels
     const margins = useChartMargins({
         series,
-        labels,
+        labels: tickLabels,
         hideXAxis,
         hideYAxis,
         xAxisLabel,
@@ -281,9 +283,13 @@ export function Chart<Meta = unknown>({
         }
         const xs = hideXAxis
             ? []
-            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth, xTickLabelRotation).map(
-                  (l) => l.x
-              )
+            : computeVisibleXLabels(
+                  tickLabels,
+                  scales.x,
+                  xTickFormatter,
+                  maxCategoryLabelWidth,
+                  xTickLabelRotation
+              ).map((l) => l.x)
         const ys = yGutters.flatMap((gutter) =>
             computeVisibleYTicks(gutter.ticks, gutter.scale)
                 .map((tick) => gutter.scale(tick))
@@ -297,6 +303,7 @@ export function Chart<Meta = unknown>({
         dimensions,
         axisOrientation,
         labels,
+        tickLabels,
         xTickFormatter,
         xTickLabelRotation,
         maxCategoryLabelWidth,
@@ -455,6 +462,7 @@ export function Chart<Meta = unknown>({
                         orientation={axisOrientation}
                         labelToCoord={labelToCoord}
                         maxCategoryLabelWidth={maxCategoryLabelWidth}
+                        xTickLabels={tickLabels}
                     />
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
