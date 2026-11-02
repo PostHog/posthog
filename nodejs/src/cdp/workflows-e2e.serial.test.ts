@@ -3044,7 +3044,8 @@ describe('Workflows E2E (email queue)', () => {
     })
 
     it.each(['maildev', 'ses'])('continues the workflow through the email queue via %s', async (provider) => {
-        const throttledSends = 2
+        const sesThrottledSends = 2
+        const sesRequests = sesThrottledSends + 1
         if (provider === 'ses') {
             sesEnvironment = { ...process.env }
             process.env.AWS_ACCESS_KEY_ID = 'local-ses-test'
@@ -3054,7 +3055,7 @@ describe('Workflows E2E (email queue)', () => {
             process.env.AWS_MAX_ATTEMPTS = '1'
             ses = new LocalSes()
             await ses.start()
-            ses.throttleNextRequests(throttledSends)
+            ses.throttleNextRequests(sesThrottledSends)
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_integration SET config = jsonb_set(config, '{provider}', '"ses"')
@@ -3143,7 +3144,7 @@ describe('Workflows E2E (email queue)', () => {
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
         if (ses) {
-            expect(ses.requests).toHaveLength(throttledSends + 1)
+            expect(ses.requests).toHaveLength(sesRequests)
             expect(await ses.getEmails()).toEqual([
                 expect.objectContaining({
                     subject: 'Test Email',
@@ -3160,9 +3161,7 @@ describe('Workflows E2E (email queue)', () => {
             ])
             const hogflowPasses = 1
             const transitionsPerPass = 2
-            expect(jobs[0].transition_count).toBeLessThanOrEqual(
-                (hogflowPasses + throttledSends + 1) * transitionsPerPass
-            )
+            expect(jobs[0].transition_count).toBeLessThanOrEqual((hogflowPasses + sesRequests) * transitionsPerPass)
         }
     })
 
