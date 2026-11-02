@@ -46,7 +46,7 @@ export function InboxScreen(): ReactElement {
     )
     const filters = useInboxFilters()
     const query = useInboxItems({ refreshWhileVisible: focused, filters })
-    const prefetch = usePrefetchReports(query.data)
+    const prefetch = usePrefetchReports(query.data, focused)
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
     const [filtersOpen, setFiltersOpen] = useState(false)
     const listRef = useRef<FlatList<InboxItem>>(null)
