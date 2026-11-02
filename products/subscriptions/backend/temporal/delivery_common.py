@@ -218,14 +218,24 @@ async def deliver_slack(
             subscription_id=subscription.id,
             failed_thread_count=len(result.failed_thread_message_indices),
             total_thread_count=result.total_thread_messages,
+            undelivered_asset_count=result.undelivered_asset_count,
         )
+        parts: list[str] = []
+        failure_types: list[str] = []
         failed_count = len(result.failed_thread_message_indices)
-        partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
+        if failed_count:
+            parts.append(f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed")
+            failure_types.append("partial_thread_failure")
+        undelivered_count = result.undelivered_asset_count
+        if undelivered_count:
+            parts.append(f"{undelivered_count} chart{'s' if undelivered_count != 1 else ''} could not be attached")
+            failure_types.append("undelivered_assets")
+        partial_message = "; ".join(parts)
         recipient_results.append(
             RecipientResult(
                 recipient=subscription.recipient_label,
                 status="partial",
-                error={"message": partial_message, "type": "partial_thread_failure"},
+                error={"message": partial_message, "type": ",".join(failure_types)},
                 human_readable_error=partial_message,
             )
         )

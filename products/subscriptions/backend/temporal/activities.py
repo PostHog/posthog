@@ -29,7 +29,11 @@ from products.subscriptions.backend.logic.failure_notifications import (
     send_subscription_delivery_failure_email,
 )
 from products.subscriptions.backend.logic.slack_subscriptions import send_slack_message_with_integration_async
-from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS
+from products.subscriptions.backend.logic.subscription_utils import (
+    ASSET_GENERATION_FAILED_MESSAGE,
+    MAX_INSIGHTS,
+    _has_asset_failed,
+)
 from products.subscriptions.backend.logic.teams_subscriptions import build_teams_subscription_card
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.subscriptions.backend.models.subscription_context import SubscriptionContext
@@ -57,6 +61,7 @@ from products.subscriptions.backend.temporal.types import (
     NoExportableInsightsContext,
     NoExportableInsightsReason,
     RecipientResult,
+    RecipientResultStatus,
     UpdateDeliveryRecordInputs,
 )
 
@@ -397,6 +402,27 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     )
 
 
+def _downgrade_for_unrendered_assets(
+    result: DeliverSubscriptionResult, unrendered_count: int, total_count: int
+) -> DeliverSubscriptionResult:
+    """A destination that accepts the message is not a delivered chart. Without this, a
+    subscription whose insights all failed to render is still recorded as a success."""
+    message = f"{unrendered_count} of {total_count} insight{'s' if total_count != 1 else ''} could not be generated"
+    status: RecipientResultStatus = "failed" if unrendered_count == total_count else "partial"
+    downgraded = [
+        RecipientResult(
+            recipient=recipient_result.recipient,
+            status=status,
+            error={"message": message, "type": "unrendered_assets"},
+            human_readable_error=message,
+        )
+        if recipient_result.status == "success"
+        else recipient_result
+        for recipient_result in result.recipient_results
+    ]
+    return dataclasses.replace(result, recipient_results=downgraded)
+
+
 @temporalio.activity.defn
 async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
     # TODO(2026-07-31): After workflows started before 2026-07-31 have drained, remove this v1 activity,
@@ -552,10 +578,18 @@ async def _deliver_insight_dashboard_subscription(
             non_retryable=True,
         )
 
+    unrendered_assets = [asset for asset in assets if _has_asset_failed(asset)]
+    if unrendered_assets:
+        result = _downgrade_for_unrendered_assets(result, len(unrendered_assets), len(assets))
+        if len(unrendered_assets) == len(assets):
+            # Keeps the analytics event in step with the FAILED delivery row this produces.
+            _capture_delivery_failed_event(subscription, Exception(ASSET_GENERATION_FAILED_MESSAGE))
+
     await LOGGER.ainfo(
         "deliver_subscription.completed",
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
+        unrendered_asset_count=len(unrendered_assets),
     )
     return result
 
