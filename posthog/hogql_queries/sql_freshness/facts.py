@@ -36,10 +36,11 @@ _JOINABLE_TABLES = (
 )
 _EXPRESSION_FIELDS = frozenset({"person_id"})
 _TIMESTAMP_COLUMN = "timestamp"
-_LITERAL_WRAPPERS = frozenset({"toDateTime", "toDateTime64", "parseDateTimeBestEffort", "parseDateTime64BestEffort"})
-_EPOCH_WRAPPERS = frozenset({"toDateTime", "fromUnixTimestamp"})
+_ZONE_ARGUMENT_POSITION = {"toDateTime": 1, "toDateTime64": 2, "parseDateTimeBestEffort": 1}
 _NOW_FUNCTIONS = frozenset({"now", "now64"})
-_CLOCK_FUNCTIONS = {id(meta): meta.clickhouse_name for meta in DATE_GENERATOR_FUNCTIONS.values()}
+_CLOCK_FUNCTIONS = {id(meta): meta.clickhouse_name for meta in DATE_GENERATOR_FUNCTIONS.values()} | {
+    id(find_hogql_function("nowInBlock")): "nowInBlock"
+}
 _LOWER_BOUND_OPS = frozenset({ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq})
 _FLIPPED_OPS = {
     ast.CompareOperationOp.Gt: ast.CompareOperationOp.Lt,
@@ -216,7 +217,10 @@ class _Evaluator:
             if base is None or step is None:
                 return None
             unit, amount = step
-            return _shifted(base, unit, -amount if expr.op == ast.ArithmeticOperationOp.Sub else amount)
+            try:
+                return _shifted(base, unit, -amount if expr.op == ast.ArithmeticOperationOp.Sub else amount)
+            except (OverflowError, ValueError):
+                return None
         return None
 
     def _call(self, call: ast.Call) -> Optional[datetime]:
@@ -224,16 +228,26 @@ class _Evaluator:
             self.consumed_clock_calls.add(id(call))
             self.reads_now = True
             return self.now
-        if call.name in _EPOCH_WRAPPERS and len(call.args) == 1 and (epoch := _int_constant(call.args[0])) is not None:
-            return datetime.fromtimestamp(epoch, self.timezone)
-        if call.name in _LITERAL_WRAPPERS and call.args:
-            zone_name = _string_constant(call.args[-1]) if len(call.args) > 1 else None
+        epoch = _int_constant(call.args[0]) if len(call.args) == 1 else None
+        if epoch is not None and call.name in ("toDateTime", "fromUnixTimestamp"):
+            timezone = self.timezone if call.name == "toDateTime" else UTC
             try:
-                timezone = ZoneInfo(zone_name) if zone_name else self.timezone
-            except (KeyError, ValueError):
+                return datetime.fromtimestamp(epoch, timezone)
+            except (OverflowError, ValueError, OSError):
                 return None
-            return _parse_instant(_string_constant(call.args[0]), timezone)
-        return None
+        zone_position = _ZONE_ARGUMENT_POSITION.get(call.name)
+        if zone_position is None or not call.args or len(call.args) > zone_position + 1:
+            return None
+        if call.name == "toDateTime64" and len(call.args) > 1 and _int_constant(call.args[1]) is None:
+            return None
+        zone_name = _string_constant(call.args[zone_position]) if len(call.args) > zone_position else None
+        if len(call.args) > zone_position and not zone_name:
+            return None
+        try:
+            timezone = ZoneInfo(zone_name) if zone_name else self.timezone
+        except (KeyError, ValueError):
+            return None
+        return _parse_instant(_string_constant(call.args[0]), timezone)
 
 
 def _interval(expr: ast.Expr) -> Optional[tuple[str, int]]:

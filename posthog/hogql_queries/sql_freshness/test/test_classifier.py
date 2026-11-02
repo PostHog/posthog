@@ -19,6 +19,25 @@ from posthog.hogql_queries.sql_freshness.rules import SQL_WINDOW_MAX_AGE, Freshn
 NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
 AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 PAST_DAY = "select count() from events where timestamp >= '2026-10-28' and timestamp < '2026-10-29'"
+ACCEPTED_BOUNDS = [
+    ("date_literal", "'2026-03-29'", "Europe/Amsterdam"),
+    ("datetime_literal", "'2026-03-29 03:30:00'", "Europe/Amsterdam"),
+    ("utc_literal", "'2026-10-29T08:00:00Z'", "Europe/Amsterdam"),
+    ("zoned_literal", "toDateTime('2026-10-29 08:00:00', 'Asia/Tokyo')", "UTC"),
+    ("zoned_datetime64", "toDateTime64('2026-10-29 08:00:00', 6, 'Asia/Tokyo')", "UTC"),
+    ("datetime64_with_precision_only", "toDateTime64('2026-10-29 08:00:00', 3)", "Europe/Amsterdam"),
+    ("best_effort_with_offset", "parseDateTimeBestEffort('2026-10-29T08:00:00Z')", "Europe/Amsterdam"),
+    ("best_effort_with_zone", "parseDateTimeBestEffort('2026-10-29 08:00:00', 'Asia/Tokyo')", "UTC"),
+    ("epoch", "toDateTime(1761955200)", "Europe/Amsterdam"),
+    ("from_unix_timestamp", "fromUnixTimestamp(1761955200)", "Europe/Amsterdam"),
+    ("epoch_plus_a_day_across_a_fall_back", "toDateTime(1792836000) + interval 1 day", "Europe/Amsterdam"),
+    ("from_unix_timestamp_plus_a_month", "fromUnixTimestamp(1769815800) + interval 1 month", "Europe/Amsterdam"),
+    ("day_interval_across_a_fall_back", "toDateTime('2026-10-24 12:00:00') + interval 1 day", "Europe/Amsterdam"),
+    ("hour_interval_across_a_fall_back", "toDateTime('2026-10-25 01:30:00') + interval 2 hour", "Europe/Amsterdam"),
+    ("month_interval_at_a_month_end", "toDateTime('2026-01-31 12:00:00') + interval 1 month", "Europe/Amsterdam"),
+    ("now_minus_hours", "now() - interval 6 hour", "Europe/Amsterdam"),
+    ("now_minus_days", "now() - interval 7 day", "Europe/Amsterdam"),
+]
 
 
 def _resolve(sql: str, team: Any) -> Any:
@@ -247,39 +266,22 @@ class TestClassify(BaseTest):
 class TestAcceptedBoundsMatchClickHouse(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
-            ("date_literal", "'2026-03-29'", "Europe/Amsterdam"),
-            ("datetime_literal", "'2026-03-29 03:30:00'", "Europe/Amsterdam"),
-            ("zoned_literal", "toDateTime('2026-10-29 08:00:00', 'Asia/Tokyo')", "UTC"),
-            ("zoned_datetime64", "toDateTime64('2026-10-29 08:00:00', 6, 'Asia/Tokyo')", "UTC"),
-            ("best_effort_with_offset", "parseDateTimeBestEffort('2026-10-29T08:00:00Z')", "Europe/Amsterdam"),
-            ("epoch", "toDateTime(1761955200)", "Europe/Amsterdam"),
-            ("from_unix_timestamp", "fromUnixTimestamp(1761955200)", "Europe/Amsterdam"),
-            (
-                "day_interval_across_a_fall_back",
-                "toDateTime('2026-10-24 12:00:00') + interval 1 day",
-                "Europe/Amsterdam",
-            ),
-            (
-                "hour_interval_across_a_fall_back",
-                "toDateTime('2026-10-25 01:30:00') + interval 2 hour",
-                "Europe/Amsterdam",
-            ),
-            (
-                "month_interval_at_a_month_end",
-                "toDateTime('2026-01-31 12:00:00') + interval 1 month",
-                "Europe/Amsterdam",
-            ),
-            ("now_minus_hours", "now() - interval 6 hour", "Europe/Amsterdam"),
-            ("now_minus_days", "now() - interval 7 day", "Europe/Amsterdam"),
+            (f"{name}_{side}", value, timezone, side)
+            for name, value, timezone in ACCEPTED_BOUNDS
+            for side in ("start", "end")
         ]
     )
-    def test_bound_matches_clickhouse(self, _name: str, value: str, timezone: str) -> None:
+    def test_bound_matches_clickhouse(self, _name: str, value: str, timezone: str, side: str) -> None:
         self.team.timezone = timezone
         self.team.save()
-        sql = f"select count() from events where event = 'bound_check' and timestamp >= {value}"
-        facts = extract_facts(_resolve(sql, self.team), now=datetime.now(UTC), timezone=self.team.timezone_info)
-        start = facts.windows[0].start
+        bound = f"{value} <= timestamp" if side == "start" else f"timestamp > toDateTime(0) and timestamp < {value}"
+        sql = f"select count() from events where event = 'bound_check' and {bound}"
+        window = extract_facts(
+            _resolve(sql, self.team), now=datetime.now(UTC), timezone=self.team.timezone_info
+        ).windows[0]
+        at = window.start if side == "start" else window.end
+        assert at is not None
         for offset in (timedelta(seconds=-30), timedelta(seconds=30)):
-            _create_event(team=self.team, event="bound_check", distinct_id="d", timestamp=start + offset)
+            _create_event(team=self.team, event="bound_check", distinct_id="d", timestamp=at + offset)
         flush_persons_and_events()
         assert execute_hogql_query(sql, team=self.team).results == [(1,)]

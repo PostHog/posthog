@@ -100,9 +100,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         freshness = self._sql_classification
+        default_stale = super()._is_stale(last_refresh, lazy=lazy)
         if isinstance(freshness, SqlFreshness) and last_refresh is not None and self._api_sql_freshness_enabled:
-            return datetime.now(UTC) > freshness.fresh_until
-        return super()._is_stale(last_refresh, lazy=lazy)
+            return default_stale and datetime.now(UTC) > freshness.fresh_until
+        return default_stale
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(self._sql_classification, SqlFreshness):

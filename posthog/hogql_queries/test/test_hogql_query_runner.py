@@ -47,6 +47,8 @@ from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
+PAST_RANGE = "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-28'"
+
 
 def _freshness_flag(on: bool):
     return patch(
@@ -622,26 +624,33 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
     @parameterized.expand(
         [
-            ("api_key_uses_its_window", "personal_api_key", True, True, False),
-            ("app_keeps_default", None, True, True, True),
-            ("flag_off_keeps_default", "personal_api_key", False, True, True),
-            ("entry_recomputed_without_window", "personal_api_key", True, False, True),
+            ("api_key_uses_its_window", "personal_api_key", True, True, timedelta(hours=1), False, False),
+            ("expired_window_is_stale", "personal_api_key", True, True, timedelta(minutes=-1), False, True),
+            ("lazy_read_keeps_the_longer_default", "personal_api_key", True, True, timedelta(minutes=-1), True, False),
+            ("app_keeps_default", None, True, True, timedelta(hours=1), False, True),
+            ("flag_off_keeps_default", "personal_api_key", False, True, timedelta(hours=1), False, True),
+            ("entry_recomputed_without_window", "personal_api_key", True, False, timedelta(hours=1), False, True),
         ]
     )
     @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
     def test_entry_window_age_applies_only_to_flagged_api_key_reads(
-        self, _name: str, access_method: str | None, flag_on: bool, entry_has_window: bool, expected_stale: bool
+        self,
+        _name: str,
+        access_method: str | None,
+        flag_on: bool,
+        entry_has_window: bool,
+        fresh_for: timedelta,
+        lazy: bool,
+        expected_stale: bool,
     ) -> None:
         now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
         window = SqlFreshness(
-            window=SqlWindowClass.UP_TO_NOW_LONG,
-            fresh_until=now + timedelta(hours=1),
-            reason=FreshnessReason.WINDOW_AGE,
+            window=SqlWindowClass.UP_TO_NOW_LONG, fresh_until=now + fresh_for, reason=FreshnessReason.WINDOW_AGE
         )
         with _freshness_flag(on=flag_on), tags_context(access_method=access_method):
             runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query="select 1"))
             runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
-            stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10))
+            stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10), lazy=lazy)
         assert stale is expected_stale
 
     def _built_freshness(self, query: HogQLQuery) -> SqlFreshness | Reject | None:
@@ -652,18 +661,22 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
 
     @parameterized.expand(
         [
-            ("filters", "and {filters}", False),
-            ("variable", "and event != {variables.event_name}", True),
-            ("expression", "and event != {toString(now())}", False),
+            ("filters", f"{PAST_RANGE} and {{filters}}", False),
+            (
+                "filters_in_a_cte",
+                f"with e as (select event from events where {{filters}}) {PAST_RANGE} and event in (select event from e)",
+                False,
+            ),
+            ("variable", f"{PAST_RANGE} and event != {{variables.event_name}}", True),
+            ("expression", f"{PAST_RANGE} and event != {{toString(now())}}", False),
         ]
     )
     @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
-    def test_placeholders_keep_default_age(self, _name: str, placeholder_clause: str, uses_variable: bool) -> None:
+    def test_placeholders_keep_default_age(self, _name: str, query: str, uses_variable: bool) -> None:
         variable = InsightVariable.objects.create(team=self.team, name="Event", code_name="event_name", type="String")
         freshness = self._built_freshness(
             HogQLQuery(
-                query=f"select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-28' "
-                f"{placeholder_clause}",
+                query=query,
                 filters=HogQLFilters(dateRange=DateRange(date_from="-3d")),
                 variables={
                     str(variable.id): HogQLVariable(code_name="event_name", variableId=str(variable.id), value="x")

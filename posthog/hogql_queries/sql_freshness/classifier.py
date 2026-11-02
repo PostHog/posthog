@@ -58,5 +58,5 @@ def freshness_from_record(record: Any) -> Optional[SqlFreshness]:
             fresh_until=fresh_until,
             reason=FreshnessReason(record["reason"]),
         )
-    except (KeyError, TypeError, ValueError):
+    except (AttributeError, KeyError, OverflowError, TypeError, ValueError):
         return None
