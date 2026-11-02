@@ -65,8 +65,12 @@ import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsMacrosUsedCreate,
 } from 'products/conversations/frontend/generated/api'
-import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
+import type {
+    PatchedTicketUpdateRequestApi,
+    TicketMacroApi,
+} from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -77,6 +81,8 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
 import { aiDraftAction, aiDraftComposerHtml } from '../../components/Chat/aiDraftAction'
+import { macroContextFromTicket, renderMacro } from '../../components/Macros/renderMacro'
+import { supportMacrosLogic } from '../../components/Macros/supportMacrosLogic'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -302,6 +308,7 @@ export interface supportTicketSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
+    composerInsertAt: number
     composerPrefillAt: number
     deleteDisabledReason: string | undefined
     deliveryStatusByMessageId: Map<string, MessageDeliveryStatus>
@@ -328,6 +335,7 @@ export interface supportTicketSceneLogicValues {
     messages: CommentType[]
     messagesLoading: boolean
     olderMessagesLoading: boolean
+    pendingComposerInsert: string | null
     person: PersonType | null
     personLoading: boolean
     previousTickets: Ticket[]
@@ -352,6 +360,9 @@ export interface supportTicketSceneLogicActions {
     setTicketContext: (context: ImpersonationTicketContext | null) => {
         context: ImpersonationTicketContext | null
     } // impersonationNoticeLogic
+    recordMacroUsed: (id: string) => {
+        id: string
+    } // supportMacrosLogic
     loadTickets: (debounce?: boolean | undefined) => {
         debounce: boolean
     } // supportTicketsSceneLogic
@@ -363,6 +374,9 @@ export interface supportTicketSceneLogicActions {
     }
     applyAiDraft: (message: ChatMessage) => {
         message: ChatMessage
+    }
+    bumpComposerInsert: () => {
+        value: true
     }
     bumpComposerPrefill: () => {
         value: true
@@ -384,6 +398,13 @@ export interface supportTicketSceneLogicActions {
     }
     incrementUnreadCustomerCount: () => {
         value: true
+    }
+    insertMacro: (
+        macro: Pick<TicketMacroApi, 'body' | 'id'>,
+        source: 'button' | 'slash'
+    ) => {
+        macro: Pick<TicketMacroApi, 'body' | 'id'>
+        source: 'button' | 'slash'
     }
     loadFullEmail: (messageId: string) => string
     loadFullEmailFailure: (
@@ -528,6 +549,9 @@ export interface supportTicketSceneLogicActions {
     setOlderMessagesLoading: (loading: boolean) => {
         loading: boolean
     }
+    setPendingComposerInsert: (content: string | null) => {
+        content: string | null
+    }
     setPriority: (priority: TicketPriority) => {
         priority: TicketPriority
     }
@@ -642,6 +666,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             ['loadTags'],
             impersonationNoticeLogic,
             ['setTicketContext'],
+            supportMacrosLogic,
+            ['recordMacroUsed'],
         ],
         values: [
             teamLogic,
@@ -676,6 +702,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         applyAiDraft: (message: ChatMessage) => ({ message }),
         setAiDraftApplying: (applying: boolean) => ({ applying }),
         bumpComposerPrefill: true,
+        insertMacro: (macro: Pick<TicketMacroApi, 'id' | 'body'>, source: 'button' | 'slash') => ({ macro, source }),
+        setPendingComposerInsert: (content: string | null) => ({ content }),
+        bumpComposerInsert: true,
 
         loadOlderMessages: true,
         setOlderMessages: (olderMessages: CommentType[]) => ({ olderMessages }),
@@ -975,6 +1004,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             0,
             {
                 bumpComposerPrefill: (state) => state + 1,
+            },
+        ],
+        composerInsertAt: [
+            0,
+            {
+                bumpComposerInsert: (state) => state + 1,
+            },
+        ],
+        pendingComposerInsert: [
+            null as string | null,
+            {
+                setPendingComposerInsert: (_, { content }) => content,
             },
         ],
         draftContent: [
@@ -1690,6 +1731,26 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             } finally {
                 actions.setAiDraftApplying(false)
             }
+        },
+        insertMacro: ({ macro, source }) => {
+            if (values.editingMessageId) {
+                actions.cancelEditingMessage()
+            }
+            // Keep the draft's visibility: switching a private note to public would publish the text already in it.
+            actions.setPendingComposerInsert(
+                renderMacro(macro.body, macroContextFromTicket(values.ticket, values.user))
+            )
+            actions.bumpComposerInsert()
+            posthog.capture('support macro inserted', { macro_id: macro.id, source })
+            const teamId = getCurrentTeamId()
+            if (!teamId) {
+                return
+            }
+            void conversationsMacrosUsedCreate(String(teamId), macro.id)
+                .then(() => {
+                    actions.recordMacroUsed(macro.id)
+                })
+                .catch(() => undefined)
         },
         startEditingMessage: ({ message }) => {
             // Only stash the composer draft on first enter; switching notes keeps the original stash.
