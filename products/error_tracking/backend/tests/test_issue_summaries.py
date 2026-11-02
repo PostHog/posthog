@@ -45,6 +45,7 @@ from products.error_tracking.backend.logic.issue_summaries import (
     refresh_issue_summary_on_reopen,
 )
 from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG, ISSUE_SUMMARY_ON_WRITE_FLAG
+from products.error_tracking.backend.logic.issue_summary_prompt import ISSUE_SUMMARY_PROMPT_VERSION
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -223,6 +224,8 @@ class TestIssueSummaryGeneration(BaseTest):
         assert summary is not None
         assert summary.what_happened == SUMMARY_REPLY["what_happened"]
         assert summary.category == expected_category
+        stored = ErrorTrackingIssueSummary.objects.for_team(self.team.id).get(issue_id=self.issue.id)
+        assert stored.content["prompt_version"] == ISSUE_SUMMARY_PROMPT_VERSION
         request = self.completions.call_args.kwargs
         assert request["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
         assert request["response_format"]["json_schema"]["strict"] is True
@@ -831,6 +834,52 @@ class TestIssueSummaryGeneration(BaseTest):
                 "{url}",
             ),
             (
+                "stored_start_while_a_worker_runs",
+                lambda test: (
+                    test._store_summary(None),
+                    test._hold_lock(f"{issue_summaries.LOCK_CLAIM_PREFIX}other"),
+                ),
+                True,
+                timedelta(hours=1),
+                IssueSummaryStatus.GENERATING,
+                None,
+                True,
+                False,
+                False,
+                "{url}",
+            ),
+            (
+                "read_fails",
+                lambda test: test.enterContext(
+                    patch.object(issue_summaries, "get_issue_summary", side_effect=OperationalError("db down"))
+                ),
+                True,
+                timedelta(0),
+                IssueSummaryStatus.UNAVAILABLE,
+                IssueSummaryUnavailableReason.ERROR,
+                False,
+                False,
+                False,
+                None,
+            ),
+            (
+                "stored_start_fails",
+                lambda test: (
+                    test._store_summary(None),
+                    test.enterContext(
+                        patch.object(issue_summaries, "generation_blocked", side_effect=RedisError("down"))
+                    ),
+                ),
+                True,
+                timedelta(hours=25),
+                IssueSummaryStatus.READY,
+                None,
+                True,
+                True,
+                False,
+                None,
+            ),
+            (
                 "stored_past_the_interval",
                 lambda test: test._store_summary(None),
                 True,
@@ -899,7 +948,7 @@ class TestIssueSummaryGeneration(BaseTest):
 
         assert result.outcome == IssueSummaryOutcome.GENERATED
 
-    def test_start_returns_false_when_the_broker_is_down(self) -> None:
+    def test_start_reports_an_error_when_the_broker_is_down(self) -> None:
         capture = self.enterContext(patch.object(issue_summaries, "capture_exception"))
         with patch.object(
             issue_summaries.generate_error_tracking_issue_summary, "apply_async", side_effect=OSError("broker down")
@@ -935,6 +984,7 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
+            ("generated", "completions", _completion(json.dumps(SUMMARY_REPLY)), IssueSummaryOutcome.GENERATED),
             ("failure", "completions", TimeoutError("slow"), IssueSummaryOutcome.MODEL_ERROR),
             ("hold", "build_inputs", IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.NO_EXCEPTION),
         ]

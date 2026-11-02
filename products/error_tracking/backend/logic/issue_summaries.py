@@ -349,6 +349,9 @@ def read_issue_summary(team_id: int, issue_id: UUID | str, user: User, *, start:
     try:
         if start:
             generation: IssueSummaryOutcome | None = start_issue_summary_generation(team_id, issue_id)
+            if generation == IssueSummaryOutcome.FRESH:
+                # A fresh summary skips the lock, but a reopen refresh can still hold it.
+                generation = _held_outcome(team_id, issue_id)
         else:
             generation = peek_issue_summary_generation(team_id, issue_id)
     except Exception as error:
@@ -426,6 +429,10 @@ def peek_issue_summary_generation(team_id: int, issue_id: UUID | str) -> IssueSu
     """What a start would find, without queueing anything. None when nothing is queued, running or held."""
     if not is_ai_data_processing_approved(team_id):
         return IssueSummaryOutcome.AI_NOT_APPROVED
+    return _held_outcome(team_id, issue_id)
+
+
+def _held_outcome(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
     try:
         held = _start_client().get(_lock_key(team_id, issue_id))
     except RedisError:
@@ -817,7 +824,7 @@ def _lock_outcome(held: bytes | str | None) -> IssueSummaryOutcome:
 def _settle_claim(
     team_id: int, issue_id: UUID | str, claim: str, outcome: IssueSummaryOutcome, *, release: bool
 ) -> None:
-    """Replace this worker's claim with `outcome` when no summary came of it, so reads stop waiting for one.
+    """Replace this worker's claim with `outcome` when no summary came of it, so reads stop reporting one in progress.
 
     A hold outcome extends the lock. Any other failure keeps the lock TTL, so the retry spacing does not change.
     `release`, or a settled outcome, deletes the claim instead.

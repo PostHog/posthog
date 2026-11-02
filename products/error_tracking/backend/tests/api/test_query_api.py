@@ -378,7 +378,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with patch(f"{SUMMARIES_FACADE}.read_issue_summary") as start_generation:
+        with patch(f"{SUMMARIES_FACADE}.read_issue_summary") as read_summary:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
                 data={
@@ -396,7 +396,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
         assert "summary" not in response.json()["results"][0]
-        start_generation.assert_not_called()
+        read_summary.assert_not_called()
 
         project_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",

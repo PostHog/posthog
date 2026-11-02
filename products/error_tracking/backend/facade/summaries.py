@@ -32,7 +32,7 @@ def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIs
 
 
 def _shown(team_id: int, summary: ErrorTrackingIssueSummary | None) -> contracts.ErrorTrackingIssueSummary | None:
-    """Every read returns through here, so turning the flag off also hides stored summaries."""
+    """Turning the flag off also hides stored summaries. `read_issue_summary` checks the flag in the logic layer."""
     if summary is None or not issue_summaries.issue_summaries_enabled(team_id):
         return None
     return _to_summary(summary)

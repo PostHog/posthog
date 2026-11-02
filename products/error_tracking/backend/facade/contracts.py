@@ -500,7 +500,7 @@ class IssueSummaryStatus(LabeledStrEnum):
 
 class IssueSummaryUnavailableReason(LabeledStrEnum):
     AI_NOT_APPROVED = "ai_not_approved"
-    # No source sets this yet. It is in the contract so that readers handle it before billing does.
+    # No source sets this yet. It is in the contract so that readers already handle it when a plan check sets it.
     NOT_ON_PLAN = "not_on_plan"
     RESTRICTED = "restricted"
     DISABLED = "disabled"
