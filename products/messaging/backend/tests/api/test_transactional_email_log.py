@@ -223,9 +223,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(
             self._url("results/"),
             {
-                "workflow_id": self.workflow_id,
+                "workflow_id": str(self.workflow_id),
                 "event": "purchase",
-                "window_days": 1,
+                "window_days": "1",
                 "revenue_property": "amount",
                 "date_from": (NOW - timedelta(days=29)).isoformat(),
             },

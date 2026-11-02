@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -74,12 +75,18 @@ def viewable_workflow_ids(team_id: int, user_access_control: UserAccessControl) 
     return get_viewable_workflow_ids(team_id=team_id, user_access_control=user_access_control)
 
 
-def _window(date_from: datetime | None, date_to: datetime | None) -> tuple[datetime, datetime]:
+@frozen
+class _Period:
+    start: datetime
+    end: datetime
+
+
+def _window(date_from: datetime | None, date_to: datetime | None) -> _Period:
     now = datetime.now(UTC)
     start = max(date_from or now - timedelta(days=7), now - RETENTION)
     # The send API stamps a message with its own clock, so "now" reaches a little ahead. A given end stays exact.
     end = min(date_to, now + _CLOCK_SKEW) if date_to else now + _CLOCK_SKEW
-    return start, end
+    return _Period(start=start, end=end)
 
 
 def _execute(team_id: int, query: str, params: dict[str, Any]) -> list[tuple]:
@@ -149,7 +156,8 @@ def list_transactional_emails(
     workflows the reader may view, and None reads them all."""
     if workflow_ids is not None and not workflow_ids:
         return [], False
-    start, end = _window(date_from, date_to)
+    period = _window(date_from, date_to)
+    start, end = period.start, period.end
     where = ["team_id = %(team_id)s", "created_at >= %(start)s", "created_at < %(end)s"]
     having = ["delivery_status != ''"]
     params: dict[str, Any] = {"start": start, "end": end, "limit": limit + 1, "offset": offset}
@@ -254,7 +262,8 @@ def transactional_email_stats(
     """How many sends reached each status, per template or per sending domain, busiest first."""
     if workflow_ids is not None and not workflow_ids:
         return []
-    start, end = _window(date_from, date_to)
+    period = _window(date_from, date_to)
+    start, end = period.start, period.end
     params: dict[str, Any] = {"start": start, "end": end}
     access = ""
     if workflow_ids is not None:
@@ -327,7 +336,8 @@ def transactional_email_results(
     """Of the people a transactional email was sent to, how many did `event` within `window_days` of their first send,
     and the revenue those events carried."""
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
-    start, end = _window(date_from, date_to)
+    period = _window(date_from, date_to)
+    start, end = period.start, period.end
     window = timedelta(days=min(max(window_days, 1), MAX_CONVERSION_WINDOW_DAYS))
     sends = fetch_first_email_sends(team.id, workflow_id, start, end, limit=MAX_RESULTS_RECIPIENTS)
     if not sends:
@@ -344,11 +354,11 @@ def transactional_email_results(
     converted_at: dict[str, datetime] = {}
     revenue = 0.0
     for person, events in conversions.items():
-        sent_at = first_send.get(person)
-        if sent_at is None:
+        first_sent_at = first_send.get(person)
+        if first_sent_at is None:
             continue
         for timestamp, value in events:
-            if not (sent_at <= timestamp <= sent_at + window):
+            if not (first_sent_at <= timestamp <= first_sent_at + window):
                 continue
             converted_at[person] = min(converted_at.get(person, timestamp), timestamp)
             revenue += value or 0.0

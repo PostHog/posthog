@@ -122,7 +122,9 @@ class TransactionalEmailStatsQuerySerializer(DateRangeQuerySerializer):
 
 class TransactionalEmailStatsRowSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="The template ID or the sending domain.")
-    label = serializers.CharField(help_text="The template name or the sending domain. Empty for a deleted template.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        help_text="The template name or the sending domain. Empty for a deleted template."
+    )
     sent = serializers.IntegerField(help_text="Emails that reached the email provider.")
     delivered = serializers.IntegerField(help_text="Emails the recipient's mail server accepted.")
     bounced = serializers.IntegerField(help_text="Emails that bounced.")
