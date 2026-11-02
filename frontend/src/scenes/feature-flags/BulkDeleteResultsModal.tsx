@@ -118,6 +118,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
         bulkDeleteResult,
         resultsModalVisible,
         stillDeletedFlags,
+        restorableFlags,
         bulkRestoredIds,
         bulkRestoreFailures,
         bulkRestoreRunning,
@@ -149,17 +150,17 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
             width={600}
             footer={
                 <>
-                    {stillDeletedFlags.length > 0 && (
+                    {restorableFlags.length > 0 && (
                         <LemonButton
                             type="secondary"
                             icon={<IconRewind />}
                             loading={bulkRestoreRunning}
-                            onClick={() => bulkRestoreFlags(stillDeletedFlags)}
+                            onClick={() => bulkRestoreFlags(restorableFlags)}
                             data-attr="bulk-restore-deleted-flags"
                         >
                             {bulkRestoreRunning && bulkRestoreProgress
                                 ? `Restoring ${bulkRestoreProgress.done} of ${bulkRestoreProgress.total}…`
-                                : `Restore ${pluralize(stillDeletedFlags.length, 'flag')}`}
+                                : `Restore ${pluralize(restorableFlags.length, 'flag')}`}
                         </LemonButton>
                     )}
                     <LemonButton

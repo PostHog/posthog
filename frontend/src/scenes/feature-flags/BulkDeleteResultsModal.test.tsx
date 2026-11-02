@@ -5,7 +5,7 @@ import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { getByDataAttr } from '~/test/byDataAttr'
+import { getByDataAttr, queryByDataAttr } from '~/test/byDataAttr'
 import { initKeaTests } from '~/test/init'
 
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
@@ -51,7 +51,7 @@ describe('BulkDeleteResultsModal', () => {
         logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
         logic.actions.bulkRestoreFlagSucceeded(1)
         logic.actions.bulkRestoreFlagsFinished([
-            { id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.' },
+            { id: 2, key: 'flag-2', errorMessage: 'Server error', retryable: true },
         ])
         renderModal()
 
@@ -66,6 +66,20 @@ describe('BulkDeleteResultsModal', () => {
         expect(cleanupPrompt).not.toContain('flag-1')
 
         expect(getByDataAttr(document.body, 'bulk-restore-deleted-flags')).toHaveTextContent('Restore 1 flag')
+    })
+
+    it('hides the restore button when only flags the API refused are left, and keeps their reason', () => {
+        logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
+        logic.actions.bulkRestoreFlagSucceeded(1)
+        logic.actions.bulkRestoreFlagsFinished([
+            { id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.', retryable: false },
+        ])
+        renderModal()
+
+        expect(screen.getByText('Failed to restore 1 flag')).toBeInTheDocument()
+        expect(screen.getByText(/Restoring is not available for this flag yet\./)).toBeInTheDocument()
+        expect(screen.getByText('Deleted 1 flag')).toBeInTheDocument()
+        expect(queryByDataAttr(document.body, 'bulk-restore-deleted-flags')).not.toBeInTheDocument()
     })
 
     it('stays open until the restore finishes', async () => {

@@ -50,6 +50,8 @@ export interface BulkRestoreFailure {
     id: number
     key: string
     errorMessage: string
+    /** False when the API won't restore this flag at all, so trying again fails the same way. */
+    retryable: boolean
 }
 
 /**
@@ -170,14 +172,17 @@ function summarizeBulkRestore(
     return { level: 'error', message: 'No flags were restored' }
 }
 
+// The API refuses to restore a flag on config version 2.
+function isUnsupportedConfigVersion(error: unknown): boolean {
+    return error instanceof ApiError && error.code === 'unsupported_config_version'
+}
+
 function restoreErrorMessage(error: unknown): string {
     if (error instanceof PromiseTimeoutError) {
         return 'The request timed out. Try again.'
     }
-    // The API refuses to restore a flag on config version 2. Say so in the words the flag page uses.
-    return error instanceof ApiError && error.code === 'unsupported_config_version'
-        ? RESTORE_UNAVAILABLE_DISABLED_REASON
-        : errorMessageFrom(error)
+    // Say why a version 2 flag can't be restored in the words the flag page uses.
+    return isUnsupportedConfigVersion(error) ? RESTORE_UNAVAILABLE_DISABLED_REASON : errorMessageFrom(error)
 }
 
 export function errorMessageFrom(error: unknown): string {
@@ -331,6 +336,7 @@ export interface flagSelectionLogicValues {
     } | null
     bulkRestoreRunning: boolean
     bulkRestoredIds: number[]
+    restorableFlags: DeletedFlagInfo[]
     resultsModalVisible: boolean
     stillDeletedFlags: DeletedFlagInfo[]
 }
@@ -475,6 +481,10 @@ export interface flagSelectionLogicMeta {
         bulkCopyHardFailures: (bulkCopyResult: BulkCopyResult | null) => BulkCopyFailure[]
         bulkCopySubmitDisabledReason: (bulkCopyTargetProjectIds: number[]) => string | undefined
         stillDeletedFlags: (bulkDeleteResult: BulkDeleteResult | null, bulkRestoredIds: number[]) => DeletedFlagInfo[]
+        restorableFlags: (
+            stillDeletedFlags: DeletedFlagInfo[],
+            bulkRestoreFailures: BulkRestoreFailure[]
+        ) => DeletedFlagInfo[]
     }
 }
 
@@ -631,8 +641,13 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             [] as BulkRestoreFailure[],
             {
                 showResultsModal: () => [],
-                bulkRestoreFlags: () => [],
-                bulkRestoreFlagsFinished: (_, { failed }) => failed,
+                // A retry clears the failures of the flags it tries again. The flags it leaves out keep their
+                // reason on show.
+                bulkRestoreFlags: (state, { flags }) => {
+                    const retriedIds = new Set(flags.map((flag) => flag.id))
+                    return state.filter((failure) => !retriedIds.has(failure.id))
+                },
+                bulkRestoreFlagsFinished: (state, { failed }) => [...state, ...failed],
             },
         ],
         // Filled as each restore lands, not when the batch ends, because a restored flag is live again
@@ -706,6 +721,16 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
             (bulkDeleteResult: BulkDeleteResult | null, bulkRestoredIds: number[]): DeletedFlagInfo[] => {
                 const restoredIds = new Set(bulkRestoredIds)
                 return bulkDeleteResult?.deleted.filter((flag) => !restoredIds.has(flag.id)) ?? []
+            },
+        ],
+        // What the restore button offers: the flags still deleted, minus those the API already refused.
+        restorableFlags: [
+            (s) => [s.stillDeletedFlags, s.bulkRestoreFailures],
+            (stillDeletedFlags: DeletedFlagInfo[], bulkRestoreFailures: BulkRestoreFailure[]): DeletedFlagInfo[] => {
+                const refusedIds = new Set(
+                    bulkRestoreFailures.filter((failure) => !failure.retryable).map((failure) => failure.id)
+                )
+                return stillDeletedFlags.filter((flag) => !refusedIds.has(flag.id))
             },
         ],
     }),
@@ -787,7 +812,12 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                     restoredCount += 1
                     actions.bulkRestoreFlagSucceeded(flag.id)
                 } catch (error) {
-                    failed.push({ id: flag.id, key: flag.key, errorMessage: restoreErrorMessage(error) })
+                    failed.push({
+                        id: flag.id,
+                        key: flag.key,
+                        errorMessage: restoreErrorMessage(error),
+                        retryable: !isUnsupportedConfigVersion(error),
+                    })
                 }
                 actions.setBulkRestoreProgress(index + 1, flags.length)
             }

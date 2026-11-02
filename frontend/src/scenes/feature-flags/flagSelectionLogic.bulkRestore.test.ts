@@ -86,10 +86,36 @@ describe('flagSelectionLogic bulk restore', () => {
         // A version 2 flag can't be restored yet. The failure says so in the words the flag page uses.
         expect(logic.values.bulkRestoredIds).toEqual([1, 3])
         expect(logic.values.bulkRestoreFailures).toEqual([
-            { id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.' },
-            { id: 4, key: 'flag-4', errorMessage: 'Server error' },
+            { id: 2, key: 'flag-2', errorMessage: 'Restoring is not available for this flag yet.', retryable: false },
+            { id: 4, key: 'flag-4', errorMessage: 'Server error', retryable: true },
         ])
         expect(logic.values.resultsModalVisible).toBe(true)
+    })
+
+    it('leaves a flag the API refused out of the retry, and keeps its reason on show', async () => {
+        useRestoreMocks((id) =>
+            id === 1
+                ? [400, { type: 'validation_error', code: 'unsupported_config_version', detail: 'Not supported.' }]
+                : [500, { detail: 'Server error' }]
+        )
+        logic = flagSelectionLogic()
+        logic.mount()
+        logic.actions.showResultsModal({ deleted: [deletedFlag(1), deletedFlag(2)], errors: [] })
+
+        logic.actions.bulkRestoreFlags(logic.values.restorableFlags)
+        await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
+        // Trying flag 1 again would fail the same way, so the retry only offers flag 2.
+        expect(logic.values.restorableFlags).toEqual([deletedFlag(2)])
+
+        logic.actions.bulkRestoreFlags(logic.values.restorableFlags)
+        await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
+
+        expect(restoreRequests.map(({ id }) => id)).toEqual([1, 2, 2])
+        expect(logic.values.bulkRestoreFailures).toEqual([
+            { id: 1, key: 'flag-1', errorMessage: 'Restoring is not available for this flag yet.', retryable: false },
+            { id: 2, key: 'flag-2', errorMessage: 'Server error', retryable: true },
+        ])
+        expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(1), deletedFlag(2)])
     })
 
     it('drops each flag from the still deleted list as soon as it is restored', async () => {
@@ -128,7 +154,9 @@ describe('flagSelectionLogic bulk restore', () => {
         logic.actions.bulkRestoreFlags(logic.values.stillDeletedFlags)
         await expectLogic(logic).toDispatchActions(['bulkRestoreFlagsFinished'])
         expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(2)])
-        expect(logic.values.bulkRestoreFailures).toEqual([{ id: 2, key: 'flag-2', errorMessage: 'Server error' }])
+        expect(logic.values.bulkRestoreFailures).toEqual([
+            { id: 2, key: 'flag-2', errorMessage: 'Server error', retryable: true },
+        ])
 
         secondFlagFails = false
         logic.actions.bulkRestoreFlags(logic.values.stillDeletedFlags)
@@ -161,7 +189,7 @@ describe('flagSelectionLogic bulk restore', () => {
         expect(restoreRequests.map(({ id }) => id)).toEqual([1, 2])
         expect(logic.values.bulkRestoreRunning).toBe(false)
         expect(logic.values.bulkRestoreFailures).toEqual([
-            { id: 1, key: 'flag-1', errorMessage: 'The request timed out. Try again.' },
+            { id: 1, key: 'flag-1', errorMessage: 'The request timed out. Try again.', retryable: true },
         ])
         expect(logic.values.stillDeletedFlags).toEqual([deletedFlag(1)])
         expect(logic.values.resultsModalVisible).toBe(true)
