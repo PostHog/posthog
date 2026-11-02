@@ -34,7 +34,6 @@ APIScopeObject = Literal[
     "billing",
     "business_knowledge",
     "canvas",
-    "ci_trust_policy",
     "clickhouse_test_cluster_perf",
     "cohort",
     "comment",
@@ -153,6 +152,7 @@ APIScopeObject = Literal[
     "webhook",
     "wizard_session",
     "wizard_run",
+    "workload_trust_policy",
 ]
 
 

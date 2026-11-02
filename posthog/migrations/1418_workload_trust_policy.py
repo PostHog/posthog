@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="CITrustPolicy",
+            name="WorkloadTrustPolicy",
             fields=[
                 (
                     "id",
@@ -74,7 +74,7 @@ class Migration(migrations.Migration):
                             "ref",
                             "environment",
                         ),
-                        name="posthog_unique_ci_trust_policy_conditions",
+                        name="posthog_unique_workload_trust_policy_conditions",
                     )
                 ],
             },
