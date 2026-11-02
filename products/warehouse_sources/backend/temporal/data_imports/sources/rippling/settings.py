@@ -121,6 +121,54 @@ RIPPLING_ENDPOINTS: dict[str, RipplingEndpointConfig] = {
         incremental_fields=[],
         order_by="check_date",
     ),
+    # Tracks and titles accept no filter, so full refresh only.
+    "tracks": RipplingEndpointConfig(
+        name="tracks",
+        path="/tracks",
+        incremental_fields=[],
+    ),
+    "titles": RipplingEndpointConfig(
+        name="titles",
+        path="/titles",
+        incremental_fields=[],
+    ),
+    # Leave balances filter only on worker_id and leave_type_id, so full refresh only.
+    "leave_balances": RipplingEndpointConfig(
+        name="leave_balances",
+        path="/leave-balances",
+        incremental_fields=[],
+    ),
+    # Leave accruals filter on accrual_date, but accruals can be back- or forward-dated, so a
+    # watermark on it would skip rows. Full refresh only.
+    "leave_accruals": RipplingEndpointConfig(
+        name="leave_accruals",
+        path="/leave-accruals",
+        incremental_fields=[],
+        partition_key="created_at",
+    ),
+    # Rippling documents applied_on (when the change was saved) as the polling filter. It
+    # documents no sortable fields, so requests send no order_by and rows arrive unordered.
+    "worker_changes": RipplingEndpointConfig(
+        name="worker_changes",
+        path="/worker-changes",
+        incremental_fields=[
+            {
+                "label": "applied_on",
+                "type": IncrementalFieldType.DateTime,
+                "field": "applied_on",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        partition_key="created_at",
+        order_by=None,
+    ),
+    "worker_change_fields": RipplingEndpointConfig(
+        name="worker_change_fields",
+        path="/worker-change-fields",
+        primary_keys=["field_key"],
+        incremental_fields=[],
+        order_by=None,
+    ),
     "worker_payroll_records": RipplingEndpointConfig(
         name="worker_payroll_records",
         path="/payroll-runs/{run_id}/worker-payroll-records",

@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -83,6 +84,35 @@ describe('sourceSettingsLogic', () => {
         expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
         expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
             expect.objectContaining({ id: 'schema-1', should_sync: false }),
+        ])
+    })
+
+    it('waits for confirmation before enabling a pending schema', async () => {
+        const schema = makeSchema({ sync_type: 'full_refresh', pending_self_managed_table: true })
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource([schema]))
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation(async (_id, updates) => updates.map((update) => ({ ...schema, ...update })))
+        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation()
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.updateSchema({ ...schema, should_sync: true })
+
+        expect(dialogSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.source?.schemas[0].should_sync).toBe(false)
+        await jest.advanceTimersByTimeAsync(500)
+        expect(bulkUpdateSchemasSpy).not.toHaveBeenCalled()
+
+        const confirm = dialogSpy.mock.calls[0][0].primaryButton?.onClick as () => void
+        confirm()
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledWith('source-1', [
+            expect.objectContaining({ id: 'schema-1', should_sync: true }),
         ])
     })
 
