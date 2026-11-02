@@ -191,6 +191,11 @@ DateTime property definitions keep their conversions when compared with strings,
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
 Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
+A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.
+String, floating-point and Boolean extraction skip the serialization as well: they read the native value and apply the function's conversion and missing-value rules, independently of property-definition types. A stored floating-point value keeps the parser for string extraction, because JSON number formatting decides the result. It reads as false for Boolean extraction and as `Double` for `JSONType`, because the serialized form of an integral value is an integer token.
+Integer extraction keeps ClickHouse's JSON parser on the serialized value, because its coercion rules cost more SQL than the parse saves.
+`JSONHas`, a key computed per row and a call with no key still rebuild the whole document.
 Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
 This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
 When a join constraint needs a lazy join of the joined events table, HogQL wraps that table in a subquery and the outer query reads the subquery's columns.
