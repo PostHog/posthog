@@ -4360,34 +4360,23 @@ class TestSecretApiTokenVisibility(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session", None, [], True, True),
-            ("personal_api_key_project_read", "personal_api_key", ["project:read"], True, False),
+            ("session", None, []),
+            ("personal_api_key_project_read", "personal_api_key", ["project:read"]),
             (
-                "personal_api_key_mirrored_scopes_legacy_tokens_on",
+                "personal_api_key_mirrored_scopes",
                 "personal_api_key",
                 ["project:read", "feature_flag:read", "support_ticket:read"],
-                True,
-                False,
             ),
-            (
-                "personal_api_key_mirrored_scopes_legacy_tokens_off",
-                "personal_api_key",
-                ["project:read", "feature_flag:read", "support_ticket:read"],
-                False,
-                True,
-            ),
-            ("personal_api_key_all_scopes", "personal_api_key", ["*"], True, True),
-            ("oauth_project_read", "oauth", ["project:read"], True, False),
+            ("personal_api_key_all_scopes", "personal_api_key", ["*"]),
+            ("oauth_project_read", "oauth", ["project:read"]),
         ]
     )
     @patch("posthog.event_usage.report_user_action")
-    def test_secret_api_tokens_are_visible_only_to_callers_that_hold_their_authority(
+    def test_secret_api_tokens_are_hidden_from_every_caller(
         self,
         _name: str,
         credential: str | None,
         scopes: list[str],
-        accept_team_secret_tokens: bool,
-        visible: bool,
         _mock_report_user_action: MagicMock,
     ) -> None:
         headers: dict[str, str] = {}
@@ -4400,14 +4389,12 @@ class TestSecretApiTokenVisibility(APIBaseTest):
             headers["authorization"] = f"Bearer {token}"
             self.client.logout()
 
-        with override_settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
-            responses = self._read_both_serializers(headers)
+        responses = self._read_both_serializers(headers)
 
-        expected = (self.team.secret_api_token, self.team.secret_api_token_backup) if visible else (None, None)
         for serializer_name, response in responses.items():
             assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
             body = response.json()
-            assert (body["secret_api_token"], body["secret_api_token_backup"]) == expected, serializer_name
+            assert (body["secret_api_token"], body["secret_api_token_backup"]) == (None, None), serializer_name
 
     def _read_both_serializers(self, headers: dict[str, str]) -> dict[str, Any]:
         return {
