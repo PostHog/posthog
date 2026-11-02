@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store'
 import { apiJson, NotSignedInError, projectPath } from '@/api/client'
+import { TransportError } from '@/api/transport'
 
 import { addSessionEndTask, addSignOutTask, installAuthProvider, useAuthStore } from './authStore'
 import { OAuthError } from './oauth'
@@ -129,7 +130,7 @@ describe('token refresh through the API client', () => {
             token: async (): Promise<Response> => {
                 throw new TypeError('Network request failed')
             },
-            error: OAuthError,
+            error: TransportError,
             status: 'signed_in',
             reason: null,
             accessToken: 'old-access',

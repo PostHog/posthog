@@ -4,6 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { ApiError, NotSignedInError, setAuthProvider } from '@/api/client'
 import { queryClient } from '@/api/queryClient'
+import { TransportError } from '@/api/transport'
 import { identify, resetAnalytics, track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { createPersistHydrationGate } from '@/lib/persistHydration'
@@ -120,8 +121,8 @@ function accountLoadMessage(error: unknown, method: AuthMethod): string {
     if (error instanceof ApiError) {
         return `Couldn't load your account. ${error.message}`
     }
-    if (error instanceof TypeError) {
-        return "Couldn't reach PostHog. Check your connection and try again."
+    if (error instanceof TransportError) {
+        return error.message
     }
     return toError(error).message
 }
@@ -536,6 +537,9 @@ async function refreshOnce(): Promise<string | null> {
         if (error instanceof OAuthError && error.kind === 'session_expired') {
             await endSession('expired')
             return null
+        }
+        if (error instanceof OAuthError && error.kind === 'network') {
+            throw new TransportError()
         }
         throw error
     }
