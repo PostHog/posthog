@@ -4,6 +4,7 @@ import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipeline, OkResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isOkResult, ok } from '~/ingestion/framework/results'
+import { ProcessingStep } from '~/ingestion/framework/steps'
 
 import type { LogsIngestionMessage } from '../types'
 import {
@@ -23,20 +24,51 @@ export const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
 
 type LogsItemContext = Record<string, never>
 
+type ParseOutcome = { parsed?: LogsIngestionMessage; failure?: unknown }
+
 /**
- * Header parse and team lookup. Unbounded concurrency: a lookup is a cache hit in the common case,
- * and the old consumer parsed a whole batch with one `Promise.all`.
+ * A failed quarantine during parse is carried as a result. A thrown step would latch the
+ * concurrent stage, and every later message's rejection would go unawaited.
+ */
+function createSettledParseStep(context: LogsPipelineContext): ProcessingStep<LogsPipelineInput, ParseOutcome> {
+    const parse = createParseLogsMessageStep(context)
+    return async function parseLogsMessageStep(input) {
+        try {
+            const result = await parse(input)
+            return isOkResult(result) ? ok({ parsed: result.value }) : result
+        } catch (failure) {
+            return ok({ failure })
+        }
+    }
+}
+
+/** Fails the batch with the first failure in input order, once every message has settled. */
+function createFailParseOnErrorStep(): ChunkProcessingStep<ParseOutcome, LogsIngestionMessage> {
+    return function failParseOnErrorStep(values) {
+        const failed = values.find((value) => value.failure !== undefined)
+        if (failed) {
+            return Promise.reject(failed.failure)
+        }
+        return Promise.resolve(values.map((value) => ok(value.parsed!)))
+    }
+}
+
+/**
+ * Header parse and team lookup, emitted in input order. Unbounded concurrency: a lookup is a cache
+ * hit in the common case. Built once per batch, like every logs pipeline, because a chunk pipeline
+ * instance must not be shared between concurrent callers.
  */
 export function createLogsParsePipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsPipelineInput, LogsIngestionMessage, LogsItemContext> {
     return newChunkPipelineBuilder<LogsPipelineInput, LogsItemContext>()
-        .concurrently((builder) => builder.pipe(createParseLogsMessageStep(context)))
+        .concurrently((builder) => builder.pipe(createSettledParseStep(context)))
         .gather()
+        .pipeChunk(createFailParseOnErrorStep())
         .build()
 }
 
-/** Gates that decide which parsed messages a batch processes, in the order billing depends on. */
+/** Gates that decide which parsed messages a batch processes, in the order billing depends on. Built once per batch. */
 export function createLogsAdmissionPipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsAdmissionInput, LogsAdmissionInput, LogsItemContext> {
@@ -71,10 +103,7 @@ function createFailPassOnErrorStep<T extends LogsProcessingOutcome>(): ChunkProc
     }
 }
 
-/**
- * Decode, transform and produce. Built once per pass: background passes of consecutive batches
- * overlap, and a chunk pipeline instance must not be shared between concurrent callers.
- */
+/** Decode, transform and produce. Built once per pass: background passes of consecutive batches overlap. */
 export function createLogsProcessingPipeline(
     context: LogsPipelineContext
 ): ChunkPipeline<LogsProcessingInput, LogsProcessingOutcome, LogsItemContext> {

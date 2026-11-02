@@ -51,12 +51,6 @@ export {
 } from './logs-ingestion-types'
 export type { LogsIngestionConsumerDeps, UsageStats, UsageStatsByTeam } from './logs-ingestion-types'
 
-type LogsPipelines = {
-    context: LogsPipelineContext
-    parse: ReturnType<typeof createLogsParsePipeline>
-    admission: ReturnType<typeof createLogsAdmissionPipeline>
-}
-
 /**
  * Kafka entrypoint for logs ingestion. The work runs on the ingestion framework in three
  * pipelines (see `pipeline/logs-pipelines.ts`): parse and admission run before the batch returns,
@@ -81,8 +75,8 @@ export class LogsIngestionConsumer {
     private readonly metricSeriesAdmission = new MetricSeriesAdmission()
     private readonly gates: LogsFeatureGates
     // Subclass field initializers run after this constructor, so the identity they override is read
-    // when the first batch builds the pipelines, not here.
-    private pipelines?: LogsPipelines
+    // when the first batch builds the context, not here.
+    private pipelineContext?: LogsPipelineContext
 
     protected groupId: string
     protected topic: string
@@ -153,8 +147,12 @@ export class LogsIngestionConsumer {
         return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
-    private getPipelines(): LogsPipelines {
-        if (!this.pipelines) {
+    /**
+     * Long-lived state the steps share. The pipelines themselves are built per batch: they are cheap,
+     * and a chunk pipeline instance shared by overlapping calls would mix their messages.
+     */
+    private getPipelineContext(): LogsPipelineContext {
+        if (!this.pipelineContext) {
             const identity: LogsConsumerIdentity = {
                 name: this.name,
                 appSource: this.appSource,
@@ -162,7 +160,7 @@ export class LogsIngestionConsumer {
                 metricRuleSource: this.metricRuleSource,
                 retentionRuleSource: this.retentionRuleSource,
             }
-            const context: LogsPipelineContext = {
+            this.pipelineContext = {
                 identity,
                 gates: this.gates,
                 deps: this.deps,
@@ -173,13 +171,8 @@ export class LogsIngestionConsumer {
                 metricSeriesAdmission: this.metricSeriesAdmission,
                 defaultRetentionDays: (teamId, logsSettings) => this.defaultRetentionDays(teamId, logsSettings),
             }
-            this.pipelines = {
-                context,
-                parse: createLogsParsePipeline(context),
-                admission: createLogsAdmissionPipeline(context),
-            }
         }
-        return this.pipelines
+        return this.pipelineContext
     }
 
     public get service(): PluginServerService {
@@ -193,7 +186,7 @@ export class LogsIngestionConsumer {
     @instrumented('logsIngestionConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<LogsIngestionMessage[]> {
         return await runChunkPipeline(
-            this.getPipelines().parse,
+            createLogsParsePipeline(this.getPipelineContext()),
             messages.map((message) => ({ message }))
         )
     }
@@ -209,11 +202,11 @@ export class LogsIngestionConsumer {
         if (!messages.length) {
             return { messages: [] }
         }
-        const { context, admission } = this.getPipelines()
+        const context = this.getPipelineContext()
 
         const usage = new LogsBatchUsage()
         const admitted = await runChunkPipeline<LogsAdmissionInput, LogsAdmissionInput, Record<string, never>>(
-            admission,
+            createLogsAdmissionPipeline(context),
             messages.map((message) => ({ ...message, usage }))
         )
         reportDroppedUsage(usage)

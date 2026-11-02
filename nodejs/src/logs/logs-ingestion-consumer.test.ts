@@ -86,7 +86,7 @@ function internalLogsHeaders(signature: string): Record<string, Buffer> {
 
 /** The context the consumer's pipeline steps share, for testing a single step. */
 function pipelineContext(consumer: LogsIngestionConsumer): LogsPipelineContext {
-    return consumer['getPipelines']().context
+    return consumer['getPipelineContext']()
 }
 
 /** Runs one admission gate over parsed messages and splits them by outcome. */
@@ -792,8 +792,8 @@ describe('LogsIngestionConsumer', () => {
             ['the message fails to parse', { bytes_uncompressed: 'not-a-number' }],
             ['the message fails to process', {}],
         ])('should fail the batch when %s and cannot be written to the DLQ', async (_, headers) => {
-            const logData = createLogMessage()
-            const messages = await createKafkaMessages([logData], {
+            // Two failing messages: the second failure must be awaited too, not left unhandled.
+            const messages = await createKafkaMessages([createLogMessage(), createLogMessage()], {
                 token: team.api_token,
                 ...headers,
             })
@@ -812,6 +812,23 @@ describe('LogsIngestionConsumer', () => {
             } finally {
                 mockProducer.queueMessages = originalQueueMessages
             }
+
+            // The failure belongs to that batch alone: the same consumer processes the next one.
+            const [next] = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            await waitForBackgroundTasks(consumer.processKafkaBatch([next]))
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
+        })
+
+        it('keeps the messages of overlapping batches apart', async () => {
+            const first = await createKafkaMessages([createLogMessage(), createLogMessage()], { token: team.api_token })
+            const second = await createKafkaMessages([createLogMessage()], { token: team2.api_token })
+
+            const [a, b] = await Promise.all([consumer.processKafkaBatch(first), consumer.processKafkaBatch(second)])
+            await Promise.all([a.backgroundTask, b.backgroundTask])
+
+            expect(a.messages.map((m) => m.teamId)).toEqual([team.id, team.id])
+            expect(b.messages.map((m) => m.teamId)).toEqual([team2.id])
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(3)
         })
     })
 
