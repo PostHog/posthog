@@ -294,7 +294,7 @@ class _TracingBodyPagingSerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, allow_null=True, min_value=1, help_text="Max results.")
     offset = serializers.IntegerField(required=False, allow_null=True, min_value=0, help_text="Pagination offset.")
     prefetchSpans = serializers.IntegerField(
-        required=False, allow_null=True, help_text="Number of child spans to prefetch per trace."
+        required=False, allow_null=True, min_value=1, help_text="Number of child spans to prefetch per trace."
     )
 
 
@@ -514,7 +514,7 @@ class _TracingErrorCountsResponseSerializer(serializers.Serializer):
 
 
 class _TracingAttributesQuerySerializer(_TracingDateQueryParamsSerializer):
-    search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
+    search = serializers.CharField(required=False, allow_blank=True, help_text="Search filter for attribute names.")
     search_values = serializers.BooleanField(
         required=False,
         default=False,
@@ -567,7 +567,7 @@ class _TracingValuesQuerySerializer(_TracingDateQueryParamsSerializer):
         required=False,
         help_text='Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
     )
-    value = serializers.CharField(required=False, help_text="Search filter for attribute values.")
+    value = serializers.CharField(required=False, allow_blank=True, help_text="Search filter for attribute values.")
     limit = serializers.IntegerField(
         required=False, default=100, min_value=1, max_value=100, help_text="Max results (default: 100)."
     )

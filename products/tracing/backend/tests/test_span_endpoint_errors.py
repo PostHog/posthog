@@ -100,6 +100,7 @@ class TestSpanCountErrorHandling(APIBaseTest):
         [
             ("query_string_limit", "post", "query/", {"query": {"limit": "abc"}}),
             ("query_string_prefetch_spans", "post", "query/", {"query": {"prefetchSpans": "abc"}}),
+            ("query_negative_prefetch_spans", "post", "query/", {"query": {"prefetchSpans": -5}}),
             ("query_negative_offset", "post", "query/", {"query": {"offset": -1}}),
             ("trace_string_offset", "post", "trace/abcdef/", {"offset": "abc"}),
             ("trace_negative_offset", "post", "trace/abcdef/", {"offset": -1}),
@@ -117,3 +118,16 @@ class TestSpanCountErrorHandling(APIBaseTest):
         else:
             response = self.client.get(url, data)
         self.assertEqual(response.status_code, 400, response.content)
+
+    @parameterized.expand(
+        [
+            ("attributes", "attributes/", {"search": ""}, "run_attribute_names_query", ([], 0)),
+            ("values", "values/", {"key": "http.method", "value": ""}, "run_attribute_values_query", []),
+        ]
+    )
+    def test_accepts_a_blank_search(self, _name: str, path: str, params: dict, runner: str, runner_result) -> None:
+        with patch(f"products.tracing.backend.presentation.views.{runner}", return_value=runner_result) as run:
+            response = self.client.get(f"/api/projects/{self.team.id}/tracing/spans/{path}", params)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(run.call_args.kwargs["search"], "")
