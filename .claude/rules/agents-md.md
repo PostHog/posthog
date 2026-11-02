@@ -9,6 +9,7 @@ paths:
   - '.agents/ci.md'
   - '.agents/code-style.md'
   - '.agents/feature-usage-tracking.md'
+  - '.agents/security.md'
 ---
 
 Invoke the `/editing-agents-md` skill before adding, editing, or removing any instruction here.
