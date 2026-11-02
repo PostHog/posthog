@@ -54,6 +54,11 @@ RUN cd /tmp/products && for manifest in */package.json; do install -D -m 644 "$m
 #
 FROM node-base AS frontend-build
 
+# re2's prebuilt Node 26 binaries need glibc 2.38 and bookworm ships 2.36, so re2 compiles from source here.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY turbo.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY frontend/package.json frontend/
 COPY frontend/bin/ frontend/bin/

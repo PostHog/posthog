@@ -1685,8 +1685,8 @@ importers:
         specifier: 1.1.1
         version: 1.1.1
       '@pyroscope/nodejs':
-        specifier: ^0.4.8
-        version: 0.4.8(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
+        specifier: ^0.5.0
+        version: 0.5.0(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)
       '@segment/action-destinations':
         specifier: 3.387.0
         version: 3.387.0(encoding@0.1.13)
@@ -7925,8 +7925,8 @@ packages:
     resolution: {integrity: sha512-mepCf/e9+SKYy1d02/UkvSy6+6MoyXhVxP8lLDfA7BPE1X1d4dR0sZznmbM8/XVJ1GPM+Svnx7Xj6ZweByWUkw==}
     engines: {node: '>17.0.0'}
 
-  '@datadog/pprof@5.12.0':
-    resolution: {integrity: sha512-qX32upm9eqObGVGvqHpjQB2bXVPTX0ccXTW3mUqUWXgJrAKyHtTfo9PqfoXhflYs0WD9el9xl9c0bM1RS4vRmQ==}
+  '@datadog/pprof@5.14.4':
+    resolution: {integrity: sha512-egEZDD9v98RBI8ijbHyaWQeY8rW0WEu004As5D7SUkdqSMORhrnh7ZdsM46PUzQgAc85IaEZoukWS9UhMvWn9w==}
     engines: {node: '>=16'}
 
   '@date-fns/tz@1.4.1':
@@ -11379,12 +11379,12 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  '@pyroscope/nodejs@0.4.8':
-    resolution: {integrity: sha512-DhuGx1IzrFLheZ2zQayDHIEFfB1imZJgOc4Mpu/u6LKTN454nui+YXbgWb5clqIuuLCWF84Uc3kJ1ZrCKu36yA==}
-    engines: {node: '>=20'}
+  '@pyroscope/nodejs@0.5.0':
+    resolution: {integrity: sha512-y/EOcbn5t9BX3BkkKW/uOHXQ4/9KAyIVpKNS6V+DyslWaA4nsyW8gQPaxpWbc/dzyvqVQ8i4qK15Ay0kZmWf4w==}
+    engines: {node: '>=20.20.2'}
     peerDependencies:
       express: ^4.0.0 || ^5.0.0
-      fastify: ^4.0.0 || ^5.0.0
+      fastify: ^5.8.5
     peerDependenciesMeta:
       express:
         optional: true
@@ -16216,10 +16216,6 @@ packages:
   delaunator@5.0.0:
     resolution: {integrity: sha512-AyLvtyJdbv/U1GkiS6gUUzclRoAY4Gs75qkMygJJhU75LW4DNuSF2RMzpxs9jw9Oz1BobHjTdkG3zdP55VxAqw==}
 
-  delay@5.0.0:
-    resolution: {integrity: sha512-ReEBKkIfe4ya47wlPYf/gu5ib6yUG0/Aez0JQZQz94kiWtRQvZIQbTiehsnwHvLSWJnQdhVeqYue7Id1dKr0qw==}
-    engines: {node: '>=10'}
-
   delayed-stream@1.0.0:
     resolution: {integrity: sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==}
     engines: {node: '>=0.4.0'}
@@ -19878,8 +19874,8 @@ packages:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
     hasBin: true
 
-  node-gyp-build@3.9.0:
-    resolution: {integrity: sha512-zLcTg6P4AbcHPq465ZMFNXx7XpKKJh+7kkN699NiQWisR2uWYOWNWqRHAmbnmKiL4e9aLSlmy5U7rEMUXV59+A==}
+  node-gyp-build@4.8.4:
+    resolution: {integrity: sha512-LA4ZjwlnUblHVgq0oBF3Jl/6h/Nvs5fzBLwdEF4nuxnFdsfajde4WfxtJr3CaiH+F6ewcIB/q4jQ4UzPyid+CQ==}
     hasBin: true
 
   node-gyp@13.1.0:
@@ -20132,8 +20128,8 @@ packages:
     resolution: {integrity: sha512-5b0R4txpzjPWVw/cXXUResoD4hb6U/x9BH08L7nw+GN1sezDzPdxeRvpc9c433fZhBan/wusjbCsqwqm4EIBIQ==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  p-limit@7.2.0:
-    resolution: {integrity: sha512-ATHLtwoTNDloHRFFxFJdHnG6n2WUeFjaR8XQMFdKIv0xkXjrER8/iG9iu265jOM95zXHAfv9oTkqhrfbIzosrQ==}
+  p-limit@7.3.3:
+    resolution: {integrity: sha512-SKgVvDU5TNIxQ4r30U75BNLC6a+6GOEjngrk/ysM5+Zu3oJuk1SC5ApzIzY/7PjCEjoVPMWJ0zho/4QUiEB7TQ==}
     engines: {node: '>=20'}
 
   p-locate@3.0.0:
@@ -27006,11 +27002,9 @@ snapshots:
 
   '@dagrejs/graphlib@2.2.4': {}
 
-  '@datadog/pprof@5.12.0':
+  '@datadog/pprof@5.14.4':
     dependencies:
-      delay: 5.0.0
-      node-gyp-build: 3.9.0
-      p-limit: 3.1.0
+      node-gyp-build: 4.8.4
       pprof-format: 2.2.1
       source-map: 0.7.6
 
@@ -30835,11 +30829,11 @@ snapshots:
       - react-native-b4a
       - supports-color
 
-  '@pyroscope/nodejs@0.4.8(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)':
+  '@pyroscope/nodejs@0.5.0(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)':
     dependencies:
-      '@datadog/pprof': 5.12.0
+      '@datadog/pprof': 5.14.4
       debug: 4.4.3(supports-color@10.2.2)
-      p-limit: 7.2.0
+      p-limit: 7.3.3
       regenerator-runtime: 0.14.1
       source-map: 0.7.6
     optionalDependencies:
@@ -36394,8 +36388,6 @@ snapshots:
     dependencies:
       robust-predicates: 3.0.1
 
-  delay@5.0.0: {}
-
   delayed-stream@1.0.0: {}
 
   denque@1.5.1: {}
@@ -41458,7 +41450,7 @@ snapshots:
       detect-libc: 2.1.2
     optional: true
 
-  node-gyp-build@3.9.0: {}
+  node-gyp-build@4.8.4: {}
 
   node-gyp@13.1.0:
     dependencies:
@@ -41849,7 +41841,7 @@ snapshots:
     dependencies:
       yocto-queue: 1.2.2
 
-  p-limit@7.2.0:
+  p-limit@7.3.3:
     dependencies:
       yocto-queue: 1.2.2
 

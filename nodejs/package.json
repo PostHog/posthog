@@ -99,7 +99,7 @@
         "@posthog/replay-anonymizer": "workspace:*",
         "@posthog/replay-headless": "workspace:*",
         "@posthog/siphash": "1.1.1",
-        "@pyroscope/nodejs": "^0.4.8",
+        "@pyroscope/nodejs": "^0.5.0",
         "@segment/action-destinations": "3.387.0",
         "@smithy/node-http-handler": "4.4.9",
         "@temporalio/activity": "1.15.0",
