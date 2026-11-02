@@ -1,15 +1,11 @@
 from django.conf import settings
 
-import structlog
-
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from products.workflows.backend.facade.contracts import SandboxEmailSender, SandboxSenderUnavailable
-
-logger = structlog.get_logger(__name__)
 
 SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_FALLBACK_NAME = "PostHog sandbox"
@@ -46,16 +42,14 @@ def _sandbox_sender_enabled(team: Team) -> bool:
     # and the workflows facade imports this module at startup.
     from posthog.permissions import posthog_feature_flag_enabled  # noqa: PLC0415
 
-    try:
-        return posthog_feature_flag_enabled(
-            SANDBOX_SENDER_FLAG,
-            str(team.uuid),
-            organization_id=team.organization_id,
-            team_id=team.id,
-        )
-    except Exception:
-        logger.warning("workflows.sandbox_sender_flag_check_failed", team_id=team.id, exc_info=True)
-        return False
+    # A flag-service error propagates: answering "unavailable" would hide an outage behind the
+    # response a project gets while the flag is off.
+    return posthog_feature_flag_enabled(
+        SANDBOX_SENDER_FLAG,
+        str(team.uuid),
+        organization_id=team.organization_id,
+        team_id=team.id,
+    )
 
 
 def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:

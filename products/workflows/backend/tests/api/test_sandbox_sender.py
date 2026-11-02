@@ -114,6 +114,16 @@ class TestSandboxSenderAPI(APIBaseTest):
         assert not self._sandbox_rows().exists()
         assert self._provisioned_events() == []
 
+    def test_ensure_fails_loudly_when_the_flag_check_fails(self) -> None:
+        # A flag-service outage must not look like a project the sandbox sender is off for.
+        self.flag_enabled.side_effect = RuntimeError("flag service down")
+
+        response = self._ensure()
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert not self._sandbox_rows().exists()
+        assert self._provisioned_events() == []
+
     @parameterized.expand(
         [
             ("read scope", "integration:read", status.HTTP_403_FORBIDDEN),
