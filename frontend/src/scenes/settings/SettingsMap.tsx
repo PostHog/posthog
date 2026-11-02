@@ -192,6 +192,7 @@ import { OrganizationVariables } from './organization/OrgVariables'
 import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
+import { CITrustPolicies } from './project/CITrustPolicies'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectDetails } from './project/ProjectDetails'
 import { ProjectMove } from './project/ProjectMove'
@@ -2220,6 +2221,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/api',
                 component: <ProjectSecretAPIKeys />,
                 keywords: ['token', 'api key', 'authentication', 'secret'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-ci-trust-policies',
+        title: 'CI trust policies',
+        settings: [
+            {
+                id: 'environment-ci-trust-policies',
+                title: 'CI trust policies',
+                description:
+                    'Let CI jobs from a repository you trust get short-lived tokens for this project, without storing a secret in your CI provider.',
+                component: <CITrustPolicies />,
+                keywords: ['ci', 'oidc', 'github actions', 'gitlab', 'token', 'trust policy', 'deploy'],
             },
         ],
     },
