@@ -51,12 +51,15 @@ export const EXAMPLE_CLIPS: ExampleClip[] = [
     },
 ]
 
+// The feed's two-column grid uses all four examples. A single column stops at three to keep the page short.
+export const COLUMN_EXAMPLE_COUNT = 3
+
 /** Example observation cards, so a reader without observations of their own sees what a scanner produces. */
 export function ExampleObservations(): JSX.Element {
     return (
         <div className="relative flex flex-col gap-2">
             <p className="text-xs text-secondary m-0">Examples, not your data</p>
-            {EXAMPLE_CLIPS.map((clip) => (
+            {EXAMPLE_CLIPS.slice(0, COLUMN_EXAMPLE_COUNT).map((clip) => (
                 <div key={clip.scannerName} className="flex flex-col gap-2 border rounded bg-bg-light p-3">
                     <div className="flex-none w-full h-16 rounded bg-surface-secondary flex items-center justify-center text-secondary">
                         <IconPlayFilled className="text-xl" />

@@ -22,6 +22,7 @@ import { scanDrought } from '../scanDrought'
 import { UNRUNNABLE_DETAIL, limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
+import { HERO_CARD_HEADER, HERO_CARD_HEIGHT } from './scannerHeroCard'
 import { ScannerStatusLabel } from './ScannerStatusLabel'
 
 function formatInterval(minutes: number): string {
@@ -114,13 +115,12 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
     const spend = spendAgainstLimit(scanner, quota)
 
     return (
-        // min-h-38 matches the empty scout card beside it, so the two line up when there is no report yet.
         <div
-            className="@container border rounded bg-surface-primary p-4 flex flex-col gap-3 min-h-38"
+            className={cn('@container border rounded bg-surface-primary p-4 flex flex-col gap-3', HERO_CARD_HEIGHT)}
             data-attr="vision-scanner-status-strip"
             data-status={status.kind}
         >
-            <div className="flex items-center justify-between gap-2 border-b border-primary pb-2">
+            <div className={HERO_CARD_HEADER}>
                 <span className="text-sm font-medium">Scanner status</span>
                 <LemonSwitch
                     checked={scanner.enabled}
@@ -136,7 +136,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                     data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
                 />
             </div>
-            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-x-8 gap-y-4 items-start">
+            <div className="grid grid-cols-1 @lg:grid-cols-2 gap-x-8 gap-y-4 items-start">
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                         <ScannerStatusLabel status={status} className="text-sm font-semibold" />
