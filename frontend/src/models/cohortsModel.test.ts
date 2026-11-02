@@ -97,9 +97,6 @@ describe('cohortsModel', () => {
 
             await expectLogic(logic, () => logic.actions.loadAllCohorts()).toDispatchActions(['loadAllCohortsSuccess'])
             expect(logic.values.allCohorts.results.map(({ id }) => id)).toEqual([1, 2])
-
-            await expectLogic(logic, () => logic.actions.loadCohorts()).toDispatchActions(['loadCohortsSuccess'])
-            expect(logic.values.cohorts.results.map(({ id }) => id)).toEqual([1, 2])
         })
 
         it('sets polling timeout for calculating cohorts when on cohorts page', async () => {

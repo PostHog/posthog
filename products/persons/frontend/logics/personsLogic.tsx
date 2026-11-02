@@ -21,7 +21,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { cohortsModel } from '~/models/cohortsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -691,12 +690,7 @@ export const personsLogic = kea<personsLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, cache, key }) => ({
-        [cohortsModel.actionTypes.loadCohorts]: () => {
-            if (key === 'scene') {
-                actions.loadCohorts()
-            }
-        },
+    listeners(({ actions, values, cache }) => ({
         reportPersonDetailViewed: async ({ person }) => {
             // Not a kea breakpoint: kea cancels breakpoints when the logic unmounts, so a user who leaves the
             // page inside the delay would never be counted. The token keeps the debounce without that coupling.
