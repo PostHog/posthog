@@ -216,7 +216,7 @@ export function actorEmailToRevealForLogItem(logItem: ActivityLogItem): string |
 export function ActivityLogUserName({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
     const ci = parseCIAttribution(logItem)
     if (ci) {
-        return <CIActorName attribution={ci} />
+        return <CIActorName attribution={ci} teamId={logItem.team_id} />
     }
     return <UserNameWithEmail name={userNameForLogItem(logItem)} email={actorEmailForLogItem(logItem)} />
 }

@@ -7,6 +7,7 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 function ciTrustDescriber(
@@ -20,7 +21,8 @@ function ciTrustDescriber(
         }
         const name = <strong>{logItem.detail?.name || 'a CI trust policy'}</strong>
         const url = targetUrl(logItem)
-        const target = url ? <Link to={url}>{name}</Link> : name
+        // The organization audit log lists entries from every project, so links name the entry's own project.
+        const target = url ? <Link to={addProjectIdIfMissing(url, logItem.team_id ?? undefined)}>{name}</Link> : name
         return {
             summary: activityLogSummary(logItem, `${verb} the CI trust policy`, target),
             description: (
