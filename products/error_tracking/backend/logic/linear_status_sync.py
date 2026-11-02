@@ -118,7 +118,7 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
     if not workspace_rows:
         return
     workspace_integration_ids = [row.id for row in workspace_rows]
-    issues = (
+    issues = list(
         ErrorTrackingIssue.objects.filter(
             team_id__in={row.team_id for row in workspace_rows},
             external_issue__integration_id__in=workspace_integration_ids,
@@ -128,6 +128,11 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
         .order_by("id")
         .select_related("team__organization")
     )
+    # Once per project, because one ticket can link many issues of a project, and a lookup that misses
+    # the local flag definitions waits on a remote request.
+    switched_off_team_ids = {
+        team_id for team_id in {issue.team_id for issue in issues} if team_flag_explicitly_off(_ROLLOUT_FLAG, team_id)
+    }
 
     # Each project reads Linear with its own token, so one revoked token must not keep every other
     # project's issue from syncing. One failure is raised after the loop so the task retries, and a
@@ -135,7 +140,7 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
     linear_reads = _LinearReads(job)
     failures: list[Exception] = []
     for issue in issues:
-        if team_flag_explicitly_off(_ROLLOUT_FLAG, issue.team_id):
+        if issue.team_id in switched_off_team_ids:
             continue
         try:
             with _issue_lock(issue.id):

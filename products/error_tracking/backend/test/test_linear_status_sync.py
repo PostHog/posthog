@@ -297,12 +297,17 @@ class TestLinearStatusSync(BaseTest):
     def test_kill_switch_decides_for_each_project(
         self, _name: str, flag_answer: bool | None | Exception, expected_status: str
     ) -> None:
-        issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+        integration = self._linear_integration(self.team)
+        issues = [self._linked_issue(self.team, integration, ["ENG-1"]) for _ in range(2)]
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         other_team_issue = self._linked_issue(other_team, self._linear_integration(other_team), ["ENG-1"])
+        lookups: Counter[str] = Counter()
 
         def answer(flag: str, distinct_id: str, **_kwargs: object) -> bool | None:
-            if flag != "error-tracking-linear-status-sync" or distinct_id != str(self.team.id):
+            if flag != "error-tracking-linear-status-sync":
+                return None
+            lookups[distinct_id] += 1
+            if distinct_id != str(self.team.id):
                 return None
             if isinstance(flag_answer, Exception):
                 raise flag_answer
@@ -313,10 +318,17 @@ class TestLinearStatusSync(BaseTest):
         ):
             self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
 
-        issue.refresh_from_db()
-        other_team_issue.refresh_from_db()
-        assert issue.status == expected_status
-        assert other_team_issue.status == "resolved"
+        statuses = dict(
+            ErrorTrackingIssue.objects.filter(
+                id__in=[*(issue.id for issue in issues), other_team_issue.id]
+            ).values_list("id", "status")
+        )
+        assert statuses == {
+            issues[0].id: expected_status,
+            issues[1].id: expected_status,
+            other_team_issue.id: "resolved",
+        }
+        assert lookups == {str(self.team.id): 1, str(other_team.id): 1}
 
     def test_records_the_sync_as_an_automation_in_the_change_log(self) -> None:
         issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
