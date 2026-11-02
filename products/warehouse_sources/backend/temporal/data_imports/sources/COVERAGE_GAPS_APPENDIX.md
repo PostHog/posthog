@@ -10056,13 +10056,13 @@ Today (11): `Customers`, `Disputes`, `Invoices`, `Items`, `Orders`, `Payments`, 
 
 Diffed against: <https://razorpay.com/docs/build/sitemap/razorpay/IN/urls.txt>
 
-- [ ] `settlements/recon (settlement reconciliation report)` — Per-transaction settlement breakdown with fees and tax - the headline reconciliation report for finance users, not derivable from the settlement summary we sync (high)
-- [ ] `payment_links` — Payment Links are a primary collection channel with their own conversion funnel and are entirely absent (high)
+- [x] `settlements/recon (settlement reconciliation report)` — Per-transaction settlement breakdown with fees and tax - the headline reconciliation report for finance users, not derivable from the settlement summary we sync (high)
+- [x] `payment_links` — Payment Links are a primary collection channel with their own conversion funnel and are entirely absent (high)
 - [ ] `transfers and reversals (Route)` — Marketplace split-payment transfers and their reversals - the line-item breakdown of how each payment was divided (medium)
 - [ ] `qr_codes` — QR code collection channel and its associated payments (medium)
 - [ ] `linked_accounts (Route)` — Lookup resolving the linked-account IDs that Route transfers point at (medium)
 - [ ] `payouts (RazorpayX)` — Outbound money movement; the payables counterpart to the payments already synced (medium)
-- [ ] `x/transactions (RazorpayX)` — Bank account transaction ledger for balance and cash-flow reporting (medium)
+- [x] `x/transactions (RazorpayX)` — Bank account transaction ledger for balance and cash-flow reporting (medium)
 - [ ] `contacts and fund_accounts (RazorpayX)` — Lookup tables resolving the payee IDs on payouts (medium)
 - [ ] `subscriptions add-ons` — Line-item charges added to subscriptions we already sync, needed for correct MRR math (medium)
 - [ ] `settlements/instant` — Instant settlement records with their own fee structure, separate from standard settlements (low)
