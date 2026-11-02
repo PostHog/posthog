@@ -53,9 +53,8 @@ _TEAM_FRESHNESS_QUERY: Final = parse_select(
 )
 
 
-# Each partition keeps the newest capture time it delivered, and the floor across partitions is
-# what all of them have passed. Not scoped to a team: every team's samples spread over every
-# partition. A floor more than 5 minutes old is a stalled partition or a dead writer, so it gets none.
+# Not scoped to a team, because every team's samples spread over every partition. A floor more than
+# 5 minutes old is a stalled partition or a dead writer, so it gets none.
 _PARTITION_CHECKPOINT_QUERY: Final = parse_select(
     """
     SELECT least(min(partition_checkpoint), now()) AS checkpoint FROM (
@@ -67,10 +66,8 @@ _PARTITION_CHECKPOINT_QUERY: Final = parse_select(
     """
 )
 
-# A checkpoint is a capture time, but a sender stamps a sample before capture. Also, the Node
-# consumer can hold a sample back while newer ones reach every partition. The delay covers both gaps:
-# 30s of sender delay, which is the offset VictoriaMetrics reads with by default, and 45s of Node
-# consumer lag, which peaked at 43s in the week before 2026-11-02.
+# 30s of sender delay before capture, the offset VictoriaMetrics reads with by default, plus 45s of
+# Node consumer lag, which the checkpoint cannot see and which peaked at 43s by 2026-11-02.
 CHECKPOINT_EVAL_DELAY: Final = dt.timedelta(seconds=75)
 
 
@@ -134,9 +131,12 @@ def _bounded_logs_client(send_receive_timeout: int) -> AbstractContextManager:
 
 @frozen
 class IngestionReach:
-    """How far a team's ingestion has reached, from the two reads in this module."""
+    """How far a team's ingestion has reached, from the two reads in this module.
 
-    # The capture time every partition has passed. When it is known, the newest point is not read.
+    `checkpoint` is the capture time every partition has passed. When it is known, the newest point
+    is not read.
+    """
+
     checkpoint: dt.datetime | None
     newest_point: dt.datetime | None
 
