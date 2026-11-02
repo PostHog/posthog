@@ -12,13 +12,6 @@ UNOWNED_TEAM = "unowned"
 
 _PYTEST_FILE = re.compile(r"(^|/)test_[^/]*\.py$|_test\.py$")
 _JEST_FILE = re.compile(r"\.(test|spec)\.[jt]sx?$")
-# The same two patterns as fnmatch globs, where `*` spans `/`. Keep them in step with the regexes.
-TEST_FILE_GLOBS = (
-    "test_*.py",
-    "*/test_*.py",
-    "*_test.py",
-    *(f"*.{kind}.{ext}" for kind in ("test", "spec") for ext in ("js", "jsx", "ts", "tsx")),
-)
 
 
 def first_team_owner(owners: list[str] | None) -> str:
@@ -44,7 +37,9 @@ def runner_for_path(path: str) -> str | None:
 
 def unowned_test_directories(resolver: OwnersResolver) -> set[str]:
     """Directories that hold a tracked test file whose failures reach no team. A new file inherits
-    the owner of its directory, so a baseline of directories stays steady while files come and go."""
+    the owner of its directory, so a baseline of directories stays steady while files come and go.
+    Unlike ``OwnersResolver.unowned``, a file owned only by ``@handles`` counts, because a person is
+    not a routing target for a failure report."""
     return {
         str(PurePosixPath(path).parent)
         for path in resolver.tracked_files()
