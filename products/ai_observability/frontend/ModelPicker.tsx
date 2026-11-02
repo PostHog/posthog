@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 
@@ -13,18 +13,18 @@ import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic
 
 export const PROVIDER_SETTINGS_URL = urls.settings('project-ai-observability', 'ai-observability-byok')
 
-export interface ModelPickerFooterAction {
-    label: string
-    to?: string
-    onClick?: () => void
-    'data-attr': string
-}
-
-export function getModelPickerFooterActions(hasByokKeys: boolean, onAddKey: () => void): ModelPickerFooterAction[] {
+export function getModelPickerFooterActions(hasByokKeys: boolean, onAddKey: () => void): LemonMenuItem[] {
     return [
-        { label: 'Add API key', onClick: onAddKey, 'data-attr': 'model-picker-add-api-key' },
+        { icon: <IconPlus />, label: 'Add API key', onClick: onAddKey, 'data-attr': 'model-picker-add-api-key' },
         ...(hasByokKeys
-            ? [{ label: 'Manage API keys', to: PROVIDER_SETTINGS_URL, 'data-attr': 'model-picker-manage-api-keys' }]
+            ? [
+                  {
+                      icon: <IconGear />,
+                      label: 'Manage API keys',
+                      to: PROVIDER_SETTINGS_URL,
+                      'data-attr': 'model-picker-manage-api-keys',
+                  },
+              ]
             : []),
     ]
 }
@@ -39,7 +39,7 @@ export interface ModelPickerProps {
     onSelect: (modelId: string, providerKeyId: string) => void
     groups: ProviderModelGroup[]
     loading?: boolean
-    footerActions?: ModelPickerFooterAction[]
+    footerActions?: LemonMenuItem[]
     placeholder?: string
     selectedModelName?: string
     'data-attr'?: string
@@ -246,21 +246,7 @@ export function ModelPicker({
                 ],
             }
         }),
-        ...(footerActions?.length
-            ? [
-                  {
-                      label: () => (
-                          <div className="flex flex-wrap items-center gap-x-3 px-2 py-1.5 border-t">
-                              {footerActions.map(({ label, to, onClick, 'data-attr': dataAttr }) => (
-                                  <Link key={label} to={to} onClick={onClick} className="text-xs" data-attr={dataAttr}>
-                                      {label}
-                                  </Link>
-                              ))}
-                          </div>
-                      ),
-                  },
-              ]
-            : []),
+        ...(footerActions?.length ? [{ items: footerActions }] : []),
     ]
 
     return (
