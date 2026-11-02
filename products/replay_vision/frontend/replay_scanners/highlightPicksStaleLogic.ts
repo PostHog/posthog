@@ -39,6 +39,7 @@ import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { HighlightFeedEmptyReason, resolveHighlightFeedEmptyReason } from './highlightFeedEmptyState'
 import { highlightPicksLogic } from './highlightPicksLogic'
 import { HighlightPicksStaleReason, resolveHighlightPicksStaleReason } from './highlightPicksStaleState'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import { scanDrought } from './scanDrought'
 
 const DROUGHT_SCANNER_CAP = 10
@@ -518,7 +519,8 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
         }
         const act = (action: string, scannerId: string | null, extra: Record<string, string> = {}): void => {
             posthog.capture('replay_vision_highlight_picks_stale_action', {
-                reason: values.staleReason,
+                // With no picks there is no stale reason, so the empty reason names the state that held the button.
+                reason: values.staleReason ?? values.blockReason,
                 action,
                 scanner_id: scannerId,
                 ...extra,
@@ -561,8 +563,10 @@ export const highlightPicksStaleLogic: LogicWrapper<highlightPicksStaleLogicType
                 }
                 act(enabled ? 'enable' : 'disable', scannerId)
                 try {
-                    await visionScannersPartialUpdate(String(teamId), scannerId, { enabled })
-                    refresh()
+                    const saved = await saveScannerEnabled(String(teamId), scannerId, enabled)
+                    if (saved) {
+                        refresh()
+                    }
                 } finally {
                     actions.scannerActionDone(scannerId)
                 }

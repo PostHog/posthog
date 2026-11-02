@@ -1,11 +1,12 @@
 // These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
+import { load } from 'js-yaml'
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { evaluateValue, planFunctions } from '../src/expressions.ts'
+import { evaluateCondition, evaluateValue, planFunctions } from '../src/expressions.ts'
 import {
     type Outcome,
     type Scenario,
@@ -189,7 +190,7 @@ const EXPECTATIONS: Expectation[] = [
     ),
     depotBackend(
         { name: 'ready PR, superseded and cancelled', cancelled: true },
-        { results: { django_tests: 'cancelled' } }
+        { results: { django_tests: 'cancelled', 'backend-coverage-report': 'cancelled' } }
     ),
     depotBackend(
         { name: 'draft PR', github: pullRequest({ draft: true }) },
@@ -281,7 +282,7 @@ const EXPECTATIONS: Expectation[] = [
                 },
             },
         },
-        { runs: ['turbo-tests', 'django_tests'], skipped: ['django'] }
+        { runs: ['turbo-tests', 'django_tests', 'backend-coverage-report'], skipped: ['django'] }
     ),
     depotBackend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
@@ -306,6 +307,7 @@ const EXPECTATIONS: Expectation[] = [
                 'get_clickhouse_versions',
                 'build_django_matrix',
                 'sdk-major-guard',
+                'backend-coverage-report',
             ],
         }
     ),
@@ -453,6 +455,34 @@ const pathsFilterJobs = workflowFiles.flatMap((file) =>
 
 const STEP_EXPECTATIONS: StepExpectation[] = [
     ...[
+        { name: 'plan-only PR', mode: 'plan', matrix: [{}], fork: false, failed: false, runs: false },
+        { name: 'upload-mode PR', mode: 'upload', matrix: [{}], fork: false, failed: false, runs: true },
+        { name: 'upload-mode fork PR', mode: 'upload', matrix: [{}], fork: true, failed: false, runs: false },
+        { name: 'upload-mode empty matrix', mode: 'upload', matrix: [], fork: false, failed: false, runs: false },
+        { name: 'failed plan', mode: 'upload', matrix: [{}], fork: false, failed: true, runs: false },
+    ].map(({ name, mode, matrix, fork, failed, runs }) => ({
+        file: 'release.yml',
+        job: 'plan',
+        step: 'cache-dist',
+        scenario: {
+            name,
+            github: pullRequest({ fork }),
+            steps: {
+                plan: {
+                    plan: {
+                        outcome: failed ? ('failure' as const) : ('success' as const),
+                        outputs: {
+                            manifest: JSON.stringify({
+                                ci: { github: { pr_run_mode: mode, artifacts_matrix: { include: matrix } } },
+                            }),
+                        },
+                    },
+                },
+            },
+        },
+        runs,
+    })),
+    ...[
         { name: 'exact schema hit', matched: 'posthog-schema-mig-v2-exact', runs: false },
         { name: 'schema cache miss', matched: '', runs: false },
         { name: 'master snapshot fallback', matched: `posthog-schema-master-${'a'.repeat(40)}`, runs: true },
@@ -562,6 +592,48 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
+        const filters = (file: string): Record<string, string[]> =>
+            load(
+                String(workflow(file).jobs.changes?.steps?.find((step) => step.id === 'filter')?.with?.filters)
+            ) as Record<string, string[]>
+        const shared = filters('desktop-ci.yml')
+        const fallback = filters(`desktop-${name}.yml`)
+        expect(shared[name === 'quality' ? 'quality_code' : 'code']).toEqual(fallback.code)
+        expect(shared.agent).toEqual(fallback.agent)
+        expect(shared[name]).toEqual(fallback.workflow)
+        if (name === 'test') {
+            expect(shared.packages).toEqual(fallback.packages)
+        }
+    })
+
+    it.each(['success', 'failure', 'cancelled', 'skipped'] as const)(
+        'Desktop callers pass shared decisions only after a successful detector (%s)',
+        (result) => {
+            const functions = planFunctions({
+                dependenciesSucceeded: result === 'success' || result === 'skipped',
+                dependenciesFailed: result === 'failure',
+                cancelled: false,
+            })
+            for (const selected of ['true', 'false']) {
+                const needs = {
+                    changes: {
+                        result,
+                        outputs: Object.fromEntries(
+                            ['build', 'quality', 'typecheck', 'test', 'test_e2e'].map((name) => [name, selected])
+                        ),
+                    },
+                }
+                for (const name of ['build', 'quality', 'typecheck', 'test']) {
+                    const caller = workflow('desktop-ci.yml').jobs[name] as { with: Record<string, string> }
+                    for (const input of Object.values(caller.with)) {
+                        expect(evaluateValue(input, { needs }, functions)).toBe(result === 'success' ? selected : '')
+                    }
+                }
+            }
+        }
+    )
+
     it.each([
         {
             name: 'mobile PR',
@@ -657,6 +729,139 @@ describe('CI workflow run plans', () => {
                 .filter((step) => step.runs && validationSteps.includes(step.name ?? ''))
                 .map((step) => step.name)
         ).toEqual(checks === 'full' ? validationSteps : checks === 'typecheck' ? ['Typecheck'] : [])
+    })
+
+    it.each([
+        ['both skipped', 'skipped', 'skipped', 'full', false],
+        ['core only', 'success', 'skipped', 'full', true],
+        ['products only', 'skipped', 'success', 'full', true],
+        ['failed core shards', 'failure', 'skipped', 'full', true],
+        ['failed product shards', 'skipped', 'failure', 'full', true],
+        ['selected tests', 'success', 'success', 'selected', false],
+    ])('backend coverage reporting with %s', (_name, django, products, mode, runs) => {
+        expect(
+            evaluateCondition(
+                workflow(DEPOT_BACKEND).jobs['backend-coverage-report']!.if,
+                {
+                    github: pullRequest(),
+                    needs: {
+                        django: { result: django },
+                        'turbo-tests': { result: products },
+                        django_tests: { result: 'success' },
+                        'turbo-discover': { outputs: { mode } },
+                    },
+                },
+                planFunctions({
+                    dependenciesSucceeded: django === 'success' && products === 'success',
+                    dependenciesFailed: django === 'failure' || products === 'failure',
+                    cancelled: false,
+                })
+            )
+        ).toBe(runs)
+    })
+
+    it.each([
+        {
+            name: 'frontend-only ready PR',
+            backend: 'false',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: true,
+        },
+        {
+            name: 'backend changes',
+            backend: 'true',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'core matrix ran',
+            backend: 'false',
+            django: 'success',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'product matrix ran',
+            backend: 'false',
+            django: 'skipped',
+            products: 'success',
+            gate: 'success',
+            runs: false,
+        },
+        {
+            name: 'upstream failure',
+            backend: 'false',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'failure',
+            runs: false,
+        },
+        {
+            name: 'unknown change result',
+            backend: '',
+            django: 'skipped',
+            products: 'skipped',
+            gate: 'success',
+            runs: false,
+        },
+    ])('stale backend coverage cleanup on $name', ({ backend, django, products, gate, runs }) => {
+        const step = workflow(DEPOT_BACKEND).jobs['calculate-running-time']!.steps!.find(
+            (step) => step.id === 'coverage-cleanup'
+        )!
+        expect(
+            evaluateCondition(
+                step.if,
+                {
+                    github: pullRequest(),
+                    needs: {
+                        changes: { outputs: { backend } },
+                        django: { result: django },
+                        'turbo-tests': { result: products },
+                        django_tests: { result: gate },
+                    },
+                },
+                planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+            )
+        ).toBe(runs)
+    })
+
+    it.each([
+        { name: 'ready PR', github: pullRequest(), cancelled: false, runs: true },
+        { name: 'draft PR', github: pullRequest({ draft: true }), cancelled: false, runs: false },
+        {
+            name: 'draft PR labeled no-ci',
+            github: pullRequest({ draft: true, labels: ['no-ci'] }),
+            cancelled: false,
+            runs: false,
+        },
+        { name: 'fork PR', github: pullRequest({ fork: true }), cancelled: false, runs: false },
+        { name: 'cancelled PR', github: pullRequest(), cancelled: true, runs: false },
+        { name: 'master push', github: push(), cancelled: false, runs: false },
+    ])('stale backend coverage cleanup policy on $name', ({ name, github, cancelled, runs }) => {
+        const plan = planWorkflow(workflow(DEPOT_BACKEND), {
+            name,
+            github,
+            cancelled,
+            steps: {
+                ...allFiltersChanged(workflow(DEPOT_BACKEND)),
+                ...backendSelectors,
+                ...frontendOnlyFilters,
+                'calculate-running-time': { 'coverage-cleanup': { outputs: { needed: 'true' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(
+            plan.jobs['calculate-running-time']?.steps.find((step) => step.id === 'coverage-cleanup')?.runs ?? false
+        ).toBe(runs)
+        const cleanup = plan.jobs['calculate-running-time']?.steps.find(
+            (step) => step.name === 'Clear stale backend coverage warning'
+        )
+        expect(cleanup?.runs ?? false).toBe(runs)
     })
 
     it.each([
@@ -786,6 +991,27 @@ describe('CI workflow run plans', () => {
         const github = { ...schedule(), event: { schedule: cron } }
         const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
         expect(evaluateValue(step?.env?.RUN_JSON_TARGETS, { github }, functions)).toBe(runs)
+    })
+
+    it.each([
+        ['unrelated PR', pullRequest(), 'false', false],
+        ['schema PR', pullRequest(), 'true', true],
+        ['missing filter output', pullRequest(), '', true],
+        ['unrelated fork PR', pullRequest({ fork: true }), 'false', false],
+        ['schema fork PR', pullRequest({ fork: true }), 'true', true],
+        ['merge queue', mergeQueue(), 'false', true],
+        ['hourly schedule', schedule(), 'false', true],
+    ] as const)('Python schema generation on %s', (name, github, schema, runs) => {
+        const wf = workflow('ci-python.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { changes: { filter: { outputs: { python: 'true', schema_python: schema } } } },
+        })
+        expect(plan.errors).toEqual([])
+        expect(
+            plan.jobs['code-quality']?.steps.find((step) => step.name === 'Check if "schema.py" is up to date')?.runs
+        ).toBe(runs)
     })
 
     it.each([

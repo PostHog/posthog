@@ -12,6 +12,7 @@ import { ApiError } from 'lib/api-error'
 import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone, isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getRelativeNextPath, isEmail } from 'lib/utils/url'
@@ -22,7 +23,6 @@ import {
     setPendingVerificationEmail,
 } from 'scenes/authentication/shared/verificationCode'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { LoginMethod, SSOProvider } from '~/types'

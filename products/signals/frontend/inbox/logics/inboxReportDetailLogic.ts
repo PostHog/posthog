@@ -28,6 +28,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
@@ -85,7 +86,7 @@ import {
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
-import { REPORT_AI_PANEL, ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
+import { ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/reportClaim'

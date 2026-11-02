@@ -1,17 +1,17 @@
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import {
     compareInsightTopLevelSections,
     extractObjectDiffKeys,
     formatAggregationValue,
     formatBreakdownLabel,
     formatBreakdownType,
-    getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
 } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isEventsNode } from '~/queries/schema/node-guards'
 import {
     ActionsNode,
     BreakdownFilter,
@@ -21,45 +21,10 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { isEventsNode } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, CompareLabelType, Entity, EntityFilter, FilterType, InsightType, TeamType } from '~/types'
+import { BaseMathType, CompareLabelType, Entity, FilterType, InsightType, TeamType } from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
-
-const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
-    return {
-        custom_name,
-        name: name ?? null,
-        id: id ?? null,
-    }
-}
-
-describe('getDisplayNameFromEntityFilter()', () => {
-    const paramsToExpected: [EntityFilter, boolean, string | null][] = [
-        [createFilter(3, 'name', 'custom_name'), true, 'custom_name'],
-        [createFilter(3, 'name', ''), true, 'name'],
-        [createFilter(3, 'name', '    '), true, 'name'],
-        [createFilter(3, 'name'), true, 'name'],
-        [createFilter(3, '', ''), true, '3'],
-        [createFilter(3, '  ', '    '), true, '3'],
-        [createFilter(3), true, '3'],
-        [createFilter('hi'), true, 'hi'],
-        [createFilter(), true, null],
-        [createFilter(3, 'name', 'custom_name'), false, 'name'],
-        [createFilter(3, '  ', 'custom_name'), false, '3'],
-    ]
-
-    paramsToExpected.forEach(([filter, isCustom, expected]) => {
-        it(`expect "${expected}" for Filter<custom_name="${filter.custom_name}", name="${filter.name}", id="${filter.id}">`, () => {
-            expect(getDisplayNameFromEntityFilter(filter, isCustom)).toEqual(expected)
-        })
-    })
-
-    it('returns null when a result has no action', () => {
-        expect(getDisplayNameFromEntityFilter(undefined)).toBeNull()
-    })
-})
 
 const createEventsNode = (id?: Entity['id'], name?: string, custom_name?: string): EventsNode => {
     return {

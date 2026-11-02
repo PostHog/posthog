@@ -53,7 +53,7 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -647,20 +647,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     "count": 0,
                     "aggregated_value": get_value("total", val),
                     "label": "All events" if series_label is None else series_label,
-                    "filter": self._query_to_filter(),
-                    "action": {  # TODO: Populate missing props in `action`
-                        "days": self.query_date_range.all_values(),
-                        "id": series_label,
-                        "type": "events",
-                        "order": series.series_order,
-                        "name": series_label or "All events",
-                        "custom_name": resolve_series_custom_name(series.series, series_label),
-                        "math": series.series.math,
-                        "math_property": series.series.math_property,
-                        "math_hogql": series.series.math_hogql,
-                        "math_group_type_index": series.series.math_group_type_index,
-                        "properties": {},
-                    },
                 }
             else:
                 if self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
@@ -684,20 +670,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     ],
                     "count": count,
                     "label": "All events" if series_label is None else series_label,
-                    "filter": self._query_to_filter(),
-                    "action": {  # TODO: Populate missing props in `action`
-                        "days": self.query_date_range.all_values(),
-                        "id": series_label,
-                        "type": "events",
-                        "order": series.series_order,
-                        "name": series_label or "All events",
-                        "custom_name": resolve_series_custom_name(series.series, series_label),
-                        "math": series.series.math,
-                        "math_property": series.series.math_property,
-                        "math_hogql": series.series.math_hogql,
-                        "math_group_type_index": series.series.math_group_type_index,
-                        "properties": {},
-                    },
                 }
 
             # Modifications for when comparing to previous period
@@ -833,12 +805,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     new_result["count"] = new_result["data"][-1]
                 else:
                     new_result["count"] = float(sum(new_result["data"]))
-
-            # Filter action.days too (formula series have action=None)
-            if new_result.get("action") is not None and "days" in new_result["action"]:
-                action_days = new_result["action"]["days"]
-                new_result["action"] = {**new_result["action"]}
-                new_result["action"]["days"] = [d for d in action_days if d.isoweekday() in allowed_iso_days]
 
             filtered.append(new_result)
         return filtered
@@ -1131,7 +1097,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                                 "data": [0] * data_length,
                                 "count": 0,
                                 "aggregated_value": 0,
-                                "action": None,
                                 "breakdown_value": any_result.get("breakdown_value"),
                                 "compare_label": any_result.get("compare_label"),
                                 "days": any_result.get("days"),
@@ -1184,7 +1149,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         formula = formula_node.formula
         base_result = results_group[0]
         base_result["label"] = formula_node.custom_name or f"Formula ({formula})"
-        base_result["action"] = None
 
         if aggregate_values:
             series_data = [[s["aggregated_value"]] for s in results_group]
@@ -1328,28 +1292,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             )
         except PropertyDefinition.DoesNotExist:
             return "String"
-
-    # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
-    def _query_to_filter(self) -> dict[str, Any]:
-        filter_dict = {
-            "insight": "TRENDS",
-            "properties": self.query.properties,
-            "filter_test_accounts": self.query.filterTestAccounts,
-            "date_to": self.query_date_range.date_to(),
-            "date_from": self.query_date_range.date_from(),
-            "entity_type": "events",
-            "sampling_factor": self.query.samplingFactor,
-            "aggregation_group_type_index": self.query.aggregation_group_type_index,
-            "interval": self.query.interval,
-        }
-
-        if self.query.trendsFilter is not None:
-            filter_dict.update(self.query.trendsFilter.__dict__)
-
-        if self.query.breakdownFilter is not None:
-            filter_dict.update(**self.query.breakdownFilter.__dict__)
-
-        return {k: v for k, v in filter_dict.items() if v is not None}
 
     @cached_property
     def _trends_display(self) -> TrendsDisplay:
