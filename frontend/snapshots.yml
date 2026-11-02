@@ -3372,6 +3372,10 @@ snapshots:
         hash: v1.k794b7964.030c95e50318c77d8010cb0a0fa7829cfba90270045068a0db974e232504f9ad.iP86lD1msdXZjVXPQ1hzjV9tizv3xhQfntQDguO8GLg
     experiments-howtoreadtooltip--tooltip-frequentist--light:
         hash: v1.k794b7964.06d76f5dd20d9afc251e95a391666454d01199bf6a587ed1443c19540bd92f57.qvlIJTJCzqS5DL7nVn55PYJujlSmxLxgPDYwA8a5wWo
+    experiments-negatedeventfilternote--before-launch--dark:
+        hash: v1.k794b7964.fa75fd3c2573b9685a1d716407b7fed1588a33798205a476a6f96e7ef830547b.yxhyFEFkBUl33wRcIxunZ2mPw4f5G3iF0OC85Draphg
+    experiments-negatedeventfilternote--before-launch--light:
+        hash: v1.k794b7964.3babd668b713488e463b7901a0e93ea0154bbfb2bab677463f3422ce5d4534ee.tchxUAkUhFs7VcmTctLKkqfvz8HF33_GRDS61AkZ3fI
     experiments-replayvisionscannercard--off--dark:
         hash: v1.k794b7964.c9fb173cda38d075177709adc2b01144d835ca606362b9c701a596199a755158.nWxgtqo2ZyNfFq0RRmHmy78q7Hu_ZRbjSM5Q70inZKs
     experiments-replayvisionscannercard--off--light:
@@ -3484,10 +3488,6 @@ snapshots:
         hash: v1.k794b7964.8747f893c33a7965b9dca08aaee8b69da0057cc5e47d12766cd91d7c39b51b3a.anQcEhSmgooKf7awO46Qxfz9Ukw7x9jiso_P42Nq7II
     filters-action-filter--funnels-group-default-name--light:
         hash: v1.k794b7964.8e11329af3ee072662872001361b0e3d8bdaa396426bbc8af5f2e4c803fc0f47._Z9O_8LADc1XwJTtPVJRxuCcaMQxI2nJV9avyBQ2Slw
-    filters-action-filter--legacy-filters--dark:
-        hash: v1.k794b7964.8420820626238986e318165d50507951f50c8649d6ef1bb7911c277dcd0ec7f0.zjvEwdrJv6Ieyv5fbOKbZVgq1Lw6xJUnl1a_5OoFrY0
-    filters-action-filter--legacy-filters--light:
-        hash: v1.k794b7964.ebb564a39df01d9bb6509152d11c060895cb4e8898ac402b123692bea9c5d00f.HBgV8H3NfkJN4VG_xEdWCSYUYq9s-JiuFjm1MC3PzqQ
     filters-action-filter--property-filters-with-popover--dark:
         hash: v1.k794b7964.1194666b4cd343bab53f1c5dd7b8d1b8cf3fa4c90806d6c4281bce552e7d0b5e.qDNv_aIBmjN16RPEpOADICxO1r41Few01iN_njZ93lg
     filters-action-filter--property-filters-with-popover--light:
@@ -13711,13 +13711,13 @@ snapshots:
     scenes-app-marketing-analytics-persisted-conversion-recommendations--updating--light:
         hash: v1.k794b7964.852abfd71814efc870cb2178a7acf97833babbd13866c0196d6976f8351999fb._dZPb-BB_XLmD7aRG3nBiePMXUZOzSzgVTK6xgccsF4
     scenes-app-marketing-analytics-recommendations--missing-tables--dark:
-        hash: v1.k794b7964.6cd24dc5daf11984fdc7d5fec2f6577d57a4da1846027abbb2b8f99884408e01.OwDbp2-r9l5KNAL546-J4K3Ksq_aSDhfu2rs2yRJg1I
+        hash: v1.k794b7964.7a5107b673df4590cf6b9be7d08d7abd7d743902e2449c03860c5eff766a0441.-4YRs5tNOVgfrKFqIFOu4YDKzzNAX0S2t7P3qQwXchs
     scenes-app-marketing-analytics-recommendations--missing-tables--light:
-        hash: v1.k794b7964.bea66197d508f7dd5d6106f9726cc55f8f52538fce96e766c0a3967cc66b26aa.t1F-CkQXi5U5UawohTfwB4sk-eyCTzIv_v1xL0mSC0k
+        hash: v1.k794b7964.caf7a21c4c18fdae6c949d9221b7bb849467836773b52d0afc0f3bc03cb21a1c.934bgxS4q3xLz9ut7UZPOl-pcuyT9cwFSm75XVwLAaU
     scenes-app-marketing-analytics-recommendations--missing-tables-in-modal--dark:
-        hash: v1.k794b7964.59f9d9ec30012f316fd24ea62da8a371328fa7a3021a1eabe44afacf714894b1.nAfvHCex6xJSzBeIhEFA01rBVoHwgSEAEmIVRCUgBx0
+        hash: v1.k794b7964.6f1b534875c960cd10431d6e4fb378b06ea600a197b73affe46a30c147e56af5.1ndbogVcT2vWlWyHJlTEFkkYvtsGtji19zF45SdV4Dg
     scenes-app-marketing-analytics-recommendations--missing-tables-in-modal--light:
-        hash: v1.k794b7964.f55eda3483c05e05dac78ced086f250a782b4f348291ab4877a5a435f61fb69c.eTpnKZ5Z_2pxJmKaOlMQSD3wgy9HD1d8isRjT7JBq0I
+        hash: v1.k794b7964.7c74367fc4eeacc1f525352bcbb0accdfec06e6c2bc13b9dc2d978a26d2c69fd.v0rqI3hSg8KgI7c8M73aoxW7GLcYND2t2ayv-3ZaA6Y
     scenes-app-marketing-analytics-recommendations--modal--dark:
         hash: v1.k794b7964.912485b9ea2606940db74c824e0e19607c42b51099ee2f4a28e0550ed49fd972.iT4FxMcmuLx7AAhxnwWlgIUL-oq_r6S0UiW8UhzpRFM
     scenes-app-marketing-analytics-recommendations--modal--light:

@@ -621,6 +621,17 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
+    def test_invite_creation_rejects_message_over_length_limit(self):
+        count = OrganizationInvite.objects.count()
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/invites/",
+            {"target_email": "x@posthog.com", "message": "a" * 1001},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "message")
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
     @parameterized.expand(
         [
             ("plus_addressed", "newperson+alias@posthog.com", "plus_addressing_not_allowed"),
