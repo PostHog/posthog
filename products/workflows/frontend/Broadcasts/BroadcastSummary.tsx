@@ -32,7 +32,7 @@ import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
-import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { archiveDisabledReason, createDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
 import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
@@ -333,9 +333,7 @@ export function BroadcastSummary(): JSX.Element {
 
     const isArchived = broadcast?.status === 'archived'
     const accessReason = manageDisabledReason(broadcast?.user_access_level)
-    // Sending again creates a new broadcast, so it needs Editor on Workflows, whatever this broadcast grants.
-    // Without an object level, the check reads the user's Workflows level.
-    const createReason = manageDisabledReason(undefined)
+    const createReason = createDisabledReason()
     const actionItems = [
         canMoveToDraft
             ? {

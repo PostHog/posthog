@@ -19,6 +19,11 @@ export interface ManagedBroadcast {
     name?: string | null
 }
 
+/** A new broadcast, from "Send again" or a test send, needs editor access to Workflows, whatever one broadcast grants. */
+export function createDisabledReason(): string | undefined {
+    return getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
+}
+
 /** Archive, restore and delete need editor access to the broadcast, as they do for a workflow. */
 export function manageDisabledReason(userAccessLevel: string | null | undefined): string | undefined {
     return (
