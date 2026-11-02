@@ -84,14 +84,21 @@ function DraftReviewHeader({ rationale }: { rationale?: string }): JSX.Element {
                             type="tertiary"
                             size="xsmall"
                             noPadding
-                            sideIcon={showRationale ? <IconChevronDown /> : <IconChevronRight />}
+                            icon={showRationale ? <IconChevronDown /> : <IconChevronRight />}
                             onClick={() => setShowRationale(!showRationale)}
+                            aria-expanded={showRationale}
+                            aria-controls="vision-goal-overview-rationale-text"
                             data-attr="vision-goal-overview-rationale"
                         >
                             Why the agent chose this setup
                         </LemonButton>
                         {showRationale ? (
-                            <div className="text-sm text-secondary border-l-2 pl-3">{rationale}</div>
+                            <div
+                                id="vision-goal-overview-rationale-text"
+                                className="text-sm text-secondary border-l-2 pl-3 ml-1.5"
+                            >
+                                {rationale}
+                            </div>
                         ) : null}
                     </>
                 ) : null}
