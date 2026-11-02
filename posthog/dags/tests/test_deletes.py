@@ -561,8 +561,9 @@ def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
         result = client.execute("SELECT uuid FROM writable_events WHERE team_id >= 9000 AND team_id < 9020")
         return {row[0] for row in result} if isinstance(result, list) else set()
 
-    # The embedded text of an event lives under its uuid as document_id, and goes with the event. Each team
-    # also holds a document for an event nobody queued, which an arm that matched on team alone would take.
+    # The embedded text of an event lives under its uuid as document_id, optionally followed by `::<job id>`,
+    # and goes with the event. Each team also holds a document for an event nobody queued, which an arm that
+    # matched on team alone would take.
     def insert_documents(client: Client) -> None:
         client.execute(
             """INSERT INTO writable_posthog_document_embeddings_text_embedding_3_large_3072
@@ -570,7 +571,7 @@ def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
             [
                 (team_id, "test", "doc", "text", document_id, timestamp, timestamp, "text", [0.0] * 3072)
                 for team_id, _, uuid, _ in events
-                for document_id in (str(uuid), f"unqueued-{uuid}")
+                for document_id in (str(uuid), f"{uuid}::job-1", f"unqueued-{uuid}")
             ],
         )
 
@@ -596,8 +597,8 @@ def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
     surviving = cluster.any_host(surviving_uuids).result()
     assert surviving == {event[2] for event in kept}
     assert cluster.any_host(surviving_document_ids).result() == {str(event[2]) for event in kept} | {
-        f"unqueued-{event[2]}" for event in events
-    }
+        f"{event[2]}::job-1" for event in kept
+    } | {f"unqueued-{event[2]}" for event in events}
     assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 

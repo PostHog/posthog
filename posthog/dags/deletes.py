@@ -280,9 +280,11 @@ _PATCH_PART_DELETE_PREDICATE = (
 
 
 # Embedding documents are keyed by the id of the thing they describe, and an Event deletion's key is
-# that same id, so the pending dictionary answers for both. Team deletions clear the team's documents.
+# that same id, so the pending dictionary answers for both. Some writers append `::<job id>` to that id
+# so that two jobs embedding the same event keep separate rows. The match uses the part before `::`,
+# which is the whole document_id when it has no suffix. Team deletions clear the team's documents.
 _DOCUMENT_DELETE_PREDICATE = """or(
-    dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, document_id)),
+    dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, splitByString('::', document_id)[1])),
     dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))
 )"""
 
@@ -920,8 +922,9 @@ def delete_event_documents(
     """Delete the embedding documents of the events and teams queued for deletion.
 
     An event queued by an `AsyncDeletion` of type `Event` may have had its text embedded into the
-    per-model `document_embeddings` tables under `document_id` equal to the event uuid, and those
-    rows carry the text itself, so they go with the event. A deleted team's documents go with the team.
+    per-model `document_embeddings` tables under `document_id` equal to the event uuid, optionally
+    followed by `::<job id>`, and those rows carry the text itself, so they go with the event. A
+    deleted team's documents go with the team.
     """
 
     def count_pending_deletes(client: Client) -> int:
@@ -1502,9 +1505,10 @@ def delete_team_product_documents(
 ) -> None:
     """Delete the embedding documents of one team for one product, and fail if any survive.
 
-    The event sweep matches a document to an event only when `document_id` is the event uuid. The AI
-    observability summaries use `<trace or generation id>::<job id>`, so an event deletion leaves
-    them in place until the table TTL drops them. This job removes them on request.
+    The event sweep matches a document to an event only when `document_id` starts with the event
+    uuid. AI observability trace summaries use `<trace id>::<job id>`, and a trace id is not an
+    event uuid, so an event deletion leaves them in place until the table TTL drops them. This job
+    removes them on request.
     """
     parameters: dict[str, str | int] = {"team_id": config.team_id, "product": config.product}
     tables = _team_product_document_tables(cluster)
