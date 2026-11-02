@@ -14,6 +14,7 @@ import json
 from collections.abc import Callable
 from pathlib import Path
 
+from django.conf import settings
 from django.db import transaction
 
 from asgiref.sync import async_to_sync
@@ -134,6 +135,8 @@ def seed_demo_inbox(
 
 def seed_demo_chat(*, team_id: int, user_id: int) -> SeededChat:
     """Create one completed, user-created chat with a short user/agent transcript."""
+    if not settings.OBJECT_STORAGE_ENABLED:
+        raise RuntimeError("Demo chat requires object storage. Enable OBJECT_STORAGE_ENABLED before seeding a chat.")
     team = Team.objects.get(id=team_id)
     # The transcript lives in object storage, which is optional locally. Roll the task back when the
     # write fails, so the user never gets a chat that opens to an empty log.
@@ -152,19 +155,18 @@ def seed_demo_chat(*, team_id: int, user_id: int) -> SeededChat:
         if run is None:
             raise RuntimeError("create_and_run_task returned a task without a run")
         task_id, run_id = str(created.task_id), str(run.id)
-        tasks_facade.append_task_run_log(
-            run_id,
-            task_id,
-            team.id,
-            entries=[
-                _user_message("Which steps of the demo signup flow should I check first?"),
-                _agent_message(
-                    "Start with the step where most people drop off. Open the signup funnel, compare it week "
-                    "over week, and then watch two or three recordings of people who left at that step."
-                ),
-                _end_turn(),
-            ],
-        )
+        entries = [
+            _user_message("Which steps of the demo signup flow should I check first?"),
+            _agent_message(
+                "Start with the step where most people drop off. Open the signup funnel, compare it week "
+                "over week, and then watch two or three recordings of people who left at that step."
+            ),
+            _end_turn(),
+        ]
+        tasks_facade.append_task_run_log(run_id, task_id, team.id, entries=entries)
+        persisted = tasks_facade.read_task_run_logs(run_id, task_id, team.id)
+        if not persisted or [json.loads(line) for line in persisted.splitlines() if line.strip()] != entries:
+            raise RuntimeError("Demo chat transcript was not saved. Check object storage before seeding a chat.")
         tasks_facade.update_task_run(run_id, task_id, team.id, validated_data={"status": "completed"})
     return SeededChat(task_id=task_id, run_id=run_id)
 

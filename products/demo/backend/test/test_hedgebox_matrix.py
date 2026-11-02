@@ -101,19 +101,30 @@ class TestHedgeboxMatrixInitialViews(BaseTest):
 
 @override_settings(DEBUG=True, OBJECT_STORAGE_ENABLED=True)
 class TestHedgeboxMatrixLocalDemoInbox(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("available", True, True),
+            ("disabled", False, False),
+            ("discarded_writes", True, False),
+        ]
+    )
     @patch("products.demo.backend.logic.products.hedgebox.matrix.is_cloud", return_value=False)
     @patch("products.demo.backend.logic.products.hedgebox.matrix.sync_issues_to_clickhouse")
     @patch("products.demo.backend.logic.products.hedgebox.matrix.create_event")
-    def test_local_project_setup_seeds_for_you_reports_and_a_readable_chat(self, *_mocks: MagicMock) -> None:
+    def test_local_project_setup_seeds_for_you_reports_and_only_readable_chats(
+        self, _name: str, storage_enabled: bool, persist_transcript: bool, *_mocks: MagicMock
+    ) -> None:
         storage: dict[str, str] = {}
 
         def read(path: str, **kwargs: object) -> str | None:
             return storage.get(path)
 
         def write(path: str, content: str, **kwargs: object) -> None:
-            storage[path] = content
+            if persist_transcript:
+                storage[path] = content
 
         with (
+            override_settings(OBJECT_STORAGE_ENABLED=storage_enabled),
             patch("posthog.storage.object_storage.read", side_effect=read),
             patch("posthog.storage.object_storage.write", side_effect=write),
             patch("posthog.storage.object_storage.tag"),
@@ -134,6 +145,9 @@ class TestHedgeboxMatrixLocalDemoInbox(APIBaseTest):
         tasks_url = f"/api/projects/{self.team.id}/tasks/"
         chats = self.client.get(f"{tasks_url}?created_by={self.user.id}&exclude_origin_product=signals_scout")
         assert chats.status_code == 200, chats.content
+        if not persist_transcript:
+            assert chats.json()["results"] == []
+            return
         [chat] = chats.json()["results"]
         assert chat["origin_product"] == "user_created"
         assert chat["latest_run"]["status"] == "completed"
