@@ -52,11 +52,9 @@ class _CalcDispatch:
     precomputation_mode: PrecomputationMode | None
 
 
-def _calc_dispatch(
-    metric: ExperimentMetricToRecalculate, activity_task_queue: str | None, routes_per_metric: bool
-) -> _CalcDispatch:
-    # Discovery routes every metric, but only a run on the activity queue flag uses the route.
-    if routes_per_metric and activity_task_queue and metric.task_queue:
+def _calc_dispatch(metric: ExperimentMetricToRecalculate, activity_task_queue: str | None) -> _CalcDispatch:
+    # Only a run on the activity queue flag uses the route that discovery set.
+    if activity_task_queue and metric.task_queue:
         return _CalcDispatch(task_queue=metric.task_queue, precomputation_mode=metric.precomputation_mode)
     return _CalcDispatch(task_queue=activity_task_queue, precomputation_mode=None)
 
@@ -194,10 +192,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             if inputs.activity_task_queue and temporalio.workflow.patched("recalc-activity-task-queue-2026-10")
             else None
         )
-        # A new discovery can return routes to a pre-patch history, which scheduled every calculation on the
-        # run's activity_task_queue, so the routes apply only behind this marker.
-        routes_per_metric = temporalio.workflow.patched("recalc-precompute-routing-2026-11")
-        dispatches = [_calc_dispatch(metric, activity_task_queue, routes_per_metric) for metric in metrics]
+        # No patch marker: replay matches a scheduled activity only by its id and type, not by its queue or its
+        # arguments, and a discovery result from before routing has no route, so it dispatches as before.
+        dispatches = [_calc_dispatch(metric, activity_task_queue) for metric in metrics]
         results = await asyncio.gather(
             *[
                 temporalio.workflow.execute_activity(

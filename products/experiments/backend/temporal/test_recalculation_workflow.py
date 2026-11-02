@@ -35,7 +35,11 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
-from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.recalculation_workflow import (
+    ExperimentMetricsRecalculationWorkflow,
+    _calc_dispatch,
+    _CalcDispatch,
+)
 
 _START_QUERY_TO = "2026-05-29T12:00:00+00:00"
 _WORKFLOW_MODULE = "products.experiments.backend.temporal.recalculation_workflow"
@@ -688,11 +692,13 @@ class TestExperimentMetricsRecalculationWorkflow:
 
     @parameterized.expand(
         [
-            # name, routed_to_precompute, run_on_activity_queue, patched, expected calls per queue
-            ("precompute_route", True, True, True, [], [], [("m1", None)]),
-            ("direct_route", False, True, True, [], [("m1", PrecomputationMode.DIRECT)], []),
-            ("run_off_the_flag_ignores_the_route", True, False, True, [("m1", None)], [], []),
-            ("pre_patch_history_ignores_the_route", False, True, False, [], [("m1", None)], []),
+            # name, routed_to_precompute, run_on_activity_queue, recorded_without_routes, expected calls per queue
+            ("precompute_route", True, True, False, [], [], [("m1", None)]),
+            ("direct_route", False, True, False, [], [("m1", PrecomputationMode.DIRECT)], []),
+            ("run_off_the_flag_ignores_the_route", True, False, False, [("m1", None)], [], []),
+            # Replay with routes sees another queue, then another argument count, than the recorded commands.
+            ("history_without_routes_replays_on_another_queue", True, True, True, [], [("m1", None)], []),
+            ("history_without_routes_replays_with_another_arity", False, True, True, [], [("m1", None)], []),
         ]
     )
     async def test_discovery_route_dispatches_the_calculation(
@@ -700,7 +706,7 @@ class TestExperimentMetricsRecalculationWorkflow:
         name: str,
         routed_to_precompute: bool,
         run_on_activity_queue: bool,
-        patched: bool,
+        recorded_without_routes: bool,
         expected_workflow_queue_calls: list[_Call],
         expected_activity_queue_calls: list[_Call],
         expected_precompute_queue_calls: list[_Call],
@@ -714,14 +720,17 @@ class TestExperimentMetricsRecalculationWorkflow:
             task_queue=precompute_worker_task_queue if routed_to_precompute else activity_worker_task_queue,
             precomputation_mode=None if routed_to_precompute else PrecomputationMode.DIRECT,
         )
-        original_patched = temporalio.workflow.patched
 
-        def patched_markers(patch_id: str) -> bool:
-            if patch_id == "recalc-precompute-routing-2026-11":
-                return patched
-            return original_patched(patch_id)
+        # The workflow code from before routing, which a rolling deploy can run against a new discovery result.
+        def dispatch_without_routes(
+            metric: ExperimentMetricToRecalculate, activity_task_queue: str | None
+        ) -> _CalcDispatch:
+            return _CalcDispatch(task_queue=activity_task_queue, precomputation_mode=None)
 
-        with patch.object(temporalio.workflow, "patched", side_effect=patched_markers):
+        with patch(
+            f"{_WORKFLOW_MODULE}._calc_dispatch",
+            side_effect=dispatch_without_routes if recorded_without_routes else _calc_dispatch,
+        ):
             run = await _run_with_calc_queue_workers(
                 activity_task_queue=activity_worker_task_queue if run_on_activity_queue else None,
                 activity_worker_task_queue=activity_worker_task_queue,
