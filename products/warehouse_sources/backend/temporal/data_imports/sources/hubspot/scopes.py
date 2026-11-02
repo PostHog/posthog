@@ -22,9 +22,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
 
 # Objects whose read scope is optional, mapped to the scope they need.
 SCOPE_GATED_OBJECTS: dict[str, str] = {
-    name: endpoint.required_scope
-    for name, endpoint in [*HUBSPOT_ENDPOINTS.items(), *HUBSPOT_METADATA_ENDPOINTS.items()]
-    if endpoint.required_scope
+    **{name: endpoint.required_scope for name, endpoint in HUBSPOT_ENDPOINTS.items() if endpoint.required_scope},
+    **{
+        name: endpoint.required_scope
+        for name, endpoint in HUBSPOT_METADATA_ENDPOINTS.items()
+        if endpoint.required_scope
+    },
 }
 
 

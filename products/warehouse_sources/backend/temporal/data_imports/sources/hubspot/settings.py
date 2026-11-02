@@ -1,7 +1,7 @@
 """Hubspot source settings and constants"""
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from typing import Optional
 
@@ -474,7 +474,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
 }
 
 
-@dataclass
+@frozen
 class HubspotMetadataEndpointConfig:
     """A HubSpot table that is not a CRM object: no properties, no search endpoint, and no
     server-side timestamp filter on the last change, so it is always a full refresh."""
