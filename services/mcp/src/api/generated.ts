@@ -11322,9 +11322,14 @@ export namespace Schemas {
     export type _InsightQuerySchema = InsightVizNode | DataTableNode | DataVisualizationNode | BIVisualizationNode | HogQuery;
 
     export interface DashboardTileBasic {
+      /** ID of the dashboard tile. */
       readonly id: number;
+      /** ID of the dashboard the tile sits on. */
       readonly dashboard_id: number;
-      /** @nullable */
+      /**
+         * Whether the tile was removed from the dashboard.
+         * @nullable
+         */
       deleted?: boolean | null;
     }
 
@@ -12261,6 +12266,11 @@ export namespace Schemas {
     export interface AddDashboardWidgetsBatchResponse {
       /** Created dashboard widget tiles in request order. */
       tiles: DashboardTile[];
+    }
+
+    export interface AddInsightToDashboardRequest {
+      /** ID of an existing insight to place on the dashboard. The insight must belong to the same environment as the dashboard. Adding an insight the dashboard already shows changes nothing, and adding one that was removed from the dashboard restores its tile. */
+      insight_id: number;
     }
 
     export interface AddOptOutRequest {
@@ -45209,6 +45219,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
+      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -88066,6 +88078,8 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
+      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
+      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -132387,6 +132401,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -132418,6 +132437,11 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -133760,6 +133784,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsAddInsightCreateParams = {
+    format?: DashboardsAddInsightCreateFormat;
+    };
+
+    export type DashboardsAddInsightCreateFormat = typeof DashboardsAddInsightCreateFormat[keyof typeof DashboardsAddInsightCreateFormat];
+
+
+    export const DashboardsAddInsightCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsCopyGroupCreateParams = {
     format?: DashboardsCopyGroupCreateFormat;
     };
@@ -135080,6 +135116,11 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -137108,6 +137149,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -137577,6 +137623,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -138022,6 +138073,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
      */
@@ -138259,6 +138315,11 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -138591,6 +138652,11 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number;
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1
@@ -145381,6 +145447,7 @@ export namespace Schemas {
     export type VisualReviewReposListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -145396,6 +145463,7 @@ export namespace Schemas {
     identifier?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -145455,6 +145523,7 @@ export namespace Schemas {
     export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -145503,6 +145572,7 @@ export namespace Schemas {
     commit_sha?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -145540,6 +145610,7 @@ export namespace Schemas {
     identifier: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -145582,6 +145653,7 @@ export namespace Schemas {
     identifier: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**

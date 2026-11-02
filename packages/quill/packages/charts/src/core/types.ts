@@ -300,6 +300,8 @@ export interface ChartConfig {
      *  width when that is wider, so a wider chart shows more of each label. Omit (default) to
      *  render labels untruncated. */
     maxCategoryLabelWidth?: number
+    /** Labels the x ticks sit at instead of the data labels. `xTickFormatter` indexes into it. */
+    xTickLabels?: string[]
     /** Per-axis config for multi-axis (dual y-axis) charts — one entry per distinct
      *  {@link Series.yAxisId}. When set, each axis formats ticks, labels, and scales independently;
      *  the scalar `yScaleType`/`yTickFormatter`/`yAxisLabel` then describe the primary (left) axis.
@@ -513,8 +515,15 @@ export interface BarChartConfig extends ChartConfig {
     legend?: ChartLegendConfig
 }
 
+export interface TimeScale {
+    parse: (label: string) => number
+    domain: readonly [number, number]
+}
+
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Place each label at its time instead of evenly by index. Labels must be ascending. Memoize it. */
+    timeScale?: TimeScale
     /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Float the value axis to its data range instead of clamping the baseline to 0 (a y-axis "start
