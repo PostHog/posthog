@@ -356,6 +356,18 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         self.user_access_control = UserAccessControl(self.user, self.team)
         assert self.user_access_control.access_level_for_object(self.team) == "admin"
 
+    def test_object_lookup_returns_only_the_rows_of_that_object(self):
+        first = self._create_access_control(resource="dashboard", resource_id="first", access_level="none")
+        self._create_access_control(resource="dashboard", resource_id="second", access_level="viewer")
+        resource_wide = self._create_access_control(resource="dashboard", resource_id=None, access_level="editor")
+        self._create_access_control(resource="notebook", resource_id="first", access_level="none")
+        self._clear_uac_caches()
+        access = self.user_access_control
+
+        assert access._get_access_controls(access._access_controls_filters_for_object("dashboard", "first")) == [first]
+        assert access._get_access_controls(access._access_controls_filters_for_resource("dashboard")) == [resource_wide]
+        assert access._get_access_controls(access._access_controls_filters_for_object("dashboard", "third")) == []
+
     def test_org_admin_always_has_access(self):
         self._create_access_control(resource_id=self.team.id, access_level="none")
         assert self.other_user_access_control.check_access_level_for_object(self.team, "member") is False
