@@ -14,7 +14,7 @@ const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as 
 
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
 // inside another attribute's value or as part of a longer name like `data-href`.
-const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g
+const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r >]+)))?/g
 
 /**
  * Renders each custom value as Liquid with the recipient's data. A value that fails to render is

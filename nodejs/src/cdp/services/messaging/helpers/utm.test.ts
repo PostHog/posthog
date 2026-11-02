@@ -83,6 +83,11 @@ describe('addUtmTagsToEmail', () => {
             expected: `<a href="https://example.com/pricing?plan=pro&amp;${QUERY}">x</a>`,
         },
         {
+            case: 'an unquoted href with a non-breaking space, which HTML keeps in the value',
+            html: '<a href=https://example.com/summer sale>x</a>',
+            expected: `<a href="https://example.com/summer sale?${QUERY}">x</a>`,
+        },
+        {
             case: 'an href with a trailing space',
             html: '<a href="https://example.com/pricing ">x</a>',
             expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
