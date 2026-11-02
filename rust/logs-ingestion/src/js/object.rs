@@ -4,9 +4,52 @@
 //! numeric order, and then every other key in insertion order. The flatten step picks which
 //! attributes survive from that order, so the port must keep it.
 
-use std::collections::HashMap;
+use std::sync::LazyLock;
+
+use hashbrown::HashTable;
 
 use super::{JsString, JsValue};
+
+/// Keys are sender-controlled, so the hash is seeded per process.
+static KEY_HASHER: LazyLock<ahash::RandomState> = LazyLock::new(ahash::RandomState::new);
+
+pub(crate) fn hash_key(key: &JsString) -> u64 {
+    KEY_HASHER.hash_one(key.bytes_wtf8())
+}
+
+/// The same hash for a Rust string key.
+pub(crate) fn hash_str(key: &str) -> u64 {
+    KEY_HASHER.hash_one(key.as_bytes())
+}
+
+/// An own-property key without allocation: an array index, or any other key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JsKey<'a> {
+    Index(u32),
+    Named(&'a JsString),
+}
+
+impl JsKey<'_> {
+    pub fn utf8_byte_len(&self) -> usize {
+        match self {
+            JsKey::Index(n) => itoa::Buffer::new().format(*n).len(),
+            JsKey::Named(k) => k.utf8_byte_len(),
+        }
+    }
+
+    pub fn push_onto(&self, out: &mut JsString) {
+        match self {
+            JsKey::Index(n) => out.push_str(itoa::Buffer::new().format(*n)),
+            JsKey::Named(k) => out.push_js(k),
+        }
+    }
+
+    pub fn to_js_string(&self) -> JsString {
+        let mut out = JsString::new();
+        self.push_onto(&mut out);
+        out
+    }
+}
 
 /// A canonical array index: an integer from 0 to 2^32 - 2 written without a sign or leading zero.
 pub fn is_array_index(key: &str) -> Option<u32> {
@@ -31,8 +74,9 @@ pub struct JsObject {
     indexed: Vec<(u32, JsValue)>,
     /// Other keys, in insertion order.
     named: Vec<(JsString, JsValue)>,
-    /// Built only for large objects, where a linear key search would be quadratic.
-    named_index: Option<HashMap<JsString, usize>>,
+    /// Positions in `named`, built only for large objects, where a linear key search would
+    /// be quadratic.
+    named_index: Option<HashTable<usize>>,
 }
 
 const INDEX_THRESHOLD: usize = 16;
@@ -52,9 +96,19 @@ impl JsObject {
 
     fn named_position(&self, key: &JsString) -> Option<usize> {
         match &self.named_index {
-            Some(index) => index.get(key).copied(),
+            Some(index) => index
+                .find(hash_key(key), |&i| self.named[i].0 == *key)
+                .copied(),
             None => self.named.iter().position(|(k, _)| k == key),
         }
+    }
+
+    fn build_index(&mut self) {
+        let mut index = HashTable::with_capacity(self.named.len());
+        for (i, (k, _)) in self.named.iter().enumerate() {
+            index.insert_unique(hash_key(k), i, |&j| hash_key(&self.named[j].0));
+        }
+        self.named_index = Some(index);
     }
 
     fn index_key(key: &JsString) -> Option<u32> {
@@ -75,17 +129,12 @@ impl JsObject {
             return;
         }
         if let Some(index) = &mut self.named_index {
-            index.insert(key.clone(), self.named.len());
+            let named = &self.named;
+            index.insert_unique(hash_key(&key), named.len(), |&j| hash_key(&named[j].0));
         }
         self.named.push((key, value));
         if self.named_index.is_none() && self.named.len() > INDEX_THRESHOLD {
-            self.named_index = Some(
-                self.named
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (k, _))| (k.clone(), i))
-                    .collect(),
-            );
+            self.build_index();
         }
     }
 
@@ -123,13 +172,7 @@ impl JsObject {
         let i = self.named_position(&key)?;
         let (_, value) = self.named.remove(i);
         if self.named_index.is_some() {
-            self.named_index = Some(
-                self.named
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (k, _))| (k.clone(), i))
-                    .collect(),
-            );
+            self.build_index();
         }
         Some(value)
     }
@@ -140,6 +183,14 @@ impl JsObject {
             .iter()
             .map(|(k, v)| (JsString::from(k.to_string()), v))
             .chain(self.named.iter().map(|(k, v)| (k.clone(), v)))
+    }
+
+    /// Entries in own-property order, without allocating keys.
+    pub fn entries(&self) -> impl Iterator<Item = (JsKey<'_>, &JsValue)> + '_ {
+        self.indexed
+            .iter()
+            .map(|(k, v)| (JsKey::Index(*k), v))
+            .chain(self.named.iter().map(|(k, v)| (JsKey::Named(k), v)))
     }
 
     pub fn keys(&self) -> impl Iterator<Item = JsString> + '_ {

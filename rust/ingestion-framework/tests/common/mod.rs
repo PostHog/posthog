@@ -135,7 +135,7 @@ pub fn test_message(key: Option<&[u8]>) -> KafkaMessage {
         partition: 0,
         offset: 0,
         key: key.map(|k| k.to_vec()),
-        value: Some(b"test-value".to_vec()),
+        value: Some(b"test-value".to_vec().into()),
         headers: vec![],
         timestamp: Some(0),
     }

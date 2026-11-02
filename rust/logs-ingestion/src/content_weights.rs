@@ -11,8 +11,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::avro::AvroMap;
-use crate::js::{quote_js_string, JsString};
-use crate::property_filter::coerce::js_compare;
 use crate::record::LogRecord;
 
 fn string_bytes(value: Option<&str>) -> f64 {
@@ -29,50 +27,51 @@ fn map_bytes(map: Option<&AvroMap>) -> f64 {
     total
 }
 
-/// `JSON.stringify(Object.entries(map).sort(byKey))`.
-fn resource_key(map: Option<&AvroMap>) -> String {
-    let mut entries: Vec<(JsString, JsString)> = map
-        .map(|m| {
-            m.iter_strings()
-                .map(|(k, v)| (JsString::from(k), JsString::from(v)))
-                .collect()
-        })
-        .unwrap_or_default();
-    entries.sort_by(|(a, _), (b, _)| js_compare(a, b));
-    let mut out = String::from("[");
-    for (i, (k, v)) in entries.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push('[');
-        quote_js_string(k, &mut out);
-        out.push(',');
-        quote_js_string(v, &mut out);
-        out.push(']');
-    }
-    out.push(']');
-    out
+/// The resource attributes as a set of string pairs, sorted by key. Two maps get the same
+/// `JSON.stringify(Object.entries(map).sort(byKey))` exactly when these are equal: a map has
+/// distinct keys, so any fixed key order gives a canonical list.
+fn resource_entries(map: Option<&AvroMap>) -> Vec<(&str, &str)> {
+    let mut entries: Vec<(&str, &str)> =
+        map.map(|m| m.iter_strings().collect()).unwrap_or_default();
+    entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    entries
 }
 
 /// `measureContentWeights`: one weight per record, in input order. Resource and scope bytes are
 /// split across the rows that share them, so the weights are fractional.
 pub fn measure_content_weights(records: &[LogRecord]) -> Vec<f64> {
-    let mut rows_by_resource: HashMap<String, f64> = HashMap::new();
-    let mut rows_by_scope: HashMap<String, f64> = HashMap::new();
-    let keys: Vec<(String, String)> = records
+    let mut resource_ids: HashMap<Vec<(&str, &str)>, usize, ahash::RandomState> =
+        HashMap::default();
+    let mut scope_ids: HashMap<(usize, &str), usize, ahash::RandomState> = HashMap::default();
+    let mut rows_by_resource: Vec<f64> = Vec::new();
+    let mut rows_by_scope: Vec<f64> = Vec::new();
+    let mut previous: Option<(Option<&AvroMap>, usize)> = None;
+    let keys: Vec<(usize, usize)> = records
         .iter()
         .map(|record| {
-            let resource = resource_key(record.resource_attributes());
-            let mut scope = String::from("[");
-            quote_js_string(&JsString::from(resource.as_str()), &mut scope);
-            scope.push(',');
-            quote_js_string(
-                &JsString::from(record.instrumentation_scope().unwrap_or("")),
-                &mut scope,
-            );
-            scope.push(']');
-            *rows_by_resource.entry(resource.clone()).or_insert(0.0) += 1.0;
-            *rows_by_scope.entry(scope.clone()).or_insert(0.0) += 1.0;
+            let map = record.resource_attributes();
+            // Records of one message usually share their resource, so an equal map skips the sort.
+            let resource = match previous {
+                Some((previous_map, id)) if previous_map == map => id,
+                _ => {
+                    let next = resource_ids.len();
+                    let id = *resource_ids.entry(resource_entries(map)).or_insert(next);
+                    if id == rows_by_resource.len() {
+                        rows_by_resource.push(0.0);
+                    }
+                    id
+                }
+            };
+            previous = Some((map, resource));
+            let next = scope_ids.len();
+            let scope = *scope_ids
+                .entry((resource, record.instrumentation_scope().unwrap_or("")))
+                .or_insert(next);
+            if scope == rows_by_scope.len() {
+                rows_by_scope.push(0.0);
+            }
+            rows_by_resource[resource] += 1.0;
+            rows_by_scope[scope] += 1.0;
             (resource, scope)
         })
         .collect();
@@ -85,8 +84,8 @@ pub fn measure_content_weights(records: &[LogRecord]) -> Vec<f64> {
                 + string_bytes(record.event_name())
                 + string_bytes(record.severity_text())
                 + map_bytes(record.attributes())
-                + map_bytes(record.resource_attributes()) / rows_by_resource[&resource]
-                + string_bytes(record.instrumentation_scope()) / rows_by_scope[&scope]
+                + map_bytes(record.resource_attributes()) / rows_by_resource[resource]
+                + string_bytes(record.instrumentation_scope()) / rows_by_scope[scope]
         })
         .collect()
 }

@@ -2,6 +2,10 @@
 //! benchmark on the same workload files and reads the result JSON from stdout.
 //!
 //!   logs-ingestion-bench <workload.json> <measured passes> <warmup passes>
+//!
+//! It uses jemalloc, as every long-lived PostHog Rust service does. A production binary of this
+//! consumer must call `common_alloc::used!()` too: the consumer allocates per record, and the
+//! glibc allocator costs about a quarter of its CPU time.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -9,6 +13,8 @@ use std::time::Instant;
 use logs_ingestion::js::{json_parse, json_stringify, JsObject, JsValue};
 use logs_ingestion::pipeline::scenario::{build_scenario_consumer, kafka_message};
 use logs_ingestion::rate_limiter::{system_clock, RedisTokenBucket, TokenBucketRedis};
+
+common_alloc::used!();
 
 /// User plus system CPU time of this process, from `/proc/self/stat`, in milliseconds.
 fn cpu_ms() -> f64 {
@@ -85,7 +91,7 @@ fn main() -> anyhow::Result<()> {
         let bytes_per_pass: usize = batches
             .iter()
             .flatten()
-            .map(|m| m.value.as_ref().map_or(0, Vec::len))
+            .map(|m| m.value.as_ref().map_or(0, |v| v.len()))
             .sum();
 
         let run_batch = |batch: Vec<_>| {

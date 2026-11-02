@@ -107,8 +107,12 @@ pub fn kafka_message(m: &JsValue) -> KafkaMessage {
         partition: n(get(m, "partition")).unwrap_or(0.0) as i32,
         offset: n(get(m, "offset")).unwrap_or(0.0) as i64,
         key: s(get(m, "key")).map(String::into_bytes),
-        value: s(get(m, "value_b64"))
-            .map(|b| base64::engine::general_purpose::STANDARD.decode(b).unwrap()),
+        value: s(get(m, "value_b64")).map(|b| {
+            base64::engine::general_purpose::STANDARD
+                .decode(b)
+                .unwrap()
+                .into()
+        }),
         headers: arr(get(m, "headers"))
             .iter()
             .map(|h| {
@@ -318,11 +322,41 @@ fn team_rows(v: Option<&JsValue>, team_id: i64) -> Vec<JsValue> {
         .unwrap_or_default()
 }
 
-struct ScenarioSampling(JsValue);
+/// Compiled rules per key. A scenario's rule rows never change, and production reads compiled
+/// rules from a cache, so the harness compiles each set once.
+struct Compiled<K, V>(Mutex<HashMap<K, Arc<V>>>);
+
+impl<K: std::hash::Hash + Eq, V> Default for Compiled<K, V> {
+    fn default() -> Self {
+        Self(Mutex::new(HashMap::new()))
+    }
+}
+
+impl<K: std::hash::Hash + Eq, V> Compiled<K, V> {
+    fn get_or_compile(
+        &self,
+        key: K,
+        compile: impl FnOnce() -> anyhow::Result<V>,
+    ) -> anyhow::Result<Arc<V>> {
+        if let Some(v) = self.0.lock().unwrap().get(&key) {
+            return Ok(v.clone());
+        }
+        let v = Arc::new(compile()?);
+        Ok(self.0.lock().unwrap().entry(key).or_insert(v).clone())
+    }
+}
+
+struct ScenarioSampling(JsValue, Compiled<i64, CompiledRuleSet>);
 
 #[async_trait]
 impl SamplingRulesSource for ScenarioSampling {
     async fn get_compiled_rule_set(&self, team_id: i64) -> anyhow::Result<Arc<CompiledRuleSet>> {
+        self.1.get_or_compile(team_id, || self.compile(team_id))
+    }
+}
+
+impl ScenarioSampling {
+    fn compile(&self, team_id: i64) -> anyhow::Result<CompiledRuleSet> {
         let rows: Vec<SamplingRuleRow> = team_rows(Some(&self.0), team_id)
             .iter()
             .map(|r| SamplingRuleRow {
@@ -337,13 +371,11 @@ impl SamplingRulesSource for ScenarioSampling {
                 version: None,
             })
             .collect();
-        Ok(Arc::new(
-            compile_rule_set(&rows).map_err(anyhow::Error::new)?,
-        ))
+        compile_rule_set(&rows).map_err(anyhow::Error::new)
     }
 }
 
-struct ScenarioRetention(JsValue);
+struct ScenarioRetention(JsValue, Compiled<(i64, String), CompiledRetentionRuleSet>);
 
 #[async_trait]
 impl RetentionRulesSource for ScenarioRetention {
@@ -352,6 +384,14 @@ impl RetentionRulesSource for ScenarioRetention {
         team_id: i64,
         source: &str,
     ) -> anyhow::Result<Arc<CompiledRetentionRuleSet>> {
+        self.1.get_or_compile((team_id, source.to_string()), || {
+            self.compile(team_id, source)
+        })
+    }
+}
+
+impl ScenarioRetention {
+    fn compile(&self, team_id: i64, source: &str) -> anyhow::Result<CompiledRetentionRuleSet> {
         let by_source = entries(Some(&self.0))
             .into_iter()
             .find(|(k, _)| k.parse::<i64>().ok() == Some(team_id))
@@ -364,15 +404,14 @@ impl RetentionRulesSource for ScenarioRetention {
                 version: None,
             })
             .collect();
-        Ok(Arc::new(
-            compile_retention_rule_set(&rows).map_err(anyhow::Error::new)?,
-        ))
+        compile_retention_rule_set(&rows).map_err(anyhow::Error::new)
     }
 }
 
 struct ScenarioMetricRules {
     rows: JsValue,
     faults: JsValue,
+    compiled: Compiled<i64, Vec<CompiledMetricRule>>,
 }
 
 #[async_trait]
@@ -387,16 +426,16 @@ impl MetricRulesSource for ScenarioMetricRules {
         {
             return Err(to_error(spec));
         }
-        let rows: Vec<MetricRuleRow> = team_rows(Some(&self.rows), team_id)
-            .iter()
-            .filter_map(|r| match r {
-                JsValue::Object(o) => Some(MetricRuleRow::from_js(o)),
-                _ => None,
-            })
-            .collect();
-        Ok(Arc::new(
-            compile_metric_rules(&rows).map_err(anyhow::Error::new)?,
-        ))
+        self.compiled.get_or_compile(team_id, || {
+            let rows: Vec<MetricRuleRow> = team_rows(Some(&self.rows), team_id)
+                .iter()
+                .filter_map(|r| match r {
+                    JsValue::Object(o) => Some(MetricRuleRow::from_js(o)),
+                    _ => None,
+                })
+                .collect();
+            compile_metric_rules(&rows).map_err(anyhow::Error::new)
+        })
     }
 }
 
@@ -568,11 +607,16 @@ pub fn build_scenario_consumer(
             recorded: recorded.clone(),
             discard,
         }),
-        sampling_rules: keep("samplingRulesCache")
-            .then(|| Arc::new(ScenarioSampling(field("sampling_rules"))) as _),
+        sampling_rules: keep("samplingRulesCache").then(|| {
+            Arc::new(ScenarioSampling(
+                field("sampling_rules"),
+                Compiled::default(),
+            )) as _
+        }),
         metric_rules: Some(Arc::new(ScenarioMetricRules {
             rows: field("metric_rules"),
             faults: field("metric_rules_faults"),
+            compiled: Compiled::default(),
         })),
         metrics_emitter: keep("metricsEmitter").then(|| {
             Arc::new(ScenarioEmitter {
@@ -584,7 +628,10 @@ pub fn build_scenario_consumer(
             }) as _
         }),
         logs_transformer: None,
-        retention_rules: Some(Arc::new(ScenarioRetention(field("retention_rules")))),
+        retention_rules: Some(Arc::new(ScenarioRetention(
+            field("retention_rules"),
+            Compiled::default(),
+        ))),
         pattern_message_keys: keep("patternMessageKeysCache").then(|| {
             Arc::new(ScenarioPatternKeys {
                 keys: field("pattern_message_keys"),

@@ -6557,6 +6557,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytes",
  "chrono",
  "criterion",
  "futures",
@@ -7620,19 +7621,25 @@ dependencies = [
 name = "logs-ingestion"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.12",
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "chrono",
+ "common-alloc",
  "criterion",
  "futures",
+ "hashbrown 0.15.5",
  "hex",
  "hmac 0.12.1",
  "ingestion-framework",
+ "itoa",
  "metrics",
  "rand 0.8.5",
  "redis",
  "regex",
+ "regex-automata",
  "serde",
  "serde_json",
  "sha2 0.10.9",

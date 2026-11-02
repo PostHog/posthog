@@ -6,6 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+pub use bytes::Bytes;
 
 /// Port of the `DLQ_OUTPUT` and `INGESTION_WARNINGS_OUTPUT` names from `~/common/outputs`.
 pub const DLQ_OUTPUT: &str = "dlq";
@@ -18,7 +19,8 @@ pub struct KafkaMessage {
     pub partition: i32,
     pub offset: i64,
     pub key: Option<Vec<u8>>,
-    pub value: Option<Vec<u8>>,
+    /// Shared, so passing the payload on to an output or a DLQ does not copy it.
+    pub value: Option<Bytes>,
     /// In wire order. A header can repeat, as in Kafka.
     pub headers: Vec<(String, Option<Vec<u8>>)>,
     pub timestamp: Option<i64>,
@@ -101,7 +103,7 @@ impl<K: Into<String>, V: Into<String>> FromIterator<(K, V)> for Headers {
 /// Port of `IngestionOutputMessage`.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OutputMessage {
-    pub value: Option<Vec<u8>>,
+    pub value: Option<Bytes>,
     pub key: Option<Vec<u8>>,
     pub headers: Headers,
 }

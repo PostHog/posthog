@@ -1,5 +1,6 @@
 //! Port of `pipeline/logs-pipeline-context.ts`.
 
+use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
 use ingestion_framework::{Headers, KafkaMessage, OutputMessage};
@@ -40,13 +41,39 @@ pub fn team_id_matches_csv(raw: &str, team_id: i64) -> bool {
 /// `parseKafkaHeaders`: assigned onto a plain object, so a repeated key keeps its first
 /// position and takes the last value, and `__proto__` is lost.
 pub fn parse_kafka_headers(message: &KafkaMessage) -> Headers {
-    let mut headers = Headers::new();
+    parse_kafka_headers_except(message, &[], 0)
+}
+
+/// `parseKafkaHeaders(message.headers)[name]` without building the map: the last value wins.
+pub fn kafka_header<'a>(message: &'a KafkaMessage, name: &str) -> Option<Cow<'a, str>> {
+    if name == "__proto__" {
+        return None;
+    }
+    message
+        .headers
+        .iter()
+        .rev()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| utf8_lossy(value.as_deref().unwrap_or_default()))
+}
+
+/// `String::from_utf8_lossy` with a fast check for the valid case.
+pub fn utf8_lossy(bytes: &[u8]) -> Cow<'_, str> {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => Cow::Borrowed(text),
+        Err(_) => String::from_utf8_lossy(bytes),
+    }
+}
+
+/// `parseKafkaHeaders` without the keys in `skip`, with room for `extra` more headers.
+pub fn parse_kafka_headers_except(message: &KafkaMessage, skip: &[&str], extra: usize) -> Headers {
+    let mut headers = Headers(Vec::with_capacity(message.headers.len() + extra));
     for (key, value) in &message.headers {
-        if key == "__proto__" {
+        if key == "__proto__" || skip.contains(&key.as_str()) {
             continue;
         }
         let value = value.as_deref().unwrap_or_default();
-        headers.set(key.clone(), String::from_utf8_lossy(value).into_owned());
+        headers.set(key.clone(), utf8_lossy(value).into_owned());
     }
     headers
 }

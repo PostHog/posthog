@@ -7,13 +7,16 @@
 mod date;
 mod json;
 mod number;
-mod object;
+pub(crate) mod object;
 mod string;
 
 pub use date::date_parse;
-pub use json::{json_parse, json_stringify, json_stringify_into, quote_js_string, JsonError};
-pub use number::number_to_string;
-pub use object::{is_array_index, JsObject};
+pub use json::{
+    json_parse, json_parse_shape, json_stringify, json_stringify_into, quote_js_string, JsonError,
+    JsonShape,
+};
+pub use number::{number_to_string, write_number};
+pub use object::{is_array_index, JsKey, JsObject};
 pub use string::{utf16_len, utf16_slice_lossy, CharOrSurrogate, JsString};
 
 /// A value as `JSON.parse` returns it. Numbers are f64, as in JavaScript.

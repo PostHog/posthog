@@ -137,7 +137,7 @@ impl IngestionWarningEmitter for OutputsWarningEmitter {
             .queue_messages(
                 INGESTION_WARNINGS_OUTPUT,
                 vec![OutputMessage {
-                    value: Some(value),
+                    value: Some(value.into()),
                     ..Default::default()
                 }],
             )

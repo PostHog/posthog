@@ -1,5 +1,7 @@
 //! Container decoding with avsc's results, including its errors and its silent cases.
 
+use std::cell::RefCell;
+
 use super::schema::Schema;
 use super::value::{AvroMap, AvroValue};
 use super::{AvroError, Container, MAGIC};
@@ -109,8 +111,14 @@ impl<'a> Tap<'a> {
 
     /// Invalid UTF-8 decodes with U+FFFD for each maximal invalid subpart, as Node does.
     pub fn read_string(&mut self) -> Option<String> {
-        self.read_bytes()
-            .map(|b| String::from_utf8_lossy(b).into_owned())
+        self.read_bytes().map(|b| match std::str::from_utf8(b) {
+            Ok(text) => text.to_owned(),
+            Err(_) => String::from_utf8_lossy(b).into_owned(),
+        })
+    }
+
+    fn remaining(&self) -> usize {
+        self.buf.len().saturating_sub(self.pos)
     }
 
     /// avsc's `readArraySize`: a negative count carries a byte size, which it skips.
@@ -201,6 +209,8 @@ pub(crate) fn read_value(tap: &mut Tap<'_>, schema: &Schema) -> Result<AvroValue
                 if !tap.is_valid() {
                     break;
                 }
+                // A capacity hint only: a count can claim more items than the data holds.
+                out.reserve((n as usize).min(tap.remaining()).min(4096));
                 for _ in 0..n as u64 {
                     out.push(read_value(tap, items)?);
                     if !tap.is_valid() {
@@ -282,6 +292,42 @@ fn read_header(tap: &mut Tap<'_>) -> Option<Header> {
     })
 }
 
+/// A single frame that states its size beyond this goes through the streaming decoder, which
+/// grows its buffer as data arrives instead of trusting the header.
+const MAX_PRESIZED_FRAME: u64 = 64 << 20;
+
+thread_local! {
+    /// A zstd context is large to set up, so each thread keeps one.
+    static DECOMPRESSOR: RefCell<Option<zstd::bulk::Decompressor<'static>>> = const { RefCell::new(None) };
+}
+
+/// `zstd::stream::decode_all`. One frame with a stated size decodes in one call on a reused
+/// context. Any other input, or any failure there, takes the streaming path, whose result counts.
+fn inflate(data: &[u8]) -> std::io::Result<Vec<u8>> {
+    use zstd::zstd_safe::{find_frame_compressed_size, get_frame_content_size};
+    if let (Ok(len), Ok(Some(size))) = (
+        find_frame_compressed_size(data),
+        get_frame_content_size(data),
+    ) {
+        if len == data.len() && size <= MAX_PRESIZED_FRAME {
+            let fast = DECOMPRESSOR.with(|cell| {
+                let mut slot = cell.borrow_mut();
+                let decompressor = match slot.as_mut() {
+                    Some(d) => d,
+                    None => slot.insert(zstd::bulk::Decompressor::new()?),
+                };
+                decompressor.decompress(data, size as usize)
+            });
+            if let Ok(inflated) = fast {
+                if inflated.len() as u64 == size {
+                    return Ok(inflated);
+                }
+            }
+        }
+    }
+    zstd::stream::decode_all(data)
+}
+
 /// `decodeLogRecords` from `log-record-avro.ts`, which registers only the zstandard codec.
 pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
     if buf.len() < MAGIC.len() {
@@ -293,16 +339,20 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
     let mut tap = Tap::new(buf);
     let header = read_header(&mut tap).ok_or(AvroError::NoMetadata)?;
     let meta = |key: &str| header.meta.iter().find(|(k, _)| k == key).map(|(_, v)| v);
+    let text = |v: &Vec<u8>| match std::str::from_utf8(v) {
+        Ok(text) => text.to_owned(),
+        Err(_) => String::from_utf8_lossy(v).into_owned(),
+    };
     let codec = meta("avro.codec")
-        .map(|v| String::from_utf8_lossy(v).into_owned())
+        .map(text)
         .unwrap_or_else(|| "null".to_string());
     if codec != "zstandard" {
         return Err(AvroError::UnknownCodec(codec));
     }
     let schema_json = meta("avro.schema")
-        .map(|v| String::from_utf8_lossy(v).into_owned())
+        .map(text)
         .ok_or_else(|| AvroError::Schema("missing avro.schema".to_string()))?;
-    let schema = Schema::parse_json(&schema_json)?;
+    let schema = Schema::parse_json_cached(&schema_json)?;
 
     // avsc reads every complete block and checks its sync marker before any block decompresses,
     // so a bad marker anywhere wins over a bad block before it. An incomplete trailing block
@@ -328,11 +378,16 @@ pub fn decode_container(buf: &[u8]) -> Result<Container, AvroError> {
         }
     }
 
-    let mut records = Vec::new();
+    let mut records = Vec::with_capacity(
+        blocks
+            .iter()
+            .map(|(count, _)| (*count as i64).clamp(0, 4096) as usize)
+            .sum(),
+    );
     let mut empty_records = 0u64;
     for (count, data) in blocks {
-        let inflated = zstd::stream::decode_all(data)
-            .map_err(|_| AvroError::Decompression("zstandard".to_string()))?;
+        let inflated =
+            inflate(data).map_err(|_| AvroError::Decompression("zstandard".to_string()))?;
         // avsc keeps `count | 0`. A negative count never counts down to 0, so avsc reads records
         // until one fails.
         let mut remaining = i64::from((count as i64) as i32);

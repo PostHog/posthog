@@ -2,10 +2,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use ingestion_framework::{ok, Headers, OutputMessage, ProcessingStep};
+use ingestion_framework::{ok, OutputMessage, ProcessingStep};
 use metrics::{counter, histogram};
 
-use crate::internal_logs::{without_internal_logs_headers, INTERNAL_SOURCE_HEADER};
+use crate::internal_logs::{INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER};
 use crate::js::number_to_string;
 use crate::metric_rules::{
     tally_records, with_default_metric_rules, BatchTallies, CompiledMetricRule,
@@ -16,8 +16,8 @@ use crate::retention::RETENTION_EXPIRED_STAGE_NAME;
 
 use super::buffer::{BufferValue, RecordsVisitor};
 use super::context::{
-    applies_team_log_rules, is_unbilled_internal, parse_kafka_headers, quarantine_log_message,
-    team_id_matches_csv, AppSource, LogsPipelineContext, LOGS_OUTPUT,
+    applies_team_log_rules, is_unbilled_internal, parse_kafka_headers_except,
+    quarantine_log_message, team_id_matches_csv, AppSource, LogsPipelineContext, LOGS_OUTPUT,
 };
 use super::errors::is_dependency_unavailable;
 use super::resolve::resolve_log_buffer;
@@ -279,39 +279,44 @@ async fn process_log_message(
                 .increment(1);
             return Ok(());
         }
-        Some(BufferValue::Encoded(bytes)) => Some(bytes),
+        Some(BufferValue::Encoded(bytes)) => Some(bytes.into()),
         Some(_) => message.message.value.clone(),
     };
 
-    let mut headers = Headers(without_internal_logs_headers(
-        parse_kafka_headers(&message.message).0,
-    ));
-    if let Some(internal) = &message.internal_logs {
-        headers.set(INTERNAL_SOURCE_HEADER, internal.source.clone());
-    }
-    headers.set("token", message.token.clone());
-    headers.set("team_id", team_id.to_string());
-    headers.set("json-parse", json_parse.to_string());
-    headers.set("retention-days", number_to_string(retention_days));
-    headers.set("source_topic", message.message.topic.clone());
-    headers.set("source_partition", message.message.partition.to_string());
-    if let Some(n) = override_uncompressed {
-        headers.set("bytes_uncompressed", number_to_string(n));
-    }
-    if let Some(n) = override_compressed {
-        headers.set("bytes_compressed", number_to_string(n));
-    }
-    if let Some(n) = override_record_count {
-        headers.set("record_count", number_to_string(n));
-    }
-    let out = OutputMessage {
-        value,
-        key: None,
-        headers,
+    // Built per attempt, so the first attempt needs no copy of the message.
+    let output = || {
+        let mut headers = parse_kafka_headers_except(
+            &message.message,
+            &[INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER],
+            10,
+        );
+        if let Some(internal) = &message.internal_logs {
+            headers.set(INTERNAL_SOURCE_HEADER, internal.source.clone());
+        }
+        headers.set("token", message.token.clone());
+        headers.set("team_id", team_id.to_string());
+        headers.set("json-parse", json_parse.to_string());
+        headers.set("retention-days", number_to_string(retention_days));
+        headers.set("source_topic", message.message.topic.clone());
+        headers.set("source_partition", message.message.partition.to_string());
+        if let Some(n) = override_uncompressed {
+            headers.set("bytes_uncompressed", number_to_string(n));
+        }
+        if let Some(n) = override_compressed {
+            headers.set("bytes_compressed", number_to_string(n));
+        }
+        if let Some(n) = override_record_count {
+            headers.set("record_count", number_to_string(n));
+        }
+        OutputMessage {
+            value: value.clone(),
+            key: None,
+            headers,
+        }
     };
     context
         .retry(|| {
-            let out = out.clone();
+            let out = output();
             async move {
                 context
                     .deps

@@ -7,7 +7,7 @@ use metrics::counter;
 
 use crate::internal_logs::INTERNAL_LOGS_HEADER;
 
-use super::context::{parse_kafka_headers, quarantine_log_message, LogsPipelineContext};
+use super::context::{kafka_header, quarantine_log_message, LogsPipelineContext};
 use super::deps::Team;
 use super::errors::NamedError;
 use super::types::{parse_min_timestamp_header, parse_size_header, LogsIngestionMessage};
@@ -27,8 +27,8 @@ async fn parse(
     context: &LogsPipelineContext,
     message: Arc<KafkaMessage>,
 ) -> anyhow::Result<PipelineResult<LogsIngestionMessage>> {
-    let headers = parse_kafka_headers(&message);
-    let token = match headers.get("token") {
+    let header = |name: &str| kafka_header(&message, name);
+    let token = match header("token").as_deref() {
         Some(t) if !t.is_empty() => t.to_string(),
         _ => {
             tracing::warn!("missing_token");
@@ -51,10 +51,11 @@ async fn parse(
         return Ok(drop("team_not_found"));
     };
 
-    let bytes_uncompressed = parse_size_header(headers.get("bytes_uncompressed"));
-    let bytes_uncompressed_records = parse_size_header(headers.get("bytes_uncompressed_records"));
-    let bytes_compressed = parse_size_header(headers.get("bytes_compressed"));
-    let record_count = parse_size_header(headers.get("record_count"));
+    let bytes_uncompressed = parse_size_header(header("bytes_uncompressed").as_deref());
+    let bytes_uncompressed_records =
+        parse_size_header(header("bytes_uncompressed_records").as_deref());
+    let bytes_compressed = parse_size_header(header("bytes_compressed").as_deref());
+    let record_count = parse_size_header(header("record_count").as_deref());
     let (
         Some(bytes_uncompressed),
         Some(bytes_uncompressed_records),
@@ -83,9 +84,9 @@ async fn parse(
     }
 
     let internal_logs = context.internal_logs_verifier.verify(
-        headers.get(INTERNAL_LOGS_HEADER),
+        header(INTERNAL_LOGS_HEADER).as_deref(),
         team.id,
-        headers.get("created_at"),
+        header("created_at").as_deref(),
     );
     Ok(ok(LogsIngestionMessage {
         token,
@@ -95,8 +96,8 @@ async fn parse(
         bytes_uncompressed_records,
         bytes_compressed,
         record_count,
-        min_timestamp_micros: parse_min_timestamp_header(headers.get("min_timestamp")),
-        backfill_requested: headers.get("backfill_days").is_some(),
+        min_timestamp_micros: parse_min_timestamp_header(header("min_timestamp").as_deref()),
+        backfill_requested: header("backfill_days").is_some(),
         internal_logs,
     }))
 }

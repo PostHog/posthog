@@ -1,7 +1,7 @@
 //! Avro schemas, read from a container header and written back as avsc writes them.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 
 use super::AvroError;
 use crate::js::{json_parse, json_stringify, JsObject, JsString, JsValue};
@@ -33,7 +33,24 @@ pub struct RecordSchema {
     pub doc: Option<String>,
     /// Field index by name, for lookups by the record helpers.
     pub field_index: HashMap<Arc<str>, usize>,
+    pub(crate) avsc_json: AvscJsonMemo,
 }
+
+/// `to_avsc_json` of a top-level record, computed once. It takes no part in equality.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AvscJsonMemo(OnceLock<String>);
+
+impl PartialEq for AvscJsonMemo {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+/// Producers send the same few schemas, so parsed schemas are kept by their exact text.
+const SCHEMA_CACHE_CAPACITY: usize = 64;
+
+static SCHEMA_CACHE: LazyLock<Mutex<HashMap<String, Schema, ahash::RandomState>>> =
+    LazyLock::new(Default::default);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
@@ -178,6 +195,7 @@ impl Parser {
                     aliases: get_strings(object, "aliases"),
                     doc: get_str(object, "doc").map(str::to_string),
                     field_index,
+                    avsc_json: AvscJsonMemo::default(),
                 }));
                 self.named.insert(name, schema.clone());
                 Ok(schema)
@@ -246,12 +264,39 @@ impl Schema {
         .parse(&value, None)
     }
 
+    /// `parse_json` through a process-wide cache keyed by the exact text. A parse is a pure
+    /// function of the text, so a cached schema is the same value. Errors are not cached.
+    pub fn parse_json_cached(text: &str) -> Result<Schema, AvroError> {
+        if let Some(schema) = SCHEMA_CACHE.lock().unwrap().get(text) {
+            return Ok(schema.clone());
+        }
+        let schema = Schema::parse_json(text)?;
+        let mut cache = SCHEMA_CACHE.lock().unwrap();
+        if cache.len() >= SCHEMA_CACHE_CAPACITY {
+            cache.clear();
+        }
+        cache.insert(text.to_string(), schema.clone());
+        Ok(schema)
+    }
+
     /// The schema JSON avsc writes into a container header:
     /// `JSON.stringify(type.getSchema({ exportAttrs: true }))`. It keeps docs, defaults, aliases
     /// and a non-default field order, drops unregistered logical types and custom attributes,
     /// writes full names, and refers to a named type by name after its first definition.
     pub fn to_avsc_json(&self) -> String {
-        json_stringify(&self.export(&mut HashSet::new()))
+        self.avsc_json_str().to_string()
+    }
+
+    pub(crate) fn avsc_json_str(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Schema::Record(record) => std::borrow::Cow::Borrowed(
+                record
+                    .avsc_json
+                    .0
+                    .get_or_init(|| json_stringify(&self.export(&mut HashSet::new()))),
+            ),
+            _ => std::borrow::Cow::Owned(json_stringify(&self.export(&mut HashSet::new()))),
+        }
     }
 
     fn export(&self, seen: &mut HashSet<String>) -> JsValue {

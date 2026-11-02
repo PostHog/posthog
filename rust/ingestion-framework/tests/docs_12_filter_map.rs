@@ -168,7 +168,7 @@ async fn filter_map_enables_team_aware_processing_with_non_ok_passthrough() {
     let warnings = warning_outputs.calls();
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].0, INGESTION_WARNINGS_OUTPUT);
-    let value = String::from_utf8(warnings[0].1.value.clone().unwrap()).unwrap();
+    let value = String::from_utf8(warnings[0].1.value.clone().unwrap().to_vec()).unwrap();
     assert!(
         value.contains("\"type\":\"event_dropped_by_transformation\""),
         "{value}"

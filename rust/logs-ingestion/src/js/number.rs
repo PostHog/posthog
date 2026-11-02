@@ -4,29 +4,54 @@
 //! equally close shortest candidates toward the even digit, so an odd last digit is checked
 //! against the exactly rounded form, which rounds ties to even.
 
+use std::fmt::Write;
+
 pub fn number_to_string(value: f64) -> String {
+    let mut out = String::new();
+    write_number(value, &mut out);
+    out
+}
+
+/// Below 2^53 every integer is exact, and ECMAScript prints an integer under 1e21 in full.
+const EXACT_INTEGER_LIMIT: f64 = 9_007_199_254_740_992.0;
+
+/// `String(value)` appended to `out`.
+pub fn write_number(value: f64, out: &mut String) {
     if value.is_nan() {
-        return "NaN".to_string();
+        out.push_str("NaN");
+        return;
     }
     if value == 0.0 {
-        return "0".to_string();
+        out.push('0');
+        return;
     }
     if value.is_infinite() {
-        return if value > 0.0 { "Infinity" } else { "-Infinity" }.to_string();
+        out.push_str(if value > 0.0 { "Infinity" } else { "-Infinity" });
+        return;
     }
-    let mut out = String::new();
+    if value.fract() == 0.0 && value.abs() < EXACT_INTEGER_LIMIT {
+        out.push_str(itoa::Buffer::new().format(value as i64));
+        return;
+    }
     if value < 0.0 {
         out.push('-');
     }
     let sci = shortest_scientific(value.abs());
+    let sci = sci.as_str();
     let (mantissa, exp) = sci.split_once('e').expect("LowerExp has an exponent");
     let exp: i32 = exp.parse().expect("exponent is an integer");
-    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
-    let k = digits.len() as i32;
+    let mut digit_buf = [0u8; 32];
+    let mut k = 0usize;
+    for b in mantissa.bytes().filter(|b| *b != b'.') {
+        digit_buf[k] = b;
+        k += 1;
+    }
+    let digits = std::str::from_utf8(&digit_buf[..k]).expect("ASCII digits");
+    let k = k as i32;
     // n is the position of the decimal point relative to the digit string.
     let n = exp + 1;
     if k <= n && n <= 21 {
-        out.push_str(&digits);
+        out.push_str(digits);
         out.extend(std::iter::repeat_n('0', (n - k) as usize));
     } else if 0 < n && n <= 21 {
         out.push_str(&digits[..n as usize]);
@@ -35,7 +60,7 @@ pub fn number_to_string(value: f64) -> String {
     } else if -6 < n && n <= 0 {
         out.push_str("0.");
         out.extend(std::iter::repeat_n('0', (-n) as usize));
-        out.push_str(&digits);
+        out.push_str(digits);
     } else {
         out.push_str(&digits[..1]);
         if k > 1 {
@@ -44,22 +69,54 @@ pub fn number_to_string(value: f64) -> String {
         }
         out.push('e');
         out.push(if n - 1 < 0 { '-' } else { '+' });
-        out.push_str(&(n - 1).abs().to_string());
+        out.push_str(itoa::Buffer::new().format((n - 1).abs()));
     }
-    out
 }
 
-fn shortest_scientific(value: f64) -> String {
-    let shortest = format!("{value:e}");
-    let mantissa = shortest.split_once('e').map_or("", |(m, _)| m);
+/// A fixed buffer for one formatted double, so the slow path does not allocate.
+struct StackStr {
+    buf: [u8; 64],
+    len: usize,
+}
+
+impl StackStr {
+    fn new() -> Self {
+        Self {
+            buf: [0; 64],
+            len: 0,
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.buf[..self.len]).expect("formatter writes UTF-8")
+    }
+}
+
+impl Write for StackStr {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        let end = self.len + s.len();
+        if end > self.buf.len() {
+            return Err(std::fmt::Error);
+        }
+        self.buf[self.len..end].copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+fn shortest_scientific(value: f64) -> StackStr {
+    let mut shortest = StackStr::new();
+    write!(shortest, "{value:e}").expect("a double fits the buffer");
+    let mantissa = shortest.as_str().split_once('e').map_or("", |(m, _)| m);
     let last_is_odd = mantissa.bytes().last().is_some_and(|d| (d - b'0') % 2 == 1);
     if !last_is_odd {
         return shortest;
     }
     let digits = mantissa.bytes().filter(u8::is_ascii_digit).count();
-    let exact = format!("{:.*e}", digits - 1, value);
+    let mut exact = StackStr::new();
+    write!(exact, "{:.*e}", digits - 1, value).expect("a double fits the buffer");
     // At a power of two the lower gap is narrower, so the nearest candidate can miss.
-    if exact != shortest && exact.parse::<f64>() == Ok(value) {
+    if exact.as_str() != shortest.as_str() && exact.as_str().parse::<f64>() == Ok(value) {
         exact
     } else {
         shortest

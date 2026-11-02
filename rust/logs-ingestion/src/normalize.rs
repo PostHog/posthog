@@ -7,16 +7,20 @@
 //! The TypeScript also adds each enrichment skip to an OpenTelemetry counter
 //! (`recordJsonEnrichmentSkipped`). This port emits only the Prometheus counter.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
+
+use hashbrown::HashTable;
 
 use metrics::counter;
 use serde::Deserialize;
 
 use crate::avro::{AvroMap, AvroValue};
 use crate::body_parse::{parse_log_body_for_ingestion, LogBodyParseResult};
+use crate::js::object::hash_key;
 use crate::js::{
-    is_array_index, json_parse, json_stringify, CharOrSurrogate, JsObject, JsString, JsValue,
+    is_array_index, json_parse, json_stringify, json_stringify_into, quote_js_string,
+    CharOrSurrogate, JsKey, JsObject, JsString, JsValue,
 };
 use crate::pii::{scrub_log_record, PiiScrubStats, EMPTY_PII};
 use crate::record::LogRecord;
@@ -179,44 +183,82 @@ pub struct FlattenResult {
     pub attributes: FlatAttributes,
 }
 
-/// The `result` and `attributes` objects of `flattenJsonWithBudget`, which always hold the same
-/// keys. A key is an array index or named, as in a JavaScript object.
+/// One key of the `result` and `attributes` objects of `flattenJsonWithBudget`, which always
+/// hold the same keys. `value` is kept only when the caller asks for `result`.
+struct FlatEntry {
+    key: JsString,
+    value: Option<JsValue>,
+    serialized: String,
+}
+
+#[derive(Clone, Copy)]
+enum FlatPos {
+    Index(u32),
+    Named(Option<usize>),
+}
+
+/// A key is an array index or named, as in a JavaScript object.
 #[derive(Default)]
 struct FlatObject {
-    indexed: BTreeMap<u32, (JsString, JsValue, String)>,
-    named: Vec<(JsString, JsValue, String)>,
-    named_position: HashMap<JsString, usize>,
+    indexed: BTreeMap<u32, FlatEntry>,
+    named: Vec<FlatEntry>,
+    /// Positions in `named`.
+    named_position: HashTable<usize>,
 }
 
 impl FlatObject {
-    fn get(&self, key: &JsString) -> Option<&(JsString, JsValue, String)> {
-        match key.as_str().and_then(is_array_index) {
-            Some(n) => self.indexed.get(&n),
-            None => self.named_position.get(key).map(|&i| &self.named[i]),
+    fn named_index(&self, key: &JsString) -> Option<usize> {
+        self.named_position
+            .find(hash_key(key), |&i| self.named[i].key == *key)
+            .copied()
+    }
+
+    fn get(&self, key: &JsString) -> Option<&FlatEntry> {
+        self.at(self.locate(key))
+    }
+
+    fn locate(&self, key: &JsString) -> FlatPos {
+        match is_index_key(key) {
+            Some(n) => FlatPos::Index(n),
+            None => FlatPos::Named(self.named_index(key)),
         }
     }
 
-    fn set(&mut self, key: JsString, value: JsValue, serialized: String) {
-        if let Some(n) = key.as_str().and_then(is_array_index) {
-            self.indexed.insert(n, (key, value, serialized));
-        } else if let Some(&i) = self.named_position.get(&key) {
-            self.named[i] = (key, value, serialized);
-        } else {
-            self.named_position.insert(key.clone(), self.named.len());
-            self.named.push((key, value, serialized));
+    fn at(&self, pos: FlatPos) -> Option<&FlatEntry> {
+        match pos {
+            FlatPos::Index(n) => self.indexed.get(&n),
+            FlatPos::Named(i) => i.map(|i| &self.named[i]),
+        }
+    }
+
+    /// Stores `entry` at `pos`, which `locate` gave for its key with no removal since.
+    fn set_at(&mut self, pos: FlatPos, entry: FlatEntry) {
+        match pos {
+            FlatPos::Index(n) => {
+                self.indexed.insert(n, entry);
+            }
+            FlatPos::Named(Some(i)) => self.named[i] = entry,
+            FlatPos::Named(None) => {
+                let named = &self.named;
+                self.named_position
+                    .insert_unique(hash_key(&entry.key), named.len(), |&j| {
+                        hash_key(&named[j].key)
+                    });
+                self.named.push(entry);
+            }
         }
     }
 
     fn remove(&mut self, key: &JsString) {
-        if let Some(n) = key.as_str().and_then(is_array_index) {
+        if let Some(n) = is_index_key(key) {
             self.indexed.remove(&n);
-        } else if let Some(i) = self.named_position.remove(key) {
+        } else if let Some(i) = self.named_index(key) {
             self.named.remove(i);
-            for (k, _, _) in &self.named[i..] {
-                *self
-                    .named_position
-                    .get_mut(k)
-                    .expect("named key is indexed") -= 1;
+            self.named_position.clear();
+            let named = &self.named;
+            for (j, entry) in named.iter().enumerate() {
+                self.named_position
+                    .insert_unique(hash_key(&entry.key), j, |&k| hash_key(&named[k].key));
             }
         }
     }
@@ -224,19 +266,13 @@ impl FlatObject {
     /// `Object.keys(result)[result.length - 1]`.
     fn last_key(&self) -> Option<&JsString> {
         match self.named.last() {
-            Some((k, _, _)) => Some(k),
-            None => self.indexed.values().next_back().map(|(k, _, _)| k),
+            Some(entry) => Some(&entry.key),
+            None => self.indexed.values().next_back().map(|entry| &entry.key),
         }
     }
 
-    fn into_result(self) -> FlattenResult {
-        let mut values = JsObject::new();
-        let mut attributes = Vec::with_capacity(self.indexed.len() + self.named.len());
-        for (key, value, serialized) in self.indexed.into_values().chain(self.named) {
-            values.insert(key.clone(), value);
-            attributes.push((key, serialized));
-        }
-        FlattenResult { values, attributes }
+    fn into_entries(self) -> impl Iterator<Item = FlatEntry> {
+        self.indexed.into_values().chain(self.named)
     }
 }
 
@@ -248,148 +284,246 @@ pub enum ArrayMode {
     String,
 }
 
-enum Node<'a> {
-    Borrowed(&'a JsValue),
-    Owned(JsValue),
-}
-
-impl Node<'_> {
-    fn value(&self) -> &JsValue {
-        match self {
-            Node::Borrowed(v) => v,
-            Node::Owned(v) => v,
-        }
-    }
-}
-
 fn is_index_key(key: &JsString) -> Option<u32> {
     key.as_str().and_then(is_array_index)
 }
 
+enum Leaf<'a> {
+    Value(&'a JsValue),
+    /// A selected-attribute array, already `JSON.stringify`d.
+    Stringified(String),
+}
+
+/// The state of `flattenJsonWithBudget`. The TypeScript walks an explicit stack that pops
+/// children in key order. This walk recurses in the same order and makes the same budget
+/// updates at each node, so it fails and evicts exactly where the TypeScript does.
+struct Flattener {
+    max_attributes: usize,
+    max_bytes: usize,
+    array_mode: ArrayMode,
+    keep_values: bool,
+    nodes: usize,
+    path_bytes: usize,
+    attribute_bytes: i64,
+    attribute_count: usize,
+    last_retained_key: JsString,
+    result: FlatObject,
+}
+
+impl Flattener {
+    /// `None` means a budget ran out.
+    fn visit(&mut self, node: &JsValue, path: &mut JsString, depth: usize) -> Option<()> {
+        if depth > MAX_JSON_DEPTH || self.path_bytes > self.max_bytes {
+            return None;
+        }
+        match node {
+            JsValue::Array(_) if self.array_mode == ArrayMode::String => {
+                let array_nodes =
+                    count_json_nodes_within_budget(node, depth, MAX_JSON_NODES - self.nodes + 1)?;
+                self.nodes += array_nodes - 1;
+                self.leaf(path, Leaf::Stringified(json_stringify(node)))
+            }
+            JsValue::Array(items) => {
+                if items.len() + self.nodes > MAX_JSON_NODES {
+                    return None;
+                }
+                self.nodes += items.len();
+                let keys = (0..items.len()).map(|i| JsKey::Index(i as u32));
+                self.add_child_paths(path, keys)?;
+                self.visit_children(
+                    path,
+                    depth,
+                    items
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| (JsKey::Index(i as u32), v)),
+                )
+            }
+            JsValue::Object(object) => {
+                let n = object.len();
+                if n > 0 && self.nodes + n > MAX_JSON_NODES {
+                    return None;
+                }
+                self.nodes += n;
+                self.add_child_paths(path, object.entries().map(|(k, _)| k))?;
+                self.visit_children(path, depth, object.entries())
+            }
+            _ => self.leaf(path, Leaf::Value(node)),
+        }
+    }
+
+    /// Adds the byte length of every child path, as the TypeScript does before it descends.
+    fn add_child_paths<'k>(
+        &mut self,
+        path: &JsString,
+        keys: impl Iterator<Item = JsKey<'k>>,
+    ) -> Option<()> {
+        let base = path.utf8_byte_len();
+        for key in keys {
+            self.path_bytes += if base == 0 {
+                key.utf8_byte_len()
+            } else {
+                base + 1 + key.utf8_byte_len()
+            };
+            if self.path_bytes > self.max_bytes {
+                return None;
+            }
+        }
+        Some(())
+    }
+
+    fn visit_children<'v>(
+        &mut self,
+        path: &mut JsString,
+        depth: usize,
+        children: impl Iterator<Item = (JsKey<'v>, &'v JsValue)>,
+    ) -> Option<()> {
+        let base = path.utf8_byte_len();
+        let base_has_surrogates = path.has_lone_surrogates();
+        for (key, child) in children {
+            if base > 0 {
+                path.push_str(".");
+            }
+            key.push_onto(path);
+            self.visit(child, path, depth + 1)?;
+            path.truncate_to(base, base_has_surrogates);
+        }
+        Some(())
+    }
+
+    fn leaf(&mut self, key: &JsString, leaf: Leaf<'_>) -> Option<()> {
+        if key.is_empty() || *key == "__proto__" || self.max_attributes == 0 {
+            return Some(());
+        }
+        let pos = self.result.locate(key);
+        let exists = self.result.at(pos).is_some();
+        if !exists && self.attribute_count >= self.max_attributes {
+            let Some(index) = is_index_key(key) else {
+                return Some(());
+            };
+            let last_key = self.last_retained_key.clone();
+            if let Some(last_index) = is_index_key(&last_key) {
+                if last_index <= index {
+                    return Some(());
+                }
+            }
+            if let Some(entry) = self.result.get(&last_key) {
+                self.attribute_bytes -= (last_key.utf8_byte_len() + entry.serialized.len()) as i64;
+            }
+            self.result.remove(&last_key);
+            self.attribute_count -= 1;
+        }
+        let (serialized, value) = match leaf {
+            // `null` is stored as the string "null".
+            Leaf::Value(JsValue::Null) => (
+                "\"null\"".to_string(),
+                self.keep_values.then(|| JsValue::string("null")),
+            ),
+            Leaf::Value(v) => {
+                let mut serialized = String::new();
+                if let JsValue::String(s) = v {
+                    serialized.reserve(s.utf8_byte_len() + 2);
+                }
+                json_stringify_into(v, &mut serialized);
+                (serialized, self.keep_values.then(|| v.clone()))
+            }
+            Leaf::Stringified(text) => {
+                let text = JsString::from(text);
+                let mut serialized = String::with_capacity(text.utf8_byte_len() + 2);
+                quote_js_string(&text, &mut serialized);
+                (serialized, self.keep_values.then(|| JsValue::String(text)))
+            }
+        };
+        let value_bytes = serialized.len() as i64;
+        // An eviction above removes another key only when this key is absent, so `pos` holds.
+        self.attribute_bytes += match self.result.at(pos) {
+            Some(previous) => value_bytes - previous.serialized.len() as i64,
+            None => (key.utf8_byte_len() as i64) + value_bytes,
+        };
+        if self.attribute_bytes > self.max_bytes as i64 {
+            return None;
+        }
+        self.result.set_at(
+            pos,
+            FlatEntry {
+                key: key.clone(),
+                value,
+                serialized,
+            },
+        );
+        if !exists {
+            self.attribute_count += 1;
+            if self.attribute_count == self.max_attributes {
+                self.last_retained_key = self.result.last_key().cloned().unwrap_or_default();
+            }
+        }
+        Some(())
+    }
+}
+
+fn flatten_entries(
+    obj: &JsValue,
+    prefix: &JsString,
+    max_attributes: usize,
+    max_bytes: usize,
+    array_mode: ArrayMode,
+    keep_values: bool,
+) -> Option<FlatObject> {
+    let mut flattener = Flattener {
+        max_attributes,
+        max_bytes,
+        array_mode,
+        keep_values,
+        nodes: 1,
+        path_bytes: prefix.utf8_byte_len(),
+        attribute_bytes: 0,
+        attribute_count: 0,
+        last_retained_key: JsString::new(),
+        result: FlatObject::default(),
+    };
+    let mut path = prefix.clone();
+    flattener.visit(obj, &mut path, 0)?;
+    Some(flattener.result)
+}
+
 /// `flattenJsonWithBudget`: flattens JSON into dot-notation keys. `None` means a budget ran out.
-pub fn flatten_json_with_budget<'a>(
-    obj: &'a JsValue,
+pub fn flatten_json_with_budget(
+    obj: &JsValue,
     prefix: &JsString,
     max_attributes: usize,
     max_bytes: usize,
     array_mode: ArrayMode,
 ) -> Option<FlattenResult> {
-    let mut result = FlatObject::default();
-    let mut stack: Vec<(Node<'a>, JsString, usize)> =
-        vec![(Node::Borrowed(obj), prefix.clone(), 0)];
-    let mut nodes = 1usize;
-    let mut path_bytes = prefix.utf8_byte_len();
-    let mut attribute_bytes: i64 = 0;
-    let mut attribute_count = 0usize;
-    let mut last_retained_key = JsString::new();
-
-    while let Some((mut node, entry_prefix, depth)) = stack.pop() {
-        if depth > MAX_JSON_DEPTH || path_bytes > max_bytes {
-            return None;
-        }
-        if array_mode == ArrayMode::String {
-            if let JsValue::Array(_) = node.value() {
-                let array_nodes = count_json_nodes_within_budget(
-                    node.value(),
-                    depth,
-                    MAX_JSON_NODES - nodes + 1,
-                )?;
-                nodes += array_nodes - 1;
-                node = Node::Owned(JsValue::string(&json_stringify(node.value())));
-            }
-        }
-
-        let container: Option<&'a JsValue> = match &node {
-            Node::Borrowed(v) if v.is_object_like() => Some(*v),
-            _ => None,
-        };
-        if let Some(container) = container {
-            let children: Vec<(JsString, &'a JsValue)> = match container {
-                JsValue::Array(items) => {
-                    if items.len() + nodes > MAX_JSON_NODES {
-                        return None;
-                    }
-                    items
-                        .iter()
-                        .enumerate()
-                        .map(|(i, v)| (JsString::from(i.to_string()), v))
-                        .collect()
-                }
-                JsValue::Object(object) => {
-                    let mut keys = Vec::with_capacity(object.len());
-                    for (key, value) in object.iter() {
-                        if nodes + keys.len() >= MAX_JSON_NODES {
-                            return None;
-                        }
-                        keys.push((key, value));
-                    }
-                    keys
-                }
-                _ => unreachable!("container is an array or an object"),
-            };
-            nodes += children.len();
-            // Pushed in reverse, so the stack pops the children in key order.
-            for (key, value) in children.into_iter().rev() {
-                let child_prefix = if entry_prefix.is_empty() {
-                    key
-                } else {
-                    let mut p = entry_prefix.clone();
-                    p.push_str(".");
-                    p.push_js(&key);
-                    p
-                };
-                path_bytes += child_prefix.utf8_byte_len();
-                if path_bytes > max_bytes {
-                    return None;
-                }
-                stack.push((Node::Borrowed(value), child_prefix, depth + 1));
-            }
-            continue;
-        }
-
-        let key = entry_prefix;
-        if key.is_empty() || key == "__proto__" || max_attributes == 0 {
-            continue;
-        }
-        let exists = result.get(&key).is_some();
-        if !exists && attribute_count >= max_attributes {
-            let Some(index) = is_index_key(&key) else {
-                continue;
-            };
-            let last_key = last_retained_key.clone();
-            if let Some(last_index) = is_index_key(&last_key) {
-                if last_index <= index {
-                    continue;
-                }
-            }
-            if let Some((_, _, serialized)) = result.get(&last_key) {
-                attribute_bytes -= (last_key.utf8_byte_len() + serialized.len()) as i64;
-            }
-            result.remove(&last_key);
-            attribute_count -= 1;
-        }
-        let value = match node.value() {
-            JsValue::Null => JsValue::string("null"),
-            other => other.clone(),
-        };
-        let serialized = json_stringify(&value);
-        let value_bytes = serialized.len() as i64;
-        attribute_bytes += match result.get(&key) {
-            Some((_, _, previous)) if exists => value_bytes - previous.len() as i64,
-            _ => (key.utf8_byte_len() as i64) + value_bytes,
-        };
-        if attribute_bytes > max_bytes as i64 {
-            return None;
-        }
-        result.set(key, value, serialized);
-        if !exists {
-            attribute_count += 1;
-            if attribute_count == max_attributes {
-                last_retained_key = result.last_key().cloned().unwrap_or_default();
-            }
-        }
+    let result = flatten_entries(obj, prefix, max_attributes, max_bytes, array_mode, true)?;
+    let mut values = JsObject::new();
+    let mut attributes = Vec::new();
+    for entry in result.into_entries() {
+        values.insert(entry.key.clone(), entry.value.expect("values are kept"));
+        attributes.push((entry.key, entry.serialized));
     }
-    Some(result.into_result())
+    Some(FlattenResult { values, attributes })
+}
+
+/// The `attributes` half of `flattenJsonWithBudget`.
+fn flatten_attributes(
+    obj: &JsValue,
+    prefix: &JsString,
+    array_mode: ArrayMode,
+) -> Option<FlatAttributes> {
+    let result = flatten_entries(
+        obj,
+        prefix,
+        MAX_JSON_ATTRIBUTES,
+        MAX_LOG_RECORD_BYTES,
+        array_mode,
+        false,
+    )?;
+    Some(
+        result
+            .into_entries()
+            .map(|entry| (entry.key, entry.serialized))
+            .collect(),
+    )
 }
 
 /// `flattenJson` with the default arguments.
@@ -408,14 +542,8 @@ fn json_attributes_from_body_parse(body_parse: &LogBodyParseResult) -> FlatAttri
     let LogBodyParseResult::JsonObjectOrArray { value } = body_parse else {
         return Vec::new();
     };
-    match flatten_json_with_budget(
-        value,
-        &JsString::new(),
-        MAX_JSON_ATTRIBUTES,
-        MAX_LOG_RECORD_BYTES,
-        ArrayMode::Indexed,
-    ) {
-        Some(flattened) => flattened.attributes,
+    match flatten_attributes(value, &JsString::new(), ArrayMode::Indexed) {
+        Some(attributes) => attributes,
         None => {
             record_json_enrichment_skip("flatten_budget", JsonEnrichmentSource::Body);
             Vec::new()
@@ -466,9 +594,10 @@ fn add_json_attributes(
     for (key, value) in json_attributes {
         merged.define(key.into_string_lossy(), AvroValue::String(value));
     }
-    if let Some(attributes) = existing {
-        for (key, value) in attributes.iter() {
-            merged.define(key.to_string(), value.clone());
+    // The old map is replaced below, so its entries move instead of being copied.
+    if let Some(AvroValue::Map(attributes)) = record.get_mut("attributes") {
+        for (key, value) in std::mem::take(attributes).into_entries() {
+            merged.define(key, value);
         }
     }
     record.set("attributes", AvroValue::Map(merged));
@@ -567,16 +696,10 @@ pub fn enrich_log_record_from_json_attribute(record: &mut LogRecord, key: &str) 
     if !matches!(parsed, JsValue::Object(_)) {
         return;
     }
-    match flatten_json_with_budget(
-        &parsed,
-        &JsString::from(key),
-        MAX_JSON_ATTRIBUTES,
-        MAX_LOG_RECORD_BYTES,
-        ArrayMode::String,
-    ) {
-        Some(flattened) => add_json_attributes(
+    match flatten_attributes(&parsed, &JsString::from(key), ArrayMode::String) {
+        Some(attributes) => add_json_attributes(
             record,
-            flattened.attributes,
+            attributes,
             record_bytes,
             JsonEnrichmentSource::SelectedAttribute,
         ),

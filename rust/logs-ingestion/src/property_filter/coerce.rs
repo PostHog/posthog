@@ -164,7 +164,11 @@ fn parse_float_str(t: &str) -> f64 {
 
 /// `parseInt(string, radix)` for radix 10 or 16, or auto-detection when `radix` is `None`.
 pub fn js_parse_int(s: &str, radix: Option<u32>) -> f64 {
-    let t = s.trim_start_matches(is_js_whitespace);
+    let t = if s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric) {
+        s
+    } else {
+        s.trim_start_matches(is_js_whitespace)
+    };
     let b = t.as_bytes();
     let mut i = 0;
     let mut negative = false;
@@ -189,7 +193,12 @@ pub fn js_parse_int(s: &str, radix: Option<u32>) -> f64 {
         return f64::NAN;
     }
     let digits = &t[start..i];
-    let magnitude = if radix == 10 {
+    let magnitude = if radix == 10 && digits.len() <= 15 {
+        // Under 10^15, so the integer is exact as a double.
+        digits
+            .bytes()
+            .fold(0u64, |acc, d| acc * 10 + u64::from(d - b'0')) as f64
+    } else if radix == 10 {
         // V8 converts decimal digits with correct rounding, as Rust's parser does.
         digits.parse::<f64>().unwrap_or(f64::NAN)
     } else {

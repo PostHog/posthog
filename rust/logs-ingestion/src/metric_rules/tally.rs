@@ -6,7 +6,7 @@ use super::parse_float::js_parse_float;
 use crate::attribute_value::decode_log_attribute_value;
 use crate::avro::AvroMap;
 use crate::filter_group::{lookup_attribute, AttrLookup};
-use crate::js::{json_stringify, number_to_string, JsObject, JsString, JsValue};
+use crate::js::{number_to_string, quote_js_string, JsObject, JsString, JsValue};
 use crate::property_filter::coerce::JsTypeError;
 use crate::record::LogRecord;
 
@@ -189,6 +189,23 @@ pub fn resolve_label_value(key: &JsString, record: &LogRecord) -> Result<LabelVa
     })
 }
 
+/// `JSON.stringify(labelValues)`, written directly.
+fn label_key(label_values: &[LabelValue]) -> String {
+    let mut out = String::from("[");
+    for (i, value) in label_values.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        match value {
+            LabelValue::String(s) => quote_js_string(s, &mut out),
+            LabelValue::Function => out.push_str("null"),
+            LabelValue::PrototypeObject => out.push_str("{}"),
+        }
+    }
+    out.push(']');
+    out
+}
+
 fn histogram_bucket_index(value: f64) -> usize {
     DEFAULT_HISTOGRAM_BOUNDS
         .iter()
@@ -346,12 +363,7 @@ pub fn tally_records(
                 .iter()
                 .map(|key| resolve_label_value(key, record))
                 .collect::<Result<Vec<_>, _>>()?;
-            let label_key = json_stringify(&JsValue::Array(
-                label_values
-                    .iter()
-                    .map(|v| v.to_json().unwrap_or(JsValue::Null))
-                    .collect(),
-            ));
+            let label_key = label_key(&label_values);
 
             let rule_tallies = tallies
                 .by_rule

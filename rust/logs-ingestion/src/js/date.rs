@@ -759,12 +759,81 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 
 /// `Date.parse(input)` in epoch milliseconds, or `None` where JavaScript returns NaN.
 pub fn date_parse(input: &str) -> Option<f64> {
-    parse_components(input)
+    parse_utc_iso_millis(input).or_else(|| parse_components(input))
+}
+
+/// The `toISOString` form `YYYY-MM-DDTHH:mm:ss.sssZ`, which producers send, without the
+/// tokenizer. `None` hands any other text, and any field out of range, to the full parser.
+fn parse_utc_iso_millis(input: &str) -> Option<f64> {
+    let b = input.as_bytes();
+    if b.len() != 24 {
+        return None;
+    }
+    for (i, &c) in b.iter().enumerate() {
+        let ok = match i {
+            4 | 7 => c == b'-',
+            10 => c == b'T',
+            13 | 16 => c == b':',
+            19 => c == b'.',
+            23 => c == b'Z',
+            _ => c.is_ascii_digit(),
+        };
+        if !ok {
+            return None;
+        }
+    }
+    let num = |from: usize, to: usize| {
+        b[from..to]
+            .iter()
+            .fold(0i64, |n, &d| n * 10 + i64::from(d - b'0'))
+    };
+    let (year, month, day) = (num(0, 4), num(5, 7), num(8, 10));
+    let (hour, minute, second, ms) = (num(11, 13), num(14, 16), num(17, 19), num(20, 23));
+    if !DayComposer::is_month(month)
+        || !DayComposer::is_day(day)
+        || !TimeComposer::is_minute(minute)
+        || !TimeComposer::is_second(second)
+        || !(TimeComposer::is_hour(hour) || (hour == 24 && minute == 0 && second == 0 && ms == 0))
+    {
+        return None;
+    }
+    let days = make_day(year as f64, (month - 1) as f64, day as f64);
+    let time_ms = ((hour * 60 + minute) * 60 + second) as f64 * 1000.0 + ms as f64;
+    let date = days * 86_400_000.0 + time_ms;
+    if !date.is_finite() || date.abs() > 8.64e15 {
+        return None;
+    }
+    Some(date)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::date_parse;
+    use super::{date_parse, parse_components};
+
+    #[test]
+    fn the_iso_fast_path_agrees_with_the_full_parser() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let template = b"0000-00-00T00:00:00.000Z";
+        for _ in 0..200_000 {
+            let mut text = *template;
+            for (i, c) in text.iter_mut().enumerate() {
+                state ^= state << 13;
+                state ^= state >> 7;
+                state ^= state << 17;
+                if c.is_ascii_digit() {
+                    // Mostly the low digits that make valid fields, sometimes any digit.
+                    let range = if i < 4 || state.is_multiple_of(4) {
+                        10
+                    } else {
+                        3
+                    };
+                    *c = b'0' + (state >> 8) as u8 % range;
+                }
+            }
+            let text = std::str::from_utf8(&text).unwrap();
+            assert_eq!(date_parse(text), parse_components(text), "{text}");
+        }
+    }
 
     #[test]
     fn parses_common_forms() {

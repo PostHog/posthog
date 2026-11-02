@@ -130,7 +130,7 @@ impl AppMetricsAggregator {
                 row.insert_str("metric_name", JsValue::string(&m.metric_name));
                 row.insert_str("count", JsValue::Number(m.count));
                 OutputMessage {
-                    value: Some(json_stringify(&JsValue::Object(row)).into_bytes()),
+                    value: Some(json_stringify(&JsValue::Object(row)).into_bytes().into()),
                     key: None,
                     headers: Default::default(),
                 }

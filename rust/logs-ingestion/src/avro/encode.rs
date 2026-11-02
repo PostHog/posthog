@@ -1,5 +1,7 @@
 //! Container encoding laid out as avsc's `BlockEncoder` lays it out.
 
+use std::cell::RefCell;
+
 use rand::RngCore;
 
 use super::schema::Schema;
@@ -161,14 +163,28 @@ pub(crate) fn write_value(
         },
         Schema::Record(record) => match value {
             AvroValue::Record(fields) => {
-                for field in &record.fields {
+                // A decoded record holds the schema's fields in schema order, so each lookup
+                // first tries the same position. With unique names, a match there while every
+                // earlier position matched is also the first field of that name.
+                let mut aligned = record.field_index.len() == record.fields.len();
+                for (i, field) in record.fields.iter().enumerate() {
+                    let positional = match fields.get(i) {
+                        Some((name, v)) if aligned && name == &field.name => Some(v),
+                        _ => None,
+                    };
                     // A field the value lacks encodes as `undefined`, which a nullable union
                     // writes as null, as avsc does.
-                    let v = fields
-                        .iter()
-                        .find(|(name, _)| *name == field.name)
-                        .map(|(_, v)| v)
-                        .unwrap_or(&AvroValue::Null);
+                    let v = match positional {
+                        Some(v) => v,
+                        None => {
+                            aligned = false;
+                            fields
+                                .iter()
+                                .find(|(name, _)| *name == field.name)
+                                .map(|(_, v)| v)
+                                .unwrap_or(&AvroValue::Null)
+                        }
+                    };
                     write_value(out, &field.schema, v)?;
                 }
             }
@@ -178,11 +194,25 @@ pub(crate) fn write_value(
     Ok(())
 }
 
+thread_local! {
+    /// A zstd context is large to set up, so each thread keeps one at level 1.
+    static COMPRESSOR: RefCell<Option<zstd::bulk::Compressor<'static>>> = const { RefCell::new(None) };
+}
+
+fn zstd_compress(data: &[u8]) -> std::io::Result<Vec<u8>> {
+    COMPRESSOR.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let compressor = match slot.as_mut() {
+            Some(c) => c,
+            None => slot.insert(zstd::bulk::Compressor::new(1)?),
+        };
+        compressor.compress(data)
+    })
+}
+
 fn compress(codec: &str, data: &[u8]) -> Result<Vec<u8>, AvroError> {
     match codec {
-        "zstandard" => {
-            zstd::bulk::compress(data, 1).map_err(|_| AvroError::Decompression(codec.to_string()))
-        }
+        "zstandard" => zstd_compress(data).map_err(|_| AvroError::Decompression(codec.to_string())),
         "null" => Ok(data.to_vec()),
         other => Err(AvroError::UnknownCodec(other.to_string())),
     }
@@ -203,7 +233,7 @@ pub fn encode_container(
     out.extend_from_slice(&MAGIC);
     write_long(&mut out, 2);
     write_bytes(&mut out, b"avro.schema");
-    write_bytes(&mut out, schema.to_avsc_json().as_bytes());
+    write_bytes(&mut out, schema.avsc_json_str().as_bytes());
     write_bytes(&mut out, b"avro.codec");
     write_bytes(&mut out, codec.as_bytes());
     out.push(0);

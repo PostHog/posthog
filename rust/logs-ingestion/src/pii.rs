@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::avro::{AvroMap, AvroValue};
+use crate::avro::AvroValue;
 use crate::js::{json_stringify, JsValue};
 use crate::record::LogRecord;
 
@@ -126,38 +126,68 @@ pub fn combined_regex(patterns: impl IntoIterator<Item = &'static str>) -> Regex
         .expect("combined rule regex compiles")
 }
 
-static PII_COMBINED_RE: LazyLock<Regex> =
-    LazyLock::new(|| combined_regex(PII_RULES.iter().map(|r| r.pattern)));
+/// The rules as one multi-pattern regex with leftmost-first priority. It finds the same
+/// matches as `combined_regex`, whose `(p1)|(p2)|...` alternation has the same priority, and it
+/// reports the matching rule from the DFA, so no capture search runs.
+pub struct RuleRegex(regex_automata::meta::Regex);
+
+impl RuleRegex {
+    pub fn new(patterns: impl IntoIterator<Item = &'static str>) -> Self {
+        let translated: Vec<String> = patterns.into_iter().map(translate_re2).collect();
+        let regex = regex_automata::meta::Regex::builder()
+            .configure(
+                regex_automata::meta::Config::new()
+                    .nfa_size_limit(Some(64 << 20))
+                    .dfa_size_limit(Some(64 << 20))
+                    .hybrid_cache_capacity(64 << 20),
+            )
+            .build_many(&translated)
+            .expect("rule regex compiles");
+        Self(regex)
+    }
+
+    /// `(start, end, rule index)` of each match, left to right.
+    pub fn matches<'h>(
+        &'h self,
+        haystack: &'h str,
+    ) -> impl Iterator<Item = (usize, usize, usize)> + 'h {
+        self.0
+            .find_iter(haystack)
+            .map(|m| (m.start(), m.end(), m.pattern().as_usize()))
+    }
+}
+
+static PII_RULE_RE: LazyLock<RuleRegex> =
+    LazyLock::new(|| RuleRegex::new(PII_RULES.iter().map(|r| r.pattern)));
+
+/// Scrubs `input`. `None` means no rule matched, so the input stands.
+fn scrub_str(input: &str) -> (Option<String>, u64) {
+    let mut replacements = 0u64;
+    let mut out: Option<String> = None;
+    let mut copied_up_to = 0;
+    for (start, end, rule) in PII_RULE_RE.matches(input) {
+        if start == end {
+            continue;
+        }
+        replacements += 1;
+        let buf = out.get_or_insert_with(|| String::with_capacity(input.len()));
+        buf.push_str(&input[copied_up_to..start]);
+        buf.push_str(PII_RULES[rule].replacement);
+        copied_up_to = end;
+    }
+    if let Some(buf) = &mut out {
+        buf.push_str(&input[copied_up_to..]);
+    }
+    (out, replacements)
+}
 
 /// `scrubPlainStringWithStats`: one pass over the string. The count includes only matches
 /// that a rule group claims.
 ///
 /// The TypeScript skips an empty match, but no rule can match an empty string.
 pub fn scrub_plain_string_with_stats(input: &str) -> (String, u64) {
-    let mut replacements = 0u64;
-    let mut out: Option<String> = None;
-    let mut copied_up_to = 0;
-    for caps in PII_COMBINED_RE.captures_iter(input) {
-        let whole = caps.get(0).expect("group 0 is always set");
-        if whole.is_empty() {
-            continue;
-        }
-        let Some(rule) = (0..PII_RULES.len()).find(|&i| caps.get(i + 1).is_some()) else {
-            continue;
-        };
-        replacements += 1;
-        let buf = out.get_or_insert_with(|| String::with_capacity(input.len()));
-        buf.push_str(&input[copied_up_to..whole.start()]);
-        buf.push_str(PII_RULES[rule].replacement);
-        copied_up_to = whole.end();
-    }
-    match out {
-        None => (input.to_string(), replacements),
-        Some(mut buf) => {
-            buf.push_str(&input[copied_up_to..]);
-            (buf, replacements)
-        }
-    }
+    let (out, replacements) = scrub_str(input);
+    (out.unwrap_or_else(|| input.to_string()), replacements)
 }
 
 /// `scrubPlainString`.
@@ -173,31 +203,23 @@ pub fn scrub_log_record(record: &mut LogRecord) -> PiiScrubStats {
     let mut total = 0u64;
 
     if let Some(body) = record.body() {
-        let (output, n) = scrub_plain_string_with_stats(body);
+        let (output, n) = scrub_str(body);
         total += n;
-        if n > 0 {
+        if let Some(output) = output {
             record.set("body", AvroValue::String(output));
         }
     }
 
+    // Keys and their order do not change, so each value is replaced in place.
     if let Some(attributes) = record.attributes_mut() {
-        let mut changed = false;
-        let mut scrubbed = AvroMap::new();
-        for (key, value) in attributes.iter() {
-            let value = match value {
-                AvroValue::String(s) => {
-                    let (output, n) = scrub_plain_string_with_stats(s);
-                    total += n;
-                    changed |= n > 0;
-                    AvroValue::String(output)
+        for value in attributes.values_mut() {
+            if let AvroValue::String(s) = value {
+                let (output, n) = scrub_str(s);
+                total += n;
+                if let Some(output) = output {
+                    *s = output;
                 }
-                other => other.clone(),
-            };
-            // `define` keeps the key order, because the keys arrive in the map's own order.
-            scrubbed.define(key.to_string(), value);
-        }
-        if changed {
-            *attributes = scrubbed;
+            }
         }
     }
 
@@ -236,6 +258,70 @@ mod tests {
         assert!(non_ascii_members(r"\s").is_empty());
         let ascii_space = members(r"\s", 0..0x80);
         assert_eq!(ascii_space, [0x09, 0x0A, 0x0C, 0x0D, 0x20]);
+    }
+
+    /// `RuleRegex` must find what the `(p1)|(p2)|...` alternation finds, with the same rule.
+    #[test]
+    fn rule_regex_matches_the_alternation() {
+        const PARTS: &[&str] = &[
+            "2025-01-15T12:00:00.123Z",
+            "I0115 12:00:00.5",
+            "Mon Jan  5 12:00:00 UTC 2025",
+            "a.b+c@example.io",
+            "usr_AbC123",
+            "cus_ABcdefghijklmn",
+            "_1234_5",
+            "_3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "ip-10-0-0-1.internal",
+            "0xBEEF",
+            "192.168.1.20",
+            "deadbeefcafe",
+            "Bearer a.b~c==",
+            "bearer \u{212A}x",
+            "sk_live_ABCDEFGHIJKLMNOPQRSTUV",
+            "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "xoxb-1234567890-a",
+            "AKIAABCDEFGHIJKLMNOP",
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.s",
+            "é",
+            "_",
+            "-",
+            ".",
+            " ",
+            "x",
+            "12",
+        ];
+        let rule_sets: [&[&str]; 2] = [
+            &PII_RULES.map(|r| r.pattern),
+            &crate::pattern::MASK_RULES.map(|r| r.pattern),
+        ];
+        for patterns in rule_sets {
+            let alternation = combined_regex(patterns.iter().copied());
+            let rules = RuleRegex::new(patterns.iter().copied());
+            let mut state = 0x9e37_79b9_7f4a_7c15u64;
+            for _ in 0..20_000 {
+                let mut input = String::new();
+                for _ in 0..state % 8 {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    input.push_str(PARTS[(state % PARTS.len() as u64) as usize]);
+                }
+                let expected: Vec<_> = alternation
+                    .captures_iter(&input)
+                    .map(|c| {
+                        let whole = c.get(0).unwrap();
+                        let rule = (0..patterns.len()).find(|&i| c.get(i + 1).is_some());
+                        (whole.start(), whole.end(), rule.unwrap())
+                    })
+                    .collect();
+                assert_eq!(
+                    rules.matches(&input).collect::<Vec<_>>(),
+                    expected,
+                    "{input:?}"
+                );
+            }
+        }
     }
 
     /// Node gives `X` for `'bearer \u212Aabc'`, `'éX Xé'` for `\bab\b` on `'éab abé'`, and keeps

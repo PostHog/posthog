@@ -76,7 +76,7 @@ fn schema_and_codec(buffer: &[u8]) -> Option<(JsValue, String)> {
 
 fn canonical_value(
     output: &str,
-    value: Option<&Vec<u8>>,
+    value: Option<&[u8]>,
     inputs: &[(Vec<u8>, usize, usize)],
 ) -> JsValue {
     let Some(value) = value else {
@@ -221,7 +221,7 @@ async fn run_scenario(
     for (b, batch) in batches.iter().enumerate() {
         for (i, m) in batch.iter().enumerate() {
             if let Some(v) = &m.value {
-                inputs.push((v.clone(), b, i));
+                inputs.push((v.to_vec(), b, i));
             }
         }
     }
@@ -287,7 +287,7 @@ async fn run_scenario(
             ("headers", JsValue::Object(h)),
             (
                 "value",
-                canonical_value(&c.output, c.message.value.as_ref(), &inputs),
+                canonical_value(&c.output, c.message.value.as_deref(), &inputs),
             ),
         ])
     });

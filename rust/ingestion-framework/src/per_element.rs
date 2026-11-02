@@ -1,9 +1,31 @@
 //! Port of `per-element-step.ts`.
 
+use std::future::Future;
 use std::sync::{Arc, Mutex};
+
+use futures::stream::{FuturesOrdered, StreamExt};
 
 use crate::steps::{ChunkProcessingStep, ProcessingStep};
 use crate::sync::FifoLimiter;
+
+/// `futures::future::join_all`, with the output sized up front. Above `JOIN_ALL_SMALL` futures,
+/// `join_all` collects a `FuturesOrdered` one push at a time, and a chunk of large results then
+/// copies itself on every growth. This polls the same `FuturesOrdered` in the same order.
+async fn join_all_presized<F: Future>(runs: Vec<F>) -> Vec<F::Output> {
+    if runs.len() <= JOIN_ALL_SMALL {
+        return futures::future::join_all(runs).await;
+    }
+    let mut results = Vec::with_capacity(runs.len());
+    let mut ordered: FuturesOrdered<F> = runs.into_iter().collect();
+    while let Some(result) = ordered.next().await {
+        results.push(result);
+    }
+    results
+}
+
+/// `futures_util::future::join_all::SMALL`: the largest input `join_all` polls without a
+/// `FuturesOrdered`.
+const JOIN_ALL_SMALL: usize = 30;
 
 /// Runs a single-item step over every value of a chunk, as one chunk step. The framework
 /// instruments a chunk step once per chunk, and an element step once per element. For a
@@ -59,7 +81,7 @@ where
             })
             .collect();
         async move {
-            let results = futures::future::join_all(runs).await;
+            let results = join_all_presized(runs).await;
             if let Some(error) = first_error.lock().unwrap().take() {
                 return Err(error);
             }

@@ -335,7 +335,7 @@ async fn pipelines_are_organized_into_preprocessing_and_processing_phases() {
             .build();
 
     let mut message = test_message(None);
-    message.value = Some(br#"{"teamId":42,"eventName":"pageview"}"#.to_vec());
+    message.value = Some(br#"{"teamId":42,"eventName":"pageview"}"#.to_vec().into());
     pipeline.feed(vec![create_ok_context(message.clone(), MsgCtx { message })]);
     let results = pipeline.next().await.unwrap().unwrap();
     assert_eq!(

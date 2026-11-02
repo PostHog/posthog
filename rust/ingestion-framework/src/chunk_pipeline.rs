@@ -91,7 +91,7 @@ where
     }
 
     let mut slots: Vec<Slot<U, C>> = Vec::with_capacity(items.len());
-    let mut values: Vec<T> = Vec::new();
+    let mut values: Vec<T> = Vec::with_capacity(items.len());
     for item in items {
         match item.result {
             Outcome::NonOk(non_ok) => slots.push(Slot::Done(ResultWithContext {
@@ -327,7 +327,7 @@ impl<I: Send + 'static, O: Send + 'static, C: Send + 'static> ChunkPipelineUnwra
         let Some(results) = self.pipeline.next().await? else {
             return Ok(None);
         };
-        let mut values = Vec::new();
+        let mut values = Vec::with_capacity(results.len());
         let mut side_effects = 0;
         for result in results {
             side_effects += result.context.side_effects.len();

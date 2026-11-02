@@ -7,16 +7,14 @@
 //! `'x�'`. Thus every masked string is valid UTF-8, and this port masks the lossy UTF-8 form
 //! of its input. Lengths agree, because U+FFFD and a lone surrogate are both one UTF-16 unit.
 
-use std::collections::HashSet;
+use std::borrow::Cow;
 use std::sync::LazyLock;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
-use regex::Regex;
 
-use crate::body_parse::{parse_log_body_for_ingestion, LogBodyParseResult};
-use crate::js::{utf16_len, utf16_slice_lossy, JsValue};
-use crate::pii::combined_regex;
+use crate::js::{json_parse_shape, utf16_len, utf16_slice_lossy, JsString, JsonShape};
+use crate::pii::RuleRegex;
 use crate::record::LogRecord;
 
 pub const PATTERN_VERSION: i64 = 6;
@@ -171,8 +169,8 @@ pub const MASK_RULES: [MaskRule; 22] = [
     },
 ];
 
-static MASK_COMBINED_RE: LazyLock<Regex> =
-    LazyLock::new(|| combined_regex(MASK_RULES.iter().map(|r| r.pattern)));
+static MASK_RULE_RE: LazyLock<RuleRegex> =
+    LazyLock::new(|| RuleRegex::new(MASK_RULES.iter().map(|r| r.pattern)));
 
 /// `zeroRuleFires`: one counter per entry of `MASK_RULES`.
 pub type RuleFires = [u64; MASK_RULES.len()];
@@ -181,18 +179,11 @@ pub type RuleFires = [u64; MASK_RULES.len()];
 fn mask_into(input: &str, rule_fires: &mut RuleFires) -> String {
     let mut out = String::with_capacity(input.len());
     let mut copied_up_to = 0;
-    for caps in MASK_COMBINED_RE.captures_iter(input) {
-        let whole = caps.get(0).expect("group 0 is always set");
-        let replacement = match (0..MASK_RULES.len()).find(|&i| caps.get(i + 1).is_some()) {
-            Some(i) => {
-                rule_fires[i] += 1;
-                MASK_RULES[i].replacement
-            }
-            None => whole.as_str(),
-        };
-        out.push_str(&input[copied_up_to..whole.start()]);
-        out.push_str(replacement);
-        copied_up_to = whole.end();
+    for (start, end, rule) in MASK_RULE_RE.matches(input) {
+        rule_fires[rule] += 1;
+        out.push_str(&input[copied_up_to..start]);
+        out.push_str(MASK_RULES[rule].replacement);
+        copied_up_to = end;
     }
     out.push_str(&input[copied_up_to..]);
     out
@@ -263,18 +254,6 @@ pub enum PatternInputSelection {
     },
 }
 
-/// `extractJsonMessage`. A key lookup in JavaScript also reads `Object.prototype`, but no
-/// inherited property there is a string, so an own-property lookup gives the same answer.
-fn extract_json_message(value: &JsValue, message_keys: &[&str]) -> Option<String> {
-    let JsValue::Object(object) = value else {
-        return None;
-    };
-    message_keys.iter().find_map(|key| match object.get(key) {
-        Some(JsValue::String(s)) => Some(s.to_utf8_lossy().into_owned()),
-        _ => None,
-    })
-}
-
 fn cap_output(pattern: &str) -> String {
     if utf16_len(pattern) > PATTERN_CAPS.max_output_chars {
         utf16_slice_lossy(pattern, 0, PATTERN_CAPS.max_output_chars)
@@ -283,18 +262,23 @@ fn cap_output(pattern: &str) -> String {
     }
 }
 
-/// `jsonKeySetPattern`: masks each key, dedupes in insertion order, then sorts by UTF-16 units.
+fn utf16_order(a: &str, b: &str) -> std::cmp::Ordering {
+    if a.is_ascii() && b.is_ascii() {
+        a.cmp(b)
+    } else {
+        a.encode_utf16().cmp(b.encode_utf16())
+    }
+}
+
+/// `jsonKeySetPattern`: masks each key, dedupes, then sorts by UTF-16 units. Sorting first and
+/// then dropping repeats gives the same list as the TypeScript's dedupe in insertion order.
 fn json_key_set_pattern(raw_keys: impl Iterator<Item = String>) -> (String, RuleFires) {
     let mut rule_fires = [0; MASK_RULES.len()];
-    let mut seen = HashSet::new();
-    let mut keys = Vec::new();
-    for key in raw_keys {
-        let masked = mask_into(&key, &mut rule_fires);
-        if seen.insert(masked.clone()) {
-            keys.push(masked);
-        }
-    }
-    keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    let mut keys: Vec<String> = raw_keys
+        .map(|key| mask_into(&key, &mut rule_fires))
+        .collect();
+    keys.sort_by(|a, b| utf16_order(a, b));
+    keys.dedup();
     let kept = keys.len().min(KEY_SET_MAX_KEYS);
     let overflow = keys.len() - kept;
     let mut pattern = format!("<JSON:{}", keys[..kept].join(","));
@@ -320,56 +304,59 @@ pub fn select_pattern_input(body: Option<&str>, message_keys: &[&str]) -> Patter
     let input_capped = utf16_len(body) > PATTERN_CAPS.max_input_chars;
     // A cut through a surrogate pair leaves a lone high surrogate at the end. That text is
     // never valid JSON, and the mask writes it as U+FFFD, so the lossy slice gives the same result.
-    let capped_body = if input_capped {
-        utf16_slice_lossy(body, 0, PATTERN_CAPS.max_input_chars)
+    let capped_body: Cow<'_, str> = if input_capped {
+        Cow::Owned(utf16_slice_lossy(body, 0, PATTERN_CAPS.max_input_chars))
     } else {
-        body.to_string()
+        Cow::Borrowed(body)
     };
-    let parsed = parse_log_body_for_ingestion(Some(&capped_body));
-    let body_kind = match &parsed {
-        LogBodyParseResult::Empty => PatternBodyKind::Empty,
-        LogBodyParseResult::InvalidJson { .. } => PatternBodyKind::Plaintext,
-        LogBodyParseResult::JsonObjectOrArray { .. } => PatternBodyKind::JsonObjectOrArray,
-        LogBodyParseResult::JsonString { .. } => PatternBodyKind::JsonString,
-        LogBodyParseResult::JsonPrimitive { .. } => PatternBodyKind::Primitive,
-    };
-    let mask = |input: String| PatternInputSelection::Mask {
+    // `parseLogBodyForIngestion`, reading only what the selection needs.
+    let shape = json_parse_shape(&capped_body, |key| message_keys.iter().any(|m| *key == *m));
+    let mask = |input: String, body_kind| PatternInputSelection::Mask {
         input,
         body_kind,
         input_capped,
     };
 
-    match parsed {
-        LogBodyParseResult::Empty => mask(String::new()),
-        LogBodyParseResult::JsonObjectOrArray { value } => {
-            match extract_json_message(&value, message_keys) {
-                Some(message) => mask(message),
-                None => match &value {
-                    JsValue::Object(object) => {
-                        let (pattern, rule_fires) = json_key_set_pattern(
-                            object.keys().map(|k| k.to_utf8_lossy().into_owned()),
-                        );
-                        PatternInputSelection::Pattern {
-                            pattern,
-                            body_kind,
-                            input_capped,
-                            rule_fires,
-                            json_key_count: Some(object.len()),
-                        }
-                    }
-                    _ => PatternInputSelection::Pattern {
-                        pattern: JSON_ARRAY.to_string(),
-                        body_kind,
-                        input_capped,
-                        rule_fires: [0; MASK_RULES.len()],
-                        json_key_count: None,
-                    },
-                },
+    match shape {
+        Err(_) => mask(capped_body.into_owned(), PatternBodyKind::Plaintext),
+        Ok(JsonShape::Primitive) => mask(capped_body.into_owned(), PatternBodyKind::Primitive),
+        Ok(JsonShape::String(value)) => mask(
+            value.to_utf8_lossy().into_owned(),
+            PatternBodyKind::JsonString,
+        ),
+        Ok(JsonShape::Array) => PatternInputSelection::Pattern {
+            pattern: JSON_ARRAY.to_string(),
+            body_kind: PatternBodyKind::JsonObjectOrArray,
+            input_capped,
+            rule_fires: [0; MASK_RULES.len()],
+            json_key_count: None,
+        },
+        Ok(JsonShape::Object(entries)) => {
+            // `extractJsonMessage`: the first message key whose value is a string. A repeated
+            // key holds its last value. A key lookup in JavaScript also reads
+            // `Object.prototype`, but no inherited property there is a string.
+            let message = message_keys.iter().find_map(|key| {
+                match entries.iter().rev().find(|(k, _)| *k == **key) {
+                    Some((_, Some(value))) => Some(value.to_utf8_lossy().into_owned()),
+                    _ => None,
+                }
+            });
+            if let Some(message) = message {
+                return mask(message, PatternBodyKind::JsonObjectOrArray);
+            }
+            let mut keys: Vec<&JsString> = entries.iter().map(|(k, _)| k).collect();
+            keys.sort_unstable_by(|a, b| a.bytes_wtf8().cmp(b.bytes_wtf8()));
+            keys.dedup();
+            let (pattern, rule_fires) =
+                json_key_set_pattern(keys.iter().map(|k| k.to_utf8_lossy().into_owned()));
+            PatternInputSelection::Pattern {
+                pattern,
+                body_kind: PatternBodyKind::JsonObjectOrArray,
+                input_capped,
+                rule_fires,
+                json_key_count: Some(keys.len()),
             }
         }
-        LogBodyParseResult::JsonString { value } => mask(value.to_utf8_lossy().into_owned()),
-        LogBodyParseResult::JsonPrimitive { .. } => mask(capped_body),
-        LogBodyParseResult::InvalidJson { raw } => mask(raw),
     }
 }
 

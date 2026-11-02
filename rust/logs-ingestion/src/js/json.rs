@@ -2,8 +2,8 @@
 
 use thiserror::Error;
 
-use super::number::number_to_string;
-use super::{JsObject, JsString, JsValue};
+use super::number::write_number;
+use super::{JsKey, JsObject, JsString, JsValue};
 
 /// `JSON.parse` threw. The message is not part of any output, so it stays short.
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -25,6 +25,48 @@ pub fn json_parse(text: &str) -> Result<JsValue, JsonError> {
         return Err(JsonError(parser.pos));
     }
     Ok(value)
+}
+
+/// The parts of a `JSON.parse` result that pattern selection reads, found without building it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsonShape {
+    /// The top-level keys in source order, repeats included. A string value is kept for each
+    /// key the caller asked for, and `None` stands for any other value.
+    Object(Vec<(JsString, Option<JsString>)>),
+    Array,
+    String(JsString),
+    /// A number, a boolean or null.
+    Primitive,
+}
+
+/// Accepts exactly the text `json_parse` accepts, and reports its shape.
+pub fn json_parse_shape(
+    text: &str,
+    keep_value: impl Fn(&JsString) -> bool,
+) -> Result<JsonShape, JsonError> {
+    let mut parser = Parser {
+        bytes: text.as_bytes(),
+        text,
+        pos: 0,
+    };
+    parser.skip_ws();
+    let shape = match parser.bytes.get(parser.pos) {
+        Some(b'{') => JsonShape::Object(parser.object_entries(keep_value)?),
+        Some(b'[') => {
+            parser.skip_value()?;
+            JsonShape::Array
+        }
+        Some(b'"') => JsonShape::String(parser.string()?),
+        _ => {
+            parser.skip_value()?;
+            JsonShape::Primitive
+        }
+    };
+    parser.skip_ws();
+    if parser.pos != parser.bytes.len() {
+        return Err(JsonError(parser.pos));
+    }
+    Ok(shape)
 }
 
 struct Parser<'a> {
@@ -129,6 +171,146 @@ impl Parser<'_> {
         }
     }
 
+    /// `object` for the top level of `json_parse_shape`.
+    fn object_entries(
+        &mut self,
+        keep_value: impl Fn(&JsString) -> bool,
+    ) -> Result<Vec<(JsString, Option<JsString>)>, JsonError> {
+        self.pos += 1;
+        let mut entries = Vec::new();
+        self.skip_ws();
+        if self.bytes.get(self.pos) == Some(&b'}') {
+            self.pos += 1;
+            return Ok(entries);
+        }
+        loop {
+            self.skip_ws();
+            if self.bytes.get(self.pos) != Some(&b'"') {
+                return self.err();
+            }
+            let key = self.string()?;
+            self.skip_ws();
+            if self.bytes.get(self.pos) != Some(&b':') {
+                return self.err();
+            }
+            self.pos += 1;
+            self.skip_ws();
+            let value = if self.bytes.get(self.pos) == Some(&b'"') && keep_value(&key) {
+                Some(self.string()?)
+            } else {
+                self.skip_value()?;
+                None
+            };
+            entries.push((key, value));
+            self.skip_ws();
+            match self.bytes.get(self.pos) {
+                Some(b',') => self.pos += 1,
+                Some(b'}') => {
+                    self.pos += 1;
+                    return Ok(entries);
+                }
+                _ => return self.err(),
+            }
+        }
+    }
+
+    /// `value` without building anything: the same grammar, the same errors.
+    fn skip_value(&mut self) -> Result<(), JsonError> {
+        match self.bytes.get(self.pos) {
+            Some(b'{') => {
+                self.pos += 1;
+                self.skip_ws();
+                if self.bytes.get(self.pos) == Some(&b'}') {
+                    self.pos += 1;
+                    return Ok(());
+                }
+                loop {
+                    self.skip_ws();
+                    if self.bytes.get(self.pos) != Some(&b'"') {
+                        return self.err();
+                    }
+                    self.skip_string()?;
+                    self.skip_ws();
+                    if self.bytes.get(self.pos) != Some(&b':') {
+                        return self.err();
+                    }
+                    self.pos += 1;
+                    self.skip_ws();
+                    self.skip_value()?;
+                    self.skip_ws();
+                    match self.bytes.get(self.pos) {
+                        Some(b',') => self.pos += 1,
+                        Some(b'}') => {
+                            self.pos += 1;
+                            return Ok(());
+                        }
+                        _ => return self.err(),
+                    }
+                }
+            }
+            Some(b'[') => {
+                self.pos += 1;
+                self.skip_ws();
+                if self.bytes.get(self.pos) == Some(&b']') {
+                    self.pos += 1;
+                    return Ok(());
+                }
+                loop {
+                    self.skip_ws();
+                    self.skip_value()?;
+                    self.skip_ws();
+                    match self.bytes.get(self.pos) {
+                        Some(b',') => self.pos += 1,
+                        Some(b']') => {
+                            self.pos += 1;
+                            return Ok(());
+                        }
+                        _ => return self.err(),
+                    }
+                }
+            }
+            Some(b'"') => self.skip_string(),
+            Some(b't') => self.eat("true"),
+            Some(b'f') => self.eat("false"),
+            Some(b'n') => self.eat("null"),
+            // Every number the grammar accepts parses to a double, so only the grammar is checked.
+            Some(b'-' | b'0'..=b'9') => self.scan_number().map(|_| ()),
+            _ => self.err(),
+        }
+    }
+
+    /// `string` without building the string.
+    fn skip_string(&mut self) -> Result<(), JsonError> {
+        self.pos += 1;
+        loop {
+            while let Some(&b) = self.bytes.get(self.pos) {
+                if b == b'"' || b == b'\\' || b < 0x20 {
+                    break;
+                }
+                self.pos += 1;
+            }
+            match self.bytes.get(self.pos) {
+                Some(b'"') => {
+                    self.pos += 1;
+                    return Ok(());
+                }
+                Some(b'\\') => {
+                    self.pos += 1;
+                    let escape = *self.bytes.get(self.pos).ok_or(JsonError(self.pos))?;
+                    self.pos += 1;
+                    match escape {
+                        b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't' => {}
+                        b'u' => {
+                            self.hex4()?;
+                        }
+                        _ => return self.err(),
+                    }
+                }
+                _ => return self.err(),
+            }
+        }
+    }
+
     fn digits(&mut self) -> usize {
         let start = self.pos;
         while matches!(self.bytes.get(self.pos), Some(b'0'..=b'9')) {
@@ -137,7 +319,8 @@ impl Parser<'_> {
         self.pos - start
     }
 
-    fn number(&mut self) -> Result<JsValue, JsonError> {
+    /// Moves past a number in JSON grammar and returns where it starts.
+    fn scan_number(&mut self) -> Result<usize, JsonError> {
         let start = self.pos;
         if self.bytes[self.pos] == b'-' {
             self.pos += 1;
@@ -164,6 +347,11 @@ impl Parser<'_> {
                 return self.err();
             }
         }
+        Ok(start)
+    }
+
+    fn number(&mut self) -> Result<JsValue, JsonError> {
+        let start = self.scan_number()?;
         // Rust parses decimal strings to the nearest f64, as V8 does.
         let n: f64 = self.text[start..self.pos]
             .parse()
@@ -241,7 +429,7 @@ pub fn json_stringify_into(value: &JsValue, out: &mut String) {
         JsValue::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         JsValue::Number(n) => {
             if n.is_finite() {
-                out.push_str(&number_to_string(*n))
+                write_number(*n, out)
             } else {
                 out.push_str("null")
             }
@@ -259,11 +447,18 @@ pub fn json_stringify_into(value: &JsValue, out: &mut String) {
         }
         JsValue::Object(object) => {
             out.push('{');
-            for (i, (key, item)) in object.iter().enumerate() {
+            for (i, (key, item)) in object.entries().enumerate() {
                 if i > 0 {
                     out.push(',');
                 }
-                quote_js_string(&key, out);
+                match key {
+                    JsKey::Index(n) => {
+                        out.push('"');
+                        out.push_str(itoa::Buffer::new().format(n));
+                        out.push('"');
+                    }
+                    JsKey::Named(key) => quote_js_string(key, out),
+                }
                 out.push(':');
                 json_stringify_into(item, out);
             }

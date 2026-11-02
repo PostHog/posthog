@@ -74,6 +74,15 @@ impl JsString {
     }
 
     pub fn push_js(&mut self, other: &JsString) {
+        // A join can happen only at the seam, so the bytes copy unless the seam joins.
+        if !other.has_surrogates
+            || !other.starts_with_low_surrogate()
+            || self.trailing_high_surrogate().is_none()
+        {
+            self.bytes.extend_from_slice(&other.bytes);
+            self.has_surrogates |= other.has_surrogates;
+            return;
+        }
         for unit in other.chars_or_surrogates() {
             match unit {
                 CharOrSurrogate::Char(c) => self.push(c),
@@ -115,6 +124,20 @@ impl JsString {
         } else {
             None
         }
+    }
+
+    fn starts_with_low_surrogate(&self) -> bool {
+        matches!(self.bytes.as_slice(), [0xED, 0xB0..=0xBF, ..])
+    }
+
+    /// Cuts back to an earlier length, given the surrogate flag the string had at that length.
+    pub(crate) fn truncate_to(&mut self, len: usize, has_surrogates: bool) {
+        self.bytes.truncate(len);
+        self.has_surrogates = has_surrogates;
+    }
+
+    pub(crate) fn has_lone_surrogates(&self) -> bool {
+        self.has_surrogates
     }
 
     fn scan_surrogates(&self) -> bool {

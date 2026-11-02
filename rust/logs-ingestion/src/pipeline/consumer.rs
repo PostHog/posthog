@@ -162,10 +162,15 @@ impl LogsIngestionConsumer {
         .await?;
         report_dropped_usage(&usage);
 
-        let (mut billed, internal): (Vec<_>, Vec<_>) = admitted
-            .into_iter()
-            .map(|a| a.message)
-            .partition(|m| !is_unbilled_internal(m));
+        let mut billed = Vec::with_capacity(admitted.len());
+        let mut internal = Vec::new();
+        for message in admitted.into_iter().map(|a| a.message) {
+            if is_unbilled_internal(&message) {
+                internal.push(message);
+            } else {
+                billed.push(message);
+            }
+        }
         let context = self.context.clone();
         let task_billed = billed.clone();
         let task_internal = internal.clone();

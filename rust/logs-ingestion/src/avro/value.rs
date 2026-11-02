@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
+use hashbrown::HashTable;
+
 use crate::js::is_array_index;
+use crate::js::object::hash_str;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AvroValue {
@@ -60,10 +63,21 @@ impl AvroValue {
 /// An Avro map as the plain JavaScript object avsc builds with `obj[key] = value`:
 /// array-index keys first in numeric order, other keys in insertion order, a repeated key keeps
 /// its first position and takes the last value, and a `__proto__` key is not an own property.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct AvroMap {
     indexed: Vec<(u32, String, AvroValue)>,
     named: Vec<(String, AvroValue)>,
+    /// Positions in `named`, built only for large maps, where a linear key search would be
+    /// quadratic.
+    named_index: Option<HashTable<usize>>,
+}
+
+const INDEX_THRESHOLD: usize = 16;
+
+impl PartialEq for AvroMap {
+    fn eq(&self, other: &Self) -> bool {
+        self.indexed == other.indexed && self.named == other.named
+    }
 }
 
 impl AvroMap {
@@ -90,11 +104,35 @@ impl AvroMap {
             }
             return;
         }
-        if let Some(entry) = self.named.iter_mut().find(|(k, _)| *k == key) {
-            entry.1 = value;
+        if let Some(i) = self.named_position(&key) {
+            self.named[i].1 = value;
             return;
         }
+        if let Some(index) = &mut self.named_index {
+            let named = &self.named;
+            index.insert_unique(hash_str(&key), named.len(), |&j| hash_str(&named[j].0));
+        }
         self.named.push((key, value));
+        if self.named_index.is_none() && self.named.len() > INDEX_THRESHOLD {
+            self.build_index();
+        }
+    }
+
+    fn named_position(&self, key: &str) -> Option<usize> {
+        match &self.named_index {
+            Some(index) => index
+                .find(hash_str(key), |&i| self.named[i].0 == key)
+                .copied(),
+            None => self.named.iter().position(|(k, _)| k == key),
+        }
+    }
+
+    fn build_index(&mut self) {
+        let mut index = HashTable::with_capacity(self.named.len());
+        for (i, (k, _)) in self.named.iter().enumerate() {
+            index.insert_unique(hash_str(k), i, |&j| hash_str(&self.named[j].0));
+        }
+        self.named_index = Some(index);
     }
 
     pub fn get(&self, key: &str) -> Option<&AvroValue> {
@@ -105,7 +143,7 @@ impl AvroMap {
                 .ok()
                 .map(|i| &self.indexed[i].2);
         }
-        self.named.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+        self.named_position(key).map(|i| &self.named[i].1)
     }
 
     pub fn contains_key(&self, key: &str) -> bool {
@@ -117,8 +155,12 @@ impl AvroMap {
             let i = self.indexed.binary_search_by_key(&n, |(k, _, _)| *k).ok()?;
             return Some(self.indexed.remove(i).2);
         }
-        let i = self.named.iter().position(|(k, _)| k == key)?;
-        Some(self.named.remove(i).1)
+        let i = self.named_position(key)?;
+        let (_, value) = self.named.remove(i);
+        if self.named_index.is_some() {
+            self.build_index();
+        }
+        Some(value)
     }
 
     pub fn len(&self) -> usize {
@@ -135,6 +177,22 @@ impl AvroMap {
             .iter()
             .map(|(_, k, v)| (k.as_str(), v))
             .chain(self.named.iter().map(|(k, v)| (k.as_str(), v)))
+    }
+
+    /// Owned entries in own-property order.
+    pub fn into_entries(self) -> impl Iterator<Item = (String, AvroValue)> {
+        self.indexed
+            .into_iter()
+            .map(|(_, k, v)| (k, v))
+            .chain(self.named)
+    }
+
+    /// Values in own-property order, for edits that keep every key.
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut AvroValue> + '_ {
+        self.indexed
+            .iter_mut()
+            .map(|(_, _, v)| v)
+            .chain(self.named.iter_mut().map(|(_, v)| v))
     }
 
     /// String values, which is what the log schemas' maps hold.

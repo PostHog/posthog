@@ -46,6 +46,7 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
   - `insert(JsString, JsValue)` and `insert_str` are `obj[k] = v` for a data property. A repeated key keeps its position.
   - It also has `get`, `contains_key` (`Object.hasOwn`), `remove` (`delete`), `iter`, `keys` and `len`.
   - Equality includes key order.
+  - `entries` lists the keys as `JsKey` (an index or a named key) without allocating them.
 - `JsString`: a JavaScript string. It is WTF-8, so it can hold a lone surrogate.
   - `as_str()` gives `Some(&str)` when there is no lone surrogate.
   - `to_utf8_lossy()` gives the bytes `Buffer.from` writes: U+FFFD for each lone surrogate.
@@ -55,7 +56,8 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
   - `utf8_byte_len()` is `Buffer.byteLength`.
 - `json_parse(&str) -> Result<JsValue, JsonError>` is `JSON.parse`. The error text is not part of any output.
 - `json_stringify(&JsValue) -> String` is `JSON.stringify`. `quote_js_string` quotes one string.
-- `number_to_string(f64)` is `String(n)`.
+- `json_parse_shape(&str, keep_value)` accepts exactly what `json_parse` accepts, but only reports the top-level kind, the top-level keys, and the string values of the keys that `keep_value` names. Pattern selection uses it, so it builds no tree.
+- `number_to_string(f64)` is `String(n)`. `write_number` appends the same text to a buffer.
 - `utf16_len(&str)` is `str.length`.
 - `utf16_slice_lossy(&str, start, end) -> String` slices and writes a split pair as U+FFFD. Use it only where the slice goes straight to bytes.
 - `date_parse(&str) -> Option<f64>` is `Date.parse` in epoch milliseconds. `None` is NaN.
@@ -71,11 +73,13 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
   - The header schema is `Schema::to_avsc_json()`.
   - The sync marker is random, so the bytes never match Node's. Compare decoded records.
 - `Schema::parse_json(&str)` and `Schema::to_avsc_json()`.
+  - `decode_container` parses the header schema through `Schema::parse_json_cached`, a process-wide cache keyed by the exact schema text.
+  - A record schema computes its `to_avsc_json` text once.
 - `AvroValue` covers `Null`, `Boolean`, `Int(i64)`, `Long(i64)`, `Float(f64)`, `Double(f64)`, `Bytes`, `String`, `Record(Vec<(Arc<str>, AvroValue)>)`, `Enum`, `Fixed`, `Array` and `Map(AvroMap)`. Unions are unwrapped: the value carries its own branch.
 - `AvroMap` is a map with plain-object semantics.
   - `assign` is `obj[k] = v`, and drops `__proto__`.
   - `define` defines an own property, as spread does.
-  - It also has `get`, `contains_key`, `remove`, `iter`, `iter_strings` and `len`.
+  - It also has `get`, `contains_key`, `remove`, `iter`, `iter_strings`, `values_mut`, `into_entries` and `len`.
 
 ### `record`
 

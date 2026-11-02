@@ -2,17 +2,18 @@
 
 use std::collections::HashMap;
 
+/// Label keys come from log content, so the hash is seeded per process.
 #[derive(Debug, Clone)]
 pub struct InsertionMap<V> {
     entries: Vec<(String, V)>,
-    index: HashMap<String, usize>,
+    index: HashMap<String, usize, ahash::RandomState>,
 }
 
 impl<V> Default for InsertionMap<V> {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
-            index: HashMap::new(),
+            index: HashMap::default(),
         }
     }
 }

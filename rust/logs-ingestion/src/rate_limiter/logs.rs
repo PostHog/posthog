@@ -145,7 +145,10 @@ impl LogsRateLimiter {
 
     fn timestamp_from_message<M: RateLimitedMessage>(&self, message: &M) -> f64 {
         if let Some(raw) = message.created_at_header() {
-            let text = String::from_utf8_lossy(raw);
+            let text = match std::str::from_utf8(raw) {
+                Ok(text) => std::borrow::Cow::Borrowed(text),
+                Err(_) => String::from_utf8_lossy(raw),
+            };
             if !text.is_empty() {
                 if let Some(ms) = date_parse(&text) {
                     return js_math_round(ms / 1000.0);
