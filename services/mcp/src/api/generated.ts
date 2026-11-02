@@ -119629,6 +119629,114 @@ export namespace Schemas {
       force_refresh?: boolean;
     }
 
+    /**
+     * * `ok` - OK
+     * * `needs_approval` - Needs approval
+     */
+    export type T3CodeCallStatusEnum = typeof T3CodeCallStatusEnum[keyof typeof T3CodeCallStatusEnum];
+
+
+    export const T3CodeCallStatusEnum = {
+      Ok: 'ok',
+      NeedsApproval: 'needs_approval',
+    } as const;
+
+    export interface T3CodeError {
+      /** What went wrong and what to do about it. */
+      detail: string;
+    }
+
+    export interface T3CodeMachine {
+      /** The host of the T3 Code environment's MCP URL. Pass it as `machine`. */
+      host: string;
+      /** The name the member gave the connection in MCP servers settings. */
+      name: string;
+    }
+
+    export interface T3CodeMachines {
+      /** The member's own T3 Code connections from MCP servers settings, and the team's shared ones. */
+      machines: T3CodeMachine[];
+    }
+
+    export interface T3CodeProject {
+      /** The T3 Code project id. */
+      id: string;
+      /** The project's name in T3 Code. */
+      title: string;
+      /** Whether the project has a default model. T3 Code creates tasks only in projects that have one. */
+      has_default_model: boolean;
+    }
+
+    export interface T3CodeProjects {
+      /** `needs_approval` when the member must allow this call first. Repeat it with `approval_token`.
+       *
+       * * `ok` - OK
+       * * `needs_approval` - Needs approval */
+      status: T3CodeCallStatusEnum;
+      /**
+         * Set with `needs_approval`. Send it back to make the call once.
+         * @nullable
+         */
+      approval_token: string | null;
+      /** Set with `ok`: one page of the machine's projects. */
+      projects?: T3CodeProject[];
+      /**
+         * Set with `ok`: send it as `cursor` to get the next page, or null when this is the last page.
+         * @nullable
+         */
+      next_cursor?: number | null;
+    }
+
+    export interface T3CodeProjectsRequest {
+      /**
+         * The host of one of the member's T3 Code machines.
+         * @maxLength 253
+         */
+      machine: string;
+      /** The token from a `needs_approval` answer. Send it once the member allowed the call. */
+      approval_token?: string;
+      /**
+         * The `next_cursor` from the previous page of projects. Leave it out for the first page.
+         * @minimum 0
+         */
+      cursor?: number;
+    }
+
+    export interface T3CodeWebhookTask {
+      /** `needs_approval` when the member must allow this call first. Repeat it with `approval_token`.
+       *
+       * * `ok` - OK
+       * * `needs_approval` - Needs approval */
+      status: T3CodeCallStatusEnum;
+      /**
+         * Set with `needs_approval`. Send it back to make the call once.
+         * @nullable
+         */
+      approval_token: string | null;
+      /** Set with `ok`: the task's webhook URL. Use it as the step's webhook URL. */
+      webhook_url?: string;
+    }
+
+    export interface T3CodeWebhookTaskRequest {
+      /**
+         * The host of one of the member's T3 Code machines.
+         * @maxLength 253
+         */
+      machine: string;
+      /** The token from a `needs_approval` answer. Send it once the member allowed the call. */
+      approval_token?: string;
+      /**
+         * The T3 Code project the task starts threads in.
+         * @maxLength 200
+         */
+      project_id: string;
+      /**
+         * The task's name in T3 Code.
+         * @maxLength 512
+         */
+      title: string;
+    }
+
     export interface TaggerUpdate {
       /** @maxLength 400 */
       name: string;

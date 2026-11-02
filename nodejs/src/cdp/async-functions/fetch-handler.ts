@@ -6,6 +6,11 @@ import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cycl
 
 import { registerAsyncFunction } from '../async-function-registry'
 
+const withWebhookId = (signing: Record<string, unknown>): Record<string, unknown> => ({
+    ...signing,
+    webhook_id: randomUUID(),
+})
+
 registerAsyncFunction('fetch', {
     execute: (args, _context, result) => {
         const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
@@ -41,13 +46,9 @@ registerAsyncFunction('fetch', {
             // dedupes on it) and it must not be shared with another fetch from the
             // same invocation, which anything derived from the invocation would be.
             ...(fetchOptions?.standard_webhooks
-                ? {
-                      standard_webhooks: {
-                          ...fetchOptions.standard_webhooks,
-                          webhook_id: randomUUID(),
-                      },
-                  }
+                ? { standard_webhooks: withWebhookId(fetchOptions.standard_webhooks) }
                 : {}),
+            ...(fetchOptions?.hmac_sha256 ? { hmac_sha256: withWebhookId(fetchOptions.hmac_sha256) } : {}),
         })
 
         result.invocation.queueParameters = fetchQueueParameters
