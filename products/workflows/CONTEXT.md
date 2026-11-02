@@ -109,7 +109,8 @@ A person's choice to stop one topic or all marketing messages, made on the **pre
 _Avoid_: Unsubscribe list (as a noun for the area)
 
 **Suppression list**:
-The email addresses PostHog never sends to, from bounces, complaints or manual adds.
+The email addresses PostHog stops sending to, from bounces, complaints or manual adds.
+Transactional email still reaches a suppressed address unless that address hard-bounced.
 A **suppressed address** is one entry.
 _Avoid_: Blocklist
 
