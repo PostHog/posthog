@@ -159,6 +159,20 @@ class TestEmailMetrics:
         }
 
 
+class TestUsage:
+    def test_yields_the_snapshot_object_as_one_row(self) -> None:
+        body = {
+            "object": "usage",
+            "emails": {"daily": {"used": 10, "limit": None}, "monthly": {"used": 100, "limit": 3000}},
+            "domains": {"used": 1, "limit": 1},
+            "rate_limit": {"limit": 1000, "duration": "1000ms"},
+        }
+        result = _driver().run("usage", [_page(body)])
+
+        assert result.rows == [body]
+        assert result.paths == ["/usage"]
+
+
 class TestRetryable:
     def test_401_does_not_retry_and_raises(self) -> None:
         result = _driver().run("audiences", [_page({"message": "unauthorized"}, status_code=401)])
