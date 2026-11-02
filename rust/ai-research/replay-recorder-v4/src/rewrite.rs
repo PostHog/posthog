@@ -236,8 +236,8 @@ pub struct UrlRewrite {
     css_texts: HashMap<String, usize>,
     /// Remote URLs that the block names only in picture sources of a type the fetcher does not store.
     unfetched: HashSet<String>,
-    /// Each inspected srcset value as the stored block holds it. Only these are rebuilt, so a srcset key outside an
-    /// image slot, such as in a custom event's payload, stays as it is.
+    /// Each inspected srcset value as the stored block holds it, under [`without_image_ids`]. Only these are rebuilt, so
+    /// a srcset key outside an image slot, such as in a custom event's payload, stays as it is.
     stored_srcsets: HashSet<Vec<u8>>,
     url_targets: HashMap<String, usize>,
     team_id: i64,
@@ -382,7 +382,9 @@ impl UrlRewrite {
             .map(|srcset| {
                 let mut sink =
                     ImageSink::new(&content_key, team_id, key_month, ImageLimits::default());
-                extract_images(&canonical_strings(&srcset.raw), &mut sink).into_owned()
+                let canonical = canonical_strings(&srcset.raw);
+                let stored = extract_images(&canonical, &mut sink);
+                without_image_ids(&stored).into_owned()
             })
             .collect();
         let matcher = (!patterns.is_empty())
@@ -507,7 +509,10 @@ impl UrlRewrite {
             let Some(end) = string_end(bytes, start) else {
                 continue;
             };
-            if !self.stored_srcsets.contains(&bytes[start..end]) {
+            if !self
+                .stored_srcsets
+                .contains(without_image_ids(&bytes[start..end]).as_ref())
+            {
                 continue;
             }
             let Ok(text) = unescape(bytes, (start, end)) else {
@@ -818,6 +823,38 @@ fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
+/// The bytes with each image reference and declined marker cut to its `image:v4:` prefix. The image caps of a message
+/// decide whether an image becomes a reference or `over_limit`, and the srcset prediction in [`UrlRewrite::new`]
+/// cannot see the other images of that message.
+fn without_image_ids(bytes: &[u8]) -> Cow<'_, [u8]> {
+    const PREFIX: &[u8] = b"image:v4:";
+    let find = |bytes: &[u8]| {
+        bytes
+            .windows(PREFIX.len())
+            .position(|window| window == PREFIX)
+    };
+    let Some(mut at) = find(bytes) else {
+        return Cow::Borrowed(bytes);
+    };
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut rest = bytes;
+    loop {
+        out.extend_from_slice(&rest[..at + PREFIX.len()]);
+        rest = &rest[at + PREFIX.len()..];
+        let id_length = rest
+            .iter()
+            .position(|&b| !(b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b':')))
+            .unwrap_or(rest.len());
+        rest = &rest[id_length..];
+        match find(rest) {
+            Some(next) => at = next,
+            None => break,
+        }
+    }
+    out.extend_from_slice(rest);
+    Cow::Owned(out)
+}
+
 /// The srcset with only the candidates the block keeps, each remote URL as its reference, how it was rebuilt, and the
 /// URL targets of the remote URLs it held. `None` when every candidate stays, because the URL targets then replace it.
 fn rebuilt_srcset(
@@ -868,6 +905,9 @@ fn rebuilt_srcset(
 
 #[cfg(test)]
 mod tests {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
     use super::*;
 
     const TEAM_KEY: [u8; 32] = [6; 32];
@@ -922,6 +962,31 @@ mod tests {
             )
         );
         assert!(rewrite.finish().safe);
+    }
+
+    #[test]
+    fn rebuilds_a_srcset_whose_image_the_message_cap_declined() {
+        let png = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\nbytes")
+        );
+        let svg = "data:image/svg+xml,%3Csvg%2F%3E";
+        let text = format!("{png} 1x, {svg} 2x");
+        let srcset = Srcset {
+            raw: serde_json::to_vec(&text).unwrap(),
+            text,
+            unfetched_type: false,
+        };
+        let mut rewrite = UrlRewrite::new(&[], &[srcset], &[], 7, "2026-10", &TEAM_KEY);
+        // A message past its image cap stores the PNG as `over_limit`, where a fresh sink takes it.
+        let stored = format!(
+            r#"{{"srcset":"{} 1x, {svg} 2x"}}"#,
+            Declined::OverLimit.marker()
+        );
+        assert_eq!(
+            String::from_utf8(rewrite.apply(stored.as_bytes(), true).into_owned()).unwrap(),
+            format!(r#"{{"srcset":"{svg} 2x"}}"#)
+        );
     }
 
     #[test]
