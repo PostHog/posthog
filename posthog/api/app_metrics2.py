@@ -51,15 +51,11 @@ class AppMetricsTotalsResponseSerializer(DataclassSerializer):
         dataclass = AppMetricsTotalsResponse
 
 
-# Each requested name or kind becomes a series with one value per label, so the count must stay small.
 MAX_REQUESTED_BREAKDOWN_VALUES = 50
 
-# Each bucket becomes a label, and every series holds one value per label, so the range must stay bounded.
-# The limit allows hourly ranges of several years, because real callers send ranges that long.
 MAX_TREND_BUCKETS = 100_000
 
-# Each requested name or kind is zero-filled across every bucket, even when ClickHouse returns no rows,
-# so the product of the two must stay bounded too.
+# Zero-filling builds series × buckets values even when ClickHouse returns no rows.
 MAX_ZERO_FILLED_CELLS = 1_000_000
 
 TREND_INTERVAL_STEPS: dict[str, timedelta] = {
