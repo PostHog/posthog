@@ -178,6 +178,19 @@ describe('summaryViewLogic', () => {
         expect(reported.message).toBe(NETWORK_ERROR_MESSAGES.offline)
     })
 
+    test.each([
+        [404, false],
+        [500, true],
+    ])('reports a %s from the summarization endpoint to error tracking: %s', async (status, reported) => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        mockSummarization(Promise.reject(new ApiError('Failed', status, undefined, { detail: 'Failed' })))
+
+        await generateSummary()
+
+        expect(logic.values.summaryError).toBe('Failed')
+        expect(captureSpy.mock.calls.length > 0).toBe(reported)
+    })
+
     it('keeps the panel loading when a newer summary replaces an in-flight one', async () => {
         summarizationPendingUntilAborted()
         logic = summaryViewLogic({ trace, tree: [] })

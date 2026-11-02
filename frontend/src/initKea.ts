@@ -180,6 +180,7 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineItemResults',
     'loadOfflineSelectedResult',
     'loadOfflineResultPayload',
+    'generateSummary', // A trace past AI event retention has nothing to summarize; the summary panel shows the reason
 ])
 
 /*
