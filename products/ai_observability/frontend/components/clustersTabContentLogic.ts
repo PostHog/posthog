@@ -3,8 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-
-import { hogql } from '~/queries/utils'
+import { hogql } from 'lib/utils/hogql'
 
 import { CLUSTERING_RUNS_LOOKBACK_DAYS, NOISE_CLUSTER_ID } from '../clusters/constants'
 import { Cluster } from '../clusters/types'

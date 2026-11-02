@@ -14,7 +14,7 @@ import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
-import { UseMaxToolOptions } from 'scenes/max/useMaxTool'
+import type { UseMaxToolOptions } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'

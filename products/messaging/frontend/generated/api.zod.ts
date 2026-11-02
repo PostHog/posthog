@@ -10,36 +10,29 @@
 import * as zod from 'zod'
 
 /**
- * Send one transactional email to one recipient from the template named in `template.id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
+ * Send one transactional email to one recipient from the template named in `template_id`. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice.
  * @summary Send a transactional email
  */
-export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
+export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
     to: zod.email().describe('Email address of the recipient.'),
-    identifiers: zod
-        .object({
-            distinct_id: zod
-                .string()
-                .max(messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax)
-                .nullish()
-                .describe(
-                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
-                ),
-        })
-        .optional()
-        .describe('Who the email is for, used to attribute engagement events.'),
     message_data: zod
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
             'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
         ),
-    template: zod
-        .object({
-            id: zod.uuid().describe('ID of the email template to send. The template must be made transactional first.'),
-        })
-        .describe('The transactional email template to send.'),
+    template_id: zod
+        .uuid()
+        .describe('ID of the email template to send. The template must be made transactional first.'),
+    distinct_id: zod
+        .string()
+        .max(messagingSendEmailCreateBodyDistinctIdMax)
+        .nullish()
+        .describe(
+            "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+        ),
 })
 
 export const messagingCategoriesCreateBodyKeyMax = 64
@@ -1334,6 +1327,12 @@ export const messagingTemplatesSendCreateBodyIdentifiersOneDistinctIdMax = 400
 
 export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
     to: zod.email().describe('Email address of the recipient.'),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
     identifiers: zod
         .object({
             distinct_id: zod
@@ -1346,10 +1345,4 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Who the email is for, used to attribute engagement events.'),
-    message_data: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
-        ),
 })

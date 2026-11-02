@@ -1,4 +1,3 @@
-import { BreakdownFilter, EventsNode, GroupNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
     isDataVisualizationNode,
@@ -12,12 +11,11 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
-    isWebGoalsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-    isWebVitalsPathBreakdownQuery,
-    isWebVitalsQuery,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { BreakdownFilter, EventsNode, GroupNode, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
+import { isWebGoalsQuery, isWebVitalsPathBreakdownQuery, isWebVitalsQuery } from '~/queries/utils'
 import { AnyPropertyFilter, PropertyGroupFilter, PropertyGroupFilterValue, RetentionEntity } from '~/types'
 
 import { ThreadMessage } from '../maxThreadLogic'

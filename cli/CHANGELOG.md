@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.19.1 — 2026-11-02
+
+### Patch changes
+
+- [e5ddfc79ecf](https://github.com/PostHog/posthog/commit/e5ddfc79ecff97716aa997879a6d49735aabc647) Keep the release that `hermes inject` stamped when `hermes clone` runs in symbol-set mode without release flags — Thanks @rafaeelaudibert!
+
 ## 0.19.0 — 2026-10-28
 
 ### Minor changes

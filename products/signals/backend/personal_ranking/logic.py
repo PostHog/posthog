@@ -15,21 +15,22 @@ from typing import Any, Literal
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
-from openai import APITimeoutError, OpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai import APITimeoutError, BadRequestError, Omit, OpenAI, omit
+from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 from posthog.models import Team, User
+from posthog.ph_client import ph_scoped_capture
 
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, read_config
+from products.signals.backend.personal_ranking.config import PersonalRankingConfig, ReasoningEffort, read_config
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
+    TIERS,
     render_person,
     system_prompt,
     user_message,
@@ -46,11 +47,16 @@ from products.signals.backend.personal_ranking.validation import (
 
 logger = structlog.get_logger(__name__)
 
+# (model, effort) pairs the API rejected in this process. Later calls with that pair leave the effort out.
+_REJECTED_REASONING_EFFORTS: set[tuple[str, str]] = set()
+
 AI_PRODUCT = "personal_inbox_ranking"
 # Not a person: the gateway attributes every call to the pipeline.
 PIPELINE_DISTINCT_ID = "signals_personal_inbox_ranking"
 BUILT_EVENT = "personal inbox ranking built"
 TRUNCATED_FINISH_REASON = "length"
+# The most old rows one build deletes. Each build deletes again, so a larger backlog shrinks over later builds.
+PRUNE_BATCH_SIZE = 100
 
 FALLBACK_LLM_ERROR = "llm_error"
 FALLBACK_TIMEOUT = "timeout"
@@ -137,10 +143,13 @@ def normalize_focus(focus: str | None, max_chars: int) -> str | None:
 
 
 def input_hash(candidates: list[Candidate], *, activity_summary_version: int | None, focus: str | None) -> str:
-    """Changes when a candidate, its status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
+    """Changes when a candidate, its text, status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
     rows = sorted(
         [
             candidate.report_id,
+            # The prompt shows this text, so an edit makes the stored reasons out of date.
+            candidate.title,
+            candidate.summary_lead,
             candidate.status,
             candidate.priority,
             candidate.pull_request_state,
@@ -173,6 +182,36 @@ def _client(team: Team, user: User, now: datetime.datetime, config: PersonalRank
     return client.with_options(timeout=config.timeout_seconds, max_retries=0)
 
 
+def _create_completion(
+    client: OpenAI, config: PersonalRankingConfig, messages: list[ChatCompletionMessageParam]
+) -> ChatCompletion:
+    def create(reasoning_effort: ReasoningEffort | Omit = omit) -> ChatCompletion:
+        return client.chat.completions.create(
+            model=config.model,
+            messages=messages,
+            user=PIPELINE_DISTINCT_ID,
+            response_format=RESPONSE_FORMAT,
+            max_completion_tokens=config.max_completion_tokens,
+            reasoning_effort=reasoning_effort,
+        )
+
+    if (config.model, config.reasoning_effort) in _REJECTED_REASONING_EFFORTS:
+        return create()
+    try:
+        return create(config.reasoning_effort)
+    except BadRequestError as error:
+        if "reasoning_effort" not in str(error):
+            raise
+    # A rejected parameter fails fast, so the retry stays inside the timeout.
+    _REJECTED_REASONING_EFFORTS.add((config.model, config.reasoning_effort))
+    logger.warning(
+        "signals.personal_ranking.reasoning_effort_rejected",
+        model=config.model,
+        reasoning_effort=config.reasoning_effort,
+    )
+    return create()
+
+
 def _call_model(
     team: Team,
     user: User,
@@ -186,13 +225,7 @@ def _call_model(
         return round((time.monotonic() - started) * 1000)
 
     try:
-        response = _client(team, user, now, config).chat.completions.create(
-            model=config.model,
-            messages=messages,
-            user=PIPELINE_DISTINCT_ID,
-            response_format=RESPONSE_FORMAT,
-            max_completion_tokens=config.max_completion_tokens,
-        )
+        response = _create_completion(_client(team, user, now, config), config, messages)
     except APITimeoutError:
         return _ModelCall(
             content=None, tokens_in=None, tokens_out=None, latency_ms=elapsed_ms(), fallback_reason=FALLBACK_TIMEOUT
@@ -214,39 +247,46 @@ def _call_model(
     )
 
 
-def _capture(team: Team, user: User, build: PersonalRankingBuild, *, has_focus: bool) -> None:
+def _capture(
+    team: Team, user: User, build: PersonalRankingBuild, config: PersonalRankingConfig, *, has_focus: bool
+) -> None:
     # Ids, counts and accounting only. Report text, reasons and the summary are user content.
     try:
         pools: dict[str, int] = {}
         for candidate in build.candidates:
             for pool in candidate.pools:
                 pools[pool] = pools.get(pool, 0) + 1
-        posthoganalytics.capture(
-            distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
-            event=BUILT_EVENT,
-            properties={
-                "team_id": team.id,
-                "user_id": user.id,
-                "ranking_id": build.ranking_id,
-                "status": build.status,
-                "personalized": build.personalized,
-                "fallback_reason": build.fallback_reason,
-                "model": build.model,
-                "prompt_version": PROMPT_VERSION,
-                "activity_summary_version": build.activity_summary_version,
-                "has_focus": has_focus,
-                "limit": build.limit,
-                "candidate_count": len(build.candidates),
-                "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
-                "folded_count": len(build.folded),
-                "pool_counts": pools,
-                **dataclasses.asdict(build.counts),
-                "tokens_in": build.tokens_in,
-                "tokens_out": build.tokens_out,
-                "latency_ms": build.latency_ms,
-            },
-            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-        )
+        # The build runs in a Celery task, where the global client can drop events before it flushes.
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
+                event=BUILT_EVENT,
+                properties={
+                    "team_id": team.id,
+                    "user_id": user.id,
+                    "ranking_id": build.ranking_id,
+                    "status": build.status,
+                    "personalized": build.personalized,
+                    "fallback_reason": build.fallback_reason,
+                    "model": build.model,
+                    "prompt_version": PROMPT_VERSION,
+                    "activity_summary_version": build.activity_summary_version,
+                    "has_focus": has_focus,
+                    "limit": build.limit,
+                    "rank_top": config.rank_top,
+                    "reasoning_effort": config.reasoning_effort,
+                    "candidate_count": len(build.candidates),
+                    "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
+                    "folded_count": len(build.folded),
+                    "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
+                    "pool_counts": pools,
+                    **dataclasses.asdict(build.counts),
+                    "tokens_in": build.tokens_in,
+                    "tokens_out": build.tokens_out,
+                    "latency_ms": build.latency_ms,
+                },
+                groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+            )
     except Exception:
         logger.exception("signals.personal_ranking.capture_failed", team_id=team.id, user_id=user.id)
 
@@ -270,6 +310,14 @@ def _store(team: Team, user: User, build: PersonalRankingBuild) -> PersonalRanki
         fallback_reason=build.fallback_reason,
     )
     return dataclasses.replace(build, ranking_id=str(row.id))
+
+
+def _prune(team: Team, user: User, keep: int) -> None:
+    """Delete one batch of the person's rows older than the newest `keep`, so the table stays bounded."""
+    rows = PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id)
+    stale_ids = list(rows.order_by("-created_at", "-id").values_list("id", flat=True)[keep : keep + PRUNE_BATCH_SIZE])
+    if stale_ids:
+        rows.filter(id__in=stale_ids).delete()
 
 
 def build_personal_ranking(
@@ -320,7 +368,14 @@ def build_personal_ranking(
             {"role": "system", "content": system_prompt(config, limit)},
             {
                 "role": "user",
-                "content": user_message(render_person(summary, config), candidates, focus=focus, now=now, limit=limit),
+                "content": user_message(
+                    render_person(summary, config),
+                    candidates,
+                    focus=focus,
+                    now=now,
+                    limit=limit,
+                    rank_top=config.rank_top,
+                ),
             },
         ]
         call = _call_model(team, user, now, config, messages)
@@ -332,6 +387,9 @@ def build_personal_ranking(
                     refs=refs,
                     model_reasons=model_reasons,
                     limit=limit,
+                    rank_top=config.rank_top,
+                    top_max=config.top_max,
+                    worth_a_look_max=config.worth_a_look_max,
                     reason_limits=config.reason_limits,
                     next_step_max_chars=config.next_step_max_chars,
                 )
@@ -346,7 +404,9 @@ def build_personal_ranking(
         status=status,
         personalized=validated is not None and summary_ready,
         fallback_reason=fallback_reason,
-        entries=validated.entries if validated is not None else model_order(refs, model_reasons, limit),
+        entries=validated.entries
+        if validated is not None
+        else model_order(refs, model_reasons, min(limit, config.worth_a_look_max)),
         folded=validated.folded if validated is not None else (),
         candidates=tuple(candidates),
         counts=validated.counts if validated is not None else ValidationCounts(),
@@ -361,5 +421,9 @@ def build_personal_ranking(
     if dry_run:
         return build
     build = _store(team, user, build)
-    _capture(team, user, build, has_focus=focus is not None)
+    try:
+        _prune(team, user, config.max_rows_per_person)
+    except Exception:
+        logger.exception("signals.personal_ranking.prune_failed", team_id=team.id, user_id=user.id)
+    _capture(team, user, build, config, has_focus=focus is not None)
     return build
