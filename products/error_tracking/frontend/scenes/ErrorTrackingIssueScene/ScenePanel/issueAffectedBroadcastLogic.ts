@@ -4,12 +4,12 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { HogQLQueryString, hogql } from 'lib/utils/hogql'
 import { pluralize, truncate } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { hogqlQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { HogQLQueryString, hogql } from '~/queries/utils'
 
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'

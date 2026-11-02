@@ -39,7 +39,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_session,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    TEMPORARY_HOST_RESOLUTION_PREFIX,
+    _is_host_safe,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -1082,6 +1085,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # customer's hostname that follows it.
             "Couldn't resolve the host": "A host in the manifest (base_url, token_url, or a resource's URL) could not be resolved via DNS. Check that it's spelled correctly and reachable from the public internet, then try again.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_is_host_safe` raises this when the resolver itself failed to answer (a DNS blip),
+        # as opposed to answering that the host doesn't exist — that permanent case is
+        # "Couldn't resolve the host" above. `validate_manifest_urls` folds it into
+        # ManifestValidationError, which loses the original TemporaryHostResolutionError type,
+        # so this can't be caught by isinstance the way other sources' host checks are.
+        return {TEMPORARY_HOST_RESOLUTION_PREFIX}
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
         """Parse the stored manifest and rejoin it with the auth credentials.

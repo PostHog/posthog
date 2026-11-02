@@ -1500,6 +1500,7 @@ doesn't conflict with concurrent PRs.
 - sprout_social
 - sqlite
 - stackadapt
+- stamped
 - starburst
 - stockx
 - strato

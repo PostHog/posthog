@@ -61,6 +61,36 @@ def test_http_retry_classification(
     manager.save_state.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "name,path,page_size_param",
+    [("transfer_batches", "/v2/transfer_batches", "limit"), ("refunds", "/v1/refunds", "per_page")],
+)
+def test_top_level_endpoint_walks_link_pages_to_the_end(
+    http_mock: MagicMock,
+    manager: MagicMock,
+    inputs: MagicMock,
+    name: str,
+    path: str,
+    page_size_param: str,
+) -> None:
+    calls: list[tuple[str, dict[str, list[str]]]] = []
+
+    def respond(request: PreparedRequest) -> tuple[int, object, dict[str, str]]:
+        parts = urlsplit(request.url or "")
+        query = parse_qs(parts.query)
+        calls.append((parts.path, query))
+        if "starting_after" not in query:
+            return 200, [{"id": "first"}], {"Link": f'<https://api.fintoc.com{path}?starting_after=first>; rel="next"'}
+        return 200, [{"id": "last"}], {}
+
+    http_mock.side_effect = respond
+    result = FintocAPI("sk_test_example", "2026-02-01").source(name, [], inputs, manager)
+    rows = [row for page in cast(Iterable[Any], result.items()) for row in page]
+    assert rows == [{"id": "first"}, {"id": "last"}]
+    assert [call_path for call_path, _ in calls] == [path, path]
+    assert calls[0][1][page_size_param] == ["300"]
+
+
 def test_movements_fanout_keeps_account_keys_and_tokens_private(
     http_mock: MagicMock,
     manager: MagicMock,
