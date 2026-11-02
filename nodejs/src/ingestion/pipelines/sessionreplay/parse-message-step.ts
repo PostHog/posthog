@@ -32,7 +32,7 @@ export interface MessageLimits {
     enforce: boolean
 }
 
-const DEFAULT_MESSAGE_LIMITS: MessageLimits = { maxWindowIdBytes: 1024, maxEventsPerMessage: 10_000, enforce: false }
+const DEFAULT_MESSAGE_LIMITS: MessageLimits = { maxWindowIdBytes: 1024, maxEventsPerMessage: 100_000, enforce: false }
 
 export interface ParseMessageStepInput {
     message: Message
