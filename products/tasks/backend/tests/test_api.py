@@ -3766,10 +3766,47 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("refused_origin_without_repository", Task.OriginProduct.WORKFLOW, [], None, False),
-            ("refused_origin_removing_its_repository", Task.OriginProduct.WORKFLOW, ["posthog/posthog"], [], False),
-            ("refused_origin_adding_a_repository", Task.OriginProduct.WORKFLOW, [], ["posthog/posthog"], True),
-            ("opted_in_origin_without_repository", Task.OriginProduct.USER_CREATED, [], None, True),
+            ("refused_origin_without_repository", Task.OriginProduct.WORKFLOW, "github_integration", [], None, False),
+            (
+                "refused_origin_removing_its_repository",
+                Task.OriginProduct.WORKFLOW,
+                "github_integration",
+                ["posthog/posthog"],
+                [],
+                False,
+            ),
+            (
+                "refused_origin_adding_a_repository",
+                Task.OriginProduct.WORKFLOW,
+                "github_integration",
+                [],
+                ["posthog/posthog"],
+                True,
+            ),
+            (
+                "opted_in_origin_without_repository",
+                Task.OriginProduct.USER_CREATED,
+                "github_integration",
+                [],
+                None,
+                True,
+            ),
+            (
+                "refused_origin_personal_integration_only",
+                Task.OriginProduct.WORKFLOW,
+                "github_user_integration",
+                [],
+                None,
+                False,
+            ),
+            (
+                "opted_in_origin_personal_integration_only",
+                Task.OriginProduct.USER_CREATED,
+                "github_user_integration",
+                [],
+                None,
+                True,
+            ),
         ]
     )
     @patch("products.tasks.backend.facade.api.inaccessible_repositories_via_integration", return_value=[])
@@ -3777,6 +3814,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self,
         _name: str,
         origin_product: Task.OriginProduct,
+        patched_field: str,
         repositories: list[str],
         patched_repositories: list[str] | None,
         attaches_github: bool,
@@ -3793,7 +3831,10 @@ class TestTaskAPI(BaseTaskAPITest):
             repositories=repositories,
             github_integration=integration if repositories else None,
         )
-        body: dict = {"github_integration": integration.id}
+        patched_id = (
+            _grant_user_github_access(self.user).id if patched_field == "github_user_integration" else integration.id
+        )
+        body: dict = {patched_field: str(patched_id)}
         if patched_repositories is not None:
             body["repositories"] = patched_repositories
 
@@ -3801,7 +3842,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         task.refresh_from_db()
-        self.assertEqual(task.github_integration, integration if attaches_github else None)
+        self.assertEqual(getattr(task, f"{patched_field}_id"), patched_id if attaches_github else None)
 
     def test_update_task(self):
         task = self.create_task("Original Task")
