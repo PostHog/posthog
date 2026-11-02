@@ -2757,6 +2757,7 @@ export type ErrorTrackingFingerprintsListParams = {
     issue_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2821,6 +2822,7 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2893,6 +2895,7 @@ export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
 export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2916,6 +2919,7 @@ export type ErrorTrackingSpikeEventsListParams = {
     issue_ids?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2931,6 +2935,7 @@ export type ErrorTrackingSpikeEventsListParams = {
 export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2953,6 +2958,7 @@ export type ErrorTrackingSuppressionRulesListParams = {
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

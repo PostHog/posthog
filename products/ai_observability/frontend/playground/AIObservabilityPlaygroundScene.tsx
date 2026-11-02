@@ -49,8 +49,10 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
-import { getModelPickerFooterLink, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
+import { getModelPickerFooterActions, ModelPicker, parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
+import { AddKeyModal } from '../settings/AddKeyModal'
+import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { CollapsibleChevronIcon } from './CollapsibleChevronIcon'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import {
@@ -292,6 +294,8 @@ function PlaygroundLayout(): JSX.Element {
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
             <PlaygroundVariablesPanel />
+            {/* One modal for the whole page, because every prompt card has its own model picker. */}
+            <AddKeyModal />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
                 {sourceSetupLoading ? (
@@ -542,6 +546,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
     } = useValues(modelPickerLogic)
     const { loadPlaygroundModels } = useActions(modelPickerLogic)
     const { setModel } = useActions(llmPlaygroundPromptsLogic)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     if (!prompt) {
         return <LemonSkeleton className="h-10" />
@@ -568,7 +573,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 }}
                 groups={groups}
                 loading={loading}
-                footerLink={getModelPickerFooterLink(hasByokKeys)}
+                footerActions={getModelPickerFooterActions(hasByokKeys, () => setNewKeyModalOpen(true))}
                 selectedModelName={selectedModel?.name}
                 data-attr={`llma-playground-model-selector-${promptId}`}
             />

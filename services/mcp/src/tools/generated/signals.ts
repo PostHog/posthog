@@ -31,6 +31,35 @@ const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSche
     },
 })
 
+const ActivitySummarySearchSchema = () => {
+    const SignalsActivitySummaryMembersSearchQueryParams = orvalSchemas.SignalsActivitySummaryMembersSearchQueryParams()
+    return SignalsActivitySummaryMembersSearchQueryParams
+}
+
+const activitySummarySearch = (): ToolBase<
+    ReturnType<typeof ActivitySummarySearchSchema>,
+    Schemas.ActivitySummarySearchResult
+> => ({
+    name: 'activity-summary-search',
+    schema: ActivitySummarySearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ActivitySummarySearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ActivitySummarySearchResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary_members/search/`,
+            query: {
+                exclude_user_uuids: params.exclude_user_uuids,
+                include_profile: params.include_profile,
+                limit: params.limit,
+                product: params.product,
+                query: params.query,
+                search_mode: params.search_mode,
+            },
+        })
+        return result
+    },
+})
+
 const ActivitySummaryVersionsListSchema = () => {
     const SignalsActivitySummaryVersionsRetrieveQueryParams =
         orvalSchemas.SignalsActivitySummaryVersionsRetrieveQueryParams()
@@ -3640,6 +3669,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'activity-summary-get': activitySummaryGet,
+    'activity-summary-search': activitySummarySearch,
     'activity-summary-versions-list': activitySummaryVersionsList,
     'anomaly-insight-get': anomalyInsightGet,
     'anomaly-search': anomalySearch,
