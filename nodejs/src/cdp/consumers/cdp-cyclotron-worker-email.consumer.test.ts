@@ -15,14 +15,13 @@ import { invocationToV2JobInit, v2JobToInvocation } from '~/cdp/services/job-que
 import { teamEmailCapBuckets } from '~/cdp/services/messaging/email.service'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
-import * as redisV2 from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { assertRouterTargetsTestDatabase } from '~/tests/helpers/database-guard'
-import { TestRedisV2 } from '~/tests/helpers/redis-v2'
 import { LocalSes } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
@@ -41,7 +40,6 @@ jest.mock('node:dns/promises', () => ({
 
 describe('CdpCyclotronWorkerEmail', () => {
     let hub: Hub
-    let pools: TestRedisV2[]
 
     beforeAll(async () => {
         hub = await createHub()
@@ -49,20 +47,6 @@ describe('CdpCyclotronWorkerEmail', () => {
 
     afterAll(async () => {
         await closeHub(hub)
-    })
-
-    beforeEach(() => {
-        pools = []
-        jest.spyOn(redisV2, 'createRedisV2PoolFromConfig').mockImplementation((config) => {
-            const pool = new TestRedisV2(config)
-            pools.push(pool)
-            return pool
-        })
-    })
-
-    afterEach(async () => {
-        await Promise.all(pools.map((pool) => pool.close()))
-        jest.restoreAllMocks()
     })
 
     describe('construction', () => {
@@ -89,7 +73,7 @@ describe('CdpCyclotronWorkerEmail', () => {
     describe('rescheduled emails through the v2 job codec preserve origin queue and priority (M17)', () => {
         let worker: CdpCyclotronWorkerEmail
         let ses: LocalSes
-        let redis: TestRedisV2
+        let redis: RedisV2
         let limiter: RateLimiterService
         let flow: HogFlow
         let invocation: CyclotronJobInvocation
@@ -184,7 +168,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             process.env.AWS_MAX_ATTEMPTS = '1'
             ses = new LocalSes()
             await ses.start()
-            redis = new TestRedisV2({
+            redis = createRedisV2PoolFromConfig({
                 connection: {
                     url: hub.CDP_VALKEY_HOST,
                     options: { port: hub.CDP_VALKEY_PORT, password: hub.CDP_VALKEY_PASSWORD },
@@ -295,7 +279,6 @@ describe('CdpCyclotronWorkerEmail', () => {
         afterEach(async () => {
             worker?.emailService.sesV2Client?.destroy()
             await worker?.stop()
-            await redis?.close()
             await ses?.stop()
             process.env = { ...originalEnv }
             jest.restoreAllMocks()
