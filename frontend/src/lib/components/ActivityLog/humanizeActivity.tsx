@@ -1,6 +1,6 @@
 import { UserNameWithEmail } from 'lib/components/ActivityLog/UserNameWithEmail'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LazyLemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LazyLemonMarkdown'
 import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
@@ -96,6 +96,8 @@ export type HumanizedActivityLogItem = {
     /** SDK, integration, or scout that triggered this action. Self-reported through the x-posthog-client header, except for a scout, which the server names. */
     client?: string | null
     description: Description
+    /** Markdown the row renders in place of `description`, e.g. a changelog notification's body. */
+    markdownDescription?: string
     summary?: ActivityLogSummary
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     expandedView?: ExpandedView // e.g. a flag's release conditions after the change
@@ -293,7 +295,7 @@ function describeComment(
         ),
         extendedDescription: commentContent ? (
             <div className="border rounded bg-surface-primary p-4">
-                <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
+                <LazyLemonMarkdown lowKeyHeadings>{commentContent}</LazyLemonMarkdown>
             </div>
         ) : undefined,
     }

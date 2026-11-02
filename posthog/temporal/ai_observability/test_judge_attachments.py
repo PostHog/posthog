@@ -6,14 +6,24 @@ from unittest.mock import patch
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.ai_observability.judge_attachments import MAX_ATTACHMENTS, JudgeAttachments
 
-from products.ai_observability.backend.llm.attachments import MAX_IMAGE_BYTES, MAX_PDF_BYTES, AttachmentPart
+from products.ai_observability.backend.llm.attachments import (
+    MAX_IMAGE_BYTES,
+    MAX_PDF_BYTES,
+    MAX_VIDEO_BYTES,
+    AttachmentPart,
+)
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
+OPENROUTER_CATALOGUE = {
+    "openai/gpt-5-mini": frozenset({"text", "image", "file"}),
+    "google/gemini-2.5-flash": frozenset({"text", "image", "file", "audio", "video"}),
+    "example/image-only": frozenset({"text", "image"}),
+}
 
 
 def _pointer(digit: str, mime: str = "image%2Fjpeg") -> MediaBlock:
-    modality = "audio" if mime.startswith("audio") else "image"
+    modality = next((kind for kind in ("audio", "video") if mime.startswith(kind)), "image")
     return MediaBlock(modality=modality, url=f"phaiblob://v1/sha256/{digit * 64}?mime={mime}&size=63357")
 
 
@@ -54,6 +64,14 @@ class TestJudgeAttachmentsMarkers:
 
 
 class TestJudgeAttachmentsContent:
+    @pytest.fixture(autouse=True)
+    def openrouter_catalogue(self):
+        with patch(
+            "products.ai_observability.backend.llm.providers.openrouter.model_input_modalities",
+            side_effect=OPENROUTER_CATALOGUE.get,
+        ) as lookup:
+            yield lookup
+
     def test_an_image_referenced_again_at_the_end_stays_attached(self):
         images = JudgeAttachments(team_id=7)
         markers = [images.marker(_inline(f"{i:02}")) for i in range(MAX_ATTACHMENTS + 1)]
@@ -137,6 +155,30 @@ class TestJudgeAttachmentsContent:
                 id="audio_inline_on_gemini",
             ),
             pytest.param(
+                "gemini",
+                "gemini-3-flash",
+                "video%2Fmp4",
+                "Video 1:",
+                AttachmentPart(mime_type="video/mp4", url="https://signed"),
+                id="video_link_on_gemini",
+            ),
+            pytest.param(
+                "gemini",
+                "gemini-2.0-flash",
+                "video%2Fmp4",
+                "Video 1:",
+                AttachmentPart(mime_type="video/mp4", data=b"hi"),
+                id="video_inline_on_gemini_2_0",
+            ),
+            pytest.param(
+                "anthropic",
+                "claude-haiku-4-5",
+                "video%2Fmp4",
+                "Not attached, this judge can't read their file type: 1.",
+                None,
+                id="video_on_a_provider_without_video_input",
+            ),
+            pytest.param(
                 "openai",
                 "gpt-4o-audio-preview",
                 "audio%2Fmp3",
@@ -162,11 +204,43 @@ class TestJudgeAttachmentsContent:
             ),
             pytest.param(
                 "openrouter",
-                "any",
+                "openai/gpt-5-mini",
+                "application%2Fpdf",
+                "File 1:",
+                AttachmentPart(mime_type="application/pdf", data=b"hi"),
+                id="pdf_on_an_openrouter_model_that_reads_files",
+            ),
+            pytest.param(
+                "openrouter",
+                "google/gemini-2.5-flash",
+                "video%2Fmp4",
+                "Video 1:",
+                AttachmentPart(mime_type="video/mp4", data=b"hi"),
+                id="video_on_an_openrouter_model_that_reads_video",
+            ),
+            pytest.param(
+                "openrouter",
+                "openai/gpt-5-mini",
+                "video%2Fmp4",
+                "Not attached, this judge can't read their file type: 1.",
+                None,
+                id="video_on_an_openrouter_model_without_video_input",
+            ),
+            pytest.param(
+                "openrouter",
+                "example/unlisted",
                 "application%2Fpdf",
                 "Not attached, this judge can't read their file type: 1.",
                 None,
-                id="pdf_unsupported_provider",
+                id="pdf_on_a_model_the_openrouter_catalogue_does_not_list",
+            ),
+            pytest.param(
+                "openrouter",
+                "example/unlisted",
+                "image%2Fpng",
+                "Image 1:",
+                AttachmentPart(mime_type="image/png", url="https://signed"),
+                id="image_on_a_model_the_openrouter_catalogue_does_not_list",
             ),
         ],
     )
@@ -184,7 +258,10 @@ class TestJudgeAttachmentsContent:
             content = images.content(prompt, provider, model)
 
         assert content == [
-            {"type": "text", "text": "The transcript refers to these attachments as [image N], [file N] or [audio N]."},
+            {
+                "type": "text",
+                "text": "The transcript refers to these attachments as [image N], [file N], [audio N] or [video N].",
+            },
             {"type": "text", "text": expected_label},
             *([expected_part] if expected_part else []),
             {"type": "text", "text": prompt},
@@ -273,21 +350,51 @@ class TestJudgeAttachmentsContent:
         # An image over the budget is never downloaded.
         assert read.call_count == reads
 
-    def test_caps_pdf_bytes_on_links(self):
+    @pytest.mark.parametrize(
+        ("mime", "label", "limit"),
+        [
+            # Gemini's image limit is higher, so only the PDF cap can reject this one.
+            pytest.param("application%2Fpdf", "File 1", MAX_PDF_BYTES, id="pdf"),
+            pytest.param("video%2Fmp4", "Video 1", MAX_VIDEO_BYTES, id="video"),
+            pytest.param("image%2Fpng", "Image 1", MAX_IMAGE_BYTES["gemini"], id="image"),
+        ],
+    )
+    def test_caps_bytes_on_gemini_links(self, mime: str, label: str, limit: int):
         images = JudgeAttachments(team_id=7)
-        prompt = f"user: {images.marker(_pointer('a', mime='application%2Fpdf'))}"
+        prompt = f"user: {images.marker(_pointer('a', mime=mime))}"
 
         with (
             patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed") as presign,
-            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": MAX_PDF_BYTES + 1}),
+            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": limit + 1}),
         ):
-            # Gemini has no image byte limit, so only the PDF cap can reject this one.
             content = images.content(prompt, "gemini", "gemini-3-flash")
 
-        assert {"type": "text", "text": "File 1: not attached, too large."} in content
+        assert {"type": "text", "text": f"{label}: not attached, too large."} in content
         presign.assert_not_called()
 
-    def test_attachments_the_judge_cannot_read_take_no_slot(self):
+    @pytest.mark.parametrize(("model", "attached"), [("gemini-2.5-flash", 10), ("gemini-2.0-flash", 1)])
+    def test_keeps_the_newest_videos_within_the_gemini_limit(self, model: str, attached: int):
+        images = JudgeAttachments(team_id=7)
+        image = images.marker(_inline("aa"))
+        videos = " ".join(
+            images.marker(MediaBlock(modality="video", url=f"phaiblob://v1/sha256/{i:064x}?mime=video%2Fmp4"))
+            for i in range(11)
+        )
+
+        with (
+            patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed"),
+            patch(f"{OBJECT_STORAGE}.head_object_strict", return_value={"ContentLength": 2}),
+            patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"hi"),
+        ):
+            content = images.content(f"user: {image} {videos}", "gemini", model)
+
+        labels = {part["text"] for part in content if isinstance(part, dict)}
+        assert "Image 1:" in labels
+        assert {f"Video {n}:" for n in range(12 - attached, 12)} <= labels
+        assert f"Video {11 - attached}:" not in labels
+        assert f"Not attached, over the judge's attachment limit: {11 - attached}." in labels
+
+    def test_attachments_the_judge_cannot_read_take_no_slot(self, openrouter_catalogue):
         images = JudgeAttachments(team_id=7)
         image = images.marker(_inline("aa"))
         pdfs = " ".join(
@@ -295,13 +402,15 @@ class TestJudgeAttachmentsContent:
             for i in range(MAX_ATTACHMENTS)
         )
 
-        content = images.content(f"user: {image} {pdfs}", "openrouter", "openai/gpt-5-mini")
+        content = images.content(f"user: {image} {pdfs}", "openrouter", "example/image-only")
 
         assert content[1:4] == [
             {"type": "text", "text": "Image 1:"},
             AttachmentPart(mime_type="image/png", data=base64.b64decode("aa" * 4)),
             {"type": "text", "text": f"Not attached, this judge can't read their file type: {MAX_ATTACHMENTS}."},
         ]
+        # Each lookup reads the whole OpenRouter catalogue, so it runs once per file type, not per attachment.
+        assert openrouter_catalogue.call_count == 2
 
     def test_an_inline_image_exactly_at_the_provider_limit_is_attached(self):
         images = JudgeAttachments(team_id=7)

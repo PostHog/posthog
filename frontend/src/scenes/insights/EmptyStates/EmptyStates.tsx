@@ -22,6 +22,7 @@ import { dayjs } from 'lib/dayjs'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { getRetryCooldown } from 'lib/insights/sharedUtils'
 import { IconChristmasOrnament, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
@@ -42,8 +43,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { isFunnelsDataWarehouseNode } from '~/queries/schema/node-guards'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { EventsNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
-import { isFunnelsDataWarehouseNode, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -57,7 +59,6 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
-import { getRetryCooldown } from '../sharedUtils'
 import { InsightErrorLayout } from './InsightErrorLayout'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
