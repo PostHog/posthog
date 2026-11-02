@@ -8,7 +8,6 @@ import structlog
 from pydantic import BaseModel, Field
 from temporalio import activity
 
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -25,6 +24,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
 from products.conversations.backend.temporal.ai_reply.llms import (
     anthropic_output_config,
     anthropic_text,
+    build_conversations_client,
     create_message,
     llm_attempts,
     strip_json_fence,
@@ -93,7 +93,7 @@ REPLY:
 CITED CHUNKS:
 {chunks_text}"""
 
-    client = get_async_anthropic_gateway_client(product="conversations", team_id=input.team_id)
+    client = build_conversations_client(input.team_id, input.trace_id, input.ticket_id)
     message = await create_message(
         client,
         model=VALIDATOR_MODEL,
