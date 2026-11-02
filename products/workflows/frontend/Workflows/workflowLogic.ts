@@ -243,6 +243,24 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+function aiEmailDraftToRequest(
+    props: WorkflowLogicProps,
+    alreadyRequested: boolean,
+    workflow: HogFlow
+): EmailDraftRequestApi | null {
+    const draftSource = parseEmailDraftSource(props.draftSource)
+    const isNewWorkflow = !props.id || props.id === 'new'
+    return draftSource && !alreadyRequested && isNewWorkflow && prefilledEmailContent(workflow) ? draftSource : null
+}
+
+function editsKeptOverReload(
+    baseBeforeExternalEdit: HogFlow | null,
+    local: HogFlow,
+    loaded: HogFlow
+): Partial<HogFlow> {
+    return baseBeforeExternalEdit ? rebaseWorkflowEdits(withStagedDraft(baseBeforeExternalEdit), local, loaded) : {}
+}
+
 function rebaseWorkflowEdits(base: HogFlow, local: HogFlow, remote: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = rebaseStepsWithEdges(base, local, remote)
     for (const field of WORKFLOW_EDITABLE_FIELDS) {
@@ -4576,25 +4594,18 @@ export const workflowLogic = kea<workflowLogicType>([
             // This response is now the save baseline. Discarding a draft moves its stamp backwards,
             // so a copy kept from an earlier save would fence later saves too loosely.
             cache.lastSavedWorkflow = undefined
-            const draftSource = parseEmailDraftSource(props.draftSource)
-            if (
-                draftSource &&
-                !cache.aiEmailDraftRequested &&
-                (!props.id || props.id === 'new') &&
-                prefilledEmailContent(originalWorkflow)
-            ) {
+            const draftSource = aiEmailDraftToRequest(props, !!cache.aiEmailDraftRequested, originalWorkflow)
+            if (draftSource) {
                 cache.aiEmailDraftRequested = true
                 actions.loadAiEmailDraft(draftSource)
             }
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             const loaded = withStagedDraft(originalWorkflow)
-            const baseBeforeExternalEdit = selectors.isSyncingExternalEdit(previousState)
-                ? selectors.originalWorkflow(previousState)
-                : null
-            const unsavedEdits =
-                baseBeforeExternalEdit && values.keepsLocalEditsOnExternalEdit
-                    ? rebaseWorkflowEdits(withStagedDraft(baseBeforeExternalEdit), values.workflow, loaded)
-                    : {}
+            const baseBeforeExternalEdit =
+                values.keepsLocalEditsOnExternalEdit && selectors.isSyncingExternalEdit(previousState)
+                    ? selectors.originalWorkflow(previousState)
+                    : null
+            const unsavedEdits = editsKeptOverReload(baseBeforeExternalEdit, values.workflow, loaded)
             actions.resetWorkflow(loaded)
             if (Object.keys(unsavedEdits).length > 0) {
                 actions.setWorkflowValues(unsavedEdits)
