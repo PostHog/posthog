@@ -71,6 +71,21 @@ Use `select_related()` in a streamed loop that reads a relation.
 
 To opt out, call `.fetch_mode(models.FETCH_ONE)` on the queryset.
 
+### In tests
+
+Under pytest, scoped querysets use `FETCH_RAISE_ON_PEERS` instead.
+A lazy load on a row from a multi-row query raises `FieldFetchBlocked`, because without the batch it costs one query per row.
+The error names the model, the field, and the fix: `select_related()` or `prefetch_related()` for a relation, `only()` for a deferred field.
+A row from `.get()`, `.first()` or a one-row result still loads lazily.
+
+Django fetch modes cover forward foreign keys, one-to-one fields in both directions, generic foreign keys and deferred fields.
+They do not cover reverse foreign key or many-to-many managers such as `flag.experiments.all()`, so use `prefetch_related()` and an `assertNumQueries` test for those.
+
+If app code catches the `FieldFetchBlocked`, the root `conftest.py` still fails the test that made the load.
+
+Fix a failure with `select_related()`, `prefetch_related()` or `only()`.
+To keep production batching on purpose, set `.fetch_mode(FETCH_RELATION_PEERS)` on the queryset that loads the rows.
+
 ## Adoption
 
 ### New main-DB model
