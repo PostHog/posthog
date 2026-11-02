@@ -215,7 +215,7 @@ class DeliveryConfigSerializer(serializers.Serializer):
             "reply. Defaults to false. The request is rejected when target_type is not 'slack', or when "
             "an insight or dashboard subscription's Slack integration does not hold the files:write "
             "permission. "
-            "Omit it unless the user asks for one combined message."
+            "Omit it unless the user asks for all images or charts in the main message."
         ),
     )
     include_images = serializers.BooleanField(
