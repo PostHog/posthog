@@ -10,6 +10,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
 
@@ -98,5 +99,69 @@ describe('CdpCyclotronWorkerEmail', () => {
                   ]
                 : []
         )
+    })
+
+    it('closes a transactional send whose graded workflow version is newer than the database as a failed run', async () => {
+        const { team } = await createTestTeamFixture(hub.postgres)
+        const hogFlow: HogFlow = await insertHogFlow(
+            hub.postgres,
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'api' } },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                } as any)
+                .build()
+        )
+        const jobQueue = createMockJobQueue()
+        const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), jobQueue)
+        const job: CyclotronJobInvocation = {
+            id: new UUIDT().toString(),
+            teamId: team.id,
+            functionId: hogFlow.id,
+            queue: 'email',
+            queuePriority: 0,
+            state: createHogFlowInvocationContext({
+                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
+                triggerMetricPending: true,
+                send: { tracking: { captureEngagement: false }, hogFlowVersion: hogFlow.version + 1 },
+            }),
+        }
+        const produce = jest
+            .spyOn(worker['invocationResultsService'].invocationResultsRowsService['outputs'], 'produce')
+            .mockResolvedValue(undefined)
+        const produced = (output: string): Record<string, unknown>[] =>
+            produce.mock.calls
+                .filter(([name]) => name === output)
+                .map(([, message]) => parseJSON(message.value!.toString()))
+        const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+        hub.HOG_INVOCATION_RESULTS_ENABLED = true
+
+        try {
+            const { invocationResults, backgroundTask } = await worker.processBatch([job])
+            await backgroundTask
+
+            expect(invocationResults).toEqual([
+                expect.objectContaining({
+                    finished: true,
+                    error: `Workflow version ${hogFlow.version} is older than version ${hogFlow.version + 1}, which this send was checked against`,
+                }),
+            ])
+            expect(invocationResults[0].metrics.map((metric) => metric.metric_name)).toEqual(['triggered'])
+            expect(jobQueue.queueInvocationResults).toHaveBeenCalledWith(invocationResults)
+            expect(produced('hog_invocation_results')).toEqual([
+                expect.objectContaining({ invocation_id: job.id, function_kind: 'hog_flow', status: 'failed' }),
+            ])
+            expect(produced('email_status')).toEqual([
+                expect.objectContaining({ message_id: job.id, status: 'failed' }),
+            ])
+        } finally {
+            hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            produce.mockRestore()
+        }
     })
 })

@@ -7,7 +7,6 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
@@ -15,7 +14,6 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
-import { TRANSACTIONAL_EMAIL_EVENT } from '../services/hogflows/hogflow-sensitivity'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -653,59 +651,6 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 results.map((result) => (result.invocation as CyclotronJobInvocationHogFlow).hogFlow.version)
             ).toEqual(ranVersions)
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([])
-        })
-
-        it.each([
-            ['closes the run as failed and drops the job', true],
-            ['keeps the job for a retry when the run cannot be closed', false],
-        ])('a send whose graded workflow version is newer than the database %s', async (_desc, rowProduced) => {
-            const hogFlow = hogFlows[0]
-            const invocation = createSerializedHogFlowInvocation(hogFlow, {
-                event: { event: TRANSACTIONAL_EMAIL_EVENT, distinct_id: 'distinct_A_1', properties: {} } as any,
-                send: { tracking: { captureEngagement: false }, hogFlowVersion: hogFlow.version + 1 },
-            })
-            const produce = jest
-                .spyOn(processor['invocationResultsService'].invocationResultsRowsService['outputs'], 'produce')
-                .mockImplementation((output) =>
-                    output === 'hog_invocation_results' && !rowProduced
-                        ? Promise.reject(new Error('broker unavailable'))
-                        : Promise.resolve()
-                )
-            const produced = (output: string): Record<string, unknown>[] =>
-                produce.mock.calls
-                    .filter(([name]) => name === output)
-                    .map(([, message]) => parseJSON(message.value!.toString()))
-            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
-            hub.HOG_INVOCATION_RESULTS_ENABLED = true
-
-            try {
-                const { invocationResults, backgroundTask } = await processor.processBatch([invocation])
-                await backgroundTask
-
-                expect(invocationResults).toEqual([])
-                expect(produced('hog_invocation_results')).toEqual([
-                    expect.objectContaining({
-                        invocation_id: invocation.id,
-                        function_kind: 'hog_flow',
-                        status: 'failed',
-                        error_kind: 'workflow_version_behind',
-                    }),
-                ])
-                expect(produced('email_status')).toEqual(
-                    rowProduced
-                        ? [
-                              expect.objectContaining({
-                                  message_id: invocation.id,
-                                  status: 'failed',
-                                  reason: 'workflow_unavailable',
-                              }),
-                          ]
-                        : []
-                )
-                expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith(rowProduced ? [invocation] : [])
-            } finally {
-                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
-            }
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
