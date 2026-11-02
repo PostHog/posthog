@@ -184,6 +184,38 @@ class TestEmailPerformanceRecipes(ClickhouseTestMixin, APIBaseTest):
             {"version": "10", "metric_name": "email_sent", "total": 4},
         ]
 
+    def test_engagement_by_version_splits_one_steps_callbacks_and_keeps_unattributed_last(self) -> None:
+        for name in ("ada", "bo", "cy"):
+            self._person(name)
+        at = WINDOW_START + timedelta(days=2)
+        v2, v10 = {"$workflow_version": 2}, {"$workflow_version": 10}
+        self._email_event("ada", "delivered", at, properties=v2)
+        self._email_event("ada", "opened", at + timedelta(hours=1), properties=v2)
+        self._email_event("ada", "opened", at + timedelta(hours=2), properties=v2)
+        self._email_event("ada", "link_clicked", at + timedelta(hours=3), properties=v2)
+        self._email_event("bo", "opened", at, properties=v10)
+        self._email_event("bo", "bounced", at, properties=v10)
+        self._email_event("cy", "opened", at)
+        self._email_event("ada", "opened", at, step=OTHER_STEP_ID, properties=v2)
+        self._email_event("bo", "opened", at, properties={**v2, "$workflow_id": OTHER_WORKFLOW_ID})
+
+        rows = self._run("Engagement by version")
+
+        empty = {
+            "delivered": 0,
+            "opens": 0,
+            "openers": 0,
+            "clicks": 0,
+            "clickers": 0,
+            "bounces": 0,
+            "spam_complaints": 0,
+        }
+        assert rows == [
+            {**empty, "version": "2", "delivered": 1, "opens": 2, "openers": 1, "clicks": 1, "clickers": 1},
+            {**empty, "version": "10", "opens": 1, "openers": 1, "bounces": 1},
+            {**empty, "version": None, "opens": 1, "openers": 1},
+        ]
+
     def test_clicked_links_count_each_position_per_version_without_urls(self) -> None:
         clicks = "email_link_clicked_by_link"
         self._counter(f"{WORKFLOW_ID}/1", f"{STEP_ID}|0|https://example.com/pricing", clicks, 2)
