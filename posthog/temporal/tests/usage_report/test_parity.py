@@ -78,6 +78,8 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_event_count_in_period": {team_a_id: 100, team_b_id: 50, team_c_id: 25},
         "teams_with_enhanced_persons_event_count_in_period": {team_a_id: 80, team_b_id: 40},
         "teams_with_mcp_event_count_in_period": {team_a_id: 30, team_c_id: 5},
+        "teams_with_business_knowledge_chunks_in_period": {team_a_id: 1_200, team_b_id: 300},
+        "teams_with_business_knowledge_queries_in_period": {team_b_id: 40, team_c_id: 7},
         "teams_with_recording_count_in_period": {team_a_id: 8, team_c_id: 3},
         "teams_with_recording_bytes_in_period": {team_a_id: 1_234_567, team_c_id: 89_012},
         "teams_with_decide_requests_count_in_period": {team_a_id: 1_000, team_b_id: 200, team_c_id: 50},
@@ -441,6 +443,8 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     # suspect.
     assert temporal_per_org[str(org_a.id)]["event_count_in_period"] == 100 + 50
     assert temporal_per_org[str(org_a.id)]["mcp_event_count_in_period"] == 30
+    assert temporal_per_org[str(org_a.id)]["business_knowledge_chunks_in_period"] == 1_200 + 300
+    assert temporal_per_org[str(org_b.id)]["business_knowledge_queries_in_period"] == 7
     assert temporal_per_org[str(org_b.id)]["event_count_in_period"] == 25
     assert temporal_per_org[str(org_a.id)]["team_count"] == 2
     assert temporal_per_org[str(org_b.id)]["team_count"] == 1

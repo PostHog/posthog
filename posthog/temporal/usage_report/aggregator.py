@@ -66,6 +66,11 @@ _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS = (
     "teams_with_replay_vision_scanner_projected_credits",
     "teams_with_replay_vision_backfill_committed_credits",
 )
+_BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME = "business_knowledge_usage"
+_BUSINESS_KNOWLEDGE_USAGE_DESTINATION_KEYS = (
+    "teams_with_business_knowledge_chunks_in_period",
+    "teams_with_business_knowledge_queries_in_period",
+)
 
 
 def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
@@ -131,6 +136,14 @@ def add_pre_replay_vision_spend_projection_patch_defaults(
 ) -> None:
     if not any(result.query_name == _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME for result in query_results):
         for key in _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS:
+            all_data[key] = {}
+
+
+def add_pre_business_knowledge_usage_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME for result in query_results):
+        for key in _BUSINESS_KNOWLEDGE_USAGE_DESTINATION_KEYS:
             all_data[key] = {}
 
 
