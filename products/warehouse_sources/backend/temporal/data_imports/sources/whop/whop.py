@@ -29,15 +29,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.whop.settings import (
-    ALL_WEBHOOK_EVENTS,
     API_VERSION_HEADER,
     BASE_URL,
     COMPANY_FILTER_PARAM,
     PAGE_SIZE,
-    WEBHOOK_SCHEMA_NAMES,
     WHOP_API_VERSION_2025_01_01,
     WHOP_ENDPOINTS,
     sort_mode_for,
+    webhook_events_for,
+    webhook_schema_names_for,
 )
 
 REQUEST_TIMEOUT = 30
@@ -140,6 +140,8 @@ def whop_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = WHOP_ENDPOINTS[endpoint]
+    if not config.served_on(api_version):
+        raise ValueError(f"Whop table {endpoint} is not available on API version {api_version}")
     watermark = _parse_datetime(db_incremental_field_last_value) if should_use_incremental_field else None
 
     rest_config: RESTAPIConfig = {
@@ -196,7 +198,7 @@ def whop_source(
     )
 
     webhook_enabled = False
-    if webhook_source_manager is not None and endpoint in WEBHOOK_SCHEMA_NAMES:
+    if webhook_source_manager is not None and endpoint in webhook_schema_names_for(api_version):
         webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=False)
 
     def items():
@@ -313,7 +315,7 @@ def create_webhook(api_key: str, company_id: str, webhook_url: str, api_version:
     """
     body: dict[str, Any] = {
         "url": webhook_url,
-        "events": ALL_WEBHOOK_EVENTS,
+        "events": webhook_events_for(api_version),
         "resource_id": company_id,
         "enabled": True,
     }

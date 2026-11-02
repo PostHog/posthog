@@ -395,9 +395,8 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  # Deep clone so we can compute the merge-base with the PR base ref
-                  # for the schema cache key (matches ci-backend.yml's turbo-discover).
-                  fetch-depth: 1000
+                  # PR schema keys need merge-base history; scheduled keys use only HEAD.
+                  fetch-depth: ${{ github.event_name == 'schedule' && 1 || 1000 }}
                   filter: blob:none
 
             - name: Clean up data directories with container permissions

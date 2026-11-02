@@ -31,7 +31,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
 )
-from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun, TeamTasksConfig
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
@@ -175,6 +175,34 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["provider"] == expected_provider
         assert run.state["model"] == model
         assert run.state["reasoning_effort"] == "high"
+
+    @parameterized.expand([("zai-org/glm-5.3-flash",), ("deepseek-ai/deepseek-v4-flash-0731",)])
+    def test_drops_a_model_outside_the_workflows_gateway_pin(self, model: str) -> None:
+        response = self._post({"model": model})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") is None
+        assert run.state.get("runtime_adapter") is None
+
+    @parameterized.expand([("dropped_model", {"model": "zai-org/glm-5.3-flash"}), ("no_model", {})])
+    def test_skips_a_project_default_model_outside_the_workflows_gateway_pin(self, _name: str, body: dict) -> None:
+        TeamTasksConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "ai_run_preferences": {
+                    "runtime_adapter": "claude",
+                    "model": "zai-org/glm-5.3-flash",
+                    "reasoning_effort": None,
+                }
+            },
+        )
+
+        response = self._post(body)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") is None
 
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
