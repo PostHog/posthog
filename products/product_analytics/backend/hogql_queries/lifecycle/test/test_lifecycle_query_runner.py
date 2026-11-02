@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import time_machine
@@ -189,13 +189,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "new",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 4.0,
@@ -241,13 +234,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "returning",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 3.0,
@@ -293,13 +279,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "resurrecting",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": -3.0,
@@ -345,13 +324,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "dormant",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
             ],
             response.results,
@@ -467,13 +439,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "new",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 6.0,
@@ -519,13 +484,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "returning",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 3.0,
@@ -571,13 +529,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "resurrecting",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": -4.0,
@@ -623,13 +574,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "dormant",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
             ],
             response.results,
@@ -971,13 +915,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "new",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 2.0,
@@ -1023,13 +960,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "returning",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 4.0,
@@ -1075,13 +1005,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "resurrecting",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": -7.0,
@@ -1127,13 +1050,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "dormant",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
             ],
             response.results,
@@ -2327,20 +2243,25 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 IntervalType.WEEK,
                 "2020-01-14",
                 "2020-01-19",
+                datetime(2020, 1, 5, tzinfo=UTC),
             ),
             (
                 "month_interval_mid_month",
                 IntervalType.MONTH,
                 "2020-01-14",
                 "2020-01-19",
+                datetime(2019, 12, 1, tzinfo=UTC),
             ),
         ]
     )
     @time_machine.travel("2020-01-20T00:00:00Z", tick=False)
-    def test_lifecycle_interval_boundary_filtering(self, _name, interval, date_from, date_to):
+    def test_lifecycle_interval_boundary_filtering(self, _name, interval, date_from, date_to, expected_read_from):
         self._create_test_events()
 
         response = self._run_lifecycle_query(date_from, date_to, interval)
+
+        assert response.resolved_date_range is not None
+        assert response.resolved_date_range.read_from == expected_read_from
 
         statuses = [r["status"] for r in response.results]
         assert statuses == ["new", "returning", "resurrecting", "dormant"]

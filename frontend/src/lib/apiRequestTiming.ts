@@ -7,6 +7,8 @@ export interface ApiRequestTiming {
     body_read_ms?: number
     json_parse_ms?: number
     http_status?: number
+    // Above 1 when authentication refreshed and retried the request.
+    fetch_attempts?: number
     http_request_id?: string
     envoy_upstream_ms?: number
     resource_timing_status:
@@ -24,6 +26,29 @@ export interface ApiRequestTiming {
     resource_download_ms?: number
     // Includes browser scheduling, body decoding, and parsing after network completion.
     resource_callback_ms?: number
+}
+
+const FLATTENED_REQUEST_TIMING_FIELDS = [
+    'http_request_id',
+    'time_to_headers_ms',
+    'body_read_ms',
+    'json_parse_ms',
+    'resource_timing_status',
+    'envoy_upstream_ms',
+    'resource_pre_request_ms',
+    'resource_ttfb_ms',
+    'request_total_ms',
+    'http_status',
+] as const
+
+export function flattenRequestTiming(
+    timing: ApiRequestTiming | undefined,
+    prefix: '' | 'result_poll_'
+): Record<string, string | number | undefined> {
+    if (!timing) {
+        return {}
+    }
+    return Object.fromEntries(FLATTENED_REQUEST_TIMING_FIELDS.map((field) => [`${prefix}${field}`, timing[field]]))
 }
 
 const MAX_PENDING_RESOURCES = 32
@@ -53,6 +78,7 @@ export class ApiRequestTimingRecorder {
     private observer?: PerformanceObserver
     private resourceEntries: PerformanceResourceTiming[] = []
     private resourceCollectionOverflowed = false
+    private fetchAttempts = 0
 
     constructor(private readonly clock: Pick<Performance, 'now'> = performance) {
         this.startedAt = clock.now()
@@ -74,6 +100,7 @@ export class ApiRequestTimingRecorder {
         this.resourceEntries = []
         this.resourceCollectionOverflowed = false
         this.fetchStartedAt = this.clock.now()
+        this.fetchAttempts++
         try {
             this.requestUrl = new URL(url, location.href).href
         } catch {
@@ -169,6 +196,7 @@ export class ApiRequestTimingRecorder {
         const timing: ApiRequestTiming = {
             ...this.timing,
             request_total_ms: finishedAt - this.startedAt,
+            ...(this.fetchAttempts ? { fetch_attempts: this.fetchAttempts } : {}),
             resource_timing_status: 'missing_request_id',
         }
         try {

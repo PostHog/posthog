@@ -6,10 +6,12 @@ import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 export function OngoingRecordingsGroup({
     count,
     holdsActive,
+    defaultOpen = false,
     children,
 }: {
     count: number
     holdsActive: boolean
+    defaultOpen?: boolean
     children: ReactNode
 }): JSX.Element | null {
     // null follows the selection. A click pins a choice until the selection next moves into the group
@@ -24,7 +26,7 @@ export function OngoingRecordingsGroup({
     if (count === 0) {
         return null
     }
-    const expanded = choice ?? holdsActive
+    const expanded = choice ?? (holdsActive || defaultOpen)
 
     return (
         <div className="border-b">

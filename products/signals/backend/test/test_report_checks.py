@@ -2960,22 +2960,38 @@ class TestResearchAuthoredChecks(APIBaseTest):
             assert existing.updated_at == version
             assert existing.approved_at is not None
 
-    @parameterized.expand([("no_lane", False), ("lane", True)])
-    def test_research_drops_an_agent_spec_with_no_lane_and_keeps_the_rest(self, _name: str, has_lane: bool) -> None:
+    @parameterized.expand([("no_lane", False, False), ("lane", True, False), ("only_agent_no_lane", False, True)])
+    def test_research_drops_an_agent_spec_with_no_lane_and_keeps_the_rest(
+        self, _name: str, has_lane: bool, only_agent: bool
+    ) -> None:
         if has_lane:
             _seed_check_lane(self.team)
         agent_spec = self._spec(title="The exception stops", kind="agent", config={"instructions": "Re-read it."})
+        original = None
+        if only_agent:
+            original = create_checks_from_specs(
+                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+            ).created[0]
 
         with patch(_CAPTURE) as capture:
-            written = create_checks_from_specs(
-                report=self.report, specs=[self._spec(), agent_spec], attribution=ArtefactAttribution.system()
-            ).created
+            result = create_checks_from_specs(
+                report=self.report,
+                specs=[agent_spec] if only_agent else [self._spec(), agent_spec],
+                attribution=ArtefactAttribution.system(),
+            )
+            written = result.created
 
         kinds = sorted(check.kind for check in written)
         skipped = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_report_check_skipped"]
         if has_lane:
             assert kinds == ["agent", "metric_threshold"]
             assert skipped == []
+        elif only_agent:
+            assert not result.applied
+            assert written == []
+            assert original is not None
+            original.refresh_from_db()
+            assert original.status == SignalReportCheck.Status.PENDING
         else:
             assert kinds == ["metric_threshold"]
             assert len(skipped) == 1

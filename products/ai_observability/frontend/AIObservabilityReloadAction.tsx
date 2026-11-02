@@ -14,8 +14,6 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { DashboardPlacement } from '~/types'
 
 import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/EvaluationMetrics'
-import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { evaluationsOverviewLogic } from './evaluations/overview/evaluationsOverviewLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
@@ -53,9 +51,6 @@ export function AIObservabilityReloadAction(): JSX.Element {
     const { triggerDashboardRefresh } = useActions(boundLogic)
 
     const { reloadAll } = useActions(dataNodeCollectionLogic({ key: AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID }))
-    const { reloadAll: reloadEvaluationMetrics } = useActions(
-        dataNodeCollectionLogic({ key: EVALUATION_METRICS_COLLECTION_ID })
-    )
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
     const { sessionsLoading } = useValues(aiObservabilitySessionsViewLogic)
     const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
@@ -67,12 +62,9 @@ export function AIObservabilityReloadAction(): JSX.Element {
         if (activeTab === 'dashboard') {
             triggerDashboardRefresh()
         } else if (activeTab === 'evaluations') {
-            // Refresh evaluations list and metrics. Only the view on screen has its logic mounted, and mounting the
-            // other one from here would start its queries for nothing.
+            // The overview logic is mounted only while its tab is on screen, so mounting it from here would query for nothing.
             loadEvaluations()
-            evaluationMetricsLogic.findMounted()?.actions.refreshMetrics()
             evaluationsOverviewLogic.findMounted()?.actions.reloadOverview()
-            reloadEvaluationMetrics()
         } else if (activeTab === 'sessions') {
             // The sessions list is a custom loader, not part of the data-node collection reloadAll() drives.
             // Force a recompute so the button surfaces newly-ingested sessions instead of a cached result.

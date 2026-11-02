@@ -97,6 +97,7 @@ export type SettingSectionId =
     | 'organization-roles'
     | 'organization-access-resolution'
     | 'organization-security'
+    | 'organization-ssf'
     | 'organization-startup-program'
     | 'organization-danger-zone'
     // User
@@ -145,6 +146,7 @@ export type SettingId =
     | 'conversations-channels'
     | 'conversations-general'
     | 'conversations-imports'
+    | 'conversations-macros'
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
     | 'core-memory'
@@ -256,6 +258,7 @@ export type SettingId =
     | 'organization-roles'
     | 'organization-access-resolution-preview'
     | 'organization-security'
+    | 'organization-ssf'
     | 'organization-mcp-access'
     | 'organization-personal-api-keys'
     | 'passkeys'

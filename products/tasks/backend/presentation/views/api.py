@@ -2008,10 +2008,20 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @staticmethod
     def _is_trial_lifecycle_update(payload: object) -> bool:
-        if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
+        if (
+            not isinstance(payload, dict)
+            or not payload
+            or set(payload) - {"status", "error_message", "error_type", "output", "state"}
+        ):
             return False
         if "status" in payload and (
             not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
+        ):
+            return False
+        if "error_type" in payload and payload.get("status") != "failed":
+            return False
+        if "output" in payload and not (
+            payload.get("status") in {"completed", "failed"} and tasks_facade.is_finish_report_output(payload["output"])
         ):
             return False
         if "state" in payload:
@@ -2096,6 +2106,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list",
         "retrieve",
         "logs",
+        "log_entries",
         "session_logs",
         "task_session",
         "stream",
@@ -3451,6 +3462,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    @validated_request(query_serializer=TaskRunLogsQuerySerializer, exclude=True)
+    @action(detail=True, methods=["get"], url_path="log_entries", required_scopes=["task:read"])
+    def log_entries(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    def _logs_response(self, request, pk) -> HttpResponse:
         task_id = self._ensure_task_accessible()
         query = request.validated_query_data
         timer = ServerTimingsGathered()

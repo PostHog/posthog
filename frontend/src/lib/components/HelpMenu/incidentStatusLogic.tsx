@@ -5,23 +5,19 @@ import posthog from 'posthog-js'
 import { isBrowserNetworkFailure } from 'lib/api-error'
 // eslint-disable-next-line import/no-cycle
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { NormalizedStatus, STATUS_PAGE_BASE, setIncidentStatus } from 'lib/lemon-ui/LemonToast/incidentStatus'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { Region } from '~/types'
 
 import type { PreflightStatus } from '../../../types'
 import type { FakeStatusOverride } from '../Superpowers/superpowersLogic'
-import { NormalizedStatus, STATUS_PAGE_BASE, setIncidentStatus } from './incidentStatus'
 
 // Raw status page API types
 export type ComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'full_outage'
 export type Impact = 'partial_outage' | 'degraded_performance' | 'full_outage'
 export type IncidentStatus = 'investigating' | 'identified' | 'monitoring'
 export type MaintenanceStatus = 'maintenance_in_progress' | 'maintenance_scheduled'
-
-// The normalized display status and its shared read/write module live in ./incidentStatus, a
-// deliberate leaf so LemonToast can read the status without importing this logic's graph.
-export { getIncidentStatus, setIncidentStatus, STATUS_PAGE_BASE, type NormalizedStatus } from './incidentStatus'
 
 export interface AffectedComponent {
     id: string
