@@ -41,6 +41,18 @@ export interface AIReplyPlaybookApi {
 }
 
 /**
+ * * `shared` - Everyone in the project
+ * * `personal` - Only the creator
+ */
+export type TicketMacroVisibilityEnumApi =
+    (typeof TicketMacroVisibilityEnumApi)[keyof typeof TicketMacroVisibilityEnumApi]
+
+export const TicketMacroVisibilityEnumApi = {
+    Shared: 'shared',
+    Personal: 'personal',
+} as const
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -106,7 +118,7 @@ export interface TicketMacroApi {
      */
     name: string
     /**
-     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
      * @maxLength 50
      * @nullable
      */
@@ -116,6 +128,11 @@ export interface TicketMacroApi {
      * @maxLength 10000
      */
     body: string
+    /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+     *
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator */
+    visibility?: TicketMacroVisibilityEnumApi
     /** How many times agents have inserted this macro. */
     readonly usage_count: number
     /**
@@ -152,7 +169,7 @@ export interface PatchedTicketMacroApi {
      */
     name?: string
     /**
-     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
      * @maxLength 50
      * @nullable
      */
@@ -162,6 +179,11 @@ export interface PatchedTicketMacroApi {
      * @maxLength 10000
      */
     body?: string
+    /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+     *
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator */
+    visibility?: TicketMacroVisibilityEnumApi
     /** How many times agents have inserted this macro. */
     readonly usage_count?: number
     /**
@@ -1193,6 +1215,7 @@ export type ConversationsTicketsListParams = {
     emails?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1277,6 +1300,7 @@ export const ConversationsTicketsListSla = {
 export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
