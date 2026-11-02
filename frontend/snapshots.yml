@@ -1564,6 +1564,10 @@ snapshots:
         hash: v1.k794b7964.8b96c539f190a68acd91a3f45b064fb35c287eb42c026c252d54dc7518be21e4.Ma8lGNVFpVb_79Fs5pUDBJQWJb4HSlfOKnoNFPbEFXo
     components-hogcharts-timeserieslinechart--start-at-zero--light:
         hash: v1.k794b7964.c8d69212e98a1690b10aa0452f9addf1afbaa2c5d8430f29928905874542cbcf.2bGtOgJFy_0JdlDEo5wQj6jVRwzQDbPP-hRp5bR7vro
+    components-hogcharts-timeserieslinechart--time-scale--dark:
+        hash: v1.k794b7964.00797dd065019207fce650c0094f08a735062e4cb3c8693b3d479f0f8d69617f.9cQxUXU3P6ThTL4tnvjBp8ccQj16c3M3hhBORK0FlEo
+    components-hogcharts-timeserieslinechart--time-scale--light:
+        hash: v1.k794b7964.555c5ae439c1546c05f25839b6e7d19e5eca1a4e31a6ee2aaaee375ead906ee9.8Efnz1p05sBd3J7iRi-GQ1erSEq86cJJCpyHjIm0-sc
     components-hogcharts-timeserieslinechart--trend-lines--dark:
         hash: v1.k794b7964.4d5a8d344fd57bb3d23edccf5bbcd73a293820083e5ed9f2c25f5bc439dba3ed.am33OiZY-lTm4WRE_NQKTyorQpZqkkA-f_sX1Hx46hA
     components-hogcharts-timeserieslinechart--trend-lines--light:
