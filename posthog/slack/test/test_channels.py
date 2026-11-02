@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.slack.channels import SlackChannel, clip_text, find_channel
+from posthog.slack.channels import SlackChannel, clip_text, find_channel, is_internal_channel
 
 _TEAM_CHANNEL = SlackChannel(channel_id="C1", shared=False)
 _SHARED_CHANNEL = SlackChannel(channel_id="C2", shared=True)
@@ -25,6 +25,24 @@ class TestFindChannel(SimpleTestCase):
         match = find_channel(_CHANNELS, channel_name, allow_shared=allow_shared)
 
         self.assertEqual((match.channel, match.reason), (channel, reason))
+
+
+class TestIsInternalChannel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("public_channel", {"is_channel": True}, True),
+            # Private channels created before Slack's 2021 id change report is_group, not is_channel.
+            ("legacy_private_channel", {"is_group": True, "is_private": True}, True),
+            ("slack_connect", {"is_channel": True, "is_ext_shared": True, "is_shared": True}, False),
+            ("pending_slack_connect_invite", {"is_channel": True, "is_pending_ext_shared": True}, False),
+            ("shared_across_an_enterprise_org", {"is_channel": True, "is_org_shared": True}, False),
+            ("direct_message", {"is_im": True}, False),
+            ("group_direct_message", {"is_mpim": True, "is_group": True}, False),
+            ("payload_without_a_kind", {}, False),
+        ]
+    )
+    def test_internal(self, _name: str, channel: dict, expected: bool) -> None:
+        self.assertEqual(is_internal_channel(channel), expected)
 
 
 class TestClipText(SimpleTestCase):

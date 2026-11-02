@@ -64,6 +64,18 @@ class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
 
 
 @mutable_receiver(models.signals.post_save, sender=Comment)
+def release_slack_thread_on_root_delete(sender, instance: Comment, created: bool, **kwargs) -> None:
+    """Stop a deleted discussion's Slack sync, and free its thread to be linked again.
+
+    Otherwise Slack replies keep landing under a root nobody can see, and the rule of one
+    discussion per Slack thread keeps the thread from being linked anywhere else.
+    """
+    if created or not instance.deleted or instance.source_comment_id is not None:
+        return
+    CommentSlackThread.objects.for_team(instance.team_id).filter(source_comment_id=instance.id).delete()
+
+
+@mutable_receiver(models.signals.post_save, sender=Comment)
 def mirror_comment_reply_to_slack_on_create(sender, instance: Comment, created: bool, **kwargs) -> None:
     """Sync a newly-created discussion reply out to any mirrored Slack threads.
 

@@ -24,7 +24,7 @@ from typing import Any
 
 import structlog
 
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -46,7 +46,7 @@ from products.slack_app.backend.logic.progress_phases import (
     phase_line_title,
     tool_call_from_acp_update,
 )
-from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
 from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
@@ -103,6 +103,18 @@ def invalidate_slack_integration_auth_state(integration_id: int) -> None:
     )
     if slack_team_id:
         invalidate_workspace_bot_user_id(slack_team_id)
+
+
+def slack_thread_has_agent_task(*, slack_workspace_id: str, channel: str, thread_ts: str) -> bool:
+    """Whether someone started a PostHog agent task in this Slack thread.
+
+    The agent then owns the thread's replies, so another feature that reads them gets none.
+    """
+    # Filtered by integration rather than workspace id so the lookup uses the mapping's unique index.
+    integration_ids = [row.id for row in IntegrationManager.slack.oauth.list_by_external_id(slack_workspace_id)]
+    return SlackThreadTaskMapping.objects.filter(
+        integration_id__in=integration_ids, channel=channel, thread_ts=thread_ts
+    ).exists()
 
 
 def slack_channel_is_approved(slack_workspace_id: str, slack_channel_id: str) -> bool:
