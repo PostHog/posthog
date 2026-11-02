@@ -195,45 +195,51 @@ function isReportDate(value: unknown): boolean {
     return typeof value === 'string' && Number.isFinite(Date.parse(value))
 }
 
+function isInboxPullRequest(value: unknown): boolean {
+    return (
+        isRecord(value) &&
+        typeof value.url === 'string' &&
+        typeof value.state === 'string' &&
+        typeof value.merged === 'boolean' &&
+        isOptionalString(value.id) &&
+        isOptionalString(value.review_decision)
+    )
+}
+
 function isInboxReport(value: unknown): boolean {
-    if (!isRecord(value)) {
+    if (
+        !isRecord(value) ||
+        typeof value.id !== 'string' ||
+        !value.id.trim() ||
+        !isOptionalString(value.title) ||
+        typeof value.status !== 'string' ||
+        !Array.isArray(value.source_products) ||
+        !value.source_products.every((source) => typeof source === 'string') ||
+        !isReportDate(value.created_at) ||
+        !isReportDate(value.updated_at) ||
+        typeof value.signal_count !== 'number' ||
+        !Number.isSafeInteger(value.signal_count) ||
+        value.signal_count < 0 ||
+        (value.is_suggested_reviewer !== undefined && typeof value.is_suggested_reviewer !== 'boolean') ||
+        !isOptionalString(value.implementation_pr_url) ||
+        !Array.isArray(value.pull_requests) ||
+        !value.pull_requests.every(isInboxPullRequest)
+    ) {
         return false
     }
-    const assignee = value.assignee
-    const ranking = value.ranking
-    return (
-        typeof value.id === 'string' &&
-        value.id.trim().length > 0 &&
-        isOptionalString(value.title) &&
-        typeof value.status === 'string' &&
-        Array.isArray(value.source_products) &&
-        value.source_products.every((source) => typeof source === 'string') &&
-        isReportDate(value.created_at) &&
-        isReportDate(value.updated_at) &&
-        typeof value.signal_count === 'number' &&
-        Number.isSafeInteger(value.signal_count) &&
-        value.signal_count >= 0 &&
-        (value.is_suggested_reviewer === undefined || typeof value.is_suggested_reviewer === 'boolean') &&
-        isOptionalString(value.implementation_pr_url) &&
-        Array.isArray(value.pull_requests) &&
-        value.pull_requests.every(
-            (pr: unknown) =>
-                isRecord(pr) &&
-                typeof pr.url === 'string' &&
-                typeof pr.state === 'string' &&
-                typeof pr.merged === 'boolean' &&
-                isOptionalString(pr.id) &&
-                isOptionalString(pr.review_decision)
-        ) &&
-        (assignee === undefined || assignee === null || (isRecord(assignee) && typeof assignee.kind === 'string')) &&
-        (ranking === undefined ||
-            ranking === null ||
-            (isRecord(ranking) &&
-                isRecord(ranking.scores) &&
-                (ranking.scores.pr_merged === undefined ||
-                    ranking.scores.pr_merged === null ||
-                    (typeof ranking.scores.pr_merged === 'number' && Number.isFinite(ranking.scores.pr_merged)))))
-    )
+    if (value.assignee != null && (!isRecord(value.assignee) || typeof value.assignee.kind !== 'string')) {
+        return false
+    }
+    if (value.ranking != null) {
+        if (!isRecord(value.ranking)) return false
+        const scores = value.ranking.scores
+        if (scores != null) {
+            if (!isRecord(scores)) return false
+            const score = scores.pr_merged
+            if (score != null && (typeof score !== 'number' || !Number.isFinite(score))) return false
+        }
+    }
+    return true
 }
 
 export async function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {

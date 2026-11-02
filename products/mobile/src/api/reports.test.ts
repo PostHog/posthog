@@ -81,8 +81,22 @@ describe('reports api', () => {
         await expect(fetchInboxPage(0)).rejects.toThrow("Couldn't load your inbox. Try again.")
     })
 
-    test('accepts nullable optional inbox fields and unknown source products', async () => {
-        const report = reportFixture({ title: null, source_products: ['future_source'], ranking: null, assignee: null })
+    test.each([
+        null,
+        { status: 'not_available', model: null, scored_at: null, predictions: [] },
+        { status: 'unscored', model: null, scored_at: null, predictions: [] },
+        {
+            status: 'scored',
+            model: 'example-model',
+            scored_at: '2026-10-01T00:00:00Z',
+            predictions: [{ outcome: 'pr_merged', probability: 0.5, lift: null, readable: true }],
+        },
+        { scores: { pr_merged: 0.5 } },
+    ])('accepts current and legacy rankings with nullable titles and unknown sources: %p', async (ranking) => {
+        const report = {
+            ...reportFixture({ title: null, source_products: ['future_source'], assignee: null }),
+            ranking,
+        }
         const page = { count: 1, next: null, results: [report] }
         globalThis.fetch = jest.fn(async () => ({
             ok: true,
