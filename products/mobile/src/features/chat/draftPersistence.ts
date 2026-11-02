@@ -33,8 +33,9 @@ interface Manifest {
 }
 
 async function manifest(key: string): Promise<Manifest | null> {
+    const stored = await itemStorage.getItem(key)
     try {
-        const value: unknown = JSON.parse((await itemStorage.getItem(key)) ?? 'null')
+        const value: unknown = JSON.parse(stored ?? 'null')
         if (value && typeof value === 'object') {
             const record = value as Record<string, unknown>
             if (
