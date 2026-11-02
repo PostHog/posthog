@@ -156,11 +156,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
-                                <ErrorTrackingIssueSceneMenuBar
-                                    issue={issue}
-                                    onViewRecordings={openRecordings}
-                                    onSetUpVisionScanner={setUpVisionScanner}
-                                />
+                                <ErrorTrackingIssueSceneMenuBar issue={issue} />
                                 <SceneTitleSection
                                     noPadding
                                     canEdit
@@ -170,17 +166,17 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
                                         'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] [&>.scene-title-section]:py-2',
+                                        {
+                                            '@max-5xl/main-content:h-auto @max-5xl/main-content:flex-wrap @max-5xl/main-content:gap-y-2 @max-5xl/main-content:py-2 @max-5xl/main-content:[&>div]:basis-full':
+                                                hasSceneMenuBar,
+                                        },
                                         isMobile
                                             ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
                                             : undefined
                                     )}
                                     actions={
                                         isMobile ? undefined : (
-                                            <div
-                                                className={clsx('flex items-center gap-1', {
-                                                    'hidden @5xl/main-content:flex': hasSceneMenuBar,
-                                                })}
-                                            >
+                                            <div className="flex flex-wrap items-center justify-end gap-1">
                                                 <ButtonGroup>
                                                     <IssueStatusSelect
                                                         status={issue.status}
