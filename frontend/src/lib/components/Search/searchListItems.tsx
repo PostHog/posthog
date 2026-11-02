@@ -356,11 +356,8 @@ export interface SettingsSectionSummary {
     to?: string
     keywords?: string[]
     settings: {
-        id: string
-        hasTitle: boolean
-        titleString: string | null
-        descriptionString: string | null
-        keywords?: string[]
+        keywords: string[]
+        description: string | null
         flag?: SettingSection['flag']
     }[]
 }
@@ -371,16 +368,7 @@ interface SettingsGates {
     billingEntryUrl: string | null
 }
 
-const SHARED_SECTION_TITLES = new Set(['General', 'Danger zone', 'Integrations'])
-
-const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
-
-const settingSearchTerms = (setting: SettingsSectionSummary['settings'][number]): string[] => [
-    sentenceCaseId(setting.id),
-    ...(setting.titleString ? [setting.titleString] : []),
-    ...(setting.descriptionString ? [setting.descriptionString] : []),
-    ...(setting.keywords ?? []),
-]
+export const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
 
 // Sections hidden from navigation are only reachable from their product's own configuration page.
 // Integrations and billing mirror the sidebar gates. billingEntryUrl is null when the user has no
@@ -396,22 +384,20 @@ const toSettingsSearchItem = (section: SettingsSectionSummary, gates: SettingsGa
     // Environment sections show as project sections.
     const level = section.level === 'environment' ? 'project' : section.level
     const sectionId = section.id.replace(/^environment-/, 'project-') as SettingSectionId
-    const levelName = toSentenceCase(level)
-    const title = section.titleString ?? sentenceCaseId(section.id)
-    const searchTerms = [
-        ...(section.keywords ?? []),
-        ...section.settings
-            .filter((setting) => setting.hasTitle && gates.isFlagEnabled(setting.flag))
-            .flatMap(settingSearchTerms),
-    ]
+    const displayName = section.titleString ?? sentenceCaseId(section.id)
+    const parentName = `${toSentenceCase(level)} settings`
+    const settings = section.settings.filter((setting) => gates.isFlagEnabled(setting.flag))
     return {
         id: `settings-${sectionId}`,
-        name: `${levelName}: ${title} (${searchTerms.join(',')})`,
-        displayName: SHARED_SECTION_TITLES.has(title) ? `${title} (${levelName})` : title,
+        name: displayName,
+        displayName,
+        parentName,
         category: 'settings',
         href:
             (section.id === 'organization-billing' && gates.billingEntryUrl) || section.to || urls.settings(sectionId),
         itemType: 'settings',
+        searchKeywords: [...(section.keywords ?? []), ...settings.flatMap((setting) => setting.keywords)],
+        hiddenSearchText: settings.flatMap((setting) => setting.description ?? []).join(' '),
         record: { type: 'settings', level, sectionId },
     }
 }
