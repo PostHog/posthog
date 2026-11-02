@@ -304,4 +304,28 @@ describe('chat draft persistence', () => {
         mockWriteFailure = false
         hook.unmount()
     })
+    it.each([false, true])('does not duplicate a committed queue on close, newer typing=%s', async (newerTyping) => {
+        const hook = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        act(() => hook.result.current.change({ text: 'Queued question', reportIds: [] }))
+        let finish!: () => void
+        mockWriteGate = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        let saving!: Promise<boolean>
+        act(() => {
+            saving = hook.result.current.updateQueue(queueActions.enqueue('Queued question'), true)
+        })
+        if (newerTyping) act(() => hook.result.current.change({ text: 'New question', reportIds: [] }))
+        hook.unmount()
+        await act(async () => {
+            finish()
+            await saving
+        })
+        const reopened = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(reopened.result.current.ready).toBe(true))
+        expect(reopened.result.current.queue.rows.map((row) => row.text)).toEqual(['Queued question'])
+        expect(reopened.result.current.draft.text).toBe(newerTyping ? 'New question' : '')
+        reopened.unmount()
+    })
 })

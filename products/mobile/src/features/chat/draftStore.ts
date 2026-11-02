@@ -20,6 +20,14 @@ interface SavedDraft {
 type Drafts = Record<string, SavedDraft>
 const EMPTY: ChatDraft = { text: '', reportIds: [] }
 const LIMIT = 50
+const MAX_PROJECT_CHARACTERS = 128 * 1024
+
+export class DraftStorageLimitError extends Error {
+    constructor() {
+        super("Saved messages have reached this device's limit. Remove a queued message before saving more.")
+        this.name = 'DraftStorageLimitError'
+    }
+}
 
 function parseDraft(value: unknown): ChatDraft {
     const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
@@ -98,6 +106,7 @@ export class DraftStore {
     }
 
     private async write(scope: string, key: string, saved: SavedDraft, drafts: Drafts): Promise<void> {
+        const previousSize = JSON.stringify(drafts).length
         delete drafts[key]
         if (hasContent(saved.draft) || saved.unsent || saved.queue?.rows.length) {
             drafts[key] = saved
@@ -107,7 +116,10 @@ export class DraftStore {
             if (!drafts[stale]?.queue?.rows.length) delete drafts[stale]
         }
         if (Object.keys(drafts).length) {
-            await this.storage.setItem(scope, JSON.stringify(drafts))
+            const serialized = JSON.stringify(drafts)
+            if (serialized.length > MAX_PROJECT_CHARACTERS && serialized.length >= previousSize)
+                throw new DraftStorageLimitError()
+            await this.storage.setItem(scope, serialized)
         } else {
             await this.storage.removeItem(scope)
         }
@@ -148,9 +160,15 @@ export class DraftStore {
             if (generation !== this.generation) {
                 return
             }
-            this.pending.set(`${scope}:${key}`, handle)
-            const drafts = await this.read(scope)
-            await this.write(scope, key, { ...drafts[key], draft: EMPTY, unsent: message }, drafts)
+            const id = `${scope}:${key}`
+            this.pending.set(id, handle)
+            try {
+                const drafts = await this.read(scope)
+                await this.write(scope, key, { ...drafts[key], draft: EMPTY, unsent: message }, drafts)
+            } catch (error) {
+                if (this.pending.get(id) === handle) this.pending.delete(id)
+                throw error
+            }
         })
         return (sent) =>
             this.enqueue(async () => {

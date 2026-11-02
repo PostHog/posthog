@@ -462,8 +462,19 @@ export function ChatScreen({
             queue_length: queue.rows.filter((row) => row.id !== id).length,
         })
     }
+    const clearPreparation = (): void => {
+        preparingSend.current = false
+        setPreparing(false)
+        setSendingFileIds([])
+    }
+    const newChatDisabledReason =
+        !draftTaskId &&
+        (preparing || session.isSending || isDelivering || composerDraft.queuePending || queue.rows.length > 0)
+            ? 'Finish this message or remove queued messages before starting a new chat.'
+            : undefined
     const stop = (): void => {
         queueEpoch.current++
+        clearPreparation()
         // The stopped turn ends like any other, so without the hold the queue would go out right after the Stop.
         void composerDraft.updateQueue(queueActions.hold('cancelled'))
         session.stop()
@@ -515,19 +526,16 @@ export function ChatScreen({
             })
             .finally(() => {
                 if (queueEpoch.current === epoch) {
-                    preparingSend.current = false
-                    setPreparing(false)
-                    setSendingFileIds([])
+                    clearPreparation()
                 }
             })
     }
     const startNewChat = (): void => {
+        if (newChatDisabledReason || (!draftTaskId && (preparingSend.current || delivering.current))) return
         sheetEvents.countNewChat()
         queueEpoch.current++
         releaseAttachments(joinQueueAttachments(queue.rows))
-        preparingSend.current = false
-        setPreparing(false)
-        setSendingFileIds([])
+        clearPreparation()
         if (target.taskId) {
             // The session reloads as an empty new chat when its task option goes.
             setTarget({})
@@ -673,6 +681,7 @@ export function ChatScreen({
                         blurTarget={blurTarget}
                         onBack={close}
                         onNewChat={startNewChat}
+                        newChatDisabledReason={newChatDisabledReason}
                         onArchive={session.taskId ? archiveChat : undefined}
                     />
                     <ChatOptionsSheet

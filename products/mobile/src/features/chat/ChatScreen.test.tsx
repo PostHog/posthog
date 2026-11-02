@@ -41,6 +41,43 @@ afterEach(() => {
     jest.useRealTimers()
 })
 
+function mockReadyChat(): { session: ReturnType<typeof useSession>; draft: ReturnType<typeof useChatDraft> } {
+    const session: ReturnType<typeof useSession> = {
+        taskId: 'task-1',
+        runId: 'run-1',
+        title: 'Example chat',
+        runStatus: 'completed',
+        items: [],
+        invocations: new Map(),
+        phase: 'idle',
+        history: { status: 'idle', error: null },
+        isSending: false,
+        isStopping: false,
+        canSteer: false,
+        start: jest.fn(async () => true),
+        send: jest.fn(async () => true),
+        answer: jest.fn(),
+        stop: jest.fn(),
+        reloadHistory: jest.fn(),
+        reset: jest.fn(),
+        dismissNotice: jest.fn(),
+    }
+    const draft: ReturnType<typeof useChatDraft> = {
+        draft: { text: 'First message', reportIds: [] },
+        ready: true,
+        queue: { rows: [], hold: null },
+        queuePending: false,
+        queueError: undefined,
+        dismissQueueError: jest.fn(),
+        updateQueue: jest.fn(async () => true),
+        change: jest.fn(),
+        beginSend: jest.fn(async () => async () => undefined),
+    }
+    jest.mocked(useSession).mockImplementation(() => session)
+    jest.mocked(useChatDraft).mockImplementation(() => draft)
+    return { session, draft }
+}
+
 describe('chat send preparation', () => {
     test.each(['new', 'close', 'unmount'])('a prepared message does not send after %s', async (transition) => {
         let finishStorage!: (settle: (sent: boolean) => Promise<void>) => void
@@ -152,5 +189,51 @@ describe('chat send preparation', () => {
             finishStorage(true)
         })
         expect(send).not.toHaveBeenCalled()
+    })
+    it('allows another direct send after Stop interrupts a pending direct reply', async () => {
+        const { session, draft } = mockReadyChat()
+        let finishSend!: (sent: boolean) => void
+        let started!: () => void
+        const sending = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        jest.mocked(session.send).mockImplementationOnce(() => {
+            started()
+            return new Promise<boolean>((resolve) => {
+                finishSend = resolve
+            })
+        })
+        const view = render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        await act(async () => {
+            fireEvent.press(screen.getByTestId('chat-send'))
+            await sending
+        })
+        session.phase = 'working'
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        fireEvent.press(screen.getByTestId('chat-stop'))
+        await act(async () => {
+            finishSend(false)
+        })
+        session.phase = 'idle'
+        view.rerender(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        await act(async () => {
+            fireEvent.press(screen.getByTestId('chat-send'))
+        })
+        expect(draft.beginSend).toHaveBeenCalledTimes(2)
+        expect(draft.updateQueue).toHaveBeenCalledWith({ type: 'hold', reason: 'cancelled' })
+        expect(draft.updateQueue).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'enqueue' }), true)
+    })
+
+    it('does not start a new conversation while a taskless queue still holds messages', () => {
+        const { session, draft } = mockReadyChat()
+        session.taskId = null
+        draft.draft = { text: '', reportIds: [] }
+        draft.queue = { rows: [{ id: 'queued-1', text: 'Keep this question', attachments: [] }], hold: 'cancelled' }
+        render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+        expect(screen.getByTestId('chat-new').props.accessibilityState.disabled).toBe(true)
+        fireEvent.press(screen.getByTestId('chat-new'))
+        expect(session.reset).not.toHaveBeenCalled()
+        expect(session.send).not.toHaveBeenCalled()
+        expect(screen.getByText('Keep this question')).toBeTruthy()
     })
 })

@@ -5,7 +5,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { track } from '@/lib/analytics'
 
 import { chatDrafts, draftIdentity, draftScope } from './draftPersistence'
-import { type ChatDraft, restoreUnsent } from './draftStore'
+import { type ChatDraft, DraftStorageLimitError, restoreUnsent } from './draftStore'
 import { EMPTY_QUEUE, type QueueAction, type QueueState, queueReducer } from './messageQueue'
 
 interface DraftTarget {
@@ -41,6 +41,7 @@ export function useChatDraft(
     const queueRef = useRef(queue)
     const queueBusy = useRef(false)
     const queueWrite = useRef<Promise<void>>(Promise.resolve())
+    const queueClear = useRef<{ draft: ChatDraft; committed: boolean } | null>(null)
     const [queuePending, setQueuePending] = useState(false)
     const [queueError, setQueueError] = useState<string>()
     const latest = useRef(draft)
@@ -59,7 +60,18 @@ export function useChatDraft(
         }
         const current = target.current
         if (current && draftIdentity() === current.identity) {
-            void chatDrafts.save(current.scope, current.key, latest.current).catch(() => undefined)
+            const typed = latest.current
+            const pendingClear = queueClear.current
+            const save = (): void => {
+                if (draftIdentity() !== current.identity) return
+                const draft =
+                    pendingClear?.committed && pendingClear.draft === typed
+                        ? { text: '', reportIds: typed.reportIds }
+                        : typed
+                void chatDrafts.save(current.scope, current.key, draft).catch(() => undefined)
+            }
+            if (queueBusy.current) void queueWrite.current.then(save)
+            else save()
         }
     }, [])
 
@@ -193,9 +205,12 @@ export function useChatDraft(
             }
             const typed = latest.current
             const cleared = { text: '', reportIds: typed.reportIds }
+            const clearing = clearComposer ? { draft: typed, committed: false } : null
+            queueClear.current = clearing
             try {
                 if (current)
                     await chatDrafts.saveQueue(current.scope, current.key, next, clearComposer ? cleared : undefined)
+                if (clearing) clearing.committed = true
                 if (
                     mine !== destination.current ||
                     (current && draftIdentity() !== current.identity) ||
@@ -206,12 +221,17 @@ export function useChatDraft(
                 setQueue(next)
                 if (clearComposer && latest.current === typed) change(cleared)
                 return true
-            } catch {
+            } catch (error) {
                 if (mine === destination.current && mounted.current) {
-                    setQueueError("Couldn't save queued messages on this device. Try again before closing the chat.")
+                    setQueueError(
+                        error instanceof DraftStorageLimitError
+                            ? error.message
+                            : "Couldn't save queued messages on this device. Try again before closing the chat."
+                    )
                 }
                 return false
             } finally {
+                if (queueClear.current === clearing) queueClear.current = null
                 finish()
                 if (mine === destination.current) {
                     queueBusy.current = false

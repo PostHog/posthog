@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto'
 
-import { type DraftStorage, DraftStore } from './draftStore'
+import { type DraftStorage, DraftStorageLimitError, DraftStore } from './draftStore'
 import { EMPTY_QUEUE, queueActions, queueReducer } from './messageQueue'
 
 function memoryStorage(): DraftStorage {
@@ -173,5 +173,51 @@ describe('chat draft persistence', () => {
         const restarted = new DraftStore(storage)
         expect((await restarted.loadQueue('project', 'task:1')).rows).toEqual([])
         expect((await restarted.loadQueue('project', 'task:2')).rows).toEqual([])
+    })
+    it('refuses additional queued text before it can make saved queues unreadable', async () => {
+        const storage = memoryStorage()
+        const store = new DraftStore(storage)
+        const first = queueReducer(EMPTY_QUEUE, queueActions.enqueue('First question'))
+        await store.saveQueue('project', 'task:1', first)
+        const before = await storage.getItem('project')
+        const oversized = queueReducer(EMPTY_QUEUE, queueActions.enqueue('x'.repeat(128 * 1024)))
+        await expect(store.saveQueue('project', 'task:2', oversized, draft(''))).rejects.toBeInstanceOf(
+            DraftStorageLimitError
+        )
+        expect(await storage.getItem('project')).toBe(before)
+        expect((await new DraftStore(storage).loadQueue('project', 'task:1')).rows[0]?.text).toBe('First question')
+        await store.saveQueue('project', 'task:2', first)
+        expect((await store.loadQueue('project', 'task:2')).rows).toHaveLength(1)
+    })
+    it('allows shrinking a preexisting oversized project without dropping remaining queues', async () => {
+        const storage = memoryStorage()
+        const rows = Object.fromEntries(
+            ['one', 'two', 'three'].map((id) => [
+                `task:${id}`,
+                { draft: draft(''), queue: { rows: [{ id, text: 'x'.repeat(80_000), attachments: [] }], hold: null } },
+            ])
+        )
+        await storage.setItem('project', JSON.stringify(rows))
+        const store = new DraftStore(storage)
+        await store.saveQueue('project', 'task:one', EMPTY_QUEUE)
+        expect((await storage.getItem('project'))?.length).toBeGreaterThan(128 * 1024)
+        expect((await store.loadQueue('project', 'task:two')).rows[0]?.text).toHaveLength(80_000)
+        await store.saveQueue('project', 'task:two', EMPTY_QUEUE)
+        expect((await store.loadQueue('project', 'task:three')).rows[0]?.text).toHaveLength(80_000)
+    })
+
+    it('does not retain a pending-send handle when its durable write exceeds the budget', async () => {
+        const store = new DraftStore(memoryStorage())
+        const queue = queueReducer(EMPTY_QUEUE, queueActions.enqueue('x'.repeat(100_000)))
+        await store.saveQueue('project', 'task:queued', queue)
+        await expect(store.beginSend('project', 'new-chat', draft('y'.repeat(40_000)))).rejects.toBeInstanceOf(
+            DraftStorageLimitError
+        )
+        await store.save('project', 'new-chat', draft('Later'))
+        expect(await store.load('project', 'new-chat')).toEqual(draft('Later'))
+        const settle = await store.beginSend('project', 'new-chat', draft('Next'))
+        await settle(true)
+        expect(await store.load('project', 'new-chat')).toBeNull()
+        expect((await store.loadQueue('project', 'task:queued')).rows[0]?.text).toHaveLength(100_000)
     })
 })
