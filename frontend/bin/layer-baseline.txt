@@ -12,7 +12,6 @@ frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificat
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/SidePanelTickets.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
-frontend/src/layout/navigation-3000/sidepanel/sidePanelTabs.tsx -> products/conversations/frontend/components/SidePanel/SidePanelSupportIcon.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/activity/live/liveEventsLogic.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/authentication/verify-email/verifyEmailLogic.ts
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/insights/EmptyStates/sampleDataStateLogic.ts
@@ -93,7 +92,6 @@ frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/ta
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
-frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
 frontend/src/lib/components/Account/ProjectFreshnessIndicator.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/ActivityLog/ActivityLogSubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
