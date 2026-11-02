@@ -42,6 +42,7 @@ from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -648,6 +649,11 @@ class TestReadFlagCallsWithUnion(BaseTest):
             assert (UNION_EXPANSION in sql) == union
             assert pushed in sql
             assert not_pushed is None or not_pushed not in sql
+            if union and "globalIn(raw_sessions.session_id_v7" in pushed:
+                sessions_subquery = sql[
+                    sql.index("globalIn(raw_sessions.session_id_v7") : sql.index("AS events__session")
+                ]
+                assert UNION_EXPANSION in sessions_subquery
 
     @parameterized.expand(
         [
@@ -671,6 +677,22 @@ class TestReadFlagCallsWithUnion(BaseTest):
     )
     def test_union_scan_keeps_its_filter_after_the_limit_when_the_limit_would_change_rows(self, _name: str, query: str):
         sql = self._sql(query, persons_on_events=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS)
+
+        assert UNION_EXPANSION in sql
+        assert "LIMIT 10) AS e" not in sql
+
+    def test_union_scan_keeps_a_cohort_filter_outside_the_scan(self):
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        query = (
+            "SELECT e.event, p.id FROM events AS e LEFT JOIN persons AS p ON e.person_id = p.id "
+            f"WHERE {E_MIXED} AND e.person_id IN COHORT {cohort.pk} LIMIT 10"
+        )
+
+        sql = self._sql(
+            query,
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            inCohortVia="leftjoin",
+        )
 
         assert UNION_EXPANSION in sql
         assert "LIMIT 10) AS e" not in sql
@@ -819,6 +841,13 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 "negatedPersonFiltersNotIn",
             ),
             (
+                "negated_person_filters_on_the_override_join",
+                f"SELECT distinct_id, event FROM events WHERE {MIXED} AND person.properties.email != 'r@x.com' "
+                "ORDER BY timestamp, distinct_id",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "negatedPersonFiltersNotIn",
+            ),
+            (
                 "session_id_pushdown",
                 f"SELECT distinct_id, event, session.$session_duration FROM events WHERE {MIXED} "
                 "ORDER BY timestamp, distinct_id",
@@ -838,9 +867,8 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         self.addCleanup(cleanup_materialized_columns)
         materialize("person", "email")
 
-        read = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
-        pushed = self._run(query, read, poe, **{modifier: True}).results
-        flat = self._run(query, read, poe, **{modifier: False}).results
+        pushed = self._run(query, READ, poe, **{modifier: True}).results
+        flat = self._run(query, READ, poe, **{modifier: False}).results
 
         assert len(pushed) >= 2
         assert sorted(map(str, pushed)) == sorted(map(str, flat))

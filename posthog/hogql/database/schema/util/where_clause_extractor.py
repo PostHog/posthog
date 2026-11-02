@@ -578,8 +578,8 @@ class _ReferencesLazyJoinVisitor(TraversingVisitor):
 
 
 def is_events_only_field(node: ast.Field) -> bool:
-    """True iff the field resolves to a direct field on the EventsTable (not a traversal to
-    person/groups/sessions/etc. via a virtual/lazy join)."""
+    """True iff the field resolves to a direct field on the EventsTable or the events_with_flag_calls union (not a
+    traversal to person/groups/sessions/etc. via a virtual/lazy join)."""
     from posthog.hogql.database.schema.events import EventsTable
     from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 

@@ -46,6 +46,8 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     EventsPredicatePushdownExtractor,
+    contains_in_cohort,
+    contains_row_multiplying_function,
     is_nondeterministic_function,
 )
 from posthog.hogql.functions.mapping import find_hogql_aggregation
@@ -406,7 +408,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
 
     Runs after logical lowering (so property reads are PropertyAccess) and before the ClickHouse physical passes,
-    applying bottom-up so nested `FROM events` subqueries benefit too."""
+    applying bottom-up so nested `FROM events` subqueries benefit too.
+
+    A FROM of the expanded `events_with_flag_calls` union already is a subquery, so the WHERE and the LIMIT move into
+    it instead."""
 
     def __init__(
         self,
@@ -544,9 +549,9 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         return None
 
     def _should_apply_pushdown(self, node: ast.SelectQuery) -> bool:
-        """Eligible when the query selects FROM events directly (no SAMPLE), has a WHERE/PREWHERE, has joins,
-        has an effective LIMIT, and does not aggregate / DISTINCT / window (those read the whole set regardless
-        of the LIMIT, so the pre-filter would be pure overhead)."""
+        """Eligible when the query selects FROM events or FROM the expanded events_with_flag_calls union (no SAMPLE),
+        has a WHERE/PREWHERE, has joins, has an effective LIMIT, and does not aggregate / DISTINCT / window (those read
+        the whole set regardless of the LIMIT, so the pre-filter would be pure overhead)."""
         return (
             events_pushdown_enabled(self.context.modifiers)
             and node.select_from is not None
@@ -702,6 +707,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         assert node.select_from is not None and isinstance(node.select_from.type, ast.SelectQueryAliasType)
         if node.where is None or node.prewhere is not None:
             return "no_pushable_predicates"
+        if contains_in_cohort(node.where) or contains_row_multiplying_function(node.where):
+            return "where_not_on_union_scan_columns"
         inner_limit = self._safe_inner_limit(node, None, None)
         if inner_limit is None:
             return "no_short_circuitable_limit"
