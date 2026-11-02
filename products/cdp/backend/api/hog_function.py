@@ -78,6 +78,7 @@ from products.cdp.backend.validation import (
     InputsSchemaSerializer,
     InputsSerializer,
     MappingsSerializer,
+    SecretBinding,
     added_duplicate_input_keys,
     compile_hog,
     exposes_secret_dictionary_keys,
@@ -148,6 +149,15 @@ def _publish_confirm_value(hog_function: HogFunction) -> str:
 
 def mint_publish_confirm_token(hog_function: HogFunction) -> str:
     return TimestampSigner(salt=_PUBLISH_CONFIRM_SALT).sign(_publish_confirm_value(hog_function))
+
+
+def stored_secret_bindings(hog_function: HogFunction) -> dict[str, SecretBinding]:
+    """The code and inputs each stored secret of a function was saved with."""
+    stored = hog_function.encrypted_inputs
+    if not isinstance(stored, dict):
+        return {}
+    binding = SecretBinding(code=hog_function.hog, inputs=hog_function.inputs or {}, mappings=hog_function.mappings)
+    return dict.fromkeys(stored, binding)
 
 
 def split_content_secrets(content: dict) -> dict:
@@ -634,6 +644,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
+        # A stored secret stays bound to the code and inputs it was saved with. `publish` adds the
+        # draft's own bindings for the secrets the draft staged.
+        self.context["secret_binding_code"] = data.get("hog", instance.hog if instance else None)
+        self.context["secret_binding_mappings"] = data.get("mappings", instance.mappings if instance else None)
+        self.context["secret_bindings"] = {
+            **(stored_secret_bindings(instance) if instance else {}),
+            **(self.context.get("staged_secret_bindings") or {}),
+        }
 
         template = None
         if data["template_id"]:
@@ -1762,6 +1780,14 @@ class HogFunctionViewSet(
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
             serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            draft_binding = SecretBinding(
+                code=locked.draft.get("hog", locked.hog),
+                inputs=locked.draft.get("inputs") or {},
+                mappings=locked.draft.get("mappings", locked.mappings),
+            )
+            serializer.context["staged_secret_bindings"] = dict.fromkeys(
+                locked.draft_encrypted_inputs or {}, draft_binding
+            )
             serializer.is_valid(raise_exception=True)
             serializer.save()
             self._record_revision(locked, before_update, before_content)

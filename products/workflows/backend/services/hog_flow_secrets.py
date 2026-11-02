@@ -3,8 +3,11 @@ from typing import Any, Optional
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.validation import (
+    MASKED_SECRET_VALUE,
+    SecretBinding,
     exposes_secret_dictionary_keys,
     masked_dictionary_secret,
+    rebound_secret_keys,
     restore_masked_dictionary_entries,
 )
 
@@ -87,15 +90,52 @@ def merge_secret_maps(base: Optional[dict], overlay: Optional[dict]) -> dict[str
     return result
 
 
-def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> None:
+def secret_bindings_for_actions(
+    actions: Any, secrets_by_action: Optional[dict], template_cache: Optional[TemplateCache] = None
+) -> dict[str, dict[str, SecretBinding]]:
+    # The template code and inputs each stored secret was saved with, as an {action_id: {key: binding}}
+    # map, so a re-save that changes where a step sends its secret cannot reuse the stored value.
+    if not isinstance(actions, list) or not secrets_by_action:
+        return {}
+    result: dict[str, dict[str, SecretBinding]] = {}
+    for action in actions:
+        action_id = action.get("id") if isinstance(action, dict) else None
+        if not isinstance(action_id, str) or not secrets_by_action.get(action_id):
+            continue
+        template = _function_template_for_action(action, template_cache)
+        inputs = (action.get("config") or {}).get("inputs")
+        binding = SecretBinding(
+            code=template.code if template else None, inputs=inputs if isinstance(inputs, dict) else {}
+        )
+        result[action_id] = dict.fromkeys(secrets_by_action[action_id], binding)
+    return result
+
+
+def recover_or_drop_masked_inputs(
+    inputs: Any,
+    secret_keys: set[str],
+    existing: dict,
+    bindings: Optional[dict[str, SecretBinding]] = None,
+    code: Optional[str] = None,
+) -> None:
     # A lenient (web draft) save keeps the raw inputs when validation fails. A {"secret": true}
     # read-back marker in that raw payload must never persist as a stored value - the worker would
     # treat the marker object as the real input (e.g. compare it against a webhook's auth header and
     # reject every request). Swap it for the stored secret, or drop the key when there is none.
     if not isinstance(inputs, dict):
         return
+    # A secret saved for another code or address is dropped rather than recovered, so the draft does
+    # not carry it to where it was never meant to go.
+    rebound = rebound_secret_keys(inputs, [{"key": key, "secret": True} for key in secret_keys], bindings or {}, code)
     for key in secret_keys:
         value = inputs.get(key)
+        if key in rebound and isinstance(value, dict):
+            entries = value.get("value")
+            if isinstance(entries, dict):
+                value["value"] = {entry: v for entry, v in entries.items() if v != MASKED_SECRET_VALUE}
+            elif value.get("secret") and ("value" not in value or entries == MASKED_SECRET_VALUE):
+                inputs.pop(key, None)
+            continue
         if isinstance(value, dict) and value.get("secret") and "value" not in value:
             stored = existing.get(key)
             if stored:

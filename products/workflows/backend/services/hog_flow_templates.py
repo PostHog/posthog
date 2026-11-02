@@ -150,7 +150,7 @@ def get_function_template_schema(template_id: str) -> FunctionTemplateSchema | N
     template = HogFunctionTemplate.get_template(template_id)
     if template is None:
         return None
-    return FunctionTemplateSchema(type=template.type, inputs_schema=template.inputs_schema)
+    return FunctionTemplateSchema(type=template.type, inputs_schema=template.inputs_schema, code=template.code)
 
 
 @frozen

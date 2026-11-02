@@ -112,7 +112,15 @@ class TestHogFunctionDrafts(DraftTestCase):
             ("disabled_function", True, {"enabled": False}),
             ("web_caller", False, {}),
             # Only destinations are in the cycle for now. A transformation edit still applies live.
-            ("transformation", True, {"type": "transformation", "hog": "return event"}),
+            (
+                "transformation",
+                True,
+                {
+                    "type": "transformation",
+                    "hog": "return event",
+                    "inputs": {"url": {"value": "https://example.com/live"}},
+                },
+            ),
         ]
     )
     def test_config_edit_applies_live(self, _name: str, from_agent: bool, overrides: dict):
@@ -184,7 +192,10 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     def test_a_later_draft_edit_keeps_earlier_staged_config(self):
         function_id = self._create()
-        self._stage(function_id, {"inputs": {"url": {"value": "https://example.com/staged"}}})
+        self._stage(
+            function_id,
+            {"inputs": {"url": {"value": "https://example.com/staged"}, "token": {"value": "staged-token"}}},
+        )
 
         draft = self._stage(function_id, {"hog": EDITED_HOG})["draft"]
 
@@ -305,7 +316,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         # value to the live one.
         self._stage(
             function_id,
-            {"inputs": {"url": {"value": "https://example.com/staged"}, "token": {"secret": True}}},
+            {"inputs": {"url": {"value": "https://example.com/live"}, "token": {"secret": True}}},
         )
 
         function = HogFunction.objects.get(id=function_id)
@@ -339,7 +350,7 @@ class TestHogFunctionDrafts(DraftTestCase):
     def test_input_values_are_masked_in_activity_logs(self, field: str) -> None:
         function_id = self._create(enabled=False)
         payload = (
-            {"inputs": {"url": {"value": "https://example.com/private-input"}, "token": {"secret": True}}}
+            {"inputs": {"url": {"value": "https://example.com/private-input"}, "token": {"value": "rotated-token"}}}
             if field == "inputs"
             else {
                 "mappings": [

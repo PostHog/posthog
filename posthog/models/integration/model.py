@@ -1,6 +1,7 @@
 """The Integration Django model, its manager, and generic secret-decryption helpers."""
 
-from collections.abc import Iterable, Mapping
+import copy
+from collections.abc import Collection, Iterable, Mapping
 from typing import Any, Self, cast
 
 from django.db import models
@@ -241,6 +242,35 @@ class _AllRowsManager(IntegrationModelManager):
     _filters_to_default_auth = False
 
 
+# Config keys that name the server an integration sends its credentials to.
+_HOST_CONFIG_KEYS = frozenset(
+    {
+        "api_url",
+        "base_url",
+        "domain",
+        "endpoint",
+        "endpoint_url",
+        "host",
+        "hostname",
+        "instance_url",
+        "server",
+        "server_hostname",
+        "site_url",
+        "subdomain",
+        "url",
+    }
+)
+_KIND_HOST_CONFIG_KEYS: dict[str, frozenset[str]] = {"snowflake": frozenset({"account"})}
+
+
+def host_config(kind: str, config: Any) -> dict[str, Any]:
+    """The parts of an integration's config that decide where its credentials are sent."""
+    if not isinstance(config, dict):
+        return {}
+    keys = _HOST_CONFIG_KEYS | _KIND_HOST_CONFIG_KEYS.get(kind, frozenset())
+    return {key: config[key] for key in keys if key in config}
+
+
 def integration_kind_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration. Kinds that a product registers
     # with `register_kind_auth_types` (the warehouse source credential kinds) are valid stored kinds
@@ -355,7 +385,51 @@ class Integration(models.Model):
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         self.config = normalized_config(self.kind, self.config)
+        if self._credentials_follow_new_host():
+            # The credentials were entered for the old server, so a new server must not receive them.
+            self.sensitive_config = {}
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None and "sensitive_config" not in update_fields:
+                kwargs["update_fields"] = [*update_fields, "sensitive_config"]
+            logger.warning("integration_credentials_cleared_on_host_change", integration_id=self.pk, kind=self.kind)
         super().save(*args, **kwargs)
+        self._remember_stored_credentials()
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
+        if "config" in field_names and "sensitive_config" in field_names:
+            instance._remember_stored_credentials()
+        return instance
+
+    def refresh_from_db(
+        self,
+        using: str | None = None,
+        fields: Iterable[str] | None = None,
+        from_queryset: "models.QuerySet[Integration] | None" = None,
+    ) -> None:
+        fields = list(fields) if fields is not None else None
+        super().refresh_from_db(using=using, fields=fields, from_queryset=from_queryset)
+        reloaded = fields is None or {"config", "sensitive_config"} <= set(fields)
+        if reloaded and not {"config", "sensitive_config"} & self.get_deferred_fields():
+            self._remember_stored_credentials()
+
+    def _remember_stored_credentials(self) -> None:
+        self._stored_host_config = copy.deepcopy(host_config(self.kind, self.config))
+        self._stored_sensitive_config = self.sensitive_config
+        self._stored_sensitive_snapshot = copy.deepcopy(self.sensitive_config)
+
+    def _credentials_follow_new_host(self) -> bool:
+        """Whether this write moves the stored credentials to another server without new credentials."""
+        if not hasattr(self, "_stored_host_config") or not self._stored_sensitive_snapshot:
+            return False
+        if host_config(self.kind, self.config) == self._stored_host_config:
+            return False
+        credentials_replaced = (
+            self.sensitive_config is not self._stored_sensitive_config
+            or self.sensitive_config != self._stored_sensitive_snapshot
+        )
+        return not credentials_replaced
 
     @property
     def auth_type(self) -> str:

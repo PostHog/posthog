@@ -7266,35 +7266,42 @@ class TestHogFlowSecretInputs(APIBaseTest):
             # A client that merges its new value into the masked object it read back must win over
             # the stored value - silently keeping the old token makes rotations appear to succeed.
             ("mask_with_new_value_replaces", {"secret": True, "value": "ROTATED"}, "ROTATED"),
+            ("new_url_drops_mask", {"secret": True}, None, "https://attacker.example.com"),
+            ("new_url_with_new_value_replaces", {"value": "ROTATED"}, "ROTATED", "https://attacker.example.com"),
         ]
     )
-    def test_secret_update(self, _name, api_key_input, expected_stored):
+    def test_secret_update(self, _name, api_key_input, expected_stored, url=None):
         flow_id = self._create()
 
         payload = self._flow_payload()
         self._function_inputs(payload)["api_key"] = api_key_input
+        if url:
+            self._function_inputs(payload)["url"] = {"value": url}
         patch_res = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
         assert patch_res.status_code == 200, patch_res.json()
 
         flow = HogFlow.objects.get(id=flow_id)
-        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == expected_stored
+        stored = (flow.encrypted_inputs or {}).get("action_1", {}).get("api_key")
+        assert (stored or {}).get("value") == expected_stored
 
     @parameterized.expand(
         [
             (
                 "add_entry",
                 {"A": "********", "B": "********", "C": "c-new"},
-                False,
+                None,
                 {"A": "a-old", "B": "b-old", "C": "c-new"},
             ),
-            ("rotate_entry", {"A": "a-new", "B": "********"}, False, {"A": "a-new", "B": "b-old"}),
-            ("remove_entry", {"A": "********"}, False, {"A": "a-old"}),
+            ("rotate_entry", {"A": "a-new", "B": "********"}, None, {"A": "a-new", "B": "b-old"}),
+            ("remove_entry", {"A": "********"}, None, {"A": "a-old"}),
             # A failed validation keeps the raw inputs, so the masks must still turn back into stored values.
-            ("add_entry_lenient_save", {"A": "********", "C": "c-new"}, True, {"A": "a-old", "C": "c-new"}),
+            ("add_entry_lenient_save", {"A": "********", "C": "c-new"}, "headers", {"A": "a-old", "C": "c-new"}),
+            # Unless the URL changed: the stored entries were never meant for the new address.
+            ("add_entry_lenient_save_new_url", {"A": "********", "C": "c-new"}, "url", {"C": "c-new"}),
         ]
     )
     def test_secret_header_edit_keeps_the_entries_it_does_not_change(
-        self, _name, edited_entries, invalid_url, expected_stored
+        self, _name, edited_entries, invalid_input, expected_stored
     ):
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
@@ -7307,8 +7314,10 @@ class TestHogFlowSecretInputs(APIBaseTest):
         inputs = self._function_inputs(body)
         assert inputs["secret_headers"] == {"secret": True, "value": {"A": "********", "B": "********"}}
         inputs["secret_headers"] = {"secret": True, "value": edited_entries}
-        if invalid_url:
+        if invalid_input == "url":
             inputs["url"] = {"value": "{event.properties.url", "templating": "hog"}
+        elif invalid_input == "headers":
+            inputs["headers"] = {"value": {"X-Broken": "{event.properties.x"}, "templating": "hog"}
 
         patch_res = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": body["actions"], "edges": body["edges"]}
@@ -7445,7 +7454,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
                             "patch": {
                                 "config": {
                                     "inputs": {
-                                        "url": {"value": "https://rotated.example.com"},
+                                        "url": {"value": "https://example.com"},
+                                        "headers": {"value": {"X-Rotated": "yes"}},
                                         "api_key": {"value": "ROTATED"},
                                     }
                                 }
@@ -7479,7 +7489,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow.refresh_from_db()
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED"
         live_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
-        assert live_inputs["url"]["value"] == "https://example.com"
+        assert "headers" not in live_inputs
         assert flow.draft is None
 
     def test_duplicate_action_id_is_rejected(self):

@@ -106,6 +106,34 @@ class TestIntegrationModel(BaseTest):
 
         assert getattr(integration, field_name) == "a-real-token"
 
+    @parameterized.expand(
+        [
+            ("new_host_without_credentials", {"host": "attacker.example.com"}, None, {}),
+            ("new_host_with_credentials", {"host": "new.example.com"}, {"password": "new"}, {"password": "new"}),
+            ("same_host", {"name": "Renamed"}, None, {"password": "stored"}),
+        ]
+    )
+    def test_credentials_stay_bound_to_their_host(
+        self, _name: str, config_change: dict, new_sensitive_config: Optional[dict], expected: dict
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="postgresql",
+            integration_id="db",
+            config={"host": "db.example.com", "port": 5432, "user": "posthog"},
+            sensitive_config={"password": "stored"},
+        )
+
+        # A fresh read, as an API request would make, so nothing carries over from the create.
+        loaded = Integration.objects.get(id=integration.id)
+        loaded.config = {**loaded.config, **config_change}
+        if new_sensitive_config is not None:
+            loaded.sensitive_config = new_sensitive_config
+        loaded.save(update_fields=["config", "sensitive_config"] if new_sensitive_config else ["config"])
+
+        loaded.refresh_from_db()
+        assert loaded.sensitive_config == expected
+
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
         set_instance_setting("SLACK_APP_CLIENT_SECRET", None)
