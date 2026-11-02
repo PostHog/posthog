@@ -29,7 +29,14 @@ from posthog.hogql.database.database import (
     _use_person_properties_from_events,
 )
 from posthog.hogql.database.lazy_join_tags import PERSONS
-from posthog.hogql.database.models import LazyJoin, VirtualTable
+from posthog.hogql.database.models import (
+    IntegerDatabaseField,
+    LazyJoin,
+    LazyTable,
+    LazyTableToAdd,
+    TableNode,
+    VirtualTable,
+)
 from posthog.hogql.database.schema.traffic_type import create_is_bot_field
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -161,6 +168,46 @@ BUILT_IN_FIELDS = (
     "$group_3",
     "$group_4",
 )
+
+
+class _ProbeLazyTable(LazyTable):
+    fields: dict = {
+        "x": IntegerDatabaseField(name="x"),
+        "v___x": IntegerDatabaseField(name="v___x"),
+        "v": VirtualTable(fields={"x": IntegerDatabaseField(name="x")}),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return ast.SelectQuery(
+            select=[ast.Alias(alias=name, expr=ast.Constant(value=name)) for name in table_to_add.fields_accessed]
+        )
+
+    def to_printed_clickhouse(self, context):
+        return "probe"
+
+    def to_printed_hogql(self):
+        return "probe"
+
+
+class TestVirtualFieldExports(SimpleTestCase):
+    def test_virtual_field_export_never_takes_the_name_of_another_export(self) -> None:
+        database = Database()
+        database.tables.children["probe"] = TableNode(name="probe", table=_ProbeLazyTable())
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=database,
+            enable_select_queries=True,
+            use_new_events_schema=False,
+        )
+
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            printed, _ = prepare_and_print_ast(parse_select("SELECT x, v.x, v___x FROM probe"), context, "clickhouse")
+
+        values = re.findall(r"%\(hogql_val_\d+\)s AS (`?\w+`?)", printed)
+        assert sorted(name.strip("`") for name in values) == ["v___x", "v___x_2", "x"]
+        outer = printed.split(" FROM ", 1)[0]
+        assert len(set(re.findall(r"probe\.(\w+)", outer))) == 3
 
 
 class TestWrappedEventJoins(SimpleTestCase):
