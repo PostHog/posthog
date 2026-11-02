@@ -141,5 +141,16 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
         }
     }
 
+    if (logItem.activity == 'stopped_ingesting') {
+        return {
+            summary: activityLogSummary(logItem, 'Stopped ingesting the event', nameAndLink(logItem)),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> stopped ingesting event {nameAndLink(logItem)}
+                </>
+            ),
+        }
+    }
+
     return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
 }

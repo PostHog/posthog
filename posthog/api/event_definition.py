@@ -1050,7 +1050,8 @@ class EventDefinitionViewSet(
             user=user,
             item_id=str(instance.id),
             scope="EventDefinition",
-            activity="changed",
+            # Its own activity, so the log tells this apart from a manual hide.
+            activity="stopped_ingesting",
             was_impersonated=is_impersonated(request),
             detail=Detail(
                 name=str(instance.name),
