@@ -63,18 +63,48 @@ pub fn identity(kind: ConsumerKind) -> LogsConsumerIdentity {
 pub fn create_producers(config: &ServiceConfig) -> anyhow::Result<HashMap<String, FutureProducer>> {
     let mut out = HashMap::new();
     for (name, overrides) in &config.producers {
-        if !config.routes.iter().any(|r| &r.producer == name) {
+        let topics: Vec<&str> = config
+            .routes
+            .iter()
+            .filter(|r| &r.producer == name)
+            .map(|r| r.topic.as_str())
+            .collect();
+        if topics.is_empty() {
             continue;
         }
-        let producer: FutureProducer =
-            producer_client_config(overrides, config.kafka_client_rack.as_deref()).create()?;
+        let mut client = producer_client_config(overrides, config.kafka_client_rack.as_deref());
+        if config.mode == RunMode::Shadow {
+            // A mistyped shadow topic must fail here instead of creating a topic on the cluster.
+            client.set("allow.auto.create.topics", "false");
+        }
+        let producer: FutureProducer = client.create()?;
         producer
             .client()
             .fetch_metadata(None, Duration::from_secs(15))
             .map_err(|e| anyhow::anyhow!("producer {name} cannot reach Kafka: {e}"))?;
+        if config.mode == RunMode::Shadow {
+            for topic in topics {
+                require_topic(&producer, topic)?;
+            }
+        }
         out.insert(name.clone(), producer);
     }
     Ok(out)
+}
+
+/// Brokers below Metadata v4 ignore `allow.auto.create.topics`, so the shadow also checks that
+/// each of its topics exists before it produces.
+fn require_topic(producer: &FutureProducer, topic: &str) -> anyhow::Result<()> {
+    let metadata = producer
+        .client()
+        .fetch_metadata(Some(topic), Duration::from_secs(15))
+        .map_err(|e| anyhow::anyhow!("cannot read metadata for shadow topic {topic}: {e}"))?;
+    let exists = metadata
+        .topics()
+        .iter()
+        .any(|t| t.name() == topic && t.error().is_none() && !t.partitions().is_empty());
+    anyhow::ensure!(exists, "shadow topic {topic} does not exist");
+    Ok(())
 }
 
 pub fn create_consumer(config: &ServiceConfig) -> anyhow::Result<StreamConsumer> {
@@ -104,16 +134,10 @@ pub fn build_deps(
     config: &ServiceConfig,
     outputs: Arc<KafkaOutputs>,
 ) -> anyhow::Result<LogsIngestionConsumerDeps> {
-    let reader = pool(
-        config
-            .database_readonly_url
-            .as_deref()
-            .unwrap_or(&config.database_url),
-        config.pool_size,
-    )?;
-    let writer = match config.mode {
-        RunMode::Primary => Some(pool(&config.database_url, config.pool_size)?),
-        RunMode::Shadow => None,
+    let reader = pool(&config.database_reader_url, config.pool_size)?;
+    let writer = match (config.mode, &config.database_writer_url) {
+        (RunMode::Primary, Some(url)) => Some(pool(url, config.pool_size)?),
+        _ => None,
     };
     let clock = system_clock();
     let posthog_redis =

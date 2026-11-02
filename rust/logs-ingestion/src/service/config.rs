@@ -10,13 +10,19 @@ use crate::pipeline::LogsIngestionConsumerConfig;
 
 use super::node_env::{
     determine_node_env, get_bool, get_number, get_string, kafka_topic, override_with_env,
-    rdkafka_from_env, Env, NodeEnv,
+    rdkafka_from_env, string_to_boolean, Env, NodeEnv,
 };
 
 pub const WARPSTREAM_LOGS_PRODUCER: &str = "WARPSTREAM_LOGS_PRODUCER";
 pub const WARPSTREAM_INGESTION_PRODUCER: &str = "WARPSTREAM_INGESTION_PRODUCER";
 pub const NODE_LOGS_GROUP_ID: &str = "ingestion-logs";
 pub const NODE_TRACES_GROUP_ID: &str = "ingestion-traces";
+/// Every shadow topic ends with this, so a production name can never pass as a shadow topic.
+pub const SHADOW_TOPIC_SUFFIX: &str = "_rust_shadow";
+pub const SHADOW_GROUP_SUFFIX: &str = "-rust-shadow";
+/// Node's `defaultConfig` has no `KAFKA_CONSUMER_*` key, so `skipKeysInDefaultConfig` skips none.
+pub const NODE_DEFAULT_CONFIG_CONSUMER_KEYS: &[&str] = &[];
+const SHADOW_REDIS_DEFAULT_PORT: u16 = 6379;
 
 /// The rdkafka keys `WARPSTREAM_*_PRODUCER_CONFIG_MAP` maps, and the env suffix of each.
 const PRODUCER_KEYS: &[(&str, &str)] = &[
@@ -114,6 +120,14 @@ pub struct RustServiceEnv {
     pub shadow_dlq_topic: Option<String>,
     #[envconfig(from = "LOGS_RUST_SHADOW_APP_METRICS_TOPIC")]
     pub shadow_app_metrics_topic: Option<String>,
+    #[envconfig(from = "LOGS_RUST_SHADOW_REDIS_HOST")]
+    pub shadow_redis_host: Option<String>,
+    #[envconfig(from = "LOGS_RUST_SHADOW_REDIS_PORT")]
+    pub shadow_redis_port: Option<String>,
+    #[envconfig(from = "LOGS_RUST_SHADOW_REDIS_PASSWORD")]
+    pub shadow_redis_password: Option<String>,
+    #[envconfig(from = "LOGS_RUST_SHADOW_REDIS_TLS")]
+    pub shadow_redis_tls: Option<String>,
     #[envconfig(from = "LOGS_RUST_SHUTDOWN_TIMEOUT_SECS", default = "60")]
     pub shutdown_timeout_secs: u64,
 }
@@ -133,8 +147,9 @@ pub struct ServiceConfig {
     pub producers: Vec<(String, Vec<(String, String)>)>,
     pub kafka_client_rack: Option<String>,
     pub consumer_loop: ConsumerLoopConfig,
-    pub database_url: String,
-    pub database_readonly_url: Option<String>,
+    pub database_reader_url: String,
+    /// `None` in shadow mode, which opens no write pool.
+    pub database_writer_url: Option<String>,
     pub pool_size: u32,
     pub posthog_redis: RedisTarget,
     pub logs_redis: RedisTarget,
@@ -157,6 +172,16 @@ pub enum ConfigError {
     ProductionTopic(String),
     #[error("shadow output topics must differ from each other, {0:?} repeats")]
     DuplicateShadowTopic(String),
+    #[error("{0} must end with {SHADOW_TOPIC_SUFFIX:?}, got {1:?}")]
+    ShadowTopicSuffix(&'static str, String),
+    #[error("LOGS_RUST_SHADOW_CONSUMER_GROUP_ID must end with {SHADOW_GROUP_SUFFIX:?}, got {0:?}")]
+    ShadowGroupSuffix(String),
+    #[error("LOGS_RUST_SHADOW_REDIS_HOST is the production Redis host in {0}")]
+    ShadowRedisIsProduction(String),
+    #[error(
+        "{0} is not empty, but hog transformations are not ported, so primary mode refuses it"
+    )]
+    TransformationsNotPorted(&'static str),
     #[error("{0}")]
     Invalid(String),
 }
@@ -392,6 +417,9 @@ pub fn shadow_routes(
     production: &[OutputRoute],
 ) -> Result<(String, Vec<OutputRoute>), ConfigError> {
     let group = required(&rust.shadow_group_id, "LOGS_RUST_SHADOW_CONSUMER_GROUP_ID")?;
+    if !group.ends_with(SHADOW_GROUP_SUFFIX) {
+        return Err(ConfigError::ShadowGroupSuffix(group));
+    }
     let mut production_groups = vec![
         NODE_LOGS_GROUP_ID.to_string(),
         NODE_TRACES_GROUP_ID.to_string(),
@@ -415,23 +443,27 @@ pub fn shadow_routes(
     let shadow = [
         (
             crate::pipeline::LOGS_OUTPUT,
-            required(&rust.shadow_logs_topic, "LOGS_RUST_SHADOW_LOGS_TOPIC")?,
+            &rust.shadow_logs_topic,
+            "LOGS_RUST_SHADOW_LOGS_TOPIC",
         ),
         (
             crate::pipeline::LOGS_DLQ_OUTPUT,
-            required(&rust.shadow_dlq_topic, "LOGS_RUST_SHADOW_DLQ_TOPIC")?,
+            &rust.shadow_dlq_topic,
+            "LOGS_RUST_SHADOW_DLQ_TOPIC",
         ),
         (
             crate::pipeline::app_metrics::APP_METRICS_OUTPUT,
-            required(
-                &rust.shadow_app_metrics_topic,
-                "LOGS_RUST_SHADOW_APP_METRICS_TOPIC",
-            )?,
+            &rust.shadow_app_metrics_topic,
+            "LOGS_RUST_SHADOW_APP_METRICS_TOPIC",
         ),
     ];
     let mut seen = BTreeSet::new();
     let mut routes = Vec::new();
-    for (output, topic) in shadow {
+    for (output, value, name) in shadow {
+        let topic = required(value, name)?;
+        if !topic.ends_with(SHADOW_TOPIC_SUFFIX) {
+            return Err(ConfigError::ShadowTopicSuffix(name, topic));
+        }
         if forbidden.contains(&topic) {
             return Err(ConfigError::ProductionTopic(topic));
         }
@@ -450,6 +482,46 @@ pub fn shadow_routes(
         });
     }
     Ok((group, routes))
+}
+
+/// The shadow token buckets must never share a Redis with Node, so only the
+/// `LOGS_RUST_SHADOW_REDIS_*` keys are read.
+pub fn shadow_redis(
+    env: &Env,
+    rust: &RustServiceEnv,
+    production_host_key: &str,
+) -> Result<RedisTarget, ConfigError> {
+    let host = required(&rust.shadow_redis_host, "LOGS_RUST_SHADOW_REDIS_HOST")?;
+    if host.contains("://") {
+        return Err(ConfigError::Invalid(format!(
+            "LOGS_RUST_SHADOW_REDIS_HOST must be a host name, not a URL, got {host:?}"
+        )));
+    }
+    if env
+        .get(production_host_key)
+        .is_some_and(|production| production.trim().eq_ignore_ascii_case(&host))
+    {
+        return Err(ConfigError::ShadowRedisIsProduction(
+            production_host_key.to_string(),
+        ));
+    }
+    let port = match rust.shadow_redis_port.as_deref().map(str::trim) {
+        None | Some("") => SHADOW_REDIS_DEFAULT_PORT,
+        Some(p) => p.parse().map_err(|_| {
+            ConfigError::Invalid(format!(
+                "LOGS_RUST_SHADOW_REDIS_PORT must be a port, got {p:?}"
+            ))
+        })?,
+    };
+    Ok(RedisTarget {
+        url_or_host: host,
+        port: Some(port),
+        password: rust.shadow_redis_password.clone().filter(|p| !p.is_empty()),
+        tls: rust
+            .shadow_redis_tls
+            .as_deref()
+            .is_some_and(string_to_boolean),
+    })
 }
 
 impl ServiceConfig {
@@ -481,6 +553,12 @@ impl ServiceConfig {
             ConsumerKind::Logs => LogsIngestionConsumerConfig::from_logs_config(&node),
             ConsumerKind::Traces => LogsIngestionConsumerConfig::from_traces_config(&node),
         };
+        // The traces consumer extends the logs one in Node and reads this same key.
+        if mode == RunMode::Primary && !consumer.transformations_enabled_teams.trim().is_empty() {
+            return Err(ConfigError::TransformationsNotPorted(
+                "LOGS_TRANSFORMATIONS_ENABLED_TEAMS",
+            ));
+        }
         let input_topic = get_string(&node, &format!("{p}_INGESTION_CONSUMER_CONSUME_TOPIC"));
         let node_group_key = format!("{p}_INGESTION_CONSUMER_GROUP_ID");
         let production_routes = vec![
@@ -558,23 +636,40 @@ impl ServiceConfig {
                     }
                 }
             };
-        // Node passes no password for the logs Redis, only host, port and TLS.
-        let logs_redis = redis_target(
-            &format!("{p}_REDIS_HOST"),
-            &format!("{p}_REDIS_PORT"),
-            Some(&format!("{p}_REDIS_TLS")),
-            None,
-        );
+        let logs_redis = match mode {
+            // Node passes no password for the logs Redis, only host, port and TLS.
+            RunMode::Primary => redis_target(
+                &format!("{p}_REDIS_HOST"),
+                &format!("{p}_REDIS_PORT"),
+                Some(&format!("{p}_REDIS_TLS")),
+                None,
+            ),
+            RunMode::Shadow => shadow_redis(env, &rust, &format!("{p}_REDIS_HOST"))?,
+        };
         let posthog_redis = redis_target(
             "POSTHOG_REDIS_HOST",
             "POSTHOG_REDIS_PORT",
             None,
             Some("POSTHOG_REDIS_PASSWORD"),
         );
-        let database_url = get_string(&node, "DATABASE_URL");
-        if database_url.is_empty() && get_string(&node, "DATABASE_READONLY_URL").is_empty() {
-            return Err(ConfigError::Invalid("DATABASE_URL is required".to_string()));
-        }
+        let database_url = get_string(&node, "DATABASE_URL").trim().to_string();
+        let readonly_url = get_string(&node, "DATABASE_READONLY_URL")
+            .trim()
+            .to_string();
+        let (database_reader_url, database_writer_url) = match mode {
+            RunMode::Primary if database_url.is_empty() => {
+                return Err(ConfigError::Invalid("DATABASE_URL is required".to_string()))
+            }
+            RunMode::Primary if readonly_url.is_empty() => {
+                (database_url.clone(), Some(database_url))
+            }
+            RunMode::Primary => (readonly_url, Some(database_url)),
+            // The shadow reads only from a replica, so it never falls back to DATABASE_URL.
+            RunMode::Shadow if readonly_url.is_empty() => {
+                return Err(ConfigError::MissingShadowSetting("DATABASE_READONLY_URL"))
+            }
+            RunMode::Shadow => (readonly_url, None),
+        };
         let usage = UsageConfig {
             addr: get_string(&node, "USAGE_INGESTION_ADDR"),
             tls: get_bool(&node, "USAGE_INGESTION_TLS"),
@@ -588,7 +683,11 @@ impl ServiceConfig {
             mode,
             node_env,
             metrics_export_url: get_string(&node, &format!("{p}_METRICS_RULES_EXPORT_URL")),
-            kafka_consumer: rdkafka_from_env(env, "KAFKA_CONSUMER_", &[]),
+            kafka_consumer: rdkafka_from_env(
+                env,
+                "KAFKA_CONSUMER_",
+                NODE_DEFAULT_CONFIG_CONSUMER_KEYS,
+            ),
             consumer_loop: ConsumerLoopConfig {
                 batch_size: positive(&node, "CONSUMER_BATCH_SIZE")? as usize,
                 batch_timeout: Duration::from_millis(500),
@@ -598,9 +697,8 @@ impl ServiceConfig {
                     "CONSUMER_BACKGROUND_TASK_TIMEOUT_MS",
                 )? as u64),
             },
-            database_readonly_url: Some(get_string(&node, "DATABASE_READONLY_URL"))
-                .filter(|u| !u.is_empty()),
-            database_url,
+            database_reader_url,
+            database_writer_url,
             pool_size: positive(&node, "POSTGRES_CONNECTION_POOL_SIZE")? as u32,
             usage,
             http_port: positive(&node, "HTTP_SERVER_PORT")? as u16,
@@ -638,6 +736,8 @@ mod tests {
             ("PLUGIN_SERVER_MODE", "ingestion-logs"),
             ("LOGS_RUST_MODE", "shadow"),
             ("DATABASE_URL", "postgres://x"),
+            ("DATABASE_READONLY_URL", "postgres://replica"),
+            ("LOGS_RUST_SHADOW_REDIS_HOST", "shadow-redis"),
             (
                 "LOGS_RUST_SHADOW_CONSUMER_GROUP_ID",
                 "ingestion-logs-rust-shadow",
@@ -658,8 +758,17 @@ mod tests {
 
     #[test]
     fn shadow_config_routes_every_output_to_its_shadow_topic() {
-        let c = ServiceConfig::from_env(&shadow_env(&[])).unwrap();
+        let c = ServiceConfig::from_env(&shadow_env(&[
+            ("LOGS_REDIS_HOST", "prod-redis"),
+            ("REDIS_URL", "redis://prod-redis"),
+        ]))
+        .unwrap();
         assert_eq!(c.mode, RunMode::Shadow);
+        assert_eq!(c.database_reader_url, "postgres://replica");
+        assert_eq!(c.database_writer_url, None);
+        assert_eq!(c.logs_redis.url_or_host, "shadow-redis");
+        assert_eq!(c.logs_redis.port, Some(6379));
+        assert!(!c.logs_redis.tls);
         assert_eq!(c.group_id, "ingestion-logs-rust-shadow");
         assert_eq!(c.input_topic, "logs_ingestion");
         let topics: Vec<(&str, &str, &str)> = c
@@ -698,36 +807,50 @@ mod tests {
             ),
             (
                 shadow_env(&[("LOGS_RUST_SHADOW_CONSUMER_GROUP_ID", "ingestion-logs")]),
-                ConfigError::ProductionGroup("ingestion-logs".into()),
+                ConfigError::ShadowGroupSuffix("ingestion-logs".into()),
             ),
             (
                 shadow_env(&[
-                    ("LOGS_INGESTION_CONSUMER_GROUP_ID", "custom-group"),
-                    ("LOGS_RUST_SHADOW_CONSUMER_GROUP_ID", "custom-group"),
+                    ("LOGS_INGESTION_CONSUMER_GROUP_ID", "custom-rust-shadow"),
+                    ("LOGS_RUST_SHADOW_CONSUMER_GROUP_ID", "custom-rust-shadow"),
                 ]),
-                ConfigError::ProductionGroup("custom-group".into()),
+                ConfigError::ProductionGroup("custom-rust-shadow".into()),
             ),
             (
                 shadow_env(&[("LOGS_RUST_SHADOW_LOGS_TOPIC", "clickhouse_logs")]),
-                ConfigError::ProductionTopic("clickhouse_logs".into()),
+                ConfigError::ShadowTopicSuffix(
+                    "LOGS_RUST_SHADOW_LOGS_TOPIC",
+                    "clickhouse_logs".into(),
+                ),
+            ),
+            (
+                shadow_env(&[("LOGS_RUST_SHADOW_DLQ_TOPIC", "example-logs-dlq")]),
+                ConfigError::ShadowTopicSuffix(
+                    "LOGS_RUST_SHADOW_DLQ_TOPIC",
+                    "example-logs-dlq".into(),
+                ),
             ),
             (
                 shadow_env(&[
-                    ("KAFKA_PREFIX", "eu_"),
-                    ("LOGS_RUST_SHADOW_DLQ_TOPIC", "eu_logs_ingestion_dlq"),
+                    (
+                        "LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC",
+                        "metrics_rust_shadow",
+                    ),
+                    ("LOGS_RUST_SHADOW_APP_METRICS_TOPIC", "metrics_rust_shadow"),
                 ]),
-                ConfigError::ProductionTopic("eu_logs_ingestion_dlq".into()),
+                ConfigError::ProductionTopic("metrics_rust_shadow".into()),
             ),
             (
-                shadow_env(&[
-                    ("LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC", "metrics_custom"),
-                    ("LOGS_RUST_SHADOW_APP_METRICS_TOPIC", "metrics_custom"),
-                ]),
-                ConfigError::ProductionTopic("metrics_custom".into()),
+                shadow_env(&[("DATABASE_READONLY_URL", " ")]),
+                ConfigError::MissingShadowSetting("DATABASE_READONLY_URL"),
             ),
             (
-                shadow_env(&[("LOGS_RUST_SHADOW_LOGS_TOPIC", "logs_ingestion")]),
-                ConfigError::ProductionTopic("logs_ingestion".into()),
+                shadow_env(&[("LOGS_RUST_SHADOW_REDIS_HOST", "")]),
+                ConfigError::MissingShadowSetting("LOGS_RUST_SHADOW_REDIS_HOST"),
+            ),
+            (
+                shadow_env(&[("LOGS_REDIS_HOST", "Shadow-Redis")]),
+                ConfigError::ShadowRedisIsProduction("LOGS_REDIS_HOST".into()),
             ),
             (
                 shadow_env(&[("LOGS_RUST_SHADOW_DLQ_TOPIC", "clickhouse_logs_rust_shadow")]),
@@ -770,5 +893,17 @@ mod tests {
         assert_eq!(c.consumer.limiter_enabled_teams, "");
         assert!(c.logs_redis.tls);
         assert_eq!(c.consumer_loop.max_background_tasks, 1);
+        assert_eq!(c.database_writer_url.as_deref(), Some("postgres://x"));
+
+        let transformations = ServiceConfig::from_env(&env(&[
+            ("PLUGIN_SERVER_MODE", "ingestion-logs"),
+            ("LOGS_RUST_MODE", "primary"),
+            ("DATABASE_URL", "postgres://x"),
+            ("LOGS_TRANSFORMATIONS_ENABLED_TEAMS", "2"),
+        ]))
+        .unwrap_err();
+        assert!(transformations
+            .to_string()
+            .contains("LOGS_TRANSFORMATIONS_ENABLED_TEAMS"));
     }
 }

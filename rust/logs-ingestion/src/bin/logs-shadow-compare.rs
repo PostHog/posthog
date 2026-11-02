@@ -5,8 +5,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use envconfig::Envconfig;
-use logs_ingestion::compare::kafka::{run_compare, subscribe, TopicPlan};
+use logs_ingestion::compare::kafka::{compare_group_id, run_compare, subscribe, TopicPlan};
 use logs_ingestion::compare::{Comparator, CompareSettings, Side, Stream};
+use logs_ingestion::service::config::NODE_DEFAULT_CONFIG_CONSUMER_KEYS;
 use logs_ingestion::service::kafka_source::consumer_client_config;
 use logs_ingestion::service::node_env::{process_env, rdkafka_from_env};
 use rdkafka::consumer::StreamConsumer;
@@ -78,18 +79,22 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
     let env = CompareEnv::init_from_env()?;
-    anyhow::ensure!(
-        !["ingestion-logs", "ingestion-traces"].contains(&env.group_id.as_str()),
-        "LOGS_SHADOW_COMPARE_GROUP_ID must not be a production consumer group"
-    );
+    let group_id = compare_group_id(&env.group_id)?;
     let plan = plan(&env)?;
     let mut client = consumer_client_config(
-        &env.group_id,
-        &rdkafka_from_env(&process_env(), "KAFKA_CONSUMER_", &[]),
+        &group_id,
+        &rdkafka_from_env(
+            &process_env(),
+            "KAFKA_CONSUMER_",
+            NODE_DEFAULT_CONFIG_CONSUMER_KEYS,
+        ),
         None,
         false,
     );
-    client.set("enable.auto.offset.store", "true");
+    // Auto commit only records the comparator's own progress, under its reserved group.
+    client
+        .set("enable.auto.offset.store", "true")
+        .set("allow.auto.create.topics", "false");
     let consumer: StreamConsumer = client.create()?;
     subscribe(&consumer, &plan)?;
 

@@ -37,6 +37,8 @@ pub fn consumer_client_config(
         ("metadata.max.age.ms", "30000"),
         ("socket.timeout.ms", "30000"),
         ("enable.partition.eof", "true"),
+        // Node sets this in both consumer versions, so a new group starts at the oldest offset.
+        ("auto.offset.reset", "earliest"),
     ] {
         config.set(k, v);
     }
@@ -58,7 +60,24 @@ pub fn consumer_client_config(
         )
         .set("enable.auto.offset.store", "false")
         .set("enable.auto.commit", "true");
+    strip_classic_protocol_config(&mut config);
     config
+}
+
+/// `stripClassicProtocolConfig`: librdkafka rejects these classic-protocol keys when
+/// `group.protocol=consumer` (KIP-848), so they are removed after every other key is set.
+pub fn strip_classic_protocol_config(config: &mut ClientConfig) {
+    if config.get("group.protocol") != Some("consumer") {
+        return;
+    }
+    for key in [
+        "session.timeout.ms",
+        "heartbeat.interval.ms",
+        "partition.assignment.strategy",
+        "group.protocol.type",
+    ] {
+        config.remove(key);
+    }
 }
 
 pub fn to_kafka_message(m: &BorrowedMessage<'_>) -> KafkaMessage {
@@ -148,5 +167,44 @@ impl BatchSource for KafkaBatchSource {
             | Err(KafkaError::ConsumerCommit(rdkafka::types::RDKafkaErrorCode::NoOffset)) => Ok(()),
             Err(e) => Err(e.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(overrides: &[(&str, &str)]) -> ClientConfig {
+        let overrides: Vec<(String, String)> = overrides
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        consumer_client_config("g", &overrides, None, false)
+    }
+
+    #[test]
+    fn consumer_config_matches_node_offset_reset_and_kip848_strip() {
+        let classic = config(&[]);
+        assert_eq!(classic.get("auto.offset.reset"), Some("earliest"));
+        assert_eq!(
+            classic.get("partition.assignment.strategy"),
+            Some("cooperative-sticky")
+        );
+        assert_eq!(
+            config(&[("auto.offset.reset", "latest")]).get("auto.offset.reset"),
+            Some("latest")
+        );
+        let kip848 = config(&[
+            ("group.protocol", "consumer"),
+            ("heartbeat.interval.ms", "3000"),
+        ]);
+        for key in [
+            "session.timeout.ms",
+            "heartbeat.interval.ms",
+            "partition.assignment.strategy",
+        ] {
+            assert_eq!(kip848.get(key), None, "{key}");
+        }
+        assert_eq!(kip848.get("group.id"), Some("g"));
     }
 }

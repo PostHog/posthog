@@ -245,6 +245,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 [README.md](README.md) covers configuration, the modes and the shadow guards.
 
 - `config::ServiceConfig::from_env(&Env)` reads the Node keys with `overrideConfigWithEnv` semantics (`node_env`) and the `LOGS_RUST_*` keys with envconfig, and applies the shadow guards (`ConfigError`).
+- `KAFKA_CONSUMER_*` parses as `parseEnvToRdkafkaConfig` with `skipKeysInDefaultConfig` (`config::NODE_DEFAULT_CONFIG_CONSUMER_KEYS`). `kafka_source::consumer_client_config` adds Node's `auto.offset.reset=earliest` default and applies `stripClassicProtocolConfig` last.
 - `consumer_loop::run_consumer_loop(source, processor, config, shutdown, on_tick)` is the batch loop. `BatchSource` (Kafka: `kafka_source::KafkaBatchSource`) and `BatchProcessor` (implemented by `LogsIngestionConsumer`) are its seams.
 - `kafka_outputs::KafkaOutputs` implements `IngestionOutputs` and awaits each delivery report.
 - `postgres` holds `PgTeamManager` and the rule caches, `redis_deps` holds `RedisQuotaLimiting` and a reconnecting Redis connection, `usage::GrpcUsageRecordBatch` the usage client, `lazy_loader::LazyLoader` the `LazyLoader` port.
@@ -278,7 +279,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 ### Service gaps
 
 - **`first team event ingested`.** `setTeamIngestedEvent` captures a PostHog analytics event to every organization member after the first `ingested_event` write. `PgTeamManager` writes the flag and refreshes the cache, but captures nothing.
-- **Hog transformations in primary mode.** No `LogsTransformer` exists, so a team in `LOGS_TRANSFORMATIONS_ENABLED_TEAMS` is not transformed and writes no `log_entries`. Keep that allowlist empty for a Rust primary.
+- **Hog transformations in primary mode.** No `LogsTransformer` exists, so primary mode refuses to start when `LOGS_TRANSFORMATIONS_ENABLED_TEAMS` is not empty.
 - **Offsets after a failed background task.** Node's default consumer (`consumer-v1.ts`, `CONSUMER_USE_V2=false`) stores a batch's offsets in a `finally`, so a failed task's offsets can still commit before the process exits. The port follows `consumer-v2.ts`: a failed task stores nothing from it or any later batch.
 - **Rebalance fencing.** `consumer-v2.ts` fences offset stores by a per-partition epoch and drains in-flight tasks on revoke. The port relies on librdkafka rejecting a store for a partition it no longer holds, so a partition revoked and reassigned to the same member while a task runs can still store that task's offset.
 - **Consumer telemetry.** The node-rdkafka statistics, loop-stall health check and batch histograms are not ported. Liveness is the lifecycle heartbeat on every loop turn.

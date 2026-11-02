@@ -10,6 +10,18 @@ use crate::service::kafka_source::to_kafka_message;
 
 use super::{Comparator, Side, Stream};
 
+/// The comparator's group ends with this, so it never equals a Node, ClickHouse or shadow group.
+pub const COMPARE_GROUP_SUFFIX: &str = "-rust-shadow-compare";
+
+pub fn compare_group_id(raw: &str) -> anyhow::Result<String> {
+    let group = raw.trim();
+    anyhow::ensure!(
+        group.len() > COMPARE_GROUP_SUFFIX.len() && group.ends_with(COMPARE_GROUP_SUFFIX),
+        "LOGS_SHADOW_COMPARE_GROUP_ID must end with {COMPARE_GROUP_SUFFIX:?}, got {raw:?}"
+    );
+    Ok(group.to_string())
+}
+
 #[derive(Debug, Clone)]
 pub struct TopicPlan {
     pub topic: String,
@@ -73,6 +85,27 @@ pub async fn run_compare(
             if seen_any && now.duration_since(last_message) > idle {
                 return Ok(());
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compare_group_must_carry_the_reserved_suffix() {
+        assert_eq!(
+            compare_group_id(" ingestion-logs-rust-shadow-compare ").unwrap(),
+            "ingestion-logs-rust-shadow-compare"
+        );
+        for bad in [
+            "ingestion-logs",
+            "ingestion-logs-rust-shadow",
+            "group1",
+            COMPARE_GROUP_SUFFIX,
+        ] {
+            assert!(compare_group_id(bad).is_err(), "{bad}");
         }
     }
 }

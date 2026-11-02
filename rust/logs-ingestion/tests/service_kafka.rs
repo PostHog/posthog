@@ -50,6 +50,8 @@ fn env_for(bootstrap: &str) -> HashMap<String, String> {
         ("PLUGIN_SERVER_MODE", "ingestion-logs"),
         ("LOGS_RUST_MODE", "shadow"),
         ("DATABASE_URL", "postgres://unused"),
+        ("DATABASE_READONLY_URL", "postgres://unused-replica"),
+        ("LOGS_RUST_SHADOW_REDIS_HOST", "127.0.0.1"),
         ("LOGS_RUST_SHADOW_CONSUMER_GROUP_ID", GROUP),
         ("LOGS_RUST_SHADOW_LOGS_TOPIC", SHADOW_LOGS),
         ("LOGS_RUST_SHADOW_DLQ_TOPIC", SHADOW_DLQ),
@@ -229,6 +231,21 @@ async fn kafka_outputs_route_by_output_name_and_wait_for_delivery() {
     assert_eq!(read.iter().filter(|m| m.topic == SHADOW_METRICS).count(), 1);
     for t in PRODUCTION {
         assert_eq!(high_watermark(&bootstrap, t), 0);
+    }
+
+    let mut missing = env_for(&bootstrap);
+    missing.insert(
+        "LOGS_RUST_SHADOW_DLQ_TOPIC".into(),
+        "missing_rust_shadow".into(),
+    );
+    let missing = ServiceConfig::from_env(&missing).unwrap();
+    // The second call fails too only if the first one did not create the topic.
+    for _ in 0..2 {
+        let error = match create_producers(&missing) {
+            Ok(_) => panic!("a missing shadow topic must fail startup"),
+            Err(e) => e.to_string(),
+        };
+        assert!(error.contains("missing_rust_shadow"), "{error}");
     }
 }
 
