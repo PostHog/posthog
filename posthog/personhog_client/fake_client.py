@@ -1325,6 +1325,7 @@ class FakePersonHogClient:
             if write.action not in (
                 person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT,
                 person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE,
+                person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE,
             ):
                 raise ValueError(f"Unknown action {write.action} for {write.distinct_id}")
         response = person_pb2.WriteDistinctIdsResponse()
@@ -1341,7 +1342,11 @@ class FakePersonHogClient:
         self, team_id: int, write: person_pb2.DistinctIdWrite
     ) -> person_pb2.DistinctIdWriteOutcome:
         person = self._persons_by_uuid.get((team_id, write.person_uuid))
-        if person is None or person.is_deleted:
+        if person is None:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
+        if write.action == person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE:
+            return self._apply_distinct_id_tombstone(team_id, write, person)
+        if person.is_deleted:
             return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
         row = self._mapping_row(team_id, write.distinct_id)
         exists = row is not None or (team_id, write.distinct_id) in self._tombstoned_distinct_ids
@@ -1362,6 +1367,23 @@ class FakePersonHogClient:
         if (mapping.version or 0) >= write.min_version:
             return person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED
         mapping.version = write.min_version
+        return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
+
+    def _apply_distinct_id_tombstone(
+        self, team_id: int, write: person_pb2.DistinctIdWrite, person: person_pb2.Person
+    ) -> person_pb2.DistinctIdWriteOutcome:
+        row = self._mapping_row(team_id, write.distinct_id)
+        if row is None or not person.is_deleted or row.person_id != person.id:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        if row.is_deleted:
+            if row.version >= write.min_version:
+                return person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        if write.HasField("expected_version") and row.version != write.expected_version:
+            return person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+        mapping = next(m for m in self._distinct_ids[(team_id, person.id)] if m.distinct_id == write.distinct_id)
+        mapping.version = max((mapping.version or 0) + 1, write.min_version)
+        self._tombstoned_distinct_ids.add((team_id, write.distinct_id))
         return person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
 
     # ── Assertion helpers ────────────────────────────────────────────

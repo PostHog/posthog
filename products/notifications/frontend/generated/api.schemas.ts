@@ -103,6 +103,7 @@ export type NotificationsListParams = {
     created_before?: string
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
