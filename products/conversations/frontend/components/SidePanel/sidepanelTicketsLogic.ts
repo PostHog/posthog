@@ -129,6 +129,7 @@ export interface sidepanelTicketsLogicValues {
     messageSending: boolean
     messages: ChatMessage[]
     messagesLoading: boolean
+    myTicketsUrl: string | null
     newTicketContext: string | null
     newTicketDraft: JSONContent | null
     newTicketDraftRevision: number
@@ -282,6 +283,12 @@ export interface sidepanelTicketsLogicMeta {
             isErrorReport: boolean
         ) => boolean
         isBillingResolved: (billing: BillingType | null, billingLoading: boolean) => boolean
+        myTicketsUrl: (
+            tickets: ConversationTicket[],
+            canCreateTicket: boolean,
+            view: SidePanelViewState,
+            currentTicket: ConversationTicket | null
+        ) => string | null
     }
 }
 
@@ -552,6 +559,19 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         isBillingResolved: [
             (s) => [s.billing, s.billingLoading],
             (billing: BillingType | null, billingLoading: boolean): boolean => !billingLoading && billing !== null,
+        ],
+        // The tickets page, on the open ticket if any. Null when there is nothing to show there.
+        myTicketsUrl: [
+            (s) => [s.tickets, s.canCreateTicket, s.view, s.currentTicket],
+            (
+                tickets: ConversationTicket[],
+                canCreateTicket: boolean,
+                view: SidePanelViewState,
+                currentTicket: ConversationTicket | null
+            ): string | null =>
+                canCreateTicket || tickets.length > 0
+                    ? urls.myTickets(view === 'ticket' ? currentTicket?.id : undefined)
+                    : null,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
