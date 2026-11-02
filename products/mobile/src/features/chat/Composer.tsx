@@ -236,7 +236,7 @@ const useStyles = createStyles(({ colors }) => ({
     },
     cardCompact: {
         flexDirection: 'row',
-        flexWrap: 'wrap',
+        flexWrap: 'nowrap',
         alignItems: 'center',
         paddingTop: 8,
         paddingBottom: 8,

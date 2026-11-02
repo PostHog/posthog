@@ -27,12 +27,13 @@ const DEMO_PROJECT: AuthProject = { id: 0, name: DEMO_PROJECT_NAME, organization
 const DEMO_PROJECTS = [DEMO_PROJECT]
 
 interface ProjectRowProps {
+    compact?: boolean
     project: AuthProject
     selected: boolean
     onPress: () => void
 }
 
-function ProjectRow({ project, selected, onPress }: ProjectRowProps): ReactElement {
+function ProjectRow({ compact = false, project, selected, onPress }: ProjectRowProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
     return (
@@ -42,7 +43,7 @@ function ProjectRow({ project, selected, onPress }: ProjectRowProps): ReactEleme
             accessibilityState={{ checked: selected }}
             accessibilityLabel={project.name}
             pressedBackground={colors.background}
-            style={styles.row}
+            style={[styles.row, compact && { minHeight: 44 }]}
             testID={`project-sheet-${project.id}`}
         >
             <Text style={styles.rowLabel} numberOfLines={1}>
@@ -147,6 +148,7 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                         : []),
                     ...group.projects.map((project) => (
                         <ProjectRow
+                            compact={compact}
                             key={project.id}
                             project={project}
                             selected={project.id === projectId}
@@ -209,7 +211,7 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
                     />
                 </View>
             </View>
-            <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+            <ScrollView style={[styles.list, compact && { marginTop: 2 }]} keyboardShouldPersistTaps="handled">
                 {content}
             </ScrollView>
         </FloatingCard>
@@ -218,8 +220,8 @@ export function ProjectSheet({ visible, onClose, onSelect }: ProjectSheetProps):
 
 const useStyles = createStyles(({ colors }) => ({
     cardCompact: {
-        paddingTop: 8,
-        paddingBottom: 8,
+        paddingTop: 4,
+        paddingBottom: 4,
     },
     controlsCompact: {
         flexDirection: 'row',
@@ -231,6 +233,7 @@ const useStyles = createStyles(({ colors }) => ({
     },
     searchCompact: {
         flex: 1,
+        height: 44,
         marginTop: 0,
     },
     card: {
@@ -278,6 +281,7 @@ const useStyles = createStyles(({ colors }) => ({
     list: {
         marginTop: 8,
         flexGrow: 0,
+        flexShrink: 1,
     },
     organization: {
         color: colors.tertiary,

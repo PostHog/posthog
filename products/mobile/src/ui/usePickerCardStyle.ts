@@ -14,6 +14,6 @@ export function usePickerCardStyle(top: number, height: number): ComponentProps<
         const keyboardHeight = Math.max(-keyboard.height.value, 0)
         const bottom = sceneHeight - Math.max(keyboardHeight, insets.bottom) - 4
         const fittedTop = Math.min(top, Math.max(insets.top + 4, bottom - height))
-        return { top: fittedTop, height: Math.max(120, Math.min(height, bottom - fittedTop)) }
+        return { top: fittedTop, height: Math.max(0, Math.min(height, bottom - fittedTop)) }
     })
 }

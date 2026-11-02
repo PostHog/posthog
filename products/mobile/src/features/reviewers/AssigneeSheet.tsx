@@ -42,12 +42,13 @@ function limitMessage(githubOnlyCount: number): string {
 }
 
 interface PersonRowProps {
+    compact?: boolean
     person: Person
     selected: boolean
     onPress: () => void
 }
 
-function PersonRow({ person, selected, onPress }: PersonRowProps): ReactElement {
+function PersonRow({ compact = false, person, selected, onPress }: PersonRowProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
     return (
@@ -56,7 +57,7 @@ function PersonRow({ person, selected, onPress }: PersonRowProps): ReactElement 
             accessibilityRole="checkbox"
             accessibilityState={{ checked: selected }}
             pressedBackground={colors.background}
-            style={styles.row}
+            style={[styles.row, compact && { minHeight: 44 }]}
             testID={`assignee-${person.uuid}`}
         >
             <Avatar name={person.name} color={person.color} seed={person.uuid} size={32} fontSize={12} />
@@ -205,14 +206,14 @@ export function AssigneeSheet({
                     {limitMessage(githubOnlyCount)}
                 </Text>
             ) : null}
-            <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
+            <ScrollView style={[styles.list, compact && { marginTop: 2 }]} keyboardShouldPersistTaps="handled">
                 {trimmed ? null : (
                     <Pressable44
                         onPress={clear}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: selected.size === 0 }}
                         pressedBackground={colors.background}
-                        style={styles.row}
+                        style={[styles.row, compact && { minHeight: 44 }]}
                         testID="assignee-none"
                     >
                         <View style={styles.dashed}>
@@ -240,6 +241,7 @@ export function AssigneeSheet({
                 ) : null}
                 {(people.data ?? []).map((person) => (
                     <PersonRow
+                        compact={compact}
                         key={person.uuid}
                         person={person}
                         selected={selected.has(person.uuid)}
@@ -256,8 +258,8 @@ export function AssigneeSheet({
 
 const useStyles = createStyles(({ colors }) => ({
     cardCompact: {
-        paddingTop: 8,
-        paddingBottom: 8,
+        paddingTop: 4,
+        paddingBottom: 4,
     },
     controlsCompact: {
         flexDirection: 'row',
@@ -269,6 +271,7 @@ const useStyles = createStyles(({ colors }) => ({
     },
     searchCompact: {
         flex: 1,
+        height: 44,
         marginTop: 0,
     },
     card: {
@@ -346,6 +349,7 @@ const useStyles = createStyles(({ colors }) => ({
     list: {
         marginTop: 8,
         flexGrow: 0,
+        flexShrink: 1,
     },
     row: {
         flexDirection: 'row',
