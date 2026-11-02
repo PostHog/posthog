@@ -20,6 +20,7 @@ NEXT_MIDNIGHT = datetime(2026, 10, 30, tzinfo=UTC)
 EVENING = datetime(2026, 10, 29, 20, 0, tzinfo=UTC)
 LOS_ANGELES = ZoneInfo("America/Los_Angeles")
 TOKYO = ZoneInfo("Asia/Tokyo")
+AMSTERDAM = ZoneInfo("Europe/Amsterdam")
 PAST_DAY = "select count() from events where timestamp >= '2026-10-28' and timestamp < '2026-10-29'"
 YESTERDAY = "select count() from events where toDate(timestamp) = yesterday()"
 
@@ -188,6 +189,17 @@ GRANT_CASES: list[tuple[Any, ...]] = [
             "now": datetime(2026, 10, 29, 14, 45, tzinfo=UTC),
             "relative_inputs": True,
             "fresh_until": datetime(2026, 10, 29, 15, 0, tzinfo=UTC),
+        },
+    ),
+    (
+        "local_midnight_on_a_23_hour_dst_day",
+        "select count() from events where timestamp >= '2026-03-01' and timestamp < '2026-03-27'",
+        SqlWindowClass.FIXED_PAST,
+        {
+            "timezone": AMSTERDAM,
+            "now": datetime(2026, 3, 29, 21, 30, tzinfo=UTC),
+            "relative_inputs": True,
+            "fresh_until": datetime(2026, 3, 29, 22, 0, tzinfo=UTC),
         },
     ),
     (
