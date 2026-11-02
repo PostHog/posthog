@@ -6,7 +6,7 @@ import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
 import { markBootPhase } from 'lib/utils/bootTiming'
-import { applyDeferredAppContext } from 'lib/utils/deferredAppContext'
+import { applyDeferredAppContext, watchEarlyUserContextReads } from 'lib/utils/deferredAppContext'
 import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
@@ -16,6 +16,7 @@ markBootPhase('entry', {
     deferred_app_context: !!window.POSTHOG_APP_CONTEXT_REQUEST,
     deferred_app_context_variant: window.POSTHOG_APP_CONTEXT?.deferred_app_context_variant,
 })
+watchEarlyUserContextReads()
 
 type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 

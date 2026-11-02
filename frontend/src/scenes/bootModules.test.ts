@@ -1,41 +1,23 @@
-import type { AppContext } from '~/types'
+import { earlyUserContextReads, watchEarlyUserContextReads } from 'lib/utils/deferredAppContext'
 
-// The keys `add_user_app_context` in posthog/utils.py fills. A deferred page gets them after the boot modules load.
-const USER_APP_CONTEXT_KEYS = [
-    'current_user',
-    'current_team',
-    'current_project',
-    'effective_resource_access_control',
-    'resource_access_control',
-    'frontend_apps',
-    'default_event_name',
-    'has_pageview',
-    'has_screen',
-    'has_person_email',
-    'homepage',
-]
+import type { AppContext } from '~/types'
 
 describe('app boot modules', () => {
     afterEach(() => {
         delete window.POSTHOG_APP_CONTEXT
+        delete window.POSTHOG_APP_CONTEXT_REQUEST
     })
 
     it('do not read the user data when they load', async () => {
-        const userKeysRead = new Set<string>()
-        window.POSTHOG_APP_CONTEXT = new Proxy({ anonymous: false, deferred: true } as unknown as AppContext, {
-            get(target, key, receiver) {
-                if (typeof key === 'string' && USER_APP_CONTEXT_KEYS.includes(key)) {
-                    userKeysRead.add(key)
-                }
-                return Reflect.get(target, key, receiver)
-            },
-        })
+        window.POSTHOG_APP_CONTEXT_REQUEST = new Promise(() => {})
+        window.POSTHOG_APP_CONTEXT = { anonymous: false, deferred: true } as unknown as AppContext
+        watchEarlyUserContextReads()
 
         await jest.isolateModulesAsync(async () => {
             await import('scenes/App')
             await import('scenes/bootApp')
         })
 
-        expect([...userKeysRead]).toEqual([])
+        expect(earlyUserContextReads()).toEqual([])
     })
 })
