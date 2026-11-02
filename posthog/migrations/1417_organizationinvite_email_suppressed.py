@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1397_uploaded_media_dimensions_and_archive"),
+        ("posthog", "1416_uploadedmedia_serving_disabled_at"),
     ]
 
     operations = [
