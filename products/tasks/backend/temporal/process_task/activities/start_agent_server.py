@@ -81,7 +81,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     include_personal_mcp_for_task,
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
-    mcp_exclude_tools_from_state,
+    mcp_exclude_tools_for_task,
     unmounted_mcp_installations_log_fields,
     unmounted_mcp_installations_notice,
 )
@@ -523,7 +523,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
-        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+        exclude_tools=mcp_exclude_tools_for_task(task, ctx.state),
     )
     include_personal = include_personal_mcp_for_task(task)
     user_mcp = get_user_mcp_server_configs(

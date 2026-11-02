@@ -877,6 +877,14 @@ def mcp_exclude_tools_from_state(state: dict[str, Any] | None) -> list[str]:
     return sanitize_mcp_exclude_tools([name for name in raw if isinstance(name, str)])
 
 
+def mcp_exclude_tools_for_task(task: Task, state: dict[str, Any] | None) -> list[str]:
+    from_state = mcp_exclude_tools_from_state(state)
+    profile = task.stored_profile
+    if profile is None:
+        return from_state
+    return sanitize_mcp_exclude_tools([*profile.mcp_exclude_tools, *from_state])
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,

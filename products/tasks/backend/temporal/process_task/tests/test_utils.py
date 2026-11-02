@@ -46,6 +46,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_for_task,
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
@@ -424,6 +425,24 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": ["docs-search", 1]}) == ["docs-search"]
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
         assert mcp_exclude_tools_from_state(None) == []
+
+    @parameterized.expand(
+        [
+            ("no_profile", None, ["docs-search"], ["docs-search"]),
+            ("profile_only", ("user-get",), None, ["user-get"]),
+            ("profile_and_run", ("user-get",), ["docs-search", "user-get"], ["user-get", "docs-search"]),
+            ("profile_hides_nothing", (), ["docs-search"], ["docs-search"]),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_adds_the_run_to_the_profile(
+        self, _name: str, profile_tools: tuple[str, ...] | None, run_tools: list[str] | None, expected: list[str]
+    ) -> None:
+        task = MagicMock()
+        task.stored_profile = (
+            None if profile_tools is None else replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        )
+        state = None if run_tools is None else {"mcp_exclude_tools": run_tools}
+        assert mcp_exclude_tools_for_task(task, state) == expected
 
 
 class TestMcpServerConfigToDict(SimpleTestCase):
