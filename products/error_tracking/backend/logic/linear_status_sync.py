@@ -218,26 +218,26 @@ def _refresh_moved_identifiers(
 
 
 class _LinearReads:
-    """The Linear reads of one job.
+    """The Linear reads of one job, kept apart per integration.
 
-    The job reads the category of the state the ticket left at most once. After Linear rate limits
-    an integration, the job sends no more reads with that integration's token, because Linear refuses
-    each of them until the limit resets. Those reads raise the first rate limit error again.
+    Each integration reads with the token of its own project, and Linear shows a token only the
+    teams that the token can access. So one integration's answer never stands in for another's: the
+    job reads the category of the state the ticket left at most once per integration. After Linear
+    rate limits an integration, the job sends no more reads with that integration's token, because
+    Linear refuses each of them until the limit resets. Those reads raise the first rate limit error again.
     """
 
     def __init__(self, job: contracts.LinearStatusSyncJob) -> None:
         self._job = job
-        self._previous_state_read = False
-        self._previous_state_type: str | None = None
+        self._previous_state_types: dict[int, str | None] = {}
         self._rate_limited: dict[int, LinearRateLimitedError] = {}
 
     def previous_state_type(self, integration: IntegrationRecord) -> str | None:
-        if not self._previous_state_read:
-            self._previous_state_type = self._read(
+        if integration.id not in self._previous_state_types:
+            self._previous_state_types[integration.id] = self._read(
                 integration, lambda linear: linear.workflow_state_type(self._job.previous_state_id)
             )
-            self._previous_state_read = True
-        return self._previous_state_type
+        return self._previous_state_types[integration.id]
 
     def issue_state_types(self, integration: IntegrationRecord, identifiers: list[str]) -> dict[str, str]:
         return self._read(integration, lambda linear: linear.issue_state_types(identifiers))

@@ -52,10 +52,12 @@ class _FakeLinear:
         *,
         failing_tokens: frozenset[str] = frozenset(),
         rate_limited_tokens: dict[str, int] | None = None,
+        tokens_without_previous_state: frozenset[str] = frozenset(),
     ) -> None:
         self.ticket_states = ticket_states
         self.previous_state_type = previous_state_type
         self.failing_tokens = failing_tokens
+        self.tokens_without_previous_state = tokens_without_previous_state
         self.rate_limited_tokens = rate_limited_tokens or {}
         self.requests_by_token: Counter[str] = Counter()
 
@@ -82,7 +84,8 @@ class _FakeLinear:
             body = {"data": {"issues": {"nodes": nodes}}}
         elif "WorkflowStateType" in query:
             assert variables["id"] == PREVIOUS_STATE_ID
-            nodes = [{"type": self.previous_state_type}] if self.previous_state_type else []
+            visible = self.previous_state_type and token not in self.tokens_without_previous_state
+            nodes = [{"type": self.previous_state_type}] if visible else []
             body = {"data": {"workflowStates": {"nodes": nodes}}}
         else:
             raise AssertionError(f"Unexpected Linear query: {query}")
@@ -313,6 +316,24 @@ class TestLinearStatusSync(BaseTest):
         self._sync(linear, identifiers=("ENG-2",))
         issue.refresh_from_db()
         assert issue.status == "resolved"
+
+    def test_each_project_reads_the_previous_state_with_its_own_token(self) -> None:
+        blind_team = Team.objects.create(organization=self.organization, name="Cannot see the previous team")
+        self._opt_in(blind_team)
+        blind_issue = self._linked_issue(
+            blind_team, self._linear_integration(blind_team, token="blind-token"), ["ENG-1"], status="resolved"
+        )
+        seeing_issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"], status="resolved")
+        linear = _FakeLinear(
+            {"ENG-1": "started"}, "completed", tokens_without_previous_state=frozenset({"blind-token"})
+        )
+
+        self._sync(linear)
+
+        statuses = dict(
+            ErrorTrackingIssue.objects.filter(id__in=[blind_issue.id, seeing_issue.id]).values_list("id", "status")
+        )
+        assert statuses == {blind_issue.id: "resolved", seeing_issue.id: "active"}
 
     def test_a_project_whose_linear_read_fails_raises_without_holding_back_the_others(self) -> None:
         revoked_team = Team.objects.create(organization=self.organization, name="Revoked token")
