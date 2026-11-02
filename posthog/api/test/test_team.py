@@ -4360,24 +4360,33 @@ class TestSecretApiTokenVisibility(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("session", None, [], True),
-            ("personal_api_key_project_read", "personal_api_key", ["project:read"], False),
+            ("session", None, [], True, True),
+            ("personal_api_key_project_read", "personal_api_key", ["project:read"], True, False),
             (
-                "personal_api_key_with_mirrored_scopes",
+                "personal_api_key_mirrored_scopes_legacy_tokens_on",
                 "personal_api_key",
                 ["project:read", "feature_flag:read", "support_ticket:read"],
                 True,
+                False,
             ),
-            ("personal_api_key_all_scopes", "personal_api_key", ["*"], True),
-            ("oauth_project_read", "oauth", ["project:read"], False),
+            (
+                "personal_api_key_mirrored_scopes_legacy_tokens_off",
+                "personal_api_key",
+                ["project:read", "feature_flag:read", "support_ticket:read"],
+                False,
+                True,
+            ),
+            ("personal_api_key_all_scopes", "personal_api_key", ["*"], True, True),
+            ("oauth_project_read", "oauth", ["project:read"], True, False),
         ]
     )
     @patch("posthog.event_usage.report_user_action")
-    def test_secret_api_tokens_need_the_scopes_rotation_needs(
+    def test_secret_api_tokens_are_visible_only_to_callers_that_hold_their_authority(
         self,
         _name: str,
         credential: str | None,
         scopes: list[str],
+        accept_team_secret_tokens: bool,
         visible: bool,
         _mock_report_user_action: MagicMock,
     ) -> None:
@@ -4391,7 +4400,17 @@ class TestSecretApiTokenVisibility(APIBaseTest):
             headers["authorization"] = f"Bearer {token}"
             self.client.logout()
 
-        responses = {
+        with override_settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
+            responses = self._read_both_serializers(headers)
+
+        expected = (self.team.secret_api_token, self.team.secret_api_token_backup) if visible else (None, None)
+        for serializer_name, response in responses.items():
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
+            body = response.json()
+            assert (body["secret_api_token"], body["secret_api_token_backup"]) == expected, serializer_name
+
+    def _read_both_serializers(self, headers: dict[str, str]) -> dict[str, Any]:
+        return {
             "ProjectBackwardCompatSerializer": self.client.get(f"/api/projects/{self.project.id}/", headers=headers),
             "TeamSerializer": self.client.patch(
                 f"/api/projects/{self.project.id}/add_product_intent/",
@@ -4399,12 +4418,6 @@ class TestSecretApiTokenVisibility(APIBaseTest):
                 headers=headers,
             ),
         }
-
-        expected = (self.team.secret_api_token, self.team.secret_api_token_backup) if visible else (None, None)
-        for serializer_name, response in responses.items():
-            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
-            body = response.json()
-            assert (body["secret_api_token"], body["secret_api_token_backup"]) == expected, serializer_name
 
 
 # Sensitive Team/Project settings the frontend gates behind
