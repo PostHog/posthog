@@ -178,14 +178,7 @@ describe('searchLogic', () => {
                 id: 'environment-web-analytics',
                 level: 'environment',
                 titleString: 'Web vitals',
-                settings: [
-                    {
-                        id: 'web-vitals-autocapture',
-                        hasTitle: true,
-                        titleString: 'Web vitals',
-                        descriptionString: null,
-                    },
-                ],
+                settings: [{ keywords: ['Web vitals autocapture', 'Web vitals'], description: null }],
             },
         ])
         await searchOnceProductsLoad('web vitals')

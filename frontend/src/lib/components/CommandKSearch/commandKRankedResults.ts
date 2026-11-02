@@ -1,5 +1,6 @@
 import { getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
 import { SearchItem } from 'lib/components/Search/searchItems'
+import { SEARCH_TAB_CATEGORY } from 'lib/components/Search/utils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { pluralTypeName } from './commandKFilterOptions'
@@ -58,7 +59,7 @@ function rankItems(items: SearchItem[], query: string, groupKey: string): Ranked
             query,
             String(item.displayName || item.name),
             item.searchKeywords,
-            !!item.parentName
+            item.category === SEARCH_TAB_CATEGORY
         )
         return ranked
             ? [

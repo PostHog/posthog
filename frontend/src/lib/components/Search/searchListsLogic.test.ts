@@ -1,3 +1,4 @@
+import { strictLocalMatches } from 'lib/components/CommandKSearch/commandKRanking'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
@@ -96,20 +97,8 @@ describe('searchListsLogic', () => {
         (_state, flagOn, expectedName, expectsGatedKeyword) => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn })
             const settings = [
-                {
-                    id: 'task-agent-my-preference',
-                    hasTitle: true,
-                    titleString: 'My default model',
-                    descriptionString: null,
-                },
-                {
-                    id: 'task-comments-slack-dm',
-                    hasTitle: true,
-                    titleString: 'Gated setting',
-                    descriptionString: null,
-                    keywords: ['zebra'],
-                    flag: 'TODAY_RAIL_NAV' as const,
-                },
+                { keywords: ['My default model'], description: null },
+                { keywords: ['Gated setting', 'zebra'], description: null, flag: 'TODAY_RAIL_NAV' as const },
             ]
             logic.actions.setSettingsSections([
                 {
@@ -130,7 +119,28 @@ describe('searchListsLogic', () => {
 
             const items = logic.values.settingsItems.filter((item) => item.id === 'settings-project-task-agents')
             expect(items.map((item) => item.displayName)).toEqual([expectedName])
-            expect(items[0].name.includes('zebra')).toBe(expectsGatedKeyword)
+            expect(items[0].searchKeywords?.includes('zebra')).toBe(expectsGatedKeyword)
+        }
+    )
+
+    it.each(['settings', 'general', 'project settings', 'settings general', 'timezone'])(
+        'finds a settings section in Command K and the search page when searching "%s"',
+        (query) => {
+            logic.actions.setSettingsSections([
+                {
+                    id: 'environment-details',
+                    level: 'environment',
+                    titleString: 'General',
+                    settings: [{ keywords: ['Timezone'], description: 'Set the timezone for dates.' }],
+                },
+            ])
+            const { settingsItems } = logic.values
+
+            expect(strictLocalMatches(settingsItems, query).map((item) => item.id)).toEqual([
+                'settings-project-details',
+            ])
+            expect(filterSearchItems(settingsItems, query).map((item) => item.id)).toEqual(['settings-project-details'])
+            expect(settingsItems[0]).toMatchObject({ displayName: 'General', parentName: 'Project settings' })
         }
     )
 })
