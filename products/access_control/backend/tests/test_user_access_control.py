@@ -11,7 +11,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
 from products.access_control.backend.facade.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
@@ -2224,6 +2224,23 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
             )
         self._clear_uac_caches()
 
+    @parameterized.expand([("sourced_table", True, "none"), ("self_managed_table", False, "editor")])
+    def test_ref_with_fallback_parent_resolves_like_the_model(self, _name, sourced, expected):
+        table = self.sourced_table if sourced else self.self_managed_table
+        self._apply({"this_source": "none"}, table)
+        ref = ObjectAccessRef(
+            resource="warehouse_table",
+            id=str(table.id),
+            team_id=self.team.id,
+            created_by_id=None,
+            fallback_parent=FallbackParent(
+                resource="external_data_source", id=str(self.source.id) if sourced else None
+            ),
+        )
+
+        assert self.user_access_control.access_level_for_ref(ref) == expected
+        assert self.user_access_control.get_user_access_level(table) == expected
+
     def _level(self, table):
         return self.user_access_control.get_user_access_level(table)
 
@@ -2488,6 +2505,7 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
                 ("org_admin", "manager"),
                 ("object_default_none", "none"),
                 ("object_member_viewer", "viewer"),
+                ("object_member_manager", "manager"),
                 ("resource_viewer", "viewer"),
             ]
         ]
@@ -2502,11 +2520,11 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
             self.organization_membership.save()
         elif scenario == "object_default_none":
             self._create_access_control(resource="dashboard", resource_id=str(self.dashboard.id), access_level="none")
-        elif scenario == "object_member_viewer":
+        elif scenario in ("object_member_viewer", "object_member_manager"):
             self._create_access_control(
                 resource="dashboard",
                 resource_id=str(self.dashboard.id),
-                access_level="viewer",
+                access_level=expected,
                 organization_member=self.organization_membership,
             )
         elif scenario == "resource_viewer":
@@ -2520,6 +2538,9 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
             assert self.user_access_control.check_access_level_for_ref(
                 ref, required
             ) == self.user_access_control.check_access_level_for_object(self.dashboard, required)
+        assert self.user_access_control.check_can_modify_access_levels_for_ref(
+            ref
+        ) == self.user_access_control.check_can_modify_access_levels_for_object(self.dashboard)
 
     @parameterized.expand([("legacy", False), ("most_specific", True)])
     def test_project_level_none_matches_the_team(self, _name, most_specific):
@@ -2531,11 +2552,33 @@ class TestObjectAccessRefMatchesModel(BaseUserAccessControlTest):
         assert self.user_access_control.get_user_access_level(self.team) == "none"
         assert self.user_access_control.access_level_for_ref(ref) == "none"
         assert self.user_access_control.check_access_level_for_ref(ref, "member") is False
+        assert self.user_access_control.check_can_modify_access_levels_for_ref(
+            ref
+        ) == self.user_access_control.check_can_modify_access_levels_for_object(self.team)
 
-    def test_ref_for_fallback_resource_raises(self):
-        ref = ObjectAccessRef(resource="warehouse_table", id="1", team_id=self.team.id, created_by_id=None)
+    @parameterized.expand(
+        [
+            ("fallback_resource_without_parent", "warehouse_table", None, "external_data_source"),
+            (
+                "parent_on_resource_without_fallback",
+                "dashboard",
+                FallbackParent(resource="dashboard", id="1"),
+                "no fallback parent",
+            ),
+            (
+                "parent_of_another_type",
+                "warehouse_table",
+                FallbackParent(resource="warehouse_objects", id="1"),
+                "falls back to `external_data_source`",
+            ),
+        ]
+    )
+    def test_ref_with_wrong_fallback_parent_raises(self, _name, resource, fallback_parent, match):
+        ref = ObjectAccessRef(
+            resource=resource, id="1", team_id=self.team.id, created_by_id=None, fallback_parent=fallback_parent
+        )
 
-        with pytest.raises(ValueError, match="external_data_source"):
+        with pytest.raises(ValueError, match=match):
             self.user_access_control.access_level_for_ref(ref)
 
     @parameterized.expand([("another_team", True), ("no_team", False)])

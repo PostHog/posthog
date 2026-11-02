@@ -52,6 +52,10 @@ class E2BSource(ResumableSource[E2BSourceConfig, E2BResumeConfig]):
         return ExternalDataSourceType.E2B
 
     @property
+    def credential_kind(self) -> str | None:
+        return "e2b"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.E2B,

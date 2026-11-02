@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, IntegrationManager
 from posthog.models import Team
 from posthog.models.event_filter_config import EventFilterPipelineOverride
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
@@ -258,6 +259,33 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
     @parameterized.expand(
         [
+            ("unsupported_kind", "slack", {}, "Provider not supported"),
+            ("source_row", "github", {SOURCE_MARKER_CONFIG_KEY: "Github"}, "Integration does not belong to this team."),
+            ("other_auth_type", "github", None, "Integration does not belong to this team."),
+        ]
+    )
+    def test_link_external_reference_integration_lookup_errors(self, _name, kind, config, expected_message):
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        if config is None:
+            integration, _ = IntegrationManager.github.token.upsert(
+                self.team.id, "token-row", config={}, sensitive_config={"access_token": "token"}
+            )
+        else:
+            integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+
+        with self.assertRaises(api.ExternalReferenceValidationError) as raised:
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                external_context={"key": "ENG-1"},
+                distinct_id=self.user.id,
+            )
+
+        assert str(raised.exception) == expected_message
+
+    @parameterized.expand(
+        [
             ("both", {"title": "x"}, {"key": "ENG-1"}),
             ("neither", None, None),
         ]
@@ -417,6 +445,56 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         mock_is_assignable.assert_called_once_with("posthog", login)
         assert mock_create_issue.called is creates_issue
+
+    @parameterized.expand(
+        [
+            ("github_empty_body", "github", "", "{link}"),
+            ("github_whitespace_body", "github", " \n ", "{link}"),
+            ("github_user_text", "github", "Seen at checkout\n", "Seen at checkout\n\n{link}"),
+            ("github_already_linked", "github", "Details: {url}", "Details: {url}"),
+            ("gitlab_empty_body", "gitlab", "", "{link}"),
+        ]
+    )
+    @override_settings(SITE_URL="https://app.example.com")
+    @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.external_references.GitHubIntegration.create_issue")
+    def test_create_external_reference_always_links_back_to_posthog_issue(
+        self, _name, kind, body, expected_body, mock_github_create_issue, mock_gitlab_create_issue
+    ):
+        mock_github_create_issue.return_value = {"number": 7, "repository": "posthog"}
+        mock_gitlab_create_issue.return_value = {"issue_id": 7}
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        url = f"https://app.example.com/project/{self.team.id}/error-tracking/fingerprint/fp-{issue.id}"
+        if kind == "github":
+            integration = Integration.objects.create(
+                team=self.team,
+                kind=Integration.IntegrationKind.GITHUB.value,
+                config={"account": {"name": "acme"}},
+                sensitive_config={"access_token": "access-token"},
+            )
+            config = {"repository": "posthog", "title": "Checkout TypeError", "body": body.format(url=url)}
+            mock_create_issue = mock_github_create_issue
+        else:
+            integration = Integration.objects.create(
+                team=self.team,
+                kind=Integration.IntegrationKind.GITLAB.value,
+                config={"hostname": "https://gitlab.example.com", "project_id": 1},
+                sensitive_config={"access_token": "access-token"},
+            )
+            config = {"title": "Checkout TypeError", "body": body.format(url=url)}
+            mock_create_issue = mock_gitlab_create_issue
+
+        api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            config=config,
+            distinct_id=self.user.id,
+        )
+
+        assert mock_create_issue.call_args.args[0]["body"] == expected_body.format(
+            url=url, link=f"**PostHog issue:** {url}"
+        )
 
     def test_search_external_issues_requires_repository_for_github(self):
         integration = Integration.objects.create(

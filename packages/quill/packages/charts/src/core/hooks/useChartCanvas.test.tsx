@@ -89,7 +89,7 @@ describe('useChartCanvas', () => {
         const canvas = renderCanvas(drawStatic)
         drawStatic.mockClear()
 
-        jest.mocked(Element.prototype.getBoundingClientRect).mockReturnValueOnce({ ...mockRect, width: 0, height: 0 })
+        jest.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValueOnce({ ...mockRect, width: 0, height: 0 })
         act(() => {
             canvas.dispatchEvent(new Event('contextrestored'))
         })

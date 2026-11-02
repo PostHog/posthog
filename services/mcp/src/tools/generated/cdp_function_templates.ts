@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/cdp_function_templates/api'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -52,7 +53,10 @@ const cdpFunctionTemplatesList = (): ToolBase<
 
 const CdpFunctionTemplatesRetrieveSchema = () => {
     const HogFunctionTemplatesRetrieveParams = orvalSchemas.HogFunctionTemplatesRetrieveParams()
-    return HogFunctionTemplatesRetrieveParams.omit({ project_id: true })
+    return z.preprocess(
+        normalizeParamAliases({ template_id: ['id'] }),
+        HogFunctionTemplatesRetrieveParams.omit({ project_id: true })
+    )
 }
 
 const cdpFunctionTemplatesRetrieve = (): ToolBase<

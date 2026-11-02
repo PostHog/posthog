@@ -16,6 +16,7 @@ A check that production skips without a query is skipped here too, so both stack
 same set of checks.
 """
 
+import json
 import time
 import asyncio
 from collections.abc import Collection, Iterator, Sequence
@@ -39,6 +40,7 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots, release_ev
 from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
@@ -533,6 +535,10 @@ def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
         return None
     return (
         AlertConfiguration.objects.select_related("insight", "team", "threshold", "created_by")
+        # A firing's card names the insight's tags. Prefetched with the alert, because a reverse
+        # many-to-many cannot be selected, and the read would otherwise be its own round trip
+        # inside the window the check holds its admission slot.
+        .prefetch_related("insight__tagged_items__tag")
         .filter(team_id=check.team_id, id=check.legacy_configuration_id)
         .first()
     )
@@ -670,6 +676,7 @@ def _decide(
         query_duration_ms=duration_ms,
         firing=(alert, result.breaches or []),
         check_detail=detector_detail(result) if alert.detector_config else None,
+        breach_details=(result.triggered_metadata or {}).get("breach_details"),
     )
 
 
@@ -766,6 +773,15 @@ BREAKDOWN_GROUPING_KEY = "breakdown"
 # and every group's detail rides in the outcome Temporal carries, so a long label must not grow it.
 MAX_DETAIL_BREACHES: Final = 10
 MAX_BREACH_CHARS: Final = 500
+MAX_DETAIL_ROWS: Final = MAX_BREACH_MESSAGES
+MAX_TAGS: Final = 10
+MAX_TAG_CHARS: Final = 100
+# A breakdown alert announces up to `max_instances` groups in one outcome, and each group repeats
+# the card fields. Per-group caps bound one group, not their sum, so the sum is bounded here: once
+# a grouped evaluation has spent this much on detail, the groups after it keep only the fields the
+# message cannot be built without. Well under Temporal's payload limit, which the outcome shares
+# with the rest of the verdicts.
+MAX_TOTAL_DETAIL_CHARS: Final = 200_000
 
 # A breakdown value can be muted on its own, which production cannot express, so the platform's
 # mute applies: the value is still judged and only its announcement is held. A snooze of the
@@ -825,28 +841,33 @@ def _decide_grouped(
     if any(verdict.outcome.notification == NotificationAction.FIRE for verdict in decision.verdicts):
         # The row `decide_groups` judged for each key: the first, unless a later one breaches and it did not.
         breaches: dict[str, list[str]] = {}
+        details_by_key: dict[str, list[dict[str, str]]] = {}
         for series in evaluated.series:
             key, found = bounded_grouping_key(series.identity), series.result.breaches or []
             if key not in breaches or (found and not breaches[key]):
                 breaches[key] = found
+                details_by_key[key] = (series.result.triggered_metadata or {}).get("breach_details", [])
         wants_chart = _wants_chart(check, alert)
-        decision = replace(
-            decision,
-            verdicts=tuple(
-                replace(
-                    verdict,
-                    group=replace(
-                        verdict.group,
-                        source_detail=_detail(
-                            alert, breaches.get(verdict.group.grouping_key, []), wants_chart=wants_chart
-                        ),
-                    ),
-                )
-                if verdict.outcome.notification == NotificationAction.FIRE
-                else verdict
-                for verdict in decision.verdicts
-            ),
-        )
+        # One insight, so its tags are read once rather than once per firing breakdown value.
+        tags = _insight_tags(alert)
+        budget = _DetailBudget()
+        verdicts = []
+        for verdict in decision.verdicts:
+            if verdict.outcome.notification != NotificationAction.FIRE:
+                verdicts.append(verdict)
+                continue
+            key = verdict.group.grouping_key
+            full = budget.allows()
+            detail = _detail(
+                alert,
+                breaches.get(key, []),
+                wants_chart=wants_chart,
+                breach_details=details_by_key.get(key) if full else None,
+                tags=tags if full else [],
+            )
+            budget.charge(detail)
+            verdicts.append(replace(verdict, group=replace(verdict.group, source_detail=detail)))
+        decision = replace(decision, verdicts=tuple(verdicts))
     return decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
@@ -857,10 +878,14 @@ def _decide_grouped(
 
 
 def _firing_detail(
-    check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
+    check: PlatformAlertCheckInput,
+    alert: AlertConfiguration,
+    breaches: Sequence[str],
+    *,
+    breach_details: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    return _detail(alert, breaches, wants_chart=_wants_chart(check, alert))
+    return _detail(alert, breaches, wants_chart=_wants_chart(check, alert), breach_details=breach_details)
 
 
 def _wants_chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> bool:
@@ -903,14 +928,69 @@ def _clipped(text: str, limit: int = MAX_BREACH_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _detail(alert: AlertConfiguration, breaches: Sequence[str], *, wants_chart: bool) -> dict[str, Any]:
+def _insight_interval(alert: AlertConfiguration) -> str | None:
+    """The insight's own interval, read the way production reads it.
+
+    A stored query can carry an explicit `"source": null`, which a `.get` default never replaces,
+    so the source is bound first and checked. This runs on the firing path, where an `AttributeError`
+    would cost the check rather than the label.
+    """
+    query = alert.insight.query if isinstance(alert.insight.query, dict) else {}
+    source = query.get("source")
+    return (source if isinstance(source, dict) else query).get("interval")
+
+
+class _DetailBudget:
+    """Keeps one grouped evaluation's details inside `MAX_TOTAL_DETAIL_CHARS` in total.
+
+    Each group is built in full while the budget holds. After it runs out the rest are built
+    without the repeated fields, so a wide breakdown announces every group it fired on rather than
+    losing the whole outcome to a payload the activity cannot carry.
+    """
+
+    def __init__(self) -> None:
+        self._spent = 0
+
+    def allows(self) -> bool:
+        return self._spent < MAX_TOTAL_DETAIL_CHARS
+
+    def charge(self, detail: dict[str, Any]) -> None:
+        self._spent += len(json.dumps(detail, default=str))
+
+
+def _insight_tags(alert: AlertConfiguration) -> list[str]:
+    # Sorted and sliced in Python so the prefetch on `_legacy_alert` is used. A `filter()` here
+    # would build a new queryset and go back to the database for every firing.
+    names = sorted(item.tag.name for item in alert.insight.tagged_items.all() if item.tag.team_id == alert.team_id)
+    return [_clipped(name, MAX_TAG_CHARS) for name in names[:MAX_TAGS]]
+
+
+def _detail(
+    alert: AlertConfiguration,
+    breaches: Sequence[str],
+    *,
+    wants_chart: bool,
+    breach_details: list[dict[str, str]] | None = None,
+    tags: list[str] | None = None,
+) -> dict[str, Any]:
     # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
     detail: dict[str, Any] = {
         "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
         **_context(alert),
         # The legacy alert's id, which a native message's snooze menu snoozes.
         "alert_id": str(alert.id),
+        # Recorded now so the Slack card is a function of the transition and a later rename or delete cannot change it.
+        "metric_name": _clipped(alert.insight.name or alert.insight.derived_name or "Insight", MAX_TAG_CHARS),
+        "timezone": alert.team.timezone,
+        "is_anomaly": bool(alert.detector_config),
+        "insight_interval": _insight_interval(alert),
+        "tags": _insight_tags(alert) if tags is None else tags,
+        "team_name": _clipped(alert.team.name, MAX_TAG_CHARS),
     }
+    if breach_details:
+        detail["breach_details"] = [
+            {key: _clipped(str(value)) for key, value in row.items()} for row in breach_details[:MAX_DETAIL_ROWS]
+        ]
     if wants_chart:
         detail[CHART_PENDING_KEY] = str(alert.id)
     return detail
@@ -953,13 +1033,14 @@ def _verdict(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     firing: tuple[AlertConfiguration, Sequence[str]] | None = None,
+    breach_details: list[dict[str, str]] | None = None,
     context: dict[str, Any] | None = None,
     check_detail: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
     source_detail: dict[str, Any] | None
     if firing is not None and outcome.notification == NotificationAction.FIRE:
-        source_detail = _firing_detail(check, *firing)
+        source_detail = _firing_detail(check, *firing, breach_details=breach_details)
     elif outcome.notification != NotificationAction.NONE:
         source_detail = context
     else:

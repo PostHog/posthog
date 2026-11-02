@@ -52,8 +52,8 @@ jobs:
                         - 'nodejs/package.json'
                         - '.github/workflows/ci-proto.yml'
 
-    lint:
-        name: Lint proto definitions (depot-ubuntu-22.04-4)
+    validation:
+        name: Lint and check proto compatibility (depot-ubuntu-22.04-4)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
         runs-on: depot-ubuntu-22.04-4
@@ -63,6 +63,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: proto
+                  sparse-checkout-cone-mode: false
 
             - name: Install buf
               uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
@@ -73,25 +75,8 @@ jobs:
             - name: Lint protos
               run: buf lint proto/
 
-    breaking:
-        name: Check for breaking changes (depot-ubuntu-22.04-4)
-        needs: changes
-        if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
-        timeout-minutes: 5
-
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  clean: false
-
-            - name: Install buf
-              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
-              with:
-                  setup_only: true
-                  version: '1.50.0'
-
             - name: Check for breaking changes
+              if: ${{ !cancelled() }}
               run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
 
     python-codegen:
@@ -184,7 +169,7 @@ jobs:
                   echo "Generated Node proto stubs are up to date."
 
     proto_checks:
-        needs: [changes, lint, breaking, python-codegen, node-codegen]
+        needs: [changes, validation, python-codegen, node-codegen]
         name: Proto Checks Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -203,13 +188,8 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
-                    echo "Proto lint failed."
-                    exit 1
-                  fi
-
-                  if [[ "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ]]; then
-                    echo "Proto breaking change check failed."
+                  if [[ "${{ needs.validation.result }}" != "success" && "${{ needs.validation.result }}" != "skipped" ]]; then
+                    echo "Proto lint or compatibility check failed."
                     exit 1
                   fi
 

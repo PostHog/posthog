@@ -28,6 +28,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.facade.profiles import (
     Repository,
     SourceKind,
@@ -1154,7 +1155,11 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False)
-    def test_warm_task_run_returns_contract(self, _mock_quota, mock_workflow):
+    @patch(
+        "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+        return_value=PostHogAIAccessDecision.GRANDFATHERED,
+    )
+    def test_warm_task_run_returns_contract(self, _mock_access, _mock_quota, mock_workflow):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -1418,9 +1423,10 @@ class TestFacadeReadsAndMappers(TestCase):
         [
             ("self_driving_head_branch", "posthog-self-driving/fix-abc123"),
             ("stack_base_branch", "posthog-self-driving/schema-abc123"),
+            ("github_access_repositories", ["acme/api", "acme/assets"]),
         ]
     )
-    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str):
+    def test_run_task_resume_carries_self_driving_branch_stamp(self, state_key: str, branch: str | list[str]):
         # The signals review carve-out binds a PR to its run by matching the PR head ref against the
         # PATCH-protected state.self_driving_head_branch stamp. A resume mints a new run, so the
         # stamp must be copied forward or the carve-out stops matching the successor — the receiver

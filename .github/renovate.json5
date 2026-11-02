@@ -3,7 +3,6 @@
   extends: [
     'config:best-practices',
     ':dependencyDashboardApproval',
-    ':separateMultipleMajorReleases',
   ],
   enabledManagers: [
     'pep621',
@@ -176,6 +175,13 @@
     {
       matchManagers: ['github-actions'],
       groupName: 'github-actions',
+    },
+    // Renovate cannot regenerate `.github/workflows/actions.lock`, so a bump in a locked workflow fails Lint workflows.
+    // List each workflow from that file's `workflows` section here
+    {
+      matchManagers: ['github-actions'],
+      matchFileNames: ['.github/workflows/ci-paths-filter.yml'],
+      enabled: false,
     },
     // The sandbox images and the Modal slim image rebuild only when this pin changes,
     // so skip the dashboard approval and open the PR as soon as nodesource ships a release

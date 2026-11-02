@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Union
 
 from django.utils import timezone
@@ -41,6 +41,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_values import 
     build_value_aggregation_expr,
     build_value_expr,
     get_conversion_window_seconds,
+    get_maturity_window_seconds,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import (
     ExperimentPrecomputationContext,
@@ -256,6 +257,9 @@ class ExperimentQueryBuilder:
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 
+    def reads_precomputed_exposures(self, job_ids: list[str]) -> bool:
+        return self._exposure_query_builder(job_ids=job_ids).reads_precomputed()
+
     def _exposure_query_builder(
         self, maturity: MaturityGate | None = None, job_ids: list[str] | None = None
     ) -> ExposureQueryBuilder:
@@ -298,6 +302,18 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().timeseries_query()
 
+    def get_exposure_segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
+        """
+        Persons or groups by variant and by the SDK library, the library version, and the page or screen of their
+        first exposure. Columns: dimension, library, segment, variant, exposed_count. It scans the events, also when
+        precomputed exposures exist.
+        """
+        return self._exposure_query_builder().segments_query(top_values, first_exposed_after)
+
+    def get_exposed_count_query(self) -> ast.SelectQuery:
+        """The persons or groups exposed, in one row. Column: exposed_count."""
+        return self._exposure_query_builder().exposed_count_query()
+
     def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Reads from the precomputed table and aggregates into day/variant/count.
@@ -323,7 +339,7 @@ class ExperimentQueryBuilder:
         """
         if self.metric is None or isinstance(self.metric, ExperimentRetentionMetric):
             return 0
-        return self._get_conversion_window_seconds()
+        return get_maturity_window_seconds(self.metric)
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """Uses "metric_events" as the events alias."""

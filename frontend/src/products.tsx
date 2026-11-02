@@ -12,6 +12,12 @@ import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
+import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -28,8 +34,7 @@ import {
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { ActivityScope, ExperimentsTabs } from '~/types'
+import { ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -53,6 +58,7 @@ import type { WorkflowsSceneTab } from '../../products/workflows/frontend/Workfl
 import type { DashboardsTab } from './scenes/dashboard/dashboards/dashboardsLogic'
 import {
     ActionType,
+    ActivityScope,
     AnnotationType,
     AnyPropertyFilter,
     DashboardType,
@@ -740,7 +746,13 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'inbox',
         description: 'Monitor insight metrics and get notified when conditions are met.',
     },
-    PlatformAlerts: { name: 'Platform alerts', projectBased: true, iconType: 'inbox' },
+    PlatformAlerts: {
+        name: 'Platform alerts',
+        description:
+            'Get told when your logs or data cross a threshold you set, in Slack, email, PagerDuty, or another tool.',
+        projectBased: true,
+        iconType: 'inbox',
+    },
     PlatformAlert: { name: 'Platform alert', projectBased: true, iconType: 'inbox' },
     PrecomputeDebug: {
         projectBased: true,
@@ -2066,6 +2078,7 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.cohort(ref),
         listHref: () => urls.cohorts(),
+        listSearchParam: 'search',
         filterKey: 'cohort',
     },
     dashboard: {
@@ -2098,6 +2111,7 @@ export const fileSystemTypes = {
         iconType: 'experiment',
         href: (ref: string) => urls.experiment(ref),
         listHref: () => urls.experiments(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-experiments-light)'],
         filterKey: 'experiment',
     },
@@ -2106,6 +2120,7 @@ export const fileSystemTypes = {
         iconType: 'feature_flag',
         href: (ref: string) => urls.featureFlag(ref),
         listHref: () => urls.featureFlags(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-feature-flags-light)'],
         filterKey: 'feature_flag',
     },
@@ -2114,6 +2129,7 @@ export const fileSystemTypes = {
         iconType: 'product_analytics',
         href: (ref: string) => urls.insightView(ref as InsightShortId),
         listHref: () => urls.savedInsights(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-product-analytics-light)'],
         filterKey: 'insight',
     },
@@ -2151,6 +2167,7 @@ export const fileSystemTypes = {
         iconType: 'survey',
         href: (ref: string) => urls.survey(ref),
         listHref: () => urls.surveys(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-surveys-light)'],
         filterKey: 'survey',
     },
@@ -2401,6 +2418,7 @@ export type ProductTreePath =
     | 'MCP servers'
     | 'Metrics'
     | 'Notebooks'
+    | 'Platform alerts'
     | 'Playground'
     | 'Product analytics'
     | 'Product tours'
@@ -2492,6 +2510,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         href: urls.businessIntelligence(),
         searchKeywords: ['bi', 'pivot table', 'chart builder'],
+        tags: ['beta'],
         flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
         sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
@@ -2871,10 +2890,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         iconType: 'inbox' as FileSystemIconType,
         href: urls.inbox(),
-        searchKeywords: ['signals', 'triage', 'findings'],
+        searchKeywords: ['signals', 'sources', 'triage', 'findings'],
         searchTabs: [
             { name: 'Reports', href: urls.inbox('reports') },
             { name: 'Scouts', href: urls.inbox('scouts') },
+            { name: 'Sources', href: urls.inbox('sources') },
+            { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
         tags: ['beta'],
@@ -3037,6 +3058,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [{ name: 'Reusable widgets', href: urls.notebooks('widgets') }],
         sceneKey: 'Notebooks',
         sceneKeys: ['Notebook', 'Notebooks'],
+    },
+    {
+        path: 'Platform alerts',
+        intents: [],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'inbox',
+        href: urls.platformAlerts(),
+        searchKeywords: ['alerts', 'alerting', 'notifications', 'monitors'],
+        flag: FEATURE_FLAGS.PLATFORM_ALERTS,
+        sceneKey: 'PlatformAlerts',
+        sceneKeys: ['PlatformAlerts', 'PlatformAlert'],
     },
     {
         path: 'Playground',

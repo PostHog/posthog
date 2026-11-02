@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.query import QueryViewSet
+from posthog.api.query import QueryViewSet, add_query_response_identity_headers
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
@@ -61,6 +61,9 @@ class AccountsTableQueryViewSet(
     _tag_client_query_id = QueryViewSet._tag_client_query_id
     _try_format_for_llm = QueryViewSet._try_format_for_llm
     _validate_query_kind = QueryViewSet._validate_query_kind
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        return add_query_response_identity_headers(super().finalize_response(request, response, *args, **kwargs))
 
     def dangerously_get_required_scopes(self, _request: Request, _view: Any) -> list[str] | None:
         if self.action == "create":

@@ -542,6 +542,17 @@ export class ImageFetchRequestMetrics {
         help: 'URLs published back to Kafka by bounded reason and destination class. "redirect" left the origin. "retry" hit a transient failure and waits in a delay topic. "not_ready" arrived before its wait ended',
         labelNames: ['reason', 'topic'],
     })
+    /**
+     * The capture watermark shows only the oldest URL the lane holds. This shows how many URLs are that old, and the
+     * reason they went around. Old `not_ready` URLs wait on a domain that refuses them. Old `pass_deadline` URLs mean
+     * the lane is behind.
+     */
+    private static readonly republishedUrlAge = new Histogram({
+        name: 'ai_research_v4_image_fetch_republished_url_age_seconds',
+        help: 'Time from first collection until a URL is published back to Kafka, by bounded republish reason',
+        labelNames: ['reason'],
+        buckets: [60, 600, 3600, 6 * 3600, 12 * 3600, 24 * 3600, 2 * 24 * 3600, 7 * 24 * 3600],
+    })
     private static readonly republishFailed = new Counter({
         name: 'ai_research_v4_image_fetch_republish_failed_total',
         help: 'URLs in a Kafka message whose republish delivery failed. The input batch throws and leaves its offsets uncommitted',
@@ -583,8 +594,9 @@ export class ImageFetchRequestMetrics {
         buckets: [0, 1, 2, 3, 5, 10],
     })
 
-    public static incRepublished(reason: RepublishReason, destination: RepublishDestination): void {
+    public static incRepublished(reason: RepublishReason, destination: RepublishDestination, ageSeconds: number): void {
         this.republished.labels(reason, destination).inc()
+        this.republishedUrlAge.labels(reason).observe(ageSeconds)
     }
     public static incRepublishFailed(reason: RepublishReason): void {
         this.republishFailed.labels(reason).inc()

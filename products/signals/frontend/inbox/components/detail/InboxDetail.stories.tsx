@@ -152,7 +152,7 @@ const detailMocks = mswDecorator({
             200,
             mockTaskRun(req.params.taskId as string, req.params.runId as string),
         ],
-        '/api/projects/:id/tasks/:taskId/runs/:runId/logs': () => new HttpResponse(mockRunLog()),
+        '/api/projects/:id/tasks/:taskId/runs/:runId/log_entries': () => new HttpResponse(mockRunLog()),
     },
     post: {
         '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
@@ -501,21 +501,6 @@ export const ReportPlan: Story = {
 }
 
 export const PullRequest: Story = {
-    render: () => (
-        <Frame>
-            <ReportDetail report={pullRequestReports[0]} />
-        </Frame>
-    ),
-}
-
-export const PullRequestPlainTitle: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
-            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: 'test',
-        },
-    },
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />

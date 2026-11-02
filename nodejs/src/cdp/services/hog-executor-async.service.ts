@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -31,7 +30,7 @@ import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-header
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
-import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
+import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
@@ -43,12 +42,6 @@ import {
     isSelfReferentialIngestFetch,
     selfLoopGuardCounter,
 } from './self-loop-guard'
-
-const cdpEmailQueuedTotal = new Counter({
-    name: 'cdp_email_queued_total',
-    help: 'Total emails routed to the dedicated email queue',
-    labelNames: ['priority_class'] as const,
-})
 
 export interface HogExecutorAsyncConfig {
     googleAdwordsDeveloperToken: string

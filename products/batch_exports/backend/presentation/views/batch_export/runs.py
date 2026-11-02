@@ -11,8 +11,15 @@ from rest_framework import filters, mixins, request, response, serializers, stat
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.pagination import FacadeCursorPagination, facade_cursor_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models.integer_field_bounds import (
+    BIG_INTEGER_FIELD_MAX,
+    BIG_INTEGER_FIELD_MIN,
+    INTEGER_FIELD_MAX,
+    INTEGER_FIELD_MIN,
+)
 from posthog.utils import relative_date_parse
 
 from products.batch_exports.backend.facade import (
@@ -20,14 +27,7 @@ from products.batch_exports.backend.facade import (
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
-from products.batch_exports.backend.presentation.views.batch_export.pagination import FacadeCursorPagination
-from products.batch_exports.backend.presentation.views.utils import (
-    BIG_INTEGER_MAX,
-    BIG_INTEGER_MIN,
-    INTEGER_MAX,
-    INTEGER_MIN,
-    parse_path_uuid,
-)
+from products.batch_exports.backend.presentation.views.utils import parse_path_uuid
 
 # The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.
 RUN_ID_PARAMETER = OpenApiParameter(
@@ -52,15 +52,15 @@ class BatchExportRunSerializer(serializers.Serializer):
     records_completed = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=INTEGER_MIN,
-        max_value=INTEGER_MAX,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="The number of records that have been exported.",
     )
     records_failed = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=INTEGER_MIN,
-        max_value=INTEGER_MAX,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="The number of records that failed downstream processing (e.g. hog function execution errors).",
     )
     latest_error = serializers.CharField(
@@ -86,15 +86,15 @@ class BatchExportRunSerializer(serializers.Serializer):
     records_total_count = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=INTEGER_MIN,
-        max_value=INTEGER_MAX,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         help_text="The total count of records that should be exported in this BatchExportRun.",
     )
     bytes_exported = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=BIG_INTEGER_MIN,
-        max_value=BIG_INTEGER_MAX,
+        min_value=BIG_INTEGER_FIELD_MIN,
+        max_value=BIG_INTEGER_FIELD_MAX,
         help_text="The number of bytes that have been exported in this BatchExportRun.",
     )
     batch_export = serializers.UUIDField(
@@ -227,10 +227,9 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         # run is read through the facade instead. That skips the mixin's team filter and object
         # permission check, so both happen here: the facade filters by team and export, and
         # check_object_permissions runs on the contract. `logs` reads the run through here too.
-        # Like the list, a lookup only finds a run that matches the list filters.
         try:
             run = batch_exports_api.get_batch_export_run(
-                self.team_id, self._get_export_id(), parse_path_uuid(self.kwargs["pk"]), filters=self._get_run_filters()
+                self.team_id, self._get_export_id(), parse_path_uuid(self.kwargs["pk"])
             )
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
@@ -240,8 +239,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         export_id = self._get_export_id()
         filters = self._get_run_filters()
-        return cast(FacadeCursorPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_cursor_page_response(
             self,
             lambda page: batch_exports_api.list_batch_export_runs(self.team_id, export_id, filters=filters, page=page),
         )
@@ -257,9 +255,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         run = self.get_object()
 
         try:
-            backfill_id = batch_exports_api.retry_batch_export_run(
-                self.team_id, self._get_export_id(), run.id, filters=self._get_run_filters()
-            )
+            backfill_id = batch_exports_api.retry_batch_export_run(self.team_id, self._get_export_id(), run.id)
         except contracts.BatchExportRunNotFoundError as e:
             raise NotFound(*e.args) from e
 
@@ -272,9 +268,7 @@ class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, mixins.Retrie
         run = self.get_object()
 
         try:
-            batch_exports_api.cancel_batch_export_run(
-                self.team_id, self._get_export_id(), run.id, filters=self._get_run_filters()
-            )
+            batch_exports_api.cancel_batch_export_run(self.team_id, self._get_export_id(), run.id)
         except contracts.InvalidBatchExportRunRequestError as e:
             raise ValidationError(str(e)) from e
         except contracts.BatchExportRunNotFoundError as e:

@@ -1,7 +1,7 @@
 from datetime import date
 from typing import cast
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -142,6 +142,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             # ("Integration matching query does not exist."); retrying can never make the row
             # reappear — the only fix is the user reconnecting the integration.
             "Integration matching query does not exist.": (
+                "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
+            ),
+            # `_fetch_integration_row` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": (
                 "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
             ),
             META_CHECKPOINT_ERROR_MESSAGE: META_CHECKPOINT_ERROR_MESSAGE,
@@ -397,7 +401,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         # A Meta user's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = get_integration_by_id(integration_id, team_id)
-        except Integration.DoesNotExist as e:
+        except IntegrationNotFound as e:
             raise IntegrationAccountListingError(
                 "The linked Meta Ads integration could not be found. Please reconnect your Meta Ads integration."
             ) from e

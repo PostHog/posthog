@@ -20,6 +20,11 @@ from posthog.models.team.team import Team
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -224,6 +229,62 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         # would mean the team row is hydrated onto each cohort row.
         for sql in cohort_selects:
             assert 'posthog_team"."event_names"' not in sql
+
+    @parameterized.expand(
+        [
+            (
+                "list_properties",
+                [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}],
+                ("email", "is_set", "is_set"),
+            ),
+            # Old dict-style groups carry no operator, which filters validation requires.
+            ("dict_properties", [{"properties": {"email": "a@example.com"}}], ("email", "exact", "a@example.com")),
+        ]
+    )
+    def test_resave_legacy_groups_cohort_derives_filters_and_condition_type(
+        self, _name: str, groups: list[dict], expected_leaf: tuple[str, str, str]
+    ) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="legacy_groups_cohort", groups=groups, filters=None)
+
+        call_command("resave_cohorts", team_id=[self.team.id])
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert cohort.filters is not None
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        assert (leaf["key"], leaf["operator"], leaf["value"]) == expected_leaf
+        assert cohort.condition_type == {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+
+    def test_resave_counts_unconvertible_legacy_groups_as_errors(self) -> None:
+        # A behavioral leaf without a time window converts to nothing.
+        leaf = {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"}
+        cohort = Cohort.objects.create(
+            team=self.team, name="unconvertible_groups_cohort", groups=[{"properties": [leaf]}], filters=None
+        )
+        out = StringIO()
+
+        call_command("resave_cohorts", team_id=[self.team.id], stdout=out)
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert not cohort.filters
+        assert "1 errors" in out.getvalue()
+
+    def test_resave_leaves_static_legacy_groups_cohort_untouched(self) -> None:
+        # The flags service assumes a static cohort is never realtime.
+        groups = [{"properties": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}]}]
+        cohort = Cohort.objects.create(
+            team=self.team, name="static_legacy_groups_cohort", groups=groups, filters=None, is_static=True
+        )
+
+        call_command("resave_cohorts", team_id=[self.team.id])
+
+        cohort = Cohort.objects.get(pk=cohort.pk)
+        assert not cohort.filters
+        assert cohort.cohort_type != "realtime"
 
 
 class TestResaveCohortsCommandWithDependencies(BaseTest):
@@ -503,6 +564,49 @@ class TestResaveCohortsCommandWithDependencies(BaseTest):
         # 3. Cohort A cannot be realtime (references B which has dependencies)
         assert cohort_a.cohort_type is None
 
+    def test_cohort_referencing_legacy_groups_non_leaf_cannot_be_realtime(self):
+        """Same as above, with B defined only through legacy `groups`."""
+        team: Team = self.team
+
+        cohort_c = Cohort.objects.create(
+            team=team, name="cohort_c", filters=_make_person_only_filters(email="c@example.com")
+        )
+        cohort_b = Cohort.objects.create(
+            team=team,
+            name="cohort_b",
+            filters=None,
+            groups=[
+                {
+                    "properties": [
+                        {"type": "cohort", "key": "id", "value": cohort_c.id},
+                        {"type": "person", "key": "name", "value": "B User"},
+                    ]
+                }
+            ],
+        )
+        cohort_a = Cohort.objects.create(
+            team=team,
+            name="cohort_a",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": cohort_b.id},
+                        {"type": "person", "key": "name", "operator": "exact", "value": "A User"},
+                    ],
+                }
+            },
+        )
+
+        call_command("resave_cohorts", team_id=[team.id])
+
+        cohort_a.refresh_from_db()
+        cohort_b.refresh_from_db()
+
+        assert cohort_b.filters
+        assert cohort_b.cohort_type == "realtime"
+        assert cohort_a.cohort_type is None
+
 
 class TestResaveCohortsCommandTwoTeams(BaseTest):
     def test_resave_two_teams_each_five_types(self):
@@ -714,19 +818,52 @@ class TestResaveCohortsCommandTeamSelection(BaseTest):
         assert cohort_b.condition_type is not None
         assert cohort_c.condition_type is None
 
-    def test_realtime_allowlist_processes_only_allowlisted_teams(self):
+    @parameterized.expand([("env_listed", True), ("granted", False)])
+    def test_realtime_allowlist_processes_only_realtime_teams(self, _name: str, env_listed: bool):
         team_b: Team = Team.objects.create(organization=self.organization)
         cohort_a = Cohort.objects.create(team=self.team, name="rt_a", filters=_make_realtime_filters())
         cohort_b = Cohort.objects.create(team=team_b, name="rt_b", filters=_make_realtime_filters())
         Cohort.objects.filter(id__in=[cohort_a.id, cohort_b.id]).update(condition_type=None)
+        if not env_listed:
+            RealtimeCohortTeamAccess.objects.create(
+                team=team_b, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
 
-        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(team_b.id)):
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(team_b.id) if env_listed else "none"):
             call_command("resave_cohorts", realtime_allowlist=True)
 
         cohort_a.refresh_from_db()
         cohort_b.refresh_from_db()
         assert cohort_b.condition_type is not None
         assert cohort_a.condition_type is None
+
+    @parameterized.expand([("triggers_on", False, 1), ("triggers_suppressed", True, 0)])
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none", COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="none")
+    def test_no_backfill_triggers_overrides_a_granted_team_trigger(
+        self, _name: str, no_backfill_triggers: bool, expected_enqueues: int
+    ):
+        access = RealtimeCohortTeamAccess.objects.create(
+            team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+        )
+        person_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "exact", "value": "a@example.com"}],
+            }
+        }
+        cohort = Cohort.objects.create(team=self.team, name="rt", filters=person_filters)
+        # A stale person hash makes the resave an edit of the person shape, which enqueues a run.
+        Cohort.objects.filter(id=cohort.id).update(condition_type=None, person_filters_shape_hash="stale")
+        access.save_triggers_backfill = True
+        access.save()
+
+        with (
+            patch("django.db.transaction.on_commit", side_effect=lambda func: func()),
+            patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            call_command("resave_cohorts", team_id=[self.team.id], no_backfill_triggers=no_backfill_triggers)
+
+        assert enqueue.call_count == expected_enqueues
 
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     def test_realtime_allowlist_matching_every_team_processes_every_team(self):

@@ -85,7 +85,10 @@ describe('SesWebhookHandler', () => {
         })
     })
 
-    it('parses a raw Click event with link URL', async () => {
+    it.each([
+        ['without linkTags', {}],
+        ['with null linkTags', { linkTags: null }],
+    ])('parses a raw Click event with link URL %s', async (_name, linkTags) => {
         const body = [
             {
                 eventType: 'Click',
@@ -95,6 +98,7 @@ describe('SesWebhookHandler', () => {
                     link: 'https://example.com',
                     userAgent: 'UA',
                     timestamp: '2025-10-03T12:02:00Z',
+                    ...linkTags,
                 },
             },
         ]
@@ -107,6 +111,7 @@ describe('SesWebhookHandler', () => {
             $link_url: 'https://example.com',
         })
         expect(result.metrics?.[0].timestamp).toBe('2025-10-03T12:02:00Z')
+        expect(result.metrics?.[1].instanceIdOverride).toBe('act789||https://example.com')
     })
 
     it('unwraps a legacy redirect link and surfaces the SES link tag', async () => {

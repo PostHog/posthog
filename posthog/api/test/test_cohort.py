@@ -59,6 +59,11 @@ from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortB
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.cohorts.backend.models.util import CohortErrorCode, count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -209,27 +214,26 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             self.user,
             "cohort created",
             {
-                "filters": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "team_id", "value": "5", "type": "person"}],
-                        }
-                    ],
-                },
+                "filters": ANY,
                 "name_length": 8,
                 "deleted": False,
                 "is_static": False,
-                # The legacy `groups` payload leaves `filters` empty, so neither classification
-                # is computed for it.
-                "cohort_type": None,
-                "condition_type": None,
+                "cohort_type": "realtime",
+                "condition_type": {
+                    "person_properties": True,
+                    "behavioral": False,
+                    "lifecycle": False,
+                    "cohorts": False,
+                },
                 "realtime_enabled": False,
+                "realtime_level": "off",
             },
             team=ANY,
             request=ANY,
         )
+
+        leaf = patch_capture.call_args[0][2]["filters"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["operator"], leaf["value"]), ("team_id", "exact", "5"))
 
         with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
             response = self.client.patch(
@@ -258,33 +262,52 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             self.user,
             "cohort updated",
             {
-                "filters": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "team_id", "value": "6", "type": "person"}],
-                        }
-                    ],
-                },
+                "filters": ANY,
                 "name_length": 9,
                 "deleted": False,
                 "is_static": False,
-                "cohort_type": None,
-                "condition_type": None,
+                "cohort_type": "realtime",
+                "condition_type": {
+                    "person_properties": True,
+                    "behavioral": False,
+                    "lifecycle": False,
+                    "cohorts": False,
+                },
                 "realtime_enabled": False,
+                "realtime_level": "off",
                 "updated_by_creator": True,
             },
             team=ANY,
             request=ANY,
         )
 
+        leaf = patch_capture.call_args[0][2]["filters"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["operator"], leaf["value"]), ("team_id", "exact", "6"))
+
+    @parameterized.expand(
+        [
+            ("team_off_the_pipeline", None, False, "off"),
+            # A load-test team runs the pipeline, so it is enabled, but adoption counts only serving teams.
+            ("team_granted_processing", RealtimeCohortLevel.PROCESSING, True, "processing"),
+        ]
+    )
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cohort_created_reports_realtime_classification(
-        self, patch_calculate_cohort, patch_capture, patch_on_commit
+        self,
+        _name: str,
+        access_level: RealtimeCohortLevel | None,
+        expected_enabled: bool,
+        expected_level: str,
+        patch_calculate_cohort,
+        patch_capture,
+        patch_on_commit,
     ):
+        if access_level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=access_level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
@@ -322,8 +345,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             reported["condition_type"],
             {"person_properties": False, "behavioral": True, "lifecycle": False, "cohorts": False},
         )
-        # Realtime-eligible filters on a team the realtime pipeline does not cover.
-        self.assertFalse(reported["realtime_enabled"])
+        self.assertEqual((reported["realtime_enabled"], reported["realtime_level"]), (expected_enabled, expected_level))
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -527,6 +549,140 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn(expected_detail, response.json()["detail"])
+
+    def test_create_cohort_with_legacy_groups_derives_filters_and_condition_type(self):
+        groups = [
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    }
+                ]
+            }
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Legacy group cohort", "groups": groups},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        assert cohort.filters is not None
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["type"], leaf["operator"]), ("email", "person", "is_set"))
+        self.assertEqual(
+            cohort.condition_type,
+            {
+                "person_properties": True,
+                "behavioral": False,
+                "lifecycle": False,
+                "cohorts": False,
+            },
+        )
+
+    def test_patch_cohort_with_legacy_groups_updates_derived_filters(self):
+        initial_groups = [
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    }
+                ]
+            }
+        ]
+        create_res = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Legacy cohort to patch", "groups": initial_groups},
+        )
+        self.assertEqual(create_res.status_code, 201)
+        cohort_id = create_res.json()["id"]
+
+        updated_groups = [
+            {
+                "properties": [
+                    {
+                        "key": "name",
+                        "type": "person",
+                        "value": "Alice",
+                        "operator": "exact",
+                    }
+                ]
+            }
+        ]
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"groups": updated_groups},
+        )
+        self.assertEqual(patch_res.status_code, 200, patch_res.content)
+        cohort = Cohort.objects.get(pk=cohort_id)
+        assert cohort.filters is not None
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual(
+            (leaf["key"], leaf["type"], leaf["operator"], leaf["value"]), ("name", "person", "exact", "Alice")
+        )
+
+    @parameterized.expand(
+        [
+            # Passes validate_groups, but the behavioral leaf has no time window, so conversion fails.
+            (
+                "unconvertible_behavioral",
+                {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"},
+                "could not be converted",
+            ),
+            # Converts, but the filters schema rejects it, as it does when sent as `filters`.
+            ("hogql_leaf", {"type": "hogql", "key": "1 = 1"}, None),
+        ]
+    )
+    def test_create_cohort_with_invalid_legacy_groups_returns_400(
+        self, _name: str, leaf: dict, expected_detail: str | None
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Malformed legacy group cohort", "groups": [{"properties": [leaf]}]},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        if expected_detail:
+            self.assertIn(expected_detail, response.json()["detail"])
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="Malformed legacy group cohort").exists())
+
+    def test_patch_cohort_used_in_flag_rejects_behavioral_groups(self):
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        person_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
+            }
+        }
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort in flag",
+            filters=person_filters,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(cohort.pk)]}]},
+            name="Cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        behavioral_groups = [{"event_id": "$pageview", "days": 7}]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"groups": behavioral_groups},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "behavioral_cohort_found")
+        self.assertIn("Behavioral filters cannot be added to cohorts used in feature flags", response.json()["detail"])
 
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""
@@ -2771,28 +2927,19 @@ email@example.org,
                                         "end_date": None,
                                         "event_id": None,
                                         "action_id": None,
-                                        "properties": [
-                                            {
-                                                "key": "prop",
-                                                "type": "person",
-                                                "value": "5",
-                                            }
-                                        ],
+                                        "properties": {"prop": "5"},
                                         "start_date": None,
                                         "count_operator": None,
                                     }
                                 ],
-                                "after": [
-                                    {
-                                        "properties": [
-                                            {
-                                                "key": "prop",
-                                                "type": "person",
-                                                "value": "6",
-                                            }
-                                        ]
-                                    }
-                                ],
+                                "after": [{"properties": {"prop": "6"}}],
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": mock.ANY,
+                                "after": mock.ANY,
                             },
                         ],
                         "trigger": None,
@@ -6763,6 +6910,114 @@ email@example.org,
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("too much memory", response.json()["last_error_message"].lower())
+
+    @parameterized.expand(
+        [
+            ("non_numeric_limit", "limit=abc"),
+            ("limit_over_max", "limit=501"),
+            ("non_numeric_offset", "offset=abc"),
+            ("negative_offset", "offset=-1"),
+        ]
+    )
+    def test_calculation_history_rejects_bad_paging_params(self, _name: str, query: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/calculation_history/?{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cohort_last_error_message_clears_after_subsequent_success(self):
+        """Test that a subsequent completed successful calculation clears last_error_message in detail, list, and fallback paths"""
+        from posthog.api.cohort import CohortSerializer
+
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Recovered Static Cohort",
+            is_static=True,
+            errors_calculating=0,
+        )
+
+        # Older failed calculation
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=2),
+            finished_at=timezone.now() - timedelta(hours=2),
+            error="This cohort's query has an issue and could not be completed.",
+            error_code=CohortErrorCode.UNKNOWN,
+        )
+
+        # Newer successful calculation
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            finished_at=timezone.now() - timedelta(hours=1),
+            count=468,
+            error=None,
+            error_code=None,
+        )
+
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(detail_response.json()["last_error_message"])
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        cohort_data = next(c for c in list_response.json()["results"] if c["id"] == cohort.id)
+        self.assertIsNone(cohort_data["last_error_message"])
+
+        # Also verify the unannotated fallback path on CohortSerializer directly
+        fresh_cohort = Cohort.objects.get(pk=cohort.pk)
+        self.assertFalse(hasattr(fresh_cohort, "last_error_code"))
+        self.assertIsNone(CohortSerializer().get_last_error_message(fresh_cohort))
+
+    def test_cohort_last_error_message_preserved_while_retry_in_flight(self):
+        """Test that an in-flight retry (finished_at=None) does not prematurely clear the last completed error"""
+        from posthog.api.cohort import CohortSerializer
+
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Retrying Cohort",
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(minutes=10),
+            finished_at=timezone.now() - timedelta(minutes=9),
+            error="Timeout",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        # In-flight retry has started_at > previous failure, but finished_at is still None
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(minutes=1),
+            finished_at=None,
+            error=None,
+            error_code=None,
+        )
+
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(detail_response.json()["last_error_message"])
+        self.assertIn("taking too long", detail_response.json()["last_error_message"].lower())
+
+        fresh_cohort = Cohort.objects.get(pk=cohort.pk)
+        self.assertIn("taking too long", (CohortSerializer().get_last_error_message(fresh_cohort) or "").lower())
 
 
 class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):

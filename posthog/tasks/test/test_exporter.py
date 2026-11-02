@@ -20,6 +20,7 @@ from posthog.tasks import exporter
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.facade import exporters as export_handlers
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
@@ -184,6 +185,31 @@ class TestExporterTask(APIBaseTest):
         assert asset.exception_type == "CreatorLeftOrganizationError"
         assert asset.failure_type == FAILURE_TYPE_USER
 
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_routes_a_registered_format_and_kind_to_its_handler(
+        self, mock_export_image: MagicMock, mock_uuid: MagicMock
+    ) -> None:
+        handler = MagicMock()
+        with patch.dict(export_handlers._export_format_handlers):
+            export_handlers.register_export_format_handler(
+                export_format="application/json",
+                kind="test_kind",
+                handler=handler,
+                content_path=lambda *, team_id, asset_id, export_context: None,
+            )
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.JSON,
+                export_context={"kind": "test_kind"},
+            )
+
+            exporter.export_asset(asset.id)
+
+        handler.assert_called_once_with(asset)
+        mock_export_image.assert_not_called()
+        asset.refresh_from_db()
+        assert asset.exception is None
+
 
 class TestExportAssetFailureRecording(APIBaseTest):
     @parameterized.expand(
@@ -191,7 +217,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
             (
                 "missing_dataset_kind",
                 {"dataset_id": "caller-metadata"},
-                "JSONL exports require a dataset export context.",
+                "This export can't be generated. Contact support if this keeps happening.",
             ),
             (
                 "invalid_dataset_context",
