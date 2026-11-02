@@ -307,6 +307,7 @@ rules:
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
                               |MCPGatewayServer
@@ -807,6 +808,7 @@ rules:
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
                         |MCPAuditEvent
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
