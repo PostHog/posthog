@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.core.cache import cache
+from django.db import models, transaction
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -83,6 +85,16 @@ def ci_trust_policy_request_url(team_id: int, request_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/ci-trust-policy-requests/{request_id}"
 
 
+def ci_trust_policy_version(policy: CITrustPolicy) -> str:
+    """Changes on every save, so a token minted before an admin narrowed or disabled the policy stops
+    matching it."""
+    return str(int(policy.updated_at.timestamp() * 1_000_000))
+
+
+def ci_trust_policy_active_cache_key(policy_id: str) -> str:
+    return f"ci_trust_policy_active:{policy_id}"
+
+
 class CITrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """Lets CI jobs of one repository exchange their OIDC token for a short-lived project token.
 
@@ -115,6 +127,22 @@ class CITrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 name="posthog_unique_ci_trust_policy_conditions",
             ),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        self._forget_active_state()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        policy_id = str(self.pk)
+        result = super().delete(*args, **kwargs)
+        self._forget_active_state(policy_id)
+        return result
+
+    def _forget_active_state(self, policy_id: str | None = None) -> None:
+        # CI token authentication caches whether a policy is active. Dropping the entry after the commit
+        # makes a disable or delete take effect on the next request rather than when the entry expires.
+        key = ci_trust_policy_active_cache_key(policy_id or str(self.pk))
+        transaction.on_commit(lambda: cache.delete(key))
 
     def __str__(self) -> str:
         return f"CITrustPolicy(team={self.team_id}, name={self.name!r})"

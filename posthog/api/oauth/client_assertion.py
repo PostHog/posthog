@@ -254,7 +254,7 @@ def _select_key(key_set: PyJWKSet, assertion: str) -> PyJWK:
     raise ClientAssertionError("Client assertion must carry a kid when the JWKS holds several keys")
 
 
-def _select_key_allowing_rotation(jwks_uri: str, assertion: str) -> PyJWK:
+def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
     """Select the assertion's signing key, re-fetching the JWKS once when the key is unknown.
 
     A client that rotates keys signs with the new ``kid`` while our cached copy of its key
@@ -298,7 +298,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
-    key = _select_key_allowing_rotation(app.jwks_uri, assertion)
+    key = select_signing_key(app.jwks_uri, assertion)
     # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.
     if key.algorithm_name not in ASYMMETRIC_SIGNING_ALGORITHMS or not isinstance(
         key.key, (RSAPublicKey, EllipticCurvePublicKey)

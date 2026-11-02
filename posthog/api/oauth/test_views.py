@@ -5682,7 +5682,12 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertEqual(metadata["response_types_supported"], ["code"])
         self.assertEqual(
             metadata["grant_types_supported"],
-            ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            [
+                "authorization_code",
+                "refresh_token",
+                "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "urn:ietf:params:oauth:grant-type:token-exchange",
+            ],
         )
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])

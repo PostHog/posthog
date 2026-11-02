@@ -6,6 +6,7 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
+from posthog.auth import CIAccessTokenAuthentication
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import Team
 from posthog.models.data_color_theme import DataColorTheme
@@ -86,7 +87,11 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
 def live_events_token_for_request(team: Team, request: Request | None) -> str | None:
     if request is None or not request.user.is_authenticated:
         return None
-    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    authenticator = getattr(request, "successful_authenticator", None)
+    # A CI token acts as the owner, and this 7-day token would outlive it.
+    if isinstance(authenticator, CIAccessTokenAuthentication):
+        return None
+    scopes = get_authenticator_scopes(authenticator)
     if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
         return None
     return get_or_mint_live_events_token(team, request.user.id)

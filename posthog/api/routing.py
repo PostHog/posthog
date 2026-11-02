@@ -14,6 +14,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    CIAccessTokenAuthentication,
     DelegatedOAuthAccessTokenAuthentication,
     DelegatedPersonalAPIKeyAuthentication,
     IDJagAccessTokenAuthentication,
@@ -365,6 +366,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
                 # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
                 IDJagAccessTokenAuthentication,
+                # Same reason as ID-JAG: a CI access token is an RS256 JWT that JwtAuthentication would reject.
+                CIAccessTokenAuthentication,
                 DelegatedPersonalAPIKeyAuthentication,
                 DelegatedOAuthAccessTokenAuthentication,
                 JwtAuthentication,

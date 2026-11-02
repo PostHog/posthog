@@ -32,12 +32,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import (
-    IDJagAccessTokenAuthentication,
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-)
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -695,14 +690,8 @@ class EnterpriseExperimentsViewSet(
         only experiment:write. Session and other non-token auth aren't scope-limited (gated by
         access control instead), mirroring APIScopePermission.
         """
-        authenticator = request.successful_authenticator
-        if isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scopes = authenticator.personal_api_key.scopes or []
-        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scopes = (authenticator.access_token.scope or "").split()
-        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
-            scopes = list(authenticator.scopes or [])
-        else:
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        if scopes is None:
             return True
         return "*" in scopes or "feature_flag:write" in scopes
 

@@ -5,6 +5,7 @@ so they are built here rather than separately.
 """
 
 from posthog.api import id_jag
+from posthog.api.oauth.ci_token_exchange import TOKEN_EXCHANGE_GRANT_TYPE
 from posthog.api.oauth.claims import OIDC_CLAIMS
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
@@ -16,6 +17,7 @@ SUPPORTED_GRANT_TYPES = [
     "authorization_code",
     "refresh_token",
     id_jag.JWT_BEARER_GRANT_TYPE,
+    TOKEN_EXCHANGE_GRANT_TYPE,
 ]
 
 # Every method a client can register under must appear here, or a client reads this

@@ -12,6 +12,7 @@ from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -24,7 +25,7 @@ from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
@@ -32,6 +33,7 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
@@ -43,6 +45,13 @@ from posthog.models.activity_logging.utils import (
     DeclaredCredentialType,
     activity_storage,
     record_agent_intent,
+)
+from posthog.models.ci_trust_policy import (
+    CITrustPolicy,
+    ci_trust_policies_settings_url,
+    ci_trust_policy_active_cache_key,
+    ci_trust_policy_grantable_scopes,
+    ci_trust_policy_version,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
@@ -613,6 +622,28 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
         return cls.keyword
 
 
+def _bearer_token(request: Union[HttpRequest, Request]) -> Optional[str]:
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        return None
+    match = re.match(r"^Bearer\s+(\S.+)$", auth_header)
+    return match.group(1).strip() if match else None
+
+
+def _is_signed_jwt_of_type(token: str, token_type: str) -> bool:
+    """Whether a bearer token is a JWT whose `typ` header names one of PostHog's own stateless token
+    types. Personal API key, OAuth and secret token prefixes are reserved for their own backends."""
+    if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
+        return False
+    if token.count(".") != 2:
+        return False
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError:
+        return False
+    return header.get("typ") == token_type
+
+
 @frozen
 class VerifiedIdJagAccessToken:
     user: User
@@ -646,29 +677,11 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
     @classmethod
     def _extract_token(cls, request: Union[HttpRequest, Request]) -> Optional[str]:
-        auth_header = request.headers.get("authorization")
-        if not auth_header:
-            return None
-        match = re.match(rf"^{cls.keyword}\s+(\S.+)$", auth_header)
-        if not match:
-            return None
-        token = match.group(1).strip()
-
-        return token
+        return _bearer_token(request)
 
     @classmethod
     def is_id_jag_token(cls, token: str) -> bool:
-        # Personal/OAuth API key prefixes are reserved for those auth backends.
-        if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
-            return False
-
-        if token.count(".") != 2:
-            return False
-        try:
-            header = jwt.get_unverified_header(token)
-        except jwt.PyJWTError:
-            return False
-        return header.get("typ") == cls._ID_JAG_ACCESS_TOKEN_TYPE
+        return _is_signed_jwt_of_type(token, cls._ID_JAG_ACCESS_TOKEN_TYPE)
 
     @classmethod
     def verify_access_token(cls, token: str) -> VerifiedIdJagAccessToken:
@@ -785,6 +798,166 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             self.record_activity_actor(verified.user, verified.client_id)
             record_agent_intent(request)
 
+            return verified.user, None
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
+# The `typ` header of a CI access token. A distinct value keeps the ID-JAG authenticator, which
+# only takes `at+jwt`, from ever accepting one, and lets this class skip every other JWT.
+CI_ACCESS_TOKEN_TYPE = "posthog-ci+jwt"
+CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS = 10
+
+
+@frozen
+class VerifiedCIAccessToken:
+    user: User
+    organization_id: str
+    team_id: int
+    policy_id: str
+    policy_name: str
+    scopes: list[str]
+    ci_claims: dict[str, str]
+
+
+class CIAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
+    """
+    Authenticates API requests made with the short-lived token a CI job gets by exchanging its
+    provider's OIDC token under a CI trust policy (`posthog.api.oauth.ci_token_exchange`).
+
+    The token is a stateless JWT signed with the OIDC key. It acts as the organization owner the
+    exchange resolved, pinned to one project and to the policy's scope ceiling. Every request checks
+    that the owner is still an owner and that the policy is still enabled and unchanged since the token
+    was minted, so disabling or editing a policy cuts its tokens off within
+    `CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS`.
+    """
+
+    keyword = "Bearer"
+    activity_credential_type = "oidc_ci"
+
+    scopes: list[str]
+    organization_id: str
+    team_id: int
+    policy_id: str
+
+    @classmethod
+    def is_ci_token(cls, token: str) -> bool:
+        return _is_signed_jwt_of_type(token, CI_ACCESS_TOKEN_TYPE)
+
+    def insufficient_scope_error(self, view: Any, required_scopes: list[str], missing_scopes: list[str]) -> Exception:
+        """What `APIScopePermission` raises when this token lacks a scope. A CI token always gets the
+        standard challenge, because hog reads the scopes from it to tell the user what to add to the
+        trust policy. A scope no policy may grant gets a plain 403 instead, so the user is never told to
+        add something an admin cannot add."""
+        not_grantable = set(missing_scopes) - ci_trust_policy_grantable_scopes()
+        if not_grantable:
+            return PermissionDenied(
+                f"CI tokens can't use this endpoint: it needs {', '.join(sorted(not_grantable))}, "
+                "which a CI trust policy can't grant."
+            )
+        return InsufficientScope(
+            f"This CI token's trust policy doesn't grant {', '.join(missing_scopes)}. "
+            "Ask an organization admin to add the missing scopes to the policy.",
+            required_scopes=required_scopes,
+            extra={"missing_scopes": missing_scopes, "policy_url": ci_trust_policies_settings_url(self.team_id)},
+        )
+
+    @staticmethod
+    def _active_policy_version(team_id: int, policy_id: str) -> str:
+        """The enabled policy's version, or an empty string when it is disabled or gone."""
+        cache_key = ci_trust_policy_active_cache_key(policy_id)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        # The exchange only mints tokens for a project's own team, so the id is already canonical.
+        policy = CITrustPolicy.objects.for_team(team_id, canonical=True).filter(pk=policy_id, enabled=True).first()
+        version = ci_trust_policy_version(policy) if policy else ""
+        cache.set(cache_key, version, CI_TRUST_POLICY_ACTIVE_CACHE_SECONDS)
+        return version
+
+    @classmethod
+    def verify_access_token(cls, token: str) -> VerifiedCIAccessToken:
+        verification_keys = get_oidc_verification_keys()
+        site_url = (settings.SITE_URL or "").rstrip("/")
+        if not verification_keys or not site_url:
+            raise AuthenticationFailed(detail="CI access tokens are not configured on this server.")
+
+        claims = None
+        for verification_key in verification_keys:
+            try:
+                claims = jwt.decode(
+                    token,
+                    verification_key,
+                    algorithms=["RS256"],
+                    audience=site_url,
+                    issuer=site_url,
+                    options={
+                        "require": ["iss", "aud", "exp", "iat", "user_uuid", "org_id", "team_id", "policy_id", "scope"],
+                    },
+                )
+                break
+            except jwt.InvalidSignatureError:
+                continue
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationFailed(detail="CI access token has expired. Exchange a new OIDC token.")
+            except jwt.PyJWTError:
+                raise AuthenticationFailed(detail="CI access token is invalid.")
+        if claims is None:
+            raise AuthenticationFailed(detail="CI access token is invalid.")
+
+        team_id = claims["team_id"]
+        if not isinstance(team_id, int):
+            raise AuthenticationFailed(detail="CI access token is invalid.")
+        policy_id = str(claims["policy_id"])
+        active_version = cls._active_policy_version(team_id, policy_id)
+        if not active_version or active_version != str(claims.get("policy_version") or ""):
+            raise AuthenticationFailed(
+                detail="The CI trust policy behind this token was changed, disabled or deleted. Exchange a new OIDC token."
+            )
+
+        # The token acts as an owner, so it stops working as soon as that user leaves the
+        # organization or is no longer an owner.
+        membership = (
+            OrganizationMembership.objects.filter(
+                organization_id=str(claims["org_id"]),
+                user__uuid=str(claims["user_uuid"]),
+                user__is_active=True,
+                level=OrganizationMembership.Level.OWNER,
+            )
+            .select_related("user")
+            .first()
+        )
+        if membership is None:
+            raise AuthenticationFailed(detail="The organization owner this CI token acts as is no longer an owner.")
+
+        raw_ci_claims = claims.get("ci")
+        ci_claims = raw_ci_claims if isinstance(raw_ci_claims, dict) else {}
+        return VerifiedCIAccessToken(
+            user=membership.user,
+            organization_id=str(claims["org_id"]),
+            team_id=team_id,
+            policy_id=policy_id,
+            policy_name=str(claims.get("policy_name") or ""),
+            scopes=str(claims["scope"]).split(),
+            ci_claims={str(key): str(value) for key, value in ci_claims.items()},
+        )
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        with tracer.start_as_current_span("posthog.auth.oidc_ci"):
+            token = _bearer_token(request)
+            if not token or not self.is_ci_token(token):
+                return None
+
+            verified = self.verify_access_token(token)
+            refuse_blocked_account(request, verified.user, call_site="oidc_ci_token", impersonated=False)
+            self.scopes = verified.scopes
+            self.organization_id = verified.organization_id
+            self.team_id = verified.team_id
+            self.policy_id = verified.policy_id
+
+            tag_authentication(user_id=verified.user.pk, team_id=verified.team_id, access_method=AccessMethod.OIDC_CI)
+            self.record_activity_actor(verified.user, verified.policy_id)
             return verified.user, None
 
     def authenticate_header(self, request) -> str:

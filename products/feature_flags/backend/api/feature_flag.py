@@ -58,6 +58,7 @@ from posthog.api.tagged_item import (
 )
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
 from posthog.auth import (
+    CIAccessTokenAuthentication,
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -445,6 +446,8 @@ def _scope_audit_identity(authenticator) -> tuple[list[str], str, str | None, st
         return scopes, "oauth_access_token", str(raw_id) if raw_id is not None else None, None
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return scopes, "id_jag_access_token", None, None
+    if isinstance(authenticator, CIAccessTokenAuthentication):
+        return scopes, "ci_access_token", authenticator.policy_id, None
     psak = authenticator.project_secret_api_key
     return scopes, "project_secret_api_key", str(getattr(psak, "id", "")) or None, None
 

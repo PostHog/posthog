@@ -1,4 +1,5 @@
 import hashlib
+import functools
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -100,8 +101,15 @@ def get_oidc_verification_keys() -> list[Any]:
     in the JWKS). A token minted under a key being rotated out keeps verifying until
     it expires, instead of breaking the moment the active key is swapped.
     """
-    pems = [
+    pems = (
         getattr(settings, "OIDC_RSA_PRIVATE_KEY", None),
         *(getattr(settings, "OIDC_RSA_PRIVATE_KEYS_INACTIVE", None) or []),
-    ]
-    return [serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems if pem]
+    )
+    return list(_public_keys_from_pems(tuple(pem for pem in pems if pem)))
+
+
+# Parsing a private key validates it, which is slow enough to matter on every request a stateless
+# token authenticates. The PEMs are the cache key, so a rotation takes effect at once.
+@functools.lru_cache(maxsize=4)
+def _public_keys_from_pems(pems: tuple[str, ...]) -> tuple[Any, ...]:
+    return tuple(serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems)

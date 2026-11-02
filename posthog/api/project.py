@@ -69,6 +69,7 @@ from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
+    hide_team_secrets_from_ci_tokens,
 )
 from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
 from posthog.api.utils import validate_authorized_url_wildcards
@@ -1017,7 +1018,7 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
-        return representation
+        return hide_team_secrets_from_ci_tokens(representation, self.context.get("request"))
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if isinstance(obj, ObjectAccessRef):

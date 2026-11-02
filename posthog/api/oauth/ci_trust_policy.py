@@ -28,7 +28,12 @@ from posthog.api.oauth.ci_providers import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.auth import (
+    CIAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.ci_trust_policy import (
@@ -243,6 +248,15 @@ def notify_admins_of_policy_change(
     transaction.on_commit(lambda: send_ci_trust_policy_changed.delay(team_id, policy_id, name, change, actor_user_id))
 
 
+class DenyCIAccessToken(BasePermission):
+    """A CI token can never reach a policy or a request, not even to read, so it can't widen its own policy."""
+
+    message = "CI tokens can't use CI trust policy endpoints."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, CIAccessTokenAuthentication)
+
+
 class NotImpersonatedWritePermission(BasePermission):
     """A policy is a standing credential that acts as the owner, so staff impersonating a member can read
     policies but not change them, or ask for them."""
@@ -272,6 +286,7 @@ class CITrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = CITrustPolicySerializer
     lookup_field = "id"
     permission_classes = [
+        DenyCIAccessToken,
         BrowserSessionWritePermission,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
@@ -486,6 +501,7 @@ class CITrustPolicyRequestViewSet(
     serializer_class = CITrustPolicyRequestSerializer
     lookup_field = "id"
     permission_classes = [
+        DenyCIAccessToken,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
         CITrustPolicyRequestResolutionPermission,

@@ -6,7 +6,7 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException, Throttled, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
@@ -218,6 +218,19 @@ def generate_exception_response(
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
 
 
+class InsufficientScope(PermissionDenied):
+    """A 403 for a token that lacks a scope, with the RFC 6750 section 3.1 challenge naming every scope
+    the request requires, so a client can read them instead of parsing the message."""
+
+    default_code = "insufficient_scope"
+
+    def __init__(self, detail: str, *, required_scopes: list[str], extra: dict[str, Any] | None = None) -> None:
+        super().__init__(detail)
+        self.www_authenticate = f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
+        if extra:
+            self.extra = extra
+
+
 def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Response]:
     """
     Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
@@ -233,6 +246,9 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     from posthog.utils import absolute_uri
 
     response = _exceptions_hog_handler(exc, context)
+    scope_challenge = getattr(exc, "www_authenticate", None)
+    if response is not None and response.status_code == status.HTTP_403_FORBIDDEN and scope_challenge:
+        response["WWW-Authenticate"] = scope_challenge.replace("\r", "").replace("\n", "")
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
