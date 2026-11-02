@@ -12,9 +12,9 @@ export type DashboardControl =
     | 'metricVariables'
 
 export interface DashboardControlScope {
-    /** Insight tiles that the control changes. */
+    /** Chart tiles that the control changes. */
     applies: number
-    /** All insight tiles on the dashboard. */
+    /** All chart tiles on the dashboard: insights, and widgets that follow dashboard filters. */
     total: number
 }
 
@@ -47,30 +47,35 @@ export function dashboardControlsForQuery(query: Node | null | undefined): Dashb
     return (source?.kind && CONTROLS_BY_QUERY_KIND[source.kind as NodeKind]) || DEFAULT_CONTROLS
 }
 
+/** `widgetControls` holds the controls of each widget tile that follows dashboard filters. */
 export function getDashboardControlScopes(
-    insightTiles: DashboardTile[]
+    insightTiles: DashboardTile[],
+    widgetControls: DashboardControl[][] = []
 ): Record<DashboardControl, DashboardControlScope> {
-    const queries = insightTiles.map((tile) => tile.insight?.query)
+    const tileControls = [
+        ...insightTiles.map((tile) => dashboardControlsForQuery(tile.insight?.query)),
+        ...widgetControls,
+    ]
     const scopes = Object.fromEntries(
-        ALL_CONTROLS.map((control) => [control, { applies: 0, total: queries.length }])
+        ALL_CONTROLS.map((control) => [control, { applies: 0, total: tileControls.length }])
     ) as Record<DashboardControl, DashboardControlScope>
-    for (const query of queries) {
-        for (const control of dashboardControlsForQuery(query)) {
+    for (const controls of tileControls) {
+        for (const control of controls) {
             scopes[control].applies++
         }
     }
     return scopes
 }
 
-/** Text for a control that changes only some of the insights. Null when it changes all or none of them. */
+/** Text for a control that changes only some of the charts. Null when it changes all or none of them. */
 export function dashboardControlScopeText(scope: DashboardControlScope): string | null {
     if (scope.applies === 0 || scope.applies === scope.total) {
         return null
     }
-    return `Applies to ${scope.applies} of ${scope.total} insights`
+    return `Applies to ${scope.applies} of ${scope.total} charts`
 }
 
-/** A control that changes no insight is hidden, unless it has a value that the user must be able to clear. */
+/** A control that changes no chart is hidden, unless it has a value that the user must be able to clear. */
 export function isDashboardControlHidden(scope: DashboardControlScope, hasValue: boolean): boolean {
     return scope.total > 0 && scope.applies === 0 && !hasValue
 }
