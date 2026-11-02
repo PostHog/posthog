@@ -1419,7 +1419,7 @@ describe('scoutFleetLogic', () => {
         ])('skips legacy costs for staff=%s and usage=%s', async (isStaff, usageEnabled) => {
             mockSignalsScoutRunsRecentPerScout.mockResolvedValue([makeRun({ run_id: 'run-priced' })])
             featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_USAGE]: usageEnabled })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY]: usageEnabled })
             await mountAsStaff(isStaff)
 
             logic.actions.loadScoutRuns()

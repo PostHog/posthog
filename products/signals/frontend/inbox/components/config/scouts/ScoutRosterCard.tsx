@@ -99,7 +99,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                         )}
                     </div>
                     <FlaggedFeature
-                        flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}
+                        flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}
                         fallback={
                             <>
                                 {costRollup && (

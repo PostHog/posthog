@@ -520,7 +520,7 @@ export function InboxDetailFrame({
                         {/* The pull request picker (when present), then reviewers, runs, and activity. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
-                        <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}>
+                        <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                             <ReportSpendSection reportId={report.id} />
                         </FlaggedFeature>
                         <ReportTasksSection report={report} />

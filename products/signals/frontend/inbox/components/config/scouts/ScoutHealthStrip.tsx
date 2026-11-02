@@ -140,7 +140,7 @@ export function ScoutHealthStrip({
             )}
 
             <FlaggedFeature
-                flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}
+                flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}
                 fallback={
                     <>
                         {costRollup && (

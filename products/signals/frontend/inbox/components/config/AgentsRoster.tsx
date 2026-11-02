@@ -545,7 +545,7 @@ const AgentRow = memo(function AgentRow({
                     </span>
                 )}
                 {armed && !productOff && (
-                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}>
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                         <SourceSpendLabel sourceProduct={agent.sourceProduct} />
                     </FlaggedFeature>
                 )}

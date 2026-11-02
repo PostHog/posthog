@@ -12,7 +12,7 @@ export const ScoutRosterRunBoxes = memo(function ScoutRosterRunBoxes({
 }: {
     runs: SignalScoutRunSummary[]
 }): JSX.Element | null {
-    const enabled = useFeatureFlag('SELF_DRIVING_USAGE')
+    const enabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
     const { scoutRunCostsByScout, expensiveRunCostThreshold } = useValues(scoutFleetLogic)
     const costs = useMemo(
         () =>

@@ -16,7 +16,7 @@ export function RecordedSpend({
     amount: number | null | undefined
     description?: string
 }): JSX.Element | null {
-    const enabled = useFeatureFlag('SELF_DRIVING_USAGE')
+    const enabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
     if (!enabled) {
         return null
     }

@@ -1749,7 +1749,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             }
             // Costs follow the runs rather than a poll of their own, so a run and its cost are
             // never a cycle apart.
-            if (values.isStaff && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_USAGE]) {
+            if (values.isStaff && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY]) {
                 actions.loadScoutRunCosts()
                 actions.loadScoutCosts()
             }

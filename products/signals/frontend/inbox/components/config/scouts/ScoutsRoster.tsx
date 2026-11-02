@@ -117,7 +117,7 @@ export function ScoutsRoster(): JSX.Element {
             <div className="flex flex-col gap-1 pt-1">
                 <span className="text-xs text-muted">
                     <FlaggedFeature
-                        flag={FEATURE_FLAGS.SELF_DRIVING_USAGE}
+                        flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}
                         fallback={<span>The totals above cover the {SCOUT_ROSTER_WINDOW_LABEL}. </span>}
                     >
                         <span>

@@ -14,7 +14,7 @@ const meta: Meta = {
     title: 'Scenes-App/Inbox/Usage',
     parameters: {
         mockDate: '2026-06-11',
-        featureFlags: [FEATURE_FLAGS.SELF_DRIVING_USAGE],
+        featureFlags: [FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY],
         testOptions: { waitForSelector: '[data-attr="report-spend"]' },
     },
     decorators: [

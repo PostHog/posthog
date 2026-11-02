@@ -75,7 +75,7 @@ describe('AgentsRoster', () => {
     ])('gates source usage when enabled=$enabled and armed=$armed', async ({ enabled, armed }) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.SELF_DRIVING_USAGE]: enabled,
+            [FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY]: enabled,
         })
         const usageRequests = jest.fn()
         useMocks({

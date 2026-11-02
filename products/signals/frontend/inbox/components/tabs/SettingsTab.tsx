@@ -16,7 +16,7 @@ import { UsageOverview } from '../spend/UsageOverview'
 import { SettingsSection } from './SettingsSection'
 
 export function SettingsTab(): JSX.Element {
-    const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE')
+    const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
     useMountedLogic(integrationsLogic)
     // The usage widget renders nothing without the billing product, so the section title
     // must hide with it rather than sit over an empty area.
