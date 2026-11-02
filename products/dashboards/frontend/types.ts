@@ -9,4 +9,3 @@ export type DashboardWidgetProductAccess =
     | 'logs'
     | 'metrics'
     | 'ticket'
-    | 'metrics'

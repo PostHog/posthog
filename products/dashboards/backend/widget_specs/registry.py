@@ -155,8 +155,8 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
-    from products.dashboards.backend.widgets.metrics_table import run_metrics_table_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.metrics import run_metrics_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.metrics_table import run_metrics_table_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
