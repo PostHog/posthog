@@ -478,6 +478,10 @@ tools:
             Without `limit`, a page holds up to 100 reports, each with its summary. Read a report's work log with
             inbox-report-artefacts-list before you act on it.
 
+            For an Error Tracking issue, pass `error_tracking_issue_id` to find exact references in source IDs,
+            evidence, and report summaries. Then search by the issue name or error terms to investigate other related
+            reports. An exact reference does not establish that a linked PR fixes the error.
+
             Each row's `ranking.predictions` gives the ranking model's probability and lift for `open`, `action`, and
             `fix`. Lift 1.0 is an average report. A prediction is a forecast, not the report's state, and `status:
             unscored` is not a low score. inbox-ranking-outcomes-list explains each outcome.

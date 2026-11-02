@@ -129,6 +129,7 @@ from products.signals.backend.billing import (
 from products.signals.backend.briefing_reports import reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
+from products.signals.backend.error_tracking_reports import reports_referencing_error_tracking_issue
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
@@ -1430,6 +1431,19 @@ _REPORT_LIST_PARAMETERS = [
         ),
     ),
     OpenApiParameter(
+        name="error_tracking_issue_id",
+        type=OpenApiTypes.UUID,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "Find reports referencing this Error Tracking issue UUID in this project. Matches exact source IDs "
+            "from Error Tracking or scouts, and exact issue URLs in current evidence or report summaries. "
+            "Inspects up to 1,000 recent evidence and summary candidates each. A reference does not prove a "
+            "report's linked PR fixes the issue. No matches does not rule out related reports; use search "
+            "with the issue's name or error terms to investigate further."
+        ),
+    ),
+    OpenApiParameter(
         name="source_id",
         type=OpenApiTypes.STR,
         location=OpenApiParameter.QUERY,
@@ -1893,6 +1907,7 @@ class SignalReportViewSet(
             qs = qs.exclude(id__in=read_ids) if unread == "true" else qs.filter(id__in=read_ids)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_source_id_filter(qs)
+        qs = self._apply_signal_report_error_tracking_issue_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
@@ -2165,6 +2180,19 @@ class SignalReportViewSet(
             )
         by_source = fetch_live_report_ids_for_source_ids(self.team, source_ids, product)
         report_ids = {report_id for ids in by_source.values() for report_id in ids}
+        return queryset.filter(id__in=report_ids)
+
+    def _apply_signal_report_error_tracking_issue_filter(
+        self, queryset: models.QuerySet[SignalReport]
+    ) -> models.QuerySet[SignalReport]:
+        issue_id = self.request.query_params.get("error_tracking_issue_id")
+        if issue_id is None:
+            return queryset
+        try:
+            parsed_issue_id = uuid.UUID(issue_id)
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"error_tracking_issue_id": "Use an Error Tracking issue UUID."})
+        report_ids = reports_referencing_error_tracking_issue(team=self.team, issue_id=parsed_issue_id)
         return queryset.filter(id__in=report_ids)
 
     def _apply_signal_report_scout_filter(self, queryset):

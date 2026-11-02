@@ -18,7 +18,11 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { GuidanceEngine } from '@/hono/guidance/engine'
-import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG } from '@/hono/guidance/rules'
+import {
+    MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG,
+    MCP_GUIDANCE_REPLAY_VISION_FLAG,
+    MCP_GUIDANCE_SQL_SCHEMA_FLAG,
+} from '@/hono/guidance/rules'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
@@ -34,7 +38,7 @@ function makeTool(name: string, handler: (args: unknown) => unknown): any {
         description: `Synthetic ${name}`,
         scopes: [],
         annotations: { readOnlyHint: true },
-        schema: z.object({ query: z.string().optional() }),
+        schema: z.object({ query: z.string().optional(), issueId: z.string().optional() }),
         handler: vi.fn(async (_context: unknown, args: unknown) => handler(args)),
     }
 }
@@ -57,12 +61,14 @@ describe('ToolExecutor guidance notices', () => {
         mode: string,
         sqlHandler: (args: unknown) => unknown,
         flag: string,
-        callFlags = ''
+        callFlags = '',
+        toolName = 'execute-sql'
     ): {
         callSql: (query: string) => Promise<SqlResult>
         capture: MockInstance<ReturnType<typeof getPostHogClient>['captureToolCall']>
+        onboarding: ReturnType<typeof vi.fn>
     } {
-        const sql = makeTool('execute-sql', sqlHandler)
+        const sql = makeTool(toolName, sqlHandler)
         const visionTools = [
             'vision-scanners-inline-scan',
             'vision-requests-create',
@@ -70,7 +76,10 @@ describe('ToolExecutor guidance notices', () => {
             'vision-observations-search',
         ].map((name) => makeTool(name, () => ({})))
         const schema = makeTool('read-data-schema', () => ({}))
-        const tools = [sql, ...visionTools, schema]
+        const reportTools = ['inbox-reports-list', 'inbox-reports-retrieve', 'inbox-report-artefacts-list'].map(
+            (name) => makeTool(name, () => ({}))
+        )
+        const tools = [sql, ...visionTools, schema, ...reportTools]
         vi.spyOn(catalog, 'getToolByName').mockImplementation((name) => {
             const tool = tools.find((t) => t.name === name)
             return tool
@@ -88,21 +97,25 @@ describe('ToolExecutor guidance notices', () => {
             suppressAnalytics: false,
             aiConsentGiven: true,
             toolFeatureFlags: { [flag]: true },
+            analyticsContext: { projectId: '2' },
         })
+        const onboarding = vi.fn().mockResolvedValue({ completed_at: '2026-01-01T00:00:00Z' })
+        state.context.api.request = onboarding
         const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const callSql = async (
             query: string
         ): Promise<{ isError?: boolean; content: { type: string; text?: string }[] }> => {
+            const toolArgs = toolName === 'query-error-tracking-issue' ? { issueId: query } : { query }
             const args =
-                mode === 'exec' ? { command: `call ${callFlags}execute-sql ${JSON.stringify({ query })}` } : { query }
+                mode === 'exec' ? { command: `call ${callFlags}${toolName} ${JSON.stringify(toolArgs)}` } : toolArgs
             const result = await executor.handleToolCall(
-                { name: mode === 'exec' ? 'exec' : 'execute-sql', arguments: args },
+                { name: mode === 'exec' ? 'exec' : toolName, arguments: args },
                 state
             )
             await new Promise((resolve) => setImmediate(resolve))
             return result as any
         }
-        return { callSql, capture }
+        return { callSql, capture, onboarding }
     }
 
     it.each(['direct', 'exec'])('prepends the replay notice to the second replay query in %s mode', async (mode) => {
@@ -118,6 +131,39 @@ describe('ToolExecutor guidance notices', () => {
             'replay-sql-to-vision',
         ])
         expect(capture.mock.calls[1]?.[0].properties?.mcp_guidance_outcome).toBe('shown')
+    })
+
+    it.each([
+        ['direct', ''],
+        ['exec', ''],
+        ['exec', '--json '],
+    ])('preserves the issue result and stamps report guidance in %s mode with %s', async (mode, flags) => {
+        const issueId = '019f9373-1e60-4000-8928-d8b21e6e8cb0'
+        const now = vi.spyOn(Date, 'now').mockReturnValue(1000)
+        const { callSql, capture, onboarding } = setup(
+            mode,
+            () => ({ id: issueId, name: 'Example error' }),
+            MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG,
+            flags,
+            'query-error-tracking-issue'
+        )
+        onboarding.mockImplementation(async () => {
+            now.mockReturnValue(1200)
+            return { completed_at: '2026-01-01T00:00:00Z' }
+        })
+        const result = await callSql(issueId)
+        const noticeIndex = flags ? 1 : 0
+        expect(result.content[noticeIndex]?.text).toContain(`error_tracking_issue_id: "${issueId}"`)
+        expect(result.content[flags ? 0 : 1]?.text).toContain('Example error')
+        if (flags) {
+            expect(JSON.parse(result.content[0]?.text ?? '')).toMatchObject({ id: issueId })
+        }
+        expect(capture.mock.calls[0]?.[0].properties).toMatchObject({
+            mcp_guidance_rule: 'error-tracking-to-self-driving-reports',
+            mcp_guidance_outcome: 'shown',
+        })
+        expect(capture.mock.calls[0]?.[0].durationMs).toBe(200)
+        expect(capture.mock.calls[0]?.[0].properties?.output_tokens).toBeGreaterThan(100)
     })
 
     it('keeps the JSON result as the first block when guidance fires on a --json call', async () => {

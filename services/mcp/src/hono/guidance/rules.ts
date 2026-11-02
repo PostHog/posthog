@@ -35,6 +35,7 @@ export type GuidanceRule = z.infer<typeof guidanceRuleSchema>
 
 export const MCP_GUIDANCE_REPLAY_VISION_FLAG = 'mcp-guidance-replay-vision'
 export const MCP_GUIDANCE_SQL_SCHEMA_FLAG = 'mcp-guidance-sql-schema'
+export const MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG = 'mcp-guidance-error-tracking-sd-reports'
 
 const RULES: GuidanceRule[] = [
     {
@@ -91,4 +92,7 @@ const RULES: GuidanceRule[] = [
 
 export const GUIDANCE_RULES: readonly GuidanceRule[] = z.array(guidanceRuleSchema).parse(RULES)
 
-export const GUIDANCE_RULE_FLAGS: readonly string[] = [...new Set(GUIDANCE_RULES.map((rule) => rule.flag))]
+export const GUIDANCE_RULE_FLAGS: readonly string[] = [
+    ...new Set(GUIDANCE_RULES.map((rule) => rule.flag)),
+    MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG,
+]

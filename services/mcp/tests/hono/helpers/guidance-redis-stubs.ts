@@ -23,7 +23,10 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
         store,
         evalCalls,
         get: (key) => guard(store.get(key) ?? null),
-        set: (key, value) => {
+        set: (key, value, ...args) => {
+            if (args.includes('NX') && store.has(key)) {
+                return guard(null)
+            }
             store.set(key, value)
             return guard('OK')
         },

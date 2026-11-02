@@ -16,6 +16,7 @@ union of its own tags and the sources' tags.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from uuid import UUID
 
 from django.db import transaction
@@ -188,6 +189,71 @@ def merge_survivor(report: SignalReport, *, lock: bool = False) -> SignalReport:
         visited.add(survivor.id)
         report = survivor
     return report
+
+
+def _merge_targets_for_suppressed_report_ids(*, team_id: int, report_ids: Collection[UUID]) -> dict[UUID, UUID]:
+    merged: set[UUID] = set()
+    links: dict[UUID, UUID] = {}
+    artefacts = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id__in=report_ids,
+            type__in=(SignalReportArtefact.ArtefactType.DISMISSAL, SignalReportArtefact.ArtefactType.REPORT_LINK),
+        )
+        .order_by("report_id", "-created_at", "-id")
+        .values_list("report_id", "type", "content")
+    )
+    for report_id, kind, content in artefacts:
+        try:
+            if kind == SignalReportArtefact.ArtefactType.DISMISSAL:
+                if Dismissal.model_validate_json(content).reason == MERGE_DISMISSAL_REASON:
+                    merged.add(report_id)
+            elif report_id not in links:
+                link = ReportLink.model_validate_json(content)
+                if link.kind == ReportLinkKind.DUPLICATE_OF:
+                    links[report_id] = UUID(link.report_id)
+        except ValueError:
+            continue
+    return {report_id: target for report_id, target in links.items() if report_id in merged}
+
+
+def merge_survivor_ids(*, team_id: int, report_ids: Collection[str]) -> set[str]:
+    """Resolve a read-side batch without repeating the merge queries for shared survivors."""
+    starting_ids = {UUID(report_id) for report_id in report_ids}
+    pending = starting_ids.copy()
+    queried: set[UUID] = set()
+    statuses: dict[UUID, str] = {}
+    targets: dict[UUID, UUID] = {}
+
+    for _ in range(SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS):
+        if not pending:
+            break
+        batch = dict(
+            SignalReport.objects.filter(team_id=team_id, id__in=pending)
+            .exclude(status=SignalReport.Status.DELETED)
+            .values_list("id", "status")
+        )
+        queried.update(pending)
+        statuses.update(batch)
+        suppressed = {report_id for report_id, status in batch.items() if status == SignalReport.Status.SUPPRESSED}
+        targets.update(_merge_targets_for_suppressed_report_ids(team_id=team_id, report_ids=suppressed))
+        pending = set(targets.values()) - queried
+
+    resolved: dict[UUID, UUID] = {}
+    for report_id in starting_ids & statuses.keys():
+        current = report_id
+        path: set[UUID] = set()
+        while current not in path:
+            path.add(current)
+            if current in resolved:
+                current = resolved[current]
+                break
+            target = targets.get(current)
+            if target is None or target not in statuses or target in path:
+                break
+            current = target
+        resolved.update(dict.fromkeys(path, current))
+    return {str(resolved[report_id]) for report_id in starting_ids if report_id in resolved}
 
 
 def signal_target_report(report: SignalReport, *, lock: bool = False) -> SignalReport:

@@ -29,6 +29,10 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
+        "error_tracking_issue_id": {
+            "description": "Find reports referencing this Error Tracking issue UUID in this project. Matches exact source IDs from Error Tracking or scouts, and exact issue URLs in current evidence or report summaries. Inspects up to 1,000 recent evidence and summary candidates each. A reference does not prove a report's linked PR fixes the issue. No matches does not rule out related reports; use search with the issue's name or error terms to investigate further.",
+            "type": "string"
+        },
         "exclude": {
             "description": "Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.",
             "items": {

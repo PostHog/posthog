@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
-import { GUIDANCE_RULES, type GuidanceRule } from '@/hono/guidance/rules'
+import { GUIDANCE_RULES, MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG, type GuidanceRule } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 
 import { makeToolExecutorState } from '../shared/test-utils'
@@ -57,6 +57,137 @@ async function run(
 }
 
 describe('GuidanceEngine', () => {
+    describe('Self-driving reports', () => {
+        const issueCall: GuidanceCall = {
+            toolName: 'query-error-tracking-issue',
+            args: { issueId: '019f9373-1e60-4000-8928-d8b21e6e8cb0' },
+            isError: false,
+        }
+        const completed = { completed_at: '2026-01-01T00:00:00Z', paused: true }
+        const tools = [
+            'query-error-tracking-issue',
+            'inbox-reports-list',
+            'inbox-reports-retrieve',
+            'inbox-report-artefacts-list',
+        ].map((name) => ({ name }))
+
+        function reportsState(response: unknown = completed): ResolvedState {
+            const state = makeToolExecutorState(tools, {
+                analyticsContext: { projectId: '2' },
+                toolFeatureFlags: { [MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG]: true },
+            })
+            state.context.api.request = vi.fn().mockResolvedValue(response)
+            return state
+        }
+
+        it.each([
+            ['shown', true],
+            ['flag_off', false],
+        ] as const)('stamps %s for a completed project, including paused projects', async (outcome, enabled) => {
+            const state = reportsState()
+            state.toolFeatureFlags = { [MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG]: enabled }
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)
+            expect(notice).toMatchObject({ ruleId: 'error-tracking-to-self-driving-reports', outcome })
+            expect(notice?.text === undefined).toBe(!enabled)
+            if (enabled) {
+                expect(notice?.text).toContain(issueCall.args!.issueId)
+                expect(notice?.text).toContain('including when the exact lookup returns nothing')
+            }
+            expect(state.context.api.request).toHaveBeenCalledWith({
+                method: 'GET',
+                path: '/api/projects/2/signals/onboarding/',
+                timeoutMs: 1000,
+                signal: expect.any(AbortSignal),
+            })
+        })
+
+        it.each([
+            ['unfinished', { completed_at: null }],
+            ['missing timestamp', {}],
+            ['invalid timestamp', { completed_at: 'unknown' }],
+            ['wrong timestamp type', { completed_at: 1 }],
+        ])('leaves the original result alone for %s setup state', async (_label, response) => {
+            const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(reportsState(response), issueCall)
+            expect(notice).toBeUndefined()
+        })
+
+        it.each([
+            ['scope rejection', new Error('403')],
+            ['timeout', new DOMException('Timed out', 'TimeoutError')],
+        ])('skips a %s without using the session allowance', async (_label, error) => {
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            const state = reportsState()
+            vi.mocked(state.context.api.request).mockRejectedValueOnce(error)
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        })
+
+        it('deduplicates the same issue while allowing another issue or project', async () => {
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            const state = reportsState()
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+            expect(await engine.evaluate(state, issueCall)).toBeUndefined()
+            await engine.evaluate(state, { toolName: 'inbox-reports-list', args: {}, isError: false })
+            expect(
+                await engine.evaluate(state, {
+                    ...issueCall,
+                    args: { issueId: '019f9373-1e60-4000-8928-d8b21e6e8cb1' },
+                })
+            ).toMatchObject({ outcome: 'shown' })
+            state.analyticsContext = { projectId: '3' }
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+            expect(state.context.api.request).toHaveBeenCalledTimes(3)
+        })
+
+        it('reserves the same issue once across concurrent calls', async () => {
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            const state = reportsState()
+            const notices = await Promise.all([engine.evaluate(state, issueCall), engine.evaluate(state, issueCall)])
+            expect(notices.filter(Boolean)).toHaveLength(1)
+        })
+
+        it('keeps calls without a client handle independent', async () => {
+            const engine = new GuidanceEngine(makeGuidanceRedis())
+            const state = reportsState()
+            state.carriedContextHandle = false
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+            expect(await engine.evaluate(state, issueCall)).toMatchObject({ outcome: 'shown' })
+        })
+
+        it.each([
+            ['unavailable experiment assignment', { toolFeatureFlags: {} }],
+            [
+                'invalid experiment assignment',
+                { toolFeatureFlags: { [MCP_GUIDANCE_ERROR_TRACKING_SD_REPORTS_FLAG]: 'unexpected' } },
+            ],
+            ['missing work-log tool', { allTools: tools.slice(0, -1) }],
+            ['scout', { apiKeyScopes: ['signal_scout_internal:write'] }],
+            ['sandbox', { apiKeyScopes: ['internal_run:read'] }],
+            ['task-bound token', { sandboxTaskId: 'synthetic-task' }],
+            ['task-bound request', { isTaskBound: true }],
+            ['Self-driving app', { oauthClientId: 'jpSRPhGBBbDGpKprit9bgJEuo6oUTa8ULymqf8PE' }],
+            ['PostHog AI app', { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' }],
+            ['setup agent', { requestContext: { clientUserAgent: 'posthog/wizard' } }],
+            ['CLI', { clientProfile: { consumer: 'posthog-cli' } }],
+            ['impersonated', { isImpersonated: true }],
+            ['suppressed analytics', { suppressAnalytics: true }],
+        ])('does not check onboarding for %s', async (_label, overrides) => {
+            const state = { ...reportsState(), ...overrides } as ResolvedState
+            expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)).toBeUndefined()
+            expect(state.context.api.request).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['failed tool', { ...issueCall, isError: true }],
+            ['issue list', { ...issueCall, toolName: 'query-error-tracking-issues-list' }],
+            ['invalid id', { ...issueCall, args: { issueId: 'invalid' } }],
+        ])('does not check onboarding after a %s', async (_label, call) => {
+            const state = reportsState()
+            expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)).toBeUndefined()
+            expect(state.context.api.request).not.toHaveBeenCalled()
+        })
+    })
+
     it('shows the notice once the session reaches the threshold, and only once', async () => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         await expect(run(engine, makeState(), [replayQuery, otherQuery, replayQuery, replayQuery])).resolves.toEqual([
