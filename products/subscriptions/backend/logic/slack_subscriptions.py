@@ -66,7 +66,7 @@ class SlackMessage:
     unfurl: bool = True
 
 
-@dataclass
+@frozen
 class SlackDeliveryResult:
     main_message_sent: bool
     total_thread_messages: int
