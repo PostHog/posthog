@@ -1,7 +1,10 @@
 """Temporal workflows, activities and schedule builders that core registers."""
 
 from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
-from products.signals.backend.anomaly_scores.schedule import create_anomaly_scoring_tick_schedule
+from products.signals.backend.anomaly_scores.schedule import (
+    create_anomaly_scoring_due_list_refresh_schedule,
+    create_anomaly_scoring_tick_schedule,
+)
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.emission.temporal_settings import EMIT_SIGNALS_ACTIVITIES, EMIT_SIGNALS_WORKFLOWS
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
@@ -26,6 +29,7 @@ __all__ = [
     "EmitEvalSignalInputs",
     "EmitEvalSignalWorkflow",
     "create_activity_summary_tick_schedule",
+    "create_anomaly_scoring_due_list_refresh_schedule",
     "create_anomaly_scoring_tick_schedule",
     "create_conversations_signals_coordinator_schedule",
     "create_inbox_ranking_scoring_schedule",

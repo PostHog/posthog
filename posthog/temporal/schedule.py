@@ -141,15 +141,12 @@ from products.review_hog.backend.facade.temporal import create_review_hog_findin
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.facade.temporal import (
     create_activity_summary_tick_schedule,
+    create_anomaly_scoring_due_list_refresh_schedule,
     create_anomaly_scoring_tick_schedule,
     create_conversations_signals_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
-)
-from products.signals.backend.anomaly_scores.schedule import (
-    create_anomaly_scoring_due_list_refresh_schedule,
-    create_anomaly_scoring_tick_schedule,
 )
 from products.subscriptions.backend.facade.temporal import create_schedule_all_subscriptions_schedule
 from products.today.backend.facade.temporal import delete_today_briefing_schedule
