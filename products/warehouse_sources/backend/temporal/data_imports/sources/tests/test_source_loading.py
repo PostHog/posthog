@@ -12,7 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources import (
     source_module_path,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AnySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+    SourceRegistry,
+    known_source_key,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCES = "products.warehouse_sources.backend.temporal.data_imports.sources"
@@ -117,7 +120,7 @@ def test_get_source_resolves_a_raw_string_value_through_the_lazy_path(empty_regi
         patch(f"{_SOURCES}._load_source", side_effect=_register_fake_pypi_source),
         patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")),
     ):
-        source = SourceRegistry.get_source(cast(ExternalDataSourceType, ExternalDataSourceType.PYPI.value))
+        source = SourceRegistry.get_source(ExternalDataSourceType.PYPI.value)
 
     assert isinstance(source, _FakePypiSource)
 
@@ -126,7 +129,54 @@ def test_get_source_raises_valueerror_for_an_unknown_string_value(empty_registry
     # The endpoint turns ValueError into a 400. An unknown string must not read `.name` off a str.
     with patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")):
         with pytest.raises(ValueError):
-            SourceRegistry.get_source(cast(ExternalDataSourceType, "NotARealSource"))
+            SourceRegistry.get_source("NotARealSource")
+
+
+class _FakePluginSource:
+    @property
+    def source_type(self) -> str:
+        return "FakePluginVendor"
+
+
+class _OtherFakePluginSource(_FakePluginSource):
+    pass
+
+
+def _register_fake_plugin_source(*_args) -> None:
+    SourceRegistry.register(cast(type[AnySource], _FakePluginSource))
+
+
+@pytest.mark.parametrize(
+    "key,expected",
+    [
+        (ExternalDataSourceType.PYPI.value, ExternalDataSourceType.PYPI),
+        ("FakePluginVendor", "FakePluginVendor"),
+        ("NotARealSource", None),
+    ],
+)
+def test_known_source_key_resolves_members_and_registered_plugin_keys_without_the_full_load(
+    empty_registry, key, expected
+):
+    with (
+        patch(f"{_SOURCES}.load_source", side_effect=_register_fake_plugin_source),
+        patch(f"{_SOURCES}.load_all_sources", side_effect=AssertionError("the full catalog load must not run")),
+    ):
+        if expected is None:
+            with pytest.raises(ValueError):
+                known_source_key(key)
+            return
+        resolved = known_source_key(key)
+
+    assert resolved == expected
+    assert type(resolved) is type(expected)
+
+
+def test_a_second_class_cannot_register_a_taken_source_key(empty_registry):
+    SourceRegistry.register(cast(type[AnySource], _FakePluginSource))
+    SourceRegistry.register(cast(type[AnySource], _FakePluginSource))
+
+    with pytest.raises(ValueError, match="registered by both"):
+        SourceRegistry.register(cast(type[AnySource], _OtherFakePluginSource))
 
 
 def test_source_module_path_resolves_every_source_type_without_importing_it():

@@ -354,7 +354,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
-        source = SourceRegistry.get_source(ExternalDataSourceType(self.source_type))
+        source = SourceRegistry.get_source(self.source_type)
         source.cleanup_cdc_resources_on_deletion(self)
         source.on_source_deleted(self)
         self._release_credentials()

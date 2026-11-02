@@ -49,7 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -308,7 +308,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     @property
     @abstractmethod
-    def source_type(self) -> ExternalDataSourceType:
+    def source_type(self) -> SourceKey:
         raise NotImplementedError()
 
     @property
@@ -501,7 +501,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def _vendor_label(self) -> str:
         # The label is for a message only, so a source config that cannot build must not hide the result.
         try:
-            return self.get_source_config.label or str(self.source_type.value)
+            return self.get_source_config.label or str(self.source_type)
         except Exception:
             return "the vendor"
 
