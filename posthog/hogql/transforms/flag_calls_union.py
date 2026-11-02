@@ -522,11 +522,18 @@ class _UnionChainCollector(SyntaxVisitor):
         super().__init__()
         self.chains: list[list[str | int]] = []
         self.unreadable_joins: list[str] = []
-        self.exports: dict[str, list[str | int]] = {}
+        self.exports: dict[tuple[int, str], list[str | int]] = {}
+        self._select: ast.SelectQuery | None = None
         self.export_collision: tuple[list[str | int], list[str | int]] | None = None
         # The event and person properties that a string-parsing call such as toFloatOrZero reads from the scan.
         self.string_parsed: list[tuple[str, str]] = []
         self._in_string_input = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        outer = self._select
+        self._select = node
+        super().visit_select_query(node)
+        self._select = outer
 
     def visit_call(self, node: ast.Call) -> None:
         # The property type swapper keeps a property raw only as the direct argument of such a call.
@@ -542,7 +549,7 @@ class _UnionChainCollector(SyntaxVisitor):
             self.chains.append(chain)
             if isinstance(node.type, ast.FieldType):
                 # Lazy table resolution names a whole-field read after the field, whichever table the field is on.
-                first = self.exports.setdefault(node.type.name, chain)
+                first = self.exports.setdefault((id(self._select), node.type.name), chain)
                 if first != chain and self.export_collision is None:
                     self.export_collision = (first, chain)
             if self._in_string_input and chain[:-1] in (["properties"], ["poe", "properties"]):
