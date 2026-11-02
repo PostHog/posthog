@@ -4740,6 +4740,13 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[] | null;
     }
 
+    export interface ActionListResponse {
+      /** Number of actions that match the filters. Without `limit`, it is `offset` plus the number of actions returned. */
+      count: number;
+      /** Actions on this page, or every matching action without `limit`. */
+      results: Action[];
+    }
+
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -8220,6 +8227,7 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics` - Metrics
      * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
@@ -8236,6 +8244,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      Metrics: 'metrics',
       MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
@@ -8264,6 +8273,7 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
+       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -8278,7 +8288,7 @@ export namespace Schemas {
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, canvas_app, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, metrics, metrics_table, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -11999,7 +12009,193 @@ export namespace Schemas {
       limit?: number;
     }
 
-    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsTableWidgetConfig;
+    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
+
+
+    export const MetricsAggregation = {
+      Sum: 'sum',
+      Avg: 'avg',
+      Count: 'count',
+      Min: 'min',
+      Max: 'max',
+      Quantile: 'quantile',
+      Rate: 'rate',
+      Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
+    } as const;
+
+    export interface MetricsQueryGroupBy {
+      key: string;
+      scope?: MetricsAttributeScope | null;
+    }
+
+    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
+
+
+    export const MetricsOtelType = {
+      Gauge: 'gauge',
+      Sum: 'sum',
+      Histogram: 'histogram',
+      ExponentialHistogram: 'exponential_histogram',
+      Summary: 'summary',
+    } as const;
+
+    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
+
+
+    export const MetricsRangeFunction = {
+      Rate: 'rate',
+      Increase: 'increase',
+    } as const;
+
+    export interface MetricsQueryClause {
+      /** Omit to get one line per series (at most 100), without combining them */
+      aggregation?: MetricsAggregation | null;
+      filters?: MetricsQueryFilter[] | null;
+      groupBy?: MetricsQueryGroupBy[] | null;
+      metricName: string;
+      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
+      metricType?: MetricsOtelType | null;
+      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
+      name: string;
+      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
+      quantile?: number | null;
+      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
+      rangeFunction?: MetricsRangeFunction | null;
+    }
+
+    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
+
+
+    export const MetricsReducer = {
+      Last: 'last',
+      Mean: 'mean',
+      Min: 'min',
+      Max: 'max',
+      Sum: 'sum',
+      Delta: 'delta',
+    } as const;
+
+    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
+
+
+    export const MetricsNullMode = {
+      Gap: 'gap',
+      Zero: 'zero',
+      Connect: 'connect',
+    } as const;
+
+    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
+
+
+    export const MetricsStatSummary = {
+      Latest: 'latest',
+      Average: 'average',
+      Total: 'total',
+    } as const;
+
+    export interface MetricsThreshold {
+      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
+      color: string;
+      /** Lower bound of this band. The lowest step is the base color below every other step. */
+      value: number;
+    }
+
+    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
+
+
+    export const MetricsDisplayType = {
+      Line: 'line',
+      Area: 'area',
+      Bar: 'bar',
+      Stat: 'stat',
+      Gauge: 'gauge',
+      Bargauge: 'bargauge',
+      Table: 'table',
+      Heatmap: 'heatmap',
+    } as const;
+
+    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
+
+
+    export const MetricsAxisScale = {
+      Linear: 'linear',
+      Log: 'log',
+    } as const;
+
+    export interface MetricsYAxisSettings {
+      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
+      max?: number | null;
+      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
+      min?: number | null;
+      scale?: MetricsAxisScale | null;
+      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
+      startAtZero?: boolean | null;
+    }
+
+    export interface MetricsDisplaySettings {
+      goalLines?: GoalLine[] | null;
+      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
+      legendCalcs?: MetricsReducer[] | null;
+      /** How a null bucket renders on a time-series chart. */
+      nullMode?: MetricsNullMode | null;
+      /** How scalar panels and legend calcs collapse a series to one number. */
+      reduce?: MetricsReducer | null;
+      /** `stat` display only: which summary the headline value shows. */
+      statSummary?: MetricsStatSummary | null;
+      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
+      thresholds?: MetricsThreshold[] | null;
+      type?: MetricsDisplayType | null;
+      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
+      unit?: string | null;
+      yAxis?: MetricsYAxisSettings | null;
+    }
+
+    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
+
+
+    export const MetricsQueryLanguage = {
+      Builder: 'builder',
+      Promql: 'promql',
+      Sql: 'sql',
+    } as const;
+
+    /**
+     * A `MetricsQuery` as a metrics widget stores it.
+     *
+     * Response, modifier and tag fields are runtime state, so a stored config can't carry them.
+     */
+    export interface MetricsWidgetQuery {
+      /**
+         * Builder series. Empty when `language` is `promql` or `sql`, or until a metric is picked.
+         * @maxItems 10
+         */
+      clauses?: MetricsQueryClause[];
+      /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
+      dateRange?: DateRange | null;
+      /** Chart presentation. A node without it renders as a line chart. */
+      display?: MetricsDisplaySettings | null;
+      /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
+      formula?: string | null;
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
+      interval?: string | null;
+      kind?: 'MetricsQuery';
+      /** How the query is written; the builder when unset. */
+      language?: MetricsQueryLanguage | null;
+      /** PromQL expression, run as a range query. Used when `language` is `promql`. */
+      promql?: string | null;
+      /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. */
+      sql?: string | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export interface MetricsWidgetConfig {
+      /** Metrics query the tile runs and how it draws it (`display.type`: line, area, bar, stat, gauge, bargauge, table or heatmap). `dateRange` is the default window; the dashboard date filter overrides it. A config update replaces the whole query. */
+      query?: MetricsWidgetQuery;
+    }
+
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig | CanvasAppWidgetConfig | MetricsTableWidgetConfig | MetricsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -24119,6 +24315,25 @@ export namespace Schemas {
       base_version?: number | null;
     }
 
+    export interface ChannelPage {
+      /** Number of channels the requester can access. */
+      count: number;
+      /**
+         * URL of the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL of the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      /** Channels on this page. */
+      results: ChannelDTO[];
+    }
+
+    export type ChannelListResponse = ChannelDTO[] | ChannelPage;
+
     export interface ChannelMembersWrite {
       /**
          * Required list of member user IDs. This list replaces the current members. The creator remains a member. Send an empty list to remove all other members. Each submitted user must have project access.
@@ -25491,6 +25706,84 @@ export namespace Schemas {
          * @maxItems 1000
          */
       _create_static_person_ids?: string[];
+    }
+
+    export interface CohortCalculationHistory {
+      readonly id: string;
+      /** Cohort filters/properties at time of calculation */
+      filters: unknown;
+      /**
+         * Number of people in cohort
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
+      count?: number | null;
+      /** When calculation started */
+      started_at?: string;
+      /**
+         * When calculation finished
+         * @nullable
+         */
+      finished_at?: string | null;
+      /** Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows) */
+      queries?: unknown;
+      /**
+         * Error message if calculation failed
+         * @nullable
+         */
+      error?: string | null;
+      /**
+         * Calculate duration in seconds if both start and end times are available
+         * @nullable
+         */
+      readonly duration_seconds: number | null;
+      /** Check if calculation is completed (successfully or with error) */
+      readonly is_completed: boolean;
+      /** Check if calculation completed successfully */
+      readonly is_successful: boolean;
+      /**
+         * Get total query duration across all queries
+         * @nullable
+         */
+      readonly total_query_ms: number | null;
+      /**
+         * Get total memory usage across all queries
+         * @nullable
+         */
+      readonly total_memory_mb: number | null;
+      /**
+         * Get total rows read across all queries
+         * @nullable
+         */
+      readonly total_read_rows: number | null;
+      /**
+         * Get total rows written across all queries
+         * @nullable
+         */
+      readonly total_written_rows: number | null;
+      /**
+         * Get the main query (first query in the array)
+         * @nullable
+         */
+      readonly main_query: string | null;
+    }
+
+    export interface CohortCalculationHistoryResponse {
+      /** Calculation runs on this page, newest first. */
+      results: CohortCalculationHistory[];
+      /** Number of calculation runs recorded for the cohort. */
+      count: number;
+      /**
+         * Query string for the next page, such as `?limit=100&offset=100`, or null.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * Query string for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
     }
 
     /**
@@ -30180,6 +30473,7 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
+       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -30351,6 +30645,8 @@ export namespace Schemas {
          * @nullable
          */
       error: string | null;
+      /** True when `error` explains the failure to the viewer (for example, no access or an invalid query) and can be shown as is. Other errors are generic. */
+      error_is_user_facing?: boolean;
     }
 
     export interface DataCatalogCertification {
@@ -62356,157 +62652,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export type MetricsAggregation = typeof MetricsAggregation[keyof typeof MetricsAggregation];
-
-
-    export const MetricsAggregation = {
-      Sum: 'sum',
-      Avg: 'avg',
-      Count: 'count',
-      Min: 'min',
-      Max: 'max',
-      Quantile: 'quantile',
-      Rate: 'rate',
-      Increase: 'increase',
-      HistogramQuantile: 'histogram_quantile',
-    } as const;
-
-    export interface MetricsQueryGroupBy {
-      key: string;
-      scope?: MetricsAttributeScope | null;
-    }
-
-    export type MetricsOtelType = typeof MetricsOtelType[keyof typeof MetricsOtelType];
-
-
-    export const MetricsOtelType = {
-      Gauge: 'gauge',
-      Sum: 'sum',
-      Histogram: 'histogram',
-      ExponentialHistogram: 'exponential_histogram',
-      Summary: 'summary',
-    } as const;
-
-    export type MetricsRangeFunction = typeof MetricsRangeFunction[keyof typeof MetricsRangeFunction];
-
-
-    export const MetricsRangeFunction = {
-      Rate: 'rate',
-      Increase: 'increase',
-    } as const;
-
-    export interface MetricsQueryClause {
-      /** Omit to get one line per series (at most 100), without combining them */
-      aggregation?: MetricsAggregation | null;
-      filters?: MetricsQueryFilter[] | null;
-      groupBy?: MetricsQueryGroupBy[] | null;
-      metricName: string;
-      /** Series identity includes the OTel type — one name can exist as e.g. both a counter and a gauge — so a clause pins it to avoid blending distinct series. */
-      metricType?: MetricsOtelType | null;
-      /** Alias a formula refers to (e.g. "a"); must be unique within the query */
-      name: string;
-      /** In (0, 1); required for `quantile` / `histogram_quantile` aggregations */
-      quantile?: number | null;
-      /** Applied to each series before `aggregation`, like `rate()` in PromQL */
-      rangeFunction?: MetricsRangeFunction | null;
-    }
-
-    export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
-
-
-    export const MetricsReducer = {
-      Last: 'last',
-      Mean: 'mean',
-      Min: 'min',
-      Max: 'max',
-      Sum: 'sum',
-      Delta: 'delta',
-    } as const;
-
-    export type MetricsNullMode = typeof MetricsNullMode[keyof typeof MetricsNullMode];
-
-
-    export const MetricsNullMode = {
-      Gap: 'gap',
-      Zero: 'zero',
-      Connect: 'connect',
-    } as const;
-
-    export type MetricsStatSummary = typeof MetricsStatSummary[keyof typeof MetricsStatSummary];
-
-
-    export const MetricsStatSummary = {
-      Latest: 'latest',
-      Average: 'average',
-      Total: 'total',
-    } as const;
-
-    export interface MetricsThreshold {
-      /** A named color token (e.g. "green", "red"), never raw hex, so light and dark themes both work. */
-      color: string;
-      /** Lower bound of this band. The lowest step is the base color below every other step. */
-      value: number;
-    }
-
-    export type MetricsDisplayType = typeof MetricsDisplayType[keyof typeof MetricsDisplayType];
-
-
-    export const MetricsDisplayType = {
-      Line: 'line',
-      Area: 'area',
-      Bar: 'bar',
-      Stat: 'stat',
-      Gauge: 'gauge',
-      Bargauge: 'bargauge',
-      Table: 'table',
-      Heatmap: 'heatmap',
-    } as const;
-
-    export type MetricsAxisScale = typeof MetricsAxisScale[keyof typeof MetricsAxisScale];
-
-
-    export const MetricsAxisScale = {
-      Linear: 'linear',
-      Log: 'log',
-    } as const;
-
-    export interface MetricsYAxisSettings {
-      /** Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot. */
-      max?: number | null;
-      /** Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on. */
-      min?: number | null;
-      scale?: MetricsAxisScale | null;
-      /** When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero. */
-      startAtZero?: boolean | null;
-    }
-
-    export interface MetricsDisplaySettings {
-      goalLines?: GoalLine[] | null;
-      /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
-      legendCalcs?: MetricsReducer[] | null;
-      /** How a null bucket renders on a time-series chart. */
-      nullMode?: MetricsNullMode | null;
-      /** How scalar panels and legend calcs collapse a series to one number. */
-      reduce?: MetricsReducer | null;
-      /** `stat` display only: which summary the headline value shows. */
-      statSummary?: MetricsStatSummary | null;
-      /** Color bands for the scalar panels. Sorted by `value` at read time, so entry order does not matter. */
-      thresholds?: MetricsThreshold[] | null;
-      type?: MetricsDisplayType | null;
-      /** UCUM unit string as OTel writes it, e.g. "By", "ms", "%". Defaults from the response unit. */
-      unit?: string | null;
-      yAxis?: MetricsYAxisSettings | null;
-    }
-
-    export type MetricsQueryLanguage = typeof MetricsQueryLanguage[keyof typeof MetricsQueryLanguage];
-
-
-    export const MetricsQueryLanguage = {
-      Builder: 'builder',
-      Promql: 'promql',
-      Sql: 'sql',
-    } as const;
-
     export interface MetricsQueryPoint {
       /** Bucket start, ISO 8601 */
       time: string;
@@ -73682,6 +73827,37 @@ export namespace Schemas {
       MetricsTable: 'metrics_table',
     } as const;
 
+    export type MetricsWidgetCatalogEntryOpenApiWidgetType = typeof MetricsWidgetCatalogEntryOpenApiWidgetType[keyof typeof MetricsWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const MetricsWidgetCatalogEntryOpenApiWidgetType = {
+      Metrics: 'metrics',
+    } as const;
+
+    export interface MetricsWidgetCatalogEntryOpenApi {
+      widget_type: MetricsWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** Config shape for this widget type. Build the config for the batch add and batch update tools from it, because their schemas do not list config keys. */
+      readonly config_schema: MetricsWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `metrics` - metrics
+     */
+    export type MetricsWidgetTypeEnum = typeof MetricsWidgetTypeEnum[keyof typeof MetricsWidgetTypeEnum];
+
+
+    export const MetricsWidgetTypeEnum = {
+      Metrics: 'metrics',
+    } as const;
+
     export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtra {
       severity_value: string | null;
       resolution_status_value: string | null;
@@ -77380,15 +77556,6 @@ export namespace Schemas {
       results: AccountTrackRuleRunView[];
     }
 
-    export interface PaginatedActionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Action[];
-    }
-
     export interface PaginatedActivityLogList {
       /** @nullable */
       next?: string | null;
@@ -77610,15 +77777,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ChangeRequest[];
-    }
-
-    export interface PaginatedChannelDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ChannelDTO[];
     }
 
     export interface PaginatedChannelFeedMessageDTOList {
@@ -77849,15 +78007,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataCatalogRelationshipProposal[];
-    }
-
-    export interface PaginatedDataColorThemeList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DataColorTheme[];
     }
 
     export interface PaginatedDataDeletionRequestList {
@@ -80459,76 +80608,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SessionRecordingExternalRef[];
-    }
-
-    export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
-
-    export interface SessionRecording {
-      readonly id: string;
-      /** @nullable */
-      readonly distinct_id: string | null;
-      readonly viewed: boolean;
-      readonly viewers: readonly string[];
-      readonly recording_duration: number;
-      /** @nullable */
-      readonly active_seconds: number | null;
-      /** @nullable */
-      readonly inactive_seconds: number | null;
-      /** @nullable */
-      readonly start_time: string | null;
-      /** @nullable */
-      readonly end_time: string | null;
-      /** @nullable */
-      readonly click_count: number | null;
-      /** @nullable */
-      readonly keypress_count: number | null;
-      /** @nullable */
-      readonly mouse_activity_count: number | null;
-      /** @nullable */
-      readonly console_log_count: number | null;
-      /** @nullable */
-      readonly console_warn_count: number | null;
-      /** @nullable */
-      readonly console_error_count: number | null;
-      /** @nullable */
-      readonly start_url: string | null;
-      person?: MinimalPerson;
-      /** @nullable */
-      readonly retention_period_days: number | null;
-      /** @nullable */
-      readonly expiry_time: string | null;
-      /** @nullable */
-      readonly recording_ttl: number | null;
-      /** @nullable */
-      readonly snapshot_source: string | null;
-      /** @nullable */
-      readonly snapshot_library: string | null;
-      readonly ongoing: boolean;
-      /** @nullable */
-      readonly activity_score: number | null;
-      /** Load external references (linked issues) for this recording */
-      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
-      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
-      readonly matches_filters: boolean;
-      /**
-         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
-         * @nullable
-         */
-      readonly total_size: number | null;
-      /**
-         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
-         * @nullable
-         */
-      readonly event_count: number | null;
-    }
-
-    export interface PaginatedSessionRecordingList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SessionRecording[];
     }
 
     /**
@@ -95276,6 +95355,7 @@ export namespace Schemas {
        * * `experiment_results` - Experiment Results
        * * `experiments_list` - Experiments List
        * * `logs_list` - Logs List
+       * * `metrics` - Metrics
        * * `metrics_table` - Metrics Table
        * * `notebook_widget` - Notebook Widget
        * * `session_replay_list` - Session Replay List
@@ -111443,6 +111523,67 @@ export namespace Schemas {
       date_to: string;
     }
 
+    export type SessionRecordingExternalReferencesItem = { [key: string]: unknown };
+
+    export interface SessionRecording {
+      readonly id: string;
+      /** @nullable */
+      readonly distinct_id: string | null;
+      readonly viewed: boolean;
+      readonly viewers: readonly string[];
+      readonly recording_duration: number;
+      /** @nullable */
+      readonly active_seconds: number | null;
+      /** @nullable */
+      readonly inactive_seconds: number | null;
+      /** @nullable */
+      readonly start_time: string | null;
+      /** @nullable */
+      readonly end_time: string | null;
+      /** @nullable */
+      readonly click_count: number | null;
+      /** @nullable */
+      readonly keypress_count: number | null;
+      /** @nullable */
+      readonly mouse_activity_count: number | null;
+      /** @nullable */
+      readonly console_log_count: number | null;
+      /** @nullable */
+      readonly console_warn_count: number | null;
+      /** @nullable */
+      readonly console_error_count: number | null;
+      /** @nullable */
+      readonly start_url: string | null;
+      person?: MinimalPerson;
+      /** @nullable */
+      readonly retention_period_days: number | null;
+      /** @nullable */
+      readonly expiry_time: string | null;
+      /** @nullable */
+      readonly recording_ttl: number | null;
+      /** @nullable */
+      readonly snapshot_source: string | null;
+      /** @nullable */
+      readonly snapshot_library: string | null;
+      readonly ongoing: boolean;
+      /** @nullable */
+      readonly activity_score: number | null;
+      /** Load external references (linked issues) for this recording */
+      readonly external_references: readonly SessionRecordingExternalReferencesItem[];
+      /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+      readonly matches_filters: boolean;
+      /**
+         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly total_size: number | null;
+      /**
+         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * @nullable
+         */
+      readonly event_count: number | null;
+    }
+
     export interface SessionRecordingBulkDeleteRequest {
       /**
          * Session IDs of the recordings to delete (max 100 per call).
@@ -111492,6 +111633,17 @@ export namespace Schemas {
       console_log_capture_enabled: boolean;
       /** True when the recording started longer ago than the console log retention period. The recording can still exist after its console log entries are deleted. Entries expire one at a time, so a recording close to the retention period can already miss its earliest entries while this is false. */
       logs_expired: boolean;
+    }
+
+    export interface SessionRecordingListResponse {
+      /** Recordings on this page. */
+      results: SessionRecording[];
+      /** Whether more recordings match the query after this page. */
+      has_next: boolean;
+      /** Version of the listing response format. */
+      version: number;
+      /** Cursor for the next page. Send it back as `after` to load the next page. Absent when the query does not page by cursor or there is no next page. */
+      next_cursor?: string;
     }
 
     export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
@@ -125093,7 +125245,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsTableWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi | CanvasAppWidgetCatalogEntryOpenApi | MetricsTableWidgetCatalogEntryOpenApi | MetricsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types. */
@@ -127413,7 +127565,10 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups. */
       filterGroup?: LogsFilterGroupInput;
-      /** Max results (1-1000). */
+      /**
+         * Max results. Values above 2000 are capped at 2000.
+         * @minimum 1
+         */
       limit?: number;
       /** Pagination cursor from previous response. */
       after?: string;
@@ -132721,6 +132876,20 @@ export namespace Schemas {
     page?: number;
     };
 
+    export type CohortsCalculationHistoryRetrieveParams = {
+    /**
+     * Number of calculation runs to return. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of calculation runs to skip. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
     /**
@@ -133581,7 +133750,15 @@ export namespace Schemas {
     } as const;
 
     export type DashboardsRunWidgetsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string;
     format?: DashboardsRunWidgetsRetrieveFormat;
+    /**
+     * Recompute widgets that follow dashboard filters (such as metrics) instead of serving their query cache, as a manual refresh of an insight tile does.
+     */
+    refresh?: boolean;
     /**
      * Comma-separated dashboard tile IDs to run widgets for.
      */
@@ -133739,6 +133916,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      Metrics: 'metrics',
       MetricsTable: 'metrics_table',
       NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
@@ -133835,17 +134013,6 @@ export namespace Schemas {
      * Only relationships involving this table on either side.
      */
     table_name?: string;
-    };
-
-    export type DataColorThemesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type DataDeletionRequestsListParams = {
@@ -134805,7 +134972,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134820,7 +134987,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134835,7 +135002,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134862,7 +135029,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134885,20 +135052,28 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
 
     export type EngineeringAnalyticsBrokenTestsParams = {
     /**
+     * Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.
+     */
+    branch?: string;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog/api/test/test_user.py'. Applied before the limit, so a test past the cap is still found.
+     */
+    test?: string;
     };
 
     export type EngineeringAnalyticsCiCardsParams = {
@@ -134907,7 +135082,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -134934,7 +135109,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135011,7 +135186,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135038,7 +135213,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135065,7 +135240,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135096,7 +135271,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135111,6 +135286,10 @@ export namespace Schemas {
     } as const;
 
     export type EngineeringAnalyticsFlakyTestsParams = {
+    /**
+     * Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.
      */
@@ -135128,6 +135307,10 @@ export namespace Schemas {
      */
     min_failed_prs?: number;
     /**
+     * Optional pull request number. Keeps only tests that failed in that PR's CI runs, but the counts still cover every PR. Pass min_failed_prs=1 too, so a test that failed on this PR alone qualifies. Applied before the limit.
+     */
+    pr_number?: number;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -135136,9 +135319,13 @@ export namespace Schemas {
      */
     runner?: EngineeringAnalyticsFlakyTestsRunner;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog/api/test/test_user.py'. Applied before the limit, so a test past the cap is still found.
+     */
+    test?: string;
     };
 
     export type EngineeringAnalyticsFlakyTestsRunner = typeof EngineeringAnalyticsFlakyTestsRunner[keyof typeof EngineeringAnalyticsFlakyTestsRunner];
@@ -135171,7 +135358,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsJobAggregatesRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135240,7 +135427,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135263,7 +135450,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135278,7 +135465,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135293,7 +135480,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135308,7 +135495,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135323,7 +135510,7 @@ export namespace Schemas {
      */
     repo: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135354,7 +135541,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135385,7 +135572,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135409,7 +135596,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135432,7 +135619,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135455,7 +135642,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135470,7 +135657,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135493,7 +135680,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135524,7 +135711,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135559,7 +135746,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135582,7 +135769,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135593,7 +135780,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135620,7 +135807,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135657,7 +135844,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135684,7 +135871,7 @@ export namespace Schemas {
      */
     run_id: number;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     };
@@ -135719,7 +135906,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunActivityRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135760,7 +135947,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunnerCostsRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -135801,7 +135988,7 @@ export namespace Schemas {
      */
     run_scope?: EngineeringAnalyticsWorkflowRunsRunScope;
     /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.
      */
     source_id?: string;
     /**
@@ -143975,7 +144162,6 @@ export namespace Schemas {
     offset?: number;
     /**
      * Search filter for attribute names.
-     * @minLength 1
      */
     search?: string;
     /**
@@ -144058,7 +144244,6 @@ export namespace Schemas {
     offset?: number;
     /**
      * Search filter for attribute values.
-     * @minLength 1
      */
     value?: string;
     };

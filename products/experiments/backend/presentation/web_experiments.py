@@ -8,6 +8,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
 import nh3
+from drf_spectacular.utils import extend_schema
 from nanoid import generate
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -336,6 +337,9 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         return feature_flag_key
 
 
+# Codegen routes an endpoint by its x-product. Only the toolbar calls these routes, through its own
+# client, and "web_experiments" names no product folder, so the generated clients leave them out.
+@extend_schema(extensions={"x-product": "web_experiments"})
 class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
