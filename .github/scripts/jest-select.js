@@ -6,7 +6,12 @@ const path = require('node:path')
 const FRONTEND_DIR = path.resolve(__dirname, '../../frontend')
 
 // File counts approximate runtime; tune this from observed shard durations.
-const TEST_FILES_PER_SHARD = 342
+// A shard costs a fixed ~102s (checkout, pnpm install, quarantine gate) plus about
+// 31s + 1.38s per test file, measured across selective and full PR runs:
+// 2 files -> 34s, 318 files -> 503-520s. 171 files therefore lands near a 6-minute
+// shard instead of the 10 minutes 342 files produced. Re-fit this from the
+// `posthog-ci-jest-selection` shard durations when the suite's weight changes.
+const TEST_FILES_PER_SHARD = 171
 const MAX_SHARDS = 8
 const MAX_CHANGED_FILES = 200
 
