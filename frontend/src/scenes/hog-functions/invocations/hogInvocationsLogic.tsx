@@ -235,38 +235,6 @@ export function buildHogInvocationsSearchParams(filters: Partial<HogInvocationsF
     )
 }
 
-const AUTO_REFRESH_INTERVAL_MS = 10000
-// After a rerun is enqueued the matching rows aren't `running` yet (the worker
-// drains asynchronously), so the `hasRunningRows` guard alone wouldn't restart
-// polling. Force a short polling window so the re-run rows surface on their own.
-const FORCE_REFRESH_WINDOW_MS = 30000
-
-const scheduleAutoRefresh = (
-    // Kea types `cache` as `Record<string, any>` upstream — that's where the
-    // `disposables` plugin attaches its handle, but the registration is
-    // dynamic so the narrow type isn't visible at this call site.
-    cache: Record<string, any>,
-    actions: { loadRuns: (payload: null) => void },
-    values: { hasRunningRows: boolean; runsLoading: boolean }
-): void => {
-    const forcing = typeof cache.forceRefreshUntil === 'number' && Date.now() < cache.forceRefreshUntil
-    if (!values.hasRunningRows && !forcing) {
-        return
-    }
-    cache.disposables.add(() => {
-        const timeoutId = setTimeout(() => {
-            // Skip this tick if a load is still in flight — don't stack a second
-            // heavy aggregation on ClickHouse. Re-arm so polling resumes once it settles.
-            if (values.runsLoading) {
-                scheduleAutoRefresh(cache, actions, values)
-            } else {
-                actions.loadRuns(null)
-            }
-        }, AUTO_REFRESH_INTERVAL_MS)
-        return () => clearTimeout(timeoutId)
-    }, 'autoRefresh')
-}
-
 /**
  * Convert a relative date-picker string (`-1h`, `-7d`, `-3w`) to its duration
  * in hours. Can't reuse `dateStringToDayJs` for this — that one anchors
@@ -835,7 +803,6 @@ export interface hogInvocationsLogicValues {
     filters: HogInvocationsFilters
     hasLoadedOnce: boolean
     hasMore: boolean
-    hasRunningRows: boolean
     personPropertiesById: Record<
         string,
         {
@@ -1034,7 +1001,6 @@ export interface hogInvocationsLogicMeta {
         selectedCount: (selectedIds: Record<string, boolean>) => number
         canBulkRerun: (selectedCount: number) => boolean
         rerunableSelectedIds: (selectedIds: Record<string, boolean>, runs: HogInvocationRow[]) => string[]
-        hasRunningRows: (runs: HogInvocationRow[]) => boolean
         selectableIds: (runs: HogInvocationRow[]) => string[]
         selectAllState: (selectedIds: Record<string, boolean>, selectableIds: string[]) => 'all' | 'none' | 'some'
     }
@@ -1335,10 +1301,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 })
             },
         ],
-        hasRunningRows: [
-            (s) => [s.runs],
-            (runs: HogInvocationRow[]): boolean => runs.some((r) => r.status === 'running'),
-        ],
         selectableIds: [
             (s) => [s.runs],
             (runs: HogInvocationRow[]): string[] =>
@@ -1396,8 +1358,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             actions.setFilters({ person_uuid: person?.uuid ?? undefined })
         },
         loadRunsSuccess: () => {
-            scheduleAutoRefresh(cache, actions, values)
-            // Full-list enrichment: a 10s poll can surface brand-new invocation ids.
+            // Full-list enrichment: a refresh can surface brand-new invocation ids.
             actions.enrichProblems(null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
@@ -1405,7 +1366,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             }
         },
         loadMoreSuccess: () => {
-            scheduleAutoRefresh(cache, actions, values)
             actions.enrichProblems((cache.lastPageInvocationIds as string[] | undefined) ?? null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
@@ -1451,11 +1411,9 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                         ? await hogFunctionsRerunCreate(String(teamId), props.id, requestBody)
                         : await hogFlowsRerunCreate(String(teamId), props.id, requestBody)
                 lemonToast.success(
-                    `Rerun job ${response.rerun_job_id.slice(0, 8)}… queued. Updated rows will appear here as the worker drains the job.`
+                    `Rerun job ${response.rerun_job_id.slice(0, 8)}… queued. Refresh to see updated rows as the worker drains the job.`
                 )
                 actions.clearSelected()
-                // Re-run rows aren't `running` yet — force a short polling window so they surface.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue rerun: ${e?.detail ?? e?.message ?? String(e)}`)
@@ -1480,9 +1438,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 } else {
                     lemonToast.info('Nothing to cancel. The runs may have finished or are already being canceled.')
                 }
-                // Canceled rows flip once the worker terminates them, so poll briefly and the
-                // status change surfaces without a manual refresh.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to cancel: ${e?.detail ?? e?.message ?? String(e)}`)
@@ -1513,9 +1468,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 } else {
                     lemonToast.info('No runs are in flight for this workflow.')
                 }
-                // Canceled rows flip once the worker terminates them, so poll briefly and the
-                // status change surfaces without a manual refresh.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to cancel: ${e?.detail ?? e?.message ?? String(e)}`)
@@ -1554,8 +1506,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 lemonToast.success(
                     `Re-run job ${response.rerun_job_id.slice(0, 8)}… queued. Matching invocations will be re-run in the background.`
                 )
-                // Re-run rows aren't `running` yet — force a short polling window so they surface.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue re-run: ${e?.detail ?? e?.message ?? String(e)}`)

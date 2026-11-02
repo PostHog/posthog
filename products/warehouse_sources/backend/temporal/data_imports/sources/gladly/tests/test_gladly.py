@@ -284,9 +284,9 @@ class TestGetEventRows:
     @pytest.mark.parametrize(
         "watermark, resume_state, expected_first_start, expected_windows, expect_warning",
         [
-            (None, None, "2024-03-14T10:05:00.000Z", 24, False),
-            ("2024-03-10T00:00:00.000Z", None, "2024-03-14T10:05:00.000Z", 24, True),
-            ("not a timestamp", None, "2024-03-14T10:05:00.000Z", 24, True),
+            (None, None, "2024-03-14T10:30:00.000Z", 24, False),
+            ("2024-03-10T00:00:00.000Z", None, "2024-03-14T10:30:00.000Z", 24, True),
+            ("not a timestamp", None, "2024-03-14T10:30:00.000Z", 24, True),
             (
                 "2024-03-15T06:00:00.000Z",
                 GladlyResumeConfig(last_event_window_end="2024-03-15T08:00:00.000Z"),

@@ -411,6 +411,7 @@ export type SessionRecordingPlaylistsListParams = {
     created_by?: number
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
