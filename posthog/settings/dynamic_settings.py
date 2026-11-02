@@ -262,6 +262,17 @@ CONSTANCE_CONFIG = {
         "HMAC signing secret for conversations widget identity verification in the support sidebar.",
         str,
     ),
+    "CONVERSATIONS_SUPPORT_WIDGET_TOKEN": (
+        get_from_env("CONVERSATIONS_SUPPORT_WIDGET_TOKEN", default=""),
+        "Public widget token of PostHog's own support project. Lets a signed-in user open a support "
+        "ticket through the API or MCP. Empty disables that.",
+        str,
+    ),
+    "CONVERSATIONS_SUPPORT_WIDGET_HOST": (
+        get_from_env("CONVERSATIONS_SUPPORT_WIDGET_HOST", default=""),
+        "Host that serves the support project's widget API. Empty uses the PostHog Cloud host.",
+        str,
+    ),
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN": (
         get_from_env("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", default=""),
         "Mailgun receiving domain for inbound email routing, e.g. mg.posthog.com.",
@@ -462,6 +473,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SUPPORT_TEAMS_APP_TENANT_ID",
     "SUPPORT_TEAMS_CATALOG_APP_ID",
     "CONVERSATIONS_HMAC_SIGNING_SECRET",
+    "CONVERSATIONS_SUPPORT_WIDGET_TOKEN",
+    "CONVERSATIONS_SUPPORT_WIDGET_HOST",
     "CONVERSATIONS_EMAIL_INBOUND_DOMAIN",
     "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
     "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",

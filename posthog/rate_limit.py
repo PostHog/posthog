@@ -608,6 +608,24 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class _PostHogSupportUserThrottle(_UserBucketRateThrottle):
+    # Keyed on the user alone: a fresh personal API key must not buy a fresh budget.
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        ident = request.user.pk if request.user.is_authenticated else self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+# Each ticket lands in front of a person on the support team, so an agent loop must not flood it.
+class PostHogSupportTicketCreateBurstThrottle(_PostHogSupportUserThrottle):
+    scope = "posthog_support_ticket_create_burst"
+    rate = "5/hour"
+
+
+class PostHogSupportTicketCreateSustainedThrottle(_PostHogSupportUserThrottle):
+    scope = "posthog_support_ticket_create_sustained"
+    rate = "20/day"
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per

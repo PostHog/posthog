@@ -1064,6 +1064,81 @@ export interface ZendeskImportErrorApi {
     detail: string
 }
 
+/**
+ * * `question` - Question
+ * * `bug` - Bug
+ * * `data_deletion` - Data deletion
+ * * `billing` - Billing
+ * * `other` - Other
+ */
+export type PostHogSupportRequestTypeEnumApi =
+    (typeof PostHogSupportRequestTypeEnumApi)[keyof typeof PostHogSupportRequestTypeEnumApi]
+
+export const PostHogSupportRequestTypeEnumApi = {
+    Question: 'question',
+    Bug: 'bug',
+    DataDeletion: 'data_deletion',
+    Billing: 'billing',
+    Other: 'other',
+} as const
+
+export interface CreatePostHogSupportTicketApi {
+    /** What kind of help this is. Use `data_deletion` only to ask PostHog staff to permanently delete events, and fill `deletion_query`, `expected_event_count` and `deletion_consent`.
+     *
+     * * `question` - Question
+     * * `bug` - Bug
+     * * `data_deletion` - Data deletion
+     * * `billing` - Billing
+     * * `other` - Other */
+    request_type: PostHogSupportRequestTypeEnumApi
+    /**
+     * One line that says what the problem or question is.
+     * @maxLength 200
+     */
+    subject: string
+    /**
+     * The full problem or question in plain text. Include event names, flag keys, SDK names and versions, and links to the PostHog pages involved. Do not include secrets, API keys or personal data.
+     * @maxLength 4000
+     */
+    description: string
+    /**
+     * What you expected to happen.
+     * @maxLength 1000
+     */
+    expected?: string
+    /**
+     * What happened instead, with exact error messages.
+     * @maxLength 1000
+     */
+    actual?: string
+    /**
+     * Docs pages read and steps already tried, so support does not repeat them.
+     * @maxLength 1000
+     */
+    already_tried?: string
+    /**
+     * For `data_deletion` only: a HogQL query with a time range that selects exactly the events to delete. Sent as raw text, so paste it unchanged.
+     * @maxLength 4000
+     */
+    deletion_query?: string
+    /**
+     * For `data_deletion` only: the number of events the deletion query returns now.
+     * @minimum 0
+     */
+    expected_event_count?: number
+    /** For `data_deletion` only: true confirms that the user wants these events permanently deleted. Ask the user before you set it. Deleted events cannot be restored. */
+    deletion_consent?: boolean
+}
+
+export interface PostHogSupportTicketCreatedApi {
+    /** ID of the new ticket in PostHog's support inbox. */
+    ticket_id: string
+    /** Status of the ticket, `new` right after creation. */
+    ticket_status: string
+    /** When support received the first message. */
+    created_at: string
+}
+
 export type ConversationsTicketsListParams = {
     /**
      * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.

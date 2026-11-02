@@ -166,6 +166,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'person:write',
     'plugin:read',
     'plugin:write',
+    'posthog_support:read',
+    'posthog_support:write',
     'product_enablement:read',
     'product_enablement:write',
     'product_tour:read',
