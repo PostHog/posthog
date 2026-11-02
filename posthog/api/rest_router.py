@@ -548,9 +548,14 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(r"workload_trust_policies", WorkloadTrustPolicyViewSet, "project_workload_trust_policies", ["project_id"])
 projects_router.register(
-    r"workload_trust_policy_requests", WorkloadTrustPolicyRequestViewSet, "project_workload_trust_policy_requests", ["project_id"]
+    r"workload_trust_policies", WorkloadTrustPolicyViewSet, "project_workload_trust_policies", ["project_id"]
+)
+projects_router.register(
+    r"workload_trust_policy_requests",
+    WorkloadTrustPolicyRequestViewSet,
+    "project_workload_trust_policy_requests",
+    ["project_id"],
 )
 
 projects_router.register(
