@@ -901,8 +901,12 @@ async fn run_gate(
         .await?,
     );
     if args.property_storage.writes_slatedb() {
+        let reader = crate::property_verify::store_reader()?;
         let store_violations =
-            crate::property_verify::verify_store_against_journal(args.team_id, &journal).await?;
+            crate::property_verify::verify_store_against_journal(&reader, args.team_id, &journal)
+                .await;
+        reader.close().await;
+        let store_violations = store_violations?;
         println!(
             "  SlateDB holds every acked write: {}",
             if store_violations.is_empty() {

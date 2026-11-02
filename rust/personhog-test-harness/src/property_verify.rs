@@ -47,12 +47,20 @@ fn counters_by_outcome(page: &str, metric: &str) -> std::collections::HashMap<St
         .collect()
 }
 
+/// One reader per verification pass: each one opens every shard a team's persons hash to.
+pub fn store_reader() -> Result<PropertyReader> {
+    let config = PropertyStoreConfig::init_from_env().context("property store config")?;
+    Ok(PropertyReader::new(
+        &config,
+        personhog_property_store::object_store(&config)?,
+    ))
+}
+
 pub async fn verify_store_against_journal(
+    reader: &PropertyReader,
     team_id: i64,
     journal: &HashMap<i64, ExpectedPerson>,
 ) -> Result<Vec<ConsistencyViolation>> {
-    let config = PropertyStoreConfig::init_from_env().context("property store config")?;
-    let reader = PropertyReader::new(&config, personhog_property_store::object_store(&config)?);
     let deadline = Instant::now() + CATCH_UP;
     let mut violations = Vec::new();
     for (&person_id, expected) in journal {
@@ -82,7 +90,6 @@ pub async fn verify_store_against_journal(
             }),
         }
     }
-    reader.close().await;
     Ok(violations)
 }
 

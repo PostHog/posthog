@@ -347,9 +347,15 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         // lane closes even when one fails: the error propagates only
         // after the loop below records the other lanes' verification
         // results and diagnostics.
+        let store_reader = args
+            .property_storage
+            .writes_slatedb()
+            .then(crate::property_verify::store_reader)
+            .transpose()?;
         let closed = futures::future::join_all(lanes.iter_mut().map(|lane| {
             let client = &client;
             let pool = &pool;
+            let store_reader = &store_reader;
             let table = &args.pg_target_table;
             let storage = args.property_storage;
             async move {
@@ -377,10 +383,12 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
                         )
                         .await?,
                     );
-                    if storage.writes_slatedb() {
+                    if let Some(reader) = store_reader {
                         lane_violations.extend(
-                            crate::property_verify::verify_store_against_journal(team_id, &journal)
-                                .await?,
+                            crate::property_verify::verify_store_against_journal(
+                                reader, team_id, &journal,
+                            )
+                            .await?,
                         );
                     }
                     anyhow::Ok((team_id, lane_violations, lane.collector.writes.snapshot()))
@@ -391,6 +399,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             }
         }))
         .await;
+        if let Some(reader) = store_reader {
+            reader.close().await;
+        }
         hostile.await.context("hostile task panicked")?;
 
         let mut violations = Vec::new();
