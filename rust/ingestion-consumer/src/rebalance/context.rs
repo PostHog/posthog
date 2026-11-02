@@ -158,8 +158,10 @@ impl ConsumerContext for RebalanceContext {
         match err {
             RDKafkaRespErr::RD_KAFKA_RESP_ERR__ASSIGN_PARTITIONS => self.on_assigned(consumer, tpl),
             RDKafkaRespErr::RD_KAFKA_RESP_ERR__REVOKE_PARTITIONS => self.on_revoked(consumer, tpl),
+            // librdkafka only calls back with assign or revoke. This arm is a
+            // fallback for another code, and the unassign keeps the group from
+            // waiting on this member.
             _ => {
-                counter!("ingestion_consumer_rebalances_total", "event" => "error").increment(1);
                 warn!(error = %RDKafkaErrorCode::from(err), "Rebalance error");
                 Unassign::new(tpl.clone(), cooperative(consumer)).apply(consumer);
             }
