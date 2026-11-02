@@ -1,30 +1,13 @@
 import type { Runtime } from '@/core/runtime'
 
-import {
-    hostKey,
-    openStore,
-    type FileStore,
-    type KeychainStore,
-    type StoredCredential,
-    type StoredSecret,
-} from './credential-store'
-import { loginFor, readSettings, withLogin, writeSettings, type HogSettings, type LoginRecord } from './settings'
+import { credentialFromStorage, type Credential, type CredentialStorage } from './credential'
+import { hostKey, openStore, type FileStore, type KeychainStore } from './credential-store'
+import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from './settings'
 
 // A login hog stored, and the store that holds its secrets.
 export interface StoredLogin {
-    credential: StoredCredential
+    credential: Credential
     store: KeychainStore | FileStore
-}
-
-function splitLogin(credential: StoredCredential, store: KeychainStore | FileStore): [StoredSecret, LoginRecord] {
-    return [
-        { apiKey: credential.apiKey },
-        { store: store.kind, type: credential.type, projectId: credential.projectId },
-    ]
-}
-
-function joinLogin(host: string, record: LoginRecord, secret: StoredSecret): StoredCredential {
-    return { type: record.type, host, projectId: record.projectId, apiKey: secret.apiKey }
 }
 
 export async function readLogin(
@@ -38,7 +21,17 @@ export async function readLogin(
     }
     const store = openStore(runtime, record.store)
     const secret = await store.read(host)
-    return secret ? { credential: joinLogin(hostKey(host), record, secret), store } : undefined
+    const credential = secret && credentialFromStorage(hostKey(host), record, secret)
+    return credential ? { credential, store } : undefined
+}
+
+// How a login's credential reads and saves its stored copy when it renews itself.
+export function loginStorage(runtime: Runtime, login: StoredLogin): CredentialStorage {
+    const { host } = login.credential
+    return {
+        reread: async () => (await readLogin(runtime, await readSettings(runtime), host))?.credential,
+        save: (credential) => writeLogin(runtime, login.store, credential),
+    }
 }
 
 // Writes the secrets first, so settings.json never names a login whose secrets aren't stored yet.
@@ -47,12 +40,11 @@ export async function readLogin(
 export async function writeLogin(
     runtime: Runtime,
     store: KeychainStore | FileStore,
-    credential: StoredCredential,
+    credential: Credential,
     options: { lastLogin?: boolean } = {}
 ): Promise<void> {
-    const [secret, record] = splitLogin(credential, store)
-    await store.write(credential.host, secret)
-    const settings = withLogin(await readSettings(runtime), credential.host, record)
+    await store.write(credential.host, credential.secret())
+    const settings = withLogin(await readSettings(runtime), credential.host, credential.record(store.kind))
     await writeSettings(runtime, options.lastLogin ? { ...settings, host: credential.host } : settings)
 }
 

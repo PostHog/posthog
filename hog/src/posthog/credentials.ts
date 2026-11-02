@@ -3,8 +3,9 @@ import { join } from 'node:path'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 
+import { PersonalApiKey, type Credential } from './credential'
 import { FileStore, type StoreChoice } from './credential-store'
-import { readLogin, type StoredLogin } from './logins'
+import { loginStorage, readLogin } from './logins'
 import { readSettings } from './settings'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
@@ -16,11 +17,12 @@ export interface Credentials {
     host: string
 }
 
-// `store` is what `hog auth login` saved. `posthog-cli-file` is posthog-cli's credentials file, which
-// hog reads but never writes.
-export type CredentialSource = 'env' | 'dotenv-file' | 'store' | 'posthog-cli-file'
+// `store` is what `hog auth login` or `hog auth migrate` saved.
+export type CredentialSource = 'env' | 'dotenv-file' | 'store'
 
 export type ResolvedCredentials = Credentials & {
+    // The credential itself, which knows how to renew and log out.
+    credential: Credential
     source: CredentialSource
     // Set when the source is the store.
     store?: StoreChoice
@@ -155,7 +157,8 @@ export function legacyCredentialsPath(runtime: Runtime): string {
 }
 
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
-// then what `hog auth login` stored, then posthog-cli's credentials file. The global host overrides
+// then what `hog auth login` stored. posthog-cli's credentials file is never read here: `hog auth
+// migrate` moves its key into hog's store. The global host overrides
 // whichever host the source carried, and picks which stored login to use. posthog.json comes from
 // the repository, so its host never redirects a key: it can pick a stored login for that host, and
 // otherwise only stops the command when the key belongs to another host.
@@ -165,12 +168,8 @@ export async function resolveCredentials(
     // open the keychain or renew a token, like telemetry for a command that needed no credentials.
     options: { host?: string; dotenvFile?: string; configHost?: string; includeStore?: boolean }
 ): Promise<ResolvedCredentials> {
-    const withHost = (
-        raw: RawCredentials,
-        source: CredentialSource,
-        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
-    ): ResolvedCredentials => {
-        const host = options.host ?? raw.host ?? DEFAULT_HOST
+    // posthog.json only stops a command whose credentials belong to another host. It never redirects them.
+    const checkConfigHost = (host: string): void => {
         const { configHost } = options
         if (options.host === undefined && configHost !== undefined && !sameOrigin(configHost, host)) {
             throw new HogError(
@@ -180,7 +179,24 @@ export async function resolveCredentials(
                 EXIT_USAGE
             )
         }
-        return { ...validate(raw, host), source, ...extra }
+    }
+    const resolved = (
+        credential: Credential,
+        source: CredentialSource,
+        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
+    ): ResolvedCredentials => {
+        const { host, projectId, token } = credential
+        return { apiKey: token, projectId, host, credential, source, ...extra }
+    }
+    const withHost = (
+        raw: RawCredentials,
+        source: CredentialSource,
+        extra: Pick<ResolvedCredentials, 'store' | 'path'> = {}
+    ): ResolvedCredentials => {
+        const host = options.host ?? raw.host ?? DEFAULT_HOST
+        checkConfigHost(host)
+        const { apiKey, projectId } = validate(raw, host)
+        return resolved(new PersonalApiKey(host, projectId, apiKey), source, extra)
     }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
@@ -205,15 +221,6 @@ export async function resolveCredentials(
         }
     }
 
-    const fromLogin = ({ credential: stored, store }: StoredLogin): ResolvedCredentials =>
-        withHost({ apiKey: stored.apiKey, projectId: stored.projectId, host: stored.host }, 'store', {
-            store: store.kind,
-            path: store instanceof FileStore ? store.path : undefined,
-        })
-
-    // A login to another host than posthog.json names waits until posthog-cli's file had its turn,
-    // because that file may hold credentials for the right host.
-    let otherHostLogin: StoredLogin | undefined
     if (options.includeStore !== false) {
         const settings = await readSettings(runtime)
         const hosts = options.host !== undefined ? [options.host] : [options.configHost, settings.host]
@@ -222,42 +229,17 @@ export async function resolveCredentials(
             if (!login) {
                 continue
             }
-            const { configHost } = options
-            if (
-                options.host === undefined &&
-                configHost !== undefined &&
-                !sameOrigin(configHost, login.credential.host)
-            ) {
-                otherHostLogin ??= login
-                continue
-            }
-            return fromLogin(login)
+            // Before a renewal, so hog never renews a credential it then refuses to send.
+            checkConfigHost(login.credential.host)
+            const credential = await login.credential.fresh(runtime, loginStorage(runtime, login))
+            const { store } = login
+            return resolved(credential, 'store', {
+                store: store.kind,
+                path: store instanceof FileStore ? store.path : undefined,
+            })
         }
     }
 
-    const home = posthogHomeDir(runtime.env, runtime.homeDir())
-    if (home !== undefined) {
-        const path = join(home, 'credentials.json')
-        let stored: { token?: unknown; env_id?: unknown; host?: unknown } | undefined
-        try {
-            stored = JSON.parse(await runtime.readFile(path))
-        } catch {
-            stored = undefined
-        }
-        if (stored && typeof stored.token === 'string' && stored.env_id !== undefined) {
-            const raw = {
-                apiKey: stored.token,
-                projectId: String(stored.env_id),
-                host: typeof stored.host === 'string' ? stored.host : undefined,
-            }
-            return withHost(raw, 'posthog-cli-file', { path })
-        }
-    }
-
-    if (otherHostLogin) {
-        // Fails with host_mismatch, which says how to log in to the right host.
-        return fromLogin(otherHostLogin)
-    }
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",
