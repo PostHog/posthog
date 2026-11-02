@@ -47,6 +47,25 @@ type BufferedAppMetric = Omit<AppMetricInput, 'instance_id' | 'timestamp'> & {
     timestamp: ClickHouseTimestamp | null
 }
 
+export interface AppMetricsAggregatorOptions {
+    /**
+     * Keeps rows buffered until this many milliseconds have passed since the last produce, so that
+     * repeats of one key collapse across several flushes instead of only within one.
+     *
+     * A caller that flushes once per Kafka batch gets almost no dedup, because a single batch
+     * rarely repeats a key. Spanning several seconds of batches is what makes the keys repeat.
+     *
+     * The cost is delay and durability: a row waits up to this long, and a pod that exits without
+     * `flush(true)` loses what it still holds. Leave it at 0 for a caller whose rows must not be
+     * delayed or dropped, such as billing.
+     */
+    minFlushIntervalMs?: number
+}
+
+// A buffer only shrinks when keys repeat. This caps the rows one window can hold, so a caller with
+// unexpectedly high key cardinality produces early instead of growing the heap until the window ends.
+export const MAX_BUFFERED_ROWS = 10_000
+
 /**
  * Dedupes v2 app metrics on `queue`, produces them on `flush`.
  *
@@ -58,8 +77,37 @@ type BufferedAppMetric = Omit<AppMetricInput, 'instance_id' | 'timestamp'> & {
  */
 export class AppMetricsAggregator {
     private buffer = new Map<string, BufferedAppMetric>()
+    private readonly minFlushIntervalMs: number
+    private lastFlushAt = Date.now()
+    private drainTimer: NodeJS.Timeout | null = null
 
-    constructor(private readonly outputs: IngestionOutputs<AppMetricsOutput>) {}
+    constructor(
+        private readonly outputs: IngestionOutputs<AppMetricsOutput>,
+        options: AppMetricsAggregatorOptions = {}
+    ) {
+        this.minFlushIntervalMs = options.minFlushIntervalMs ?? 0
+        if (this.minFlushIntervalMs > 0) {
+            // A caller only flushes while it has work. Without this, the rows a quiet pod still holds
+            // wait for its next batch, which may be far longer than the interval, or never come.
+            this.drainTimer = setInterval(() => {
+                void this.flush().catch(() => {
+                    // flush() reports its own failures through the caller. A rejection here has no
+                    // caller, and an unhandled one would take the process down.
+                })
+            }, this.minFlushIntervalMs)
+            // The timer must not be the reason the process stays alive.
+            this.drainTimer.unref()
+        }
+    }
+
+    /** Produces what is buffered and stops the background drain. */
+    async stop(): Promise<void> {
+        if (this.drainTimer) {
+            clearInterval(this.drainTimer)
+            this.drainTimer = null
+        }
+        await this.flush(true)
+    }
 
     queue(metric: AppMetricInput): void {
         appMetricsAggregatorQueuedCounter.inc({ app_source: metric.app_source })
@@ -80,10 +128,15 @@ export class AppMetricsAggregator {
         }
     }
 
-    async flush(): Promise<void> {
+    /** Pass `force` to produce whatever is buffered regardless of `minFlushIntervalMs`, as on shutdown. */
+    async flush(force = false): Promise<void> {
         if (this.buffer.size === 0) {
             return
         }
+        if (!force && this.buffer.size < MAX_BUFFERED_ROWS && Date.now() - this.lastFlushAt < this.minFlushIntervalMs) {
+            return
+        }
+        this.lastFlushAt = Date.now()
         const drained = [...this.buffer.values()]
         this.buffer.clear()
 

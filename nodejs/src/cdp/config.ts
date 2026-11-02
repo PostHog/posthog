@@ -23,6 +23,12 @@ import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './types'
 // `this.config.CLICKHOUSE_HOST` etc. gets typed, defaulted values — fixes the
 // case where `CdpRerunWorkerConsumer` silently fell back to `default` DB.
 export type CdpConfig = ClickhouseConfig & {
+    /**
+     * How long app-metric rows stay buffered before a flush produces them, so that repeats of one
+     * key collapse across batches instead of only within one. 0 produces on every flush. Billing
+     * rows ignore this and always produce on every flush.
+     */
+    CDP_APP_METRICS_FLUSH_INTERVAL_MS: number
     CDP_WATCHER_COST_ERROR: number
     CDP_WATCHER_HOG_COST_TIMING: number
     CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: number
@@ -276,6 +282,7 @@ export type CdpConfig = ClickhouseConfig & {
 export function getDefaultCdpConfig(): CdpConfig {
     return {
         ...getDefaultClickhouseConfig(),
+        CDP_APP_METRICS_FLUSH_INTERVAL_MS: 10000,
         CDP_WATCHER_COST_ERROR: 100,
         CDP_WATCHER_HOG_COST_TIMING: 100,
         CDP_WATCHER_HOG_COST_TIMING_LOWER_MS: 50,

@@ -4,7 +4,7 @@ import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { AppMetricInput, AppMetricsAggregator } from './app-metrics-aggregator'
+import { AppMetricInput, AppMetricsAggregator, MAX_BUFFERED_ROWS } from './app-metrics-aggregator'
 
 function makeOutputs(): {
     outputs: IngestionOutputs<AppMetricsOutput>
@@ -152,5 +152,90 @@ describe('AppMetricsAggregator', () => {
         expect(Object.keys(countsByTimestamp)).toHaveLength(3)
         expect(countsByTimestamp['2027-03-04 05:00:00.000']).toBe(3)
         expect(countsByTimestamp['2027-04-03 05:00:00.000']).toBe(4)
+    })
+
+    describe('minFlushIntervalMs', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        function startClock(): void {
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date('2027-03-04T05:00:00Z'))
+        }
+
+        it('holds rows across flushes inside the window, then produces one summed row', async () => {
+            startClock()
+            const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })
+
+            agg.queue(input({ count: 1 }))
+            await agg.flush()
+            agg.queue(input({ count: 2 }))
+            await agg.flush()
+            expect(queueMessagesMock).not.toHaveBeenCalled()
+
+            jest.setSystemTime(new Date('2027-03-04T05:00:10Z'))
+            agg.queue(input({ count: 4 }))
+            await agg.flush()
+
+            const rows = getRows()
+            expect(rows).toHaveLength(1)
+            expect(rows[0].count).toBe(7)
+        })
+
+        it('starts a new window after it produces, so the next rows wait again', async () => {
+            startClock()
+            const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })
+
+            jest.setSystemTime(new Date('2027-03-04T05:00:10Z'))
+            agg.queue(input())
+            await agg.flush()
+            expect(queueMessagesMock).toHaveBeenCalledTimes(1)
+
+            jest.setSystemTime(new Date('2027-03-04T05:00:15Z'))
+            agg.queue(input())
+            await agg.flush()
+            expect(queueMessagesMock).toHaveBeenCalledTimes(1)
+        })
+
+        it('produces inside the window when forced, so a shutdown loses nothing', async () => {
+            startClock()
+            const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })
+
+            agg.queue(input())
+            await agg.flush()
+            expect(queueMessagesMock).not.toHaveBeenCalled()
+
+            await agg.flush(true)
+            expect(getRows()).toHaveLength(1)
+        })
+
+        // A caller only flushes while it has work, so a pod that goes quiet would otherwise hold its
+        // last rows until its next batch, which may never come.
+        it('produces on its own once the window passes, with no further flush call', async () => {
+            startClock()
+            const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })
+
+            agg.queue(input())
+            await agg.flush()
+            expect(queueMessagesMock).not.toHaveBeenCalled()
+
+            await jest.advanceTimersByTimeAsync(10_000)
+
+            expect(getRows()).toHaveLength(1)
+            await agg.stop()
+        })
+
+        it('produces inside the window once the buffer reaches the row cap', async () => {
+            startClock()
+            const agg = new AppMetricsAggregator(outputs, { minFlushIntervalMs: 10_000 })
+
+            for (let i = 0; i < MAX_BUFFERED_ROWS; i++) {
+                agg.queue(input({ app_source_id: `fn-${i}` }))
+            }
+            await agg.flush()
+
+            expect(getRows()).toHaveLength(MAX_BUFFERED_ROWS)
+        })
     })
 })

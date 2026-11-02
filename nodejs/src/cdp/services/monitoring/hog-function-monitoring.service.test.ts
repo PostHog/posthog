@@ -8,6 +8,7 @@ import { HogFunctionMonitoringService, MonitoringOutput } from './hog-function-m
 describe('HogFunctionMonitoringService', () => {
     let service: HogFunctionMonitoringService
     let queueMessagesMock: jest.Mock<Promise<void>, [any[]]>
+    let makeService: (options?: { appMetricsFlushIntervalMs?: number }) => HogFunctionMonitoringService
 
     beforeEach(() => {
         queueMessagesMock = jest.fn().mockResolvedValue(undefined)
@@ -17,12 +18,15 @@ describe('HogFunctionMonitoringService', () => {
             checkHealth: jest.fn().mockResolvedValue(undefined),
             checkTopicExists: jest.fn().mockResolvedValue(undefined),
         } as any
-        service = new HogFunctionMonitoringService(
-            new IngestionOutputs<MonitoringOutput>({
-                [APP_METRICS_OUTPUT]: fakeOutput,
-                [LOG_ENTRIES_OUTPUT]: fakeOutput,
-            })
-        )
+        makeService = (options) =>
+            new HogFunctionMonitoringService(
+                new IngestionOutputs<MonitoringOutput>({
+                    [APP_METRICS_OUTPUT]: fakeOutput,
+                    [LOG_ENTRIES_OUTPUT]: fakeOutput,
+                }),
+                options
+            )
+        service = makeService()
     })
 
     async function flushedRows(): Promise<Record<string, unknown>[]> {
@@ -114,5 +118,34 @@ describe('HogFunctionMonitoringService', () => {
         expect(rows.filter((row) => row.app_source === 'hog_flow_version')).toEqual([
             expect.objectContaining({ app_source_id: 'flow-1/3', count: 2 }),
         ])
+    })
+
+    describe('appMetricsFlushIntervalMs', () => {
+        function producedRows(): Record<string, unknown>[] {
+            return queueMessagesMock.mock.calls.flatMap(([messages]) =>
+                messages.map((m: { value: Buffer }) => parseJSON(m.value.toString()) as Record<string, unknown>)
+            )
+        }
+
+        it('produces a billing row on the flush that queued it, and holds the rest', async () => {
+            const windowed = makeService({ appMetricsFlushIntervalMs: 600_000 })
+            windowed.queueAppMetric(metric({ metric_kind: 'billing', metric_name: 'billable_invocation' }), 'hog_flow')
+            windowed.queueAppMetric(metric({ metric_kind: 'other', metric_name: 'filtered' }), 'hog_flow')
+
+            await windowed.flush()
+
+            expect(producedRows()).toEqual([expect.objectContaining({ metric_name: 'billable_invocation' })])
+        })
+
+        it('produces what the window still holds when the service stops', async () => {
+            const windowed = makeService({ appMetricsFlushIntervalMs: 600_000 })
+            windowed.queueAppMetric(metric({ metric_kind: 'other', metric_name: 'filtered' }), 'hog_flow')
+            await windowed.flush()
+            expect(producedRows()).toEqual([])
+
+            await windowed.stop()
+
+            expect(producedRows()).toEqual([expect.objectContaining({ metric_name: 'filtered' })])
+        })
     })
 })

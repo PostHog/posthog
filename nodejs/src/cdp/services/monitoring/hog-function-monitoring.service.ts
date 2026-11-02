@@ -72,26 +72,45 @@ export const isHogFlowResult = (
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []
 
+    // Two aggregators because the rows need different durability. Nearly every row records that a
+    // function did not match an event, and those repeat the same key often enough that holding them
+    // across batches collapses most of them. Billing rows are rare, do not collapse, and must not be
+    // delayed or lost, so they keep producing on every flush.
     private appMetricsAggregator: AppMetricsAggregator
+    private billingMetricsAggregator: AppMetricsAggregator
 
-    constructor(private outputs: IngestionOutputs<MonitoringOutput>) {
-        this.appMetricsAggregator = new AppMetricsAggregator(outputs)
+    constructor(
+        private outputs: IngestionOutputs<MonitoringOutput>,
+        options: { appMetricsFlushIntervalMs?: number } = {}
+    ) {
+        this.appMetricsAggregator = new AppMetricsAggregator(outputs, {
+            minFlushIntervalMs: options.appMetricsFlushIntervalMs,
+        })
+        this.billingMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
-    // Required by ResultSink. This sink holds nothing of its own: it writes through the shared
-    // Kafka outputs, which the server disconnects separately on shutdown.
+    // Required by ResultSink. The app-metrics buffer can hold rows past the flush that queued them,
+    // so a stop has to produce them before the process exits.
     async stop(): Promise<void> {
-        return Promise.resolve()
+        await Promise.all([this.appMetricsAggregator.stop(), this.billingMetricsAggregator.stop()])
+        await this.flushInternal(true)
     }
 
     async flush() {
+        await this.flushInternal(false)
+    }
+
+    private async flushInternal(force: boolean) {
         const end = hogFunctionMonitoringFlushDuration.startTimer()
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []
         hogFunctionMonitoringPendingMessages.set(0)
 
         await Promise.all([
-            this.appMetricsAggregator.flush().catch((error) => {
+            Promise.all([
+                this.appMetricsAggregator.flush(force),
+                this.billingMetricsAggregator.flush(force),
+            ]).catch((error) => {
                 // Best-effort — don't disrupt processing just for metrics.
                 logger.error('⚠️', `failed to flush app metrics: ${error}`, { error: String(error) })
                 captureException(error)
@@ -120,7 +139,9 @@ export class HogFunctionMonitoringService {
     queueAppMetric(metric: MinimalAppMetric, source: MetricLogSource) {
         counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(metric.count)
 
-        this.appMetricsAggregator.queue({
+        const aggregator = metric.metric_kind === 'billing' ? this.billingMetricsAggregator : this.appMetricsAggregator
+
+        aggregator.queue({
             team_id: metric.team_id,
             app_source: source,
             app_source_id: metric.app_source_id,
@@ -133,7 +154,7 @@ export class HogFunctionMonitoringService {
         // Guarded on the type rather than truthiness: a flow loaded without its `version` column would
         // otherwise key every mirrored row under a literal `.../undefined`.
         if (source === 'hog_flow' && typeof metric.app_source_version?.version === 'number') {
-            this.appMetricsAggregator.queue({
+            aggregator.queue({
                 team_id: metric.team_id,
                 app_source: HOG_FLOW_VERSION_APP_SOURCE,
                 // Deliberately not `metric.app_source_id` — see `app_source_version` on MinimalAppMetric.
