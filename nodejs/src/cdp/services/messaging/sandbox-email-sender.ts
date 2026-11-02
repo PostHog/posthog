@@ -28,9 +28,13 @@ const BLOCKED_EVENT_WINDOW_SECONDS = 3600
 // The send is already skipped when this runs, and the worker's batch waits for it, so a stalled
 // store must not hold the invocation open.
 const BLOCKED_EVENT_TIMEOUT_MS = 1000
+// A capture that outlives its deadline keeps its Redis connection or pending acquisition, so while the
+// store stalls only this many may wait at once; the rest are dropped.
+const MAX_PENDING_BLOCKED_EVENTS = 10
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
+    private pendingBlockedEvents = 0
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -58,6 +62,14 @@ export class SandboxEmailSender {
         reason: SandboxEmailBlockReason,
         blockedRecipientCount: number
     ): Promise<void> {
+        if (this.pendingBlockedEvents >= MAX_PENDING_BLOCKED_EVENTS) {
+            logger.warn('Dropped a sandbox email event: too many captures are waiting on the event store', { teamId })
+            return
+        }
+        this.pendingBlockedEvents++
+        const capture = this.captureBlockedEvent(teamId, isTest, reason, blockedRecipientCount).finally(() => {
+            this.pendingBlockedEvents--
+        })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<void>((resolve) => {
             timer = setTimeout(() => {
@@ -66,7 +78,7 @@ export class SandboxEmailSender {
             }, BLOCKED_EVENT_TIMEOUT_MS)
         })
         try {
-            await Promise.race([this.captureBlockedEvent(teamId, isTest, reason, blockedRecipientCount), deadline])
+            await Promise.race([capture, deadline])
         } finally {
             clearTimeout(timer)
         }
