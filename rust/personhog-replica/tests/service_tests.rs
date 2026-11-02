@@ -2067,6 +2067,29 @@ async fn test_repair_writes_round_trip_through_the_service() {
         )
     );
 
+    let tombstoned = ctx
+        .service
+        .write_distinct_ids(Request::new(WriteDistinctIdsRequest {
+            team_id: ctx.team_id,
+            writes: vec![DistinctIdWrite {
+                distinct_id: "svc_repair_new".to_string(),
+                action: DistinctIdWriteAction::Tombstone as i32,
+                person_uuid: person.uuid.to_string(),
+                min_version: 9,
+                expected_version: None,
+            }],
+        }))
+        .await
+        .expect("tombstone")
+        .into_inner()
+        .results;
+    assert_eq!(
+        tombstoned[0].outcome,
+        DistinctIdWriteOutcome::PreconditionFailed as i32
+    );
+    let row = tombstoned[0].row.as_ref().expect("row after the write");
+    assert_eq!((row.version, row.is_deleted), (6, false));
+
     ctx.cleanup().await.ok();
 }
 
