@@ -9,8 +9,6 @@ ui_apps:
     email-template:
         type: detail
         view_prop: template
-        # The email editor stores uploads in the PostHog media library, served from the media CDN or the app host.
-        # Without the media library, Unlayer stores them on its own asset host.
         resource_domains:
             - https://us-media.posthog.com
             - https://eu-media.posthog.com
