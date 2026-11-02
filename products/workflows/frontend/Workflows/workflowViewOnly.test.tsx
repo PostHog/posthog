@@ -16,6 +16,7 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { HogFlowEditorPanelBuildDetail } from './hogflows/panel/HogFlowEditorPanelBuildDetail'
 import { ViewOnlyArea } from './hogflows/panel/ViewOnlyArea'
+import * as hogFlowSteps from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
@@ -223,6 +224,35 @@ describe('view-only workflow', () => {
 
         expect(fireEvent.click(toggle!)).toBe(false)
         editorLogic.unmount()
+    })
+
+    it('lets a viewer copy the error details of a step that fails to render', () => {
+        const FailingConfiguration = (): JSX.Element => {
+            throw new Error('Step settings failed to render')
+        }
+        const realUseHogFlowStep = hogFlowSteps.useHogFlowStep
+        jest.spyOn(hogFlowSteps, 'useHogFlowStep').mockImplementation((action) => {
+            const step = realUseHogFlowStep(action)
+            return step && { ...step, renderConfiguration: () => <FailingConfiguration /> }
+        })
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        const editorLogic = hogFlowEditorLogic({ id: WORKFLOW_ID })
+        editorLogic.mount()
+        editorLogic.actions.setSelectedNodeId('push_node')
+
+        renderForViewer(
+            <BindLogic logic={hogFlowEditorLogic} props={{ id: WORKFLOW_ID }}>
+                <HogFlowEditorPanelBuildDetail />
+            </BindLogic>
+        )
+        fireEvent.click(screen.getByText('Copy error details'))
+
+        expect(copyToClipboard).toHaveBeenCalledWith(
+            expect.stringContaining('Step settings failed to render'),
+            'error details'
+        )
+        editorLogic.unmount()
+        jest.restoreAllMocks()
     })
 
     it.each([

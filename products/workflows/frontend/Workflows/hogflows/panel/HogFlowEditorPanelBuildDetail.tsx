@@ -105,13 +105,14 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 contentClassName="flex flex-1 shrink-0 flex-col"
                 styledScrollbars
             >
-                <ViewOnlyArea>
-                    <div className="flex flex-1 flex-col gap-2 p-3">
-                        <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
-                            {Step?.renderConfiguration(selectedNode)}
-                        </ErrorBoundary>
-                    </div>
+                <div className="flex flex-1 flex-col gap-2 p-3">
+                    {/* The boundary sits outside the view-only area, so a viewer can still retry or report a failure */}
+                    <ErrorBoundary exceptionProps={{ feature: 'workflow-step-config' }}>
+                        <ViewOnlyArea>{Step?.renderConfiguration(selectedNode)}</ViewOnlyArea>
+                    </ErrorBoundary>
+                </div>
 
+                <ViewOnlyArea>
                     {isOptOutEligibleAction(action) && (
                         <>
                             <LemonDivider className="my-0" />
