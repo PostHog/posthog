@@ -106,7 +106,7 @@ class SevenShiftsSource(ResumableSource[SevenShiftsSourceConfig, SevenShiftsResu
             label="7shifts",
             iconPath="/static/services/sevenshifts.png",
             caption="Create an access token in 7shifts under Settings > Developer Tools. Enter the matching company ID.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

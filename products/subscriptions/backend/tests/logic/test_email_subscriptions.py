@@ -12,10 +12,10 @@ from posthog.tasks.test.utils_email_tests import mock_email_messages
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.logic.email_subscriptions import send_email_subscription_report
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS
+from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 

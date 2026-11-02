@@ -9,6 +9,7 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium import BuildiumResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.settings import (
     AUTH_ERROR,
+    CUSTOM_FIELD_ENTITY_TYPES,
     PERMISSION_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildium.source import BuildiumSource
@@ -16,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    always,
     route,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildium import (
@@ -258,3 +260,39 @@ def test_top_level_row_shaping_and_order(
     assert result.raised is None
     assert result.rows == [expected_row]
     assert result.params("orderby") == [expected_orderby]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "path"), [("inventory_storages", "/v1/inventorystorages"), ("asset_categories", "/v1/assetcategories")]
+)
+def test_unpaginated_lists_read_one_response(endpoint: str, path: str) -> None:
+    rows = [{"Id": index, "Name": f"Item {index}"} for index in range(3)]
+    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.buildium.buildium.PAGE_SIZE", 2):
+        result = driver().run(endpoint, always(ScriptedResponse(json=rows)))
+
+    assert result.raised is None
+    assert result.rows == rows
+    assert result.paths == [path]
+    assert result.queries == [{}]
+    assert result.saved_states == []
+
+
+def test_custom_field_definitions_read_every_entity_type() -> None:
+    definitions = {
+        "Rentals": [{"Id": 1, "EntityTypeName": "Rentals", "Configuration": {"Type": "ShortText"}}],
+        "Vendors": [{"Id": 2, "EntityTypeName": "Vendors"}, {"Id": 3, "EntityTypeName": "Vendors"}],
+    }
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        entity_type = request.path.split("/")[4]
+        return ScriptedResponse(json=definitions.get(entity_type, []))
+
+    result = driver().run("custom_field_definitions", respond)
+
+    assert result.raised is None
+    assert [row["Id"] for row in result.rows] == [1, 2, 3]
+    assert result.rows[0]["Configuration"] == {"Type": "ShortText"}
+    assert result.paths == [
+        f"/v1/customfields/entityType/{entity_type}/definitions" for entity_type in CUSTOM_FIELD_ENTITY_TYPES
+    ]
+    assert all(params == {} for params in result.queries)

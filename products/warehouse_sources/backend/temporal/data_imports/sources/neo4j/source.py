@@ -122,7 +122,7 @@ class Neo4jSource(SimpleSource[Neo4jSourceConfig], ValidateDatabaseHostMixin):
             ),
             keywords=["graph database", "cypher", "auradb"],
             iconPath="/static/services/neo4j.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

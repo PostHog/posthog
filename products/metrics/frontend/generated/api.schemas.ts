@@ -239,6 +239,11 @@ export interface _MetricSeriesApi {
      * @nullable
      */
     unit?: string | null
+    /**
+     * Bucket upper edges a histogram_quantile series was estimated from. The true quantile can be anywhere between two edges. Null for other aggregations.
+     * @nullable
+     */
+    histogram_bounds?: number[] | null
 }
 
 export interface _MetricAnomalyReportApi {
@@ -1219,6 +1224,238 @@ export interface _MetricCatalogValuesParamsApi {
     names: string[]
 }
 
+/**
+ * * `custom` - custom
+ * * `promql` - promql
+ * * `sql` - sql
+ * * `textbox` - textbox
+ */
+export type MetricVariableSourceEnumApi = (typeof MetricVariableSourceEnumApi)[keyof typeof MetricVariableSourceEnumApi]
+
+export const MetricVariableSourceEnumApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface _MetricVariableSelectionApi {
+    /**
+     * Variable name. Queries refer to it as `$name`.
+     * @maxLength 128
+     * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+     */
+    name: string
+    /**
+     * The selected values. When `all` is true, the options that All stands for.
+     * @maxItems 1000
+     * @items.maxLength 1024
+     */
+    values: string[]
+    /** True when the variable is set to All. */
+    all?: boolean
+    /**
+     * The text that All puts in a PromQL query. `.*` when it is empty.
+     * @maxLength 1024
+     * @nullable
+     */
+    allValue?: string | null
+}
+
+export interface _MetricVariableOptionsRequestApi {
+    /** Where the options come from: a static list, a PromQL query, a SQL query, or free text.
+     *
+     * * `custom` - custom
+     * * `promql` - promql
+     * * `sql` - sql
+     * * `textbox` - textbox */
+    source: MetricVariableSourceEnumApi
+    /**
+     * The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) and query_result(expr). SQL returns the options in its first column.
+     * @maxLength 10000
+     * @nullable
+     */
+    query?: string | null
+    /**
+     * The options when `source` is `custom`.
+     * @maxItems 1000
+     * @nullable
+     * @items.maxLength 1024
+     */
+    customValues?: string[] | null
+    /**
+     * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.
+     * @maxLength 1024
+     * @nullable
+     */
+    regex?: string | null
+    /** The current selection of the other dashboard variables that the query can refer to. */
+    variables?: _MetricVariableSelectionApi[]
+    /**
+     * Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago.
+     * @maxLength 64
+     * @nullable
+     */
+    dateFrom?: string | null
+    /**
+     * End of the window that options come from, in the same format as dateFrom. Defaults to now.
+     * @maxLength 64
+     * @nullable
+     */
+    dateTo?: string | null
+}
+
+export interface _MetricVariableOptionsResponseApi {
+    /** The options of the variable, at most 1,000. */
+    results: string[]
+}
+
+/**
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `teams` - Microsoft Teams
+ * * `discord` - Discord
+ * * `pagerduty` - PagerDuty
+ */
+export type MetricsAlertDestinationTypeEnumApi =
+    (typeof MetricsAlertDestinationTypeEnumApi)[keyof typeof MetricsAlertDestinationTypeEnumApi]
+
+export const MetricsAlertDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Discord: 'discord',
+    Pagerduty: 'pagerduty',
+} as const
+
+/**
+ * * `firing` - firing
+ * * `resolved` - resolved
+ * * `errored` - errored
+ * * `broken` - broken
+ */
+export type MetricsAlertDestinationEventKindEnumApi =
+    (typeof MetricsAlertDestinationEventKindEnumApi)[keyof typeof MetricsAlertDestinationEventKindEnumApi]
+
+export const MetricsAlertDestinationEventKindEnumApi = {
+    Firing: 'firing',
+    Resolved: 'resolved',
+    Errored: 'errored',
+    Broken: 'broken',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface MetricsAlertDestinationApi {
+    /** ID of the destination. Send it to the delete endpoint to remove it. */
+    id: string
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: MetricsAlertDestinationTypeEnumApi
+    /** Whether the destination is sent to. */
+    enabled: boolean
+    /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
+    event_kinds: MetricsAlertDestinationEventKindEnumApi[]
+    /** Integration ID of the Slack workspace. Set when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Set when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable Slack channel name. Set when type=slack. */
+    slack_channel_name?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the PagerDuty incident.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region the events go to.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface MetricsAlertCreateDestinationApi {
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: MetricsAlertDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+    webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+    /**
+     * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
+     * @minItems 1
+     */
+    event_kinds?: MetricsAlertDestinationEventKindEnumApi[]
+}
+
+export interface MetricsAlertDeleteDestinationApi {
+    /**
+     * IDs of the destinations to delete, as the list endpoint returns them.
+     * @minItems 1
+     * @maxItems 100
+     */
+    destination_ids: string[]
+}
+
 export type MetricsAttributeValuesRetrieveParams = {
     /**
      * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.
@@ -1242,6 +1479,11 @@ export type MetricsAttributeValuesRetrieveParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Exact metric name to limit values to. Omit to list values across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string
     /**
      * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
      * @maxLength 1024

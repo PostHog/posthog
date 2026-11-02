@@ -189,9 +189,11 @@ def _endpoint_params(config: LightspeedRetailEndpointConfig) -> dict[str, Any]:
     return {} if config.pagination == "single_page" else {"page_size": config.page_size}
 
 
-def _nested_rows(field_name: str, parent_key: str) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+def _nested_rows(
+    field_name: str, parent_key: str, parent_id_field: str = "id"
+) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
     def _explode(item: dict[str, Any]) -> list[dict[str, Any]]:
-        return [{**row, parent_key: item.get("id")} for row in item.get(field_name) or []]
+        return [{**row, parent_key: item.get(parent_id_field)} for row in item.get(field_name) or []]
 
     return _explode
 
@@ -295,7 +297,9 @@ def lightspeed_retail_source(
         initial_paginator_state=initial_paginator_state,
     )
     if config.nested_rows_field and config.nested_parent_key:
-        resource.add_map(_nested_rows(config.nested_rows_field, config.nested_parent_key))
+        resource.add_map(
+            _nested_rows(config.nested_rows_field, config.nested_parent_key, config.nested_parent_id_field)
+        )
 
     return _source_response(endpoint, lambda: resource, resource.column_hints)
 

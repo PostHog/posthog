@@ -344,6 +344,112 @@ DIGITALOCEAN_ENDPOINTS: dict[str, DigitalOceanEndpointConfig] = {
             parent_params={"per_page": PAGE_SIZE},
         ),
     ),
+    # Deployment history per App Platform app, with the phase each deployment reached. Every
+    # deployment carries a copy of the app spec, so the same secrets as `apps` are stripped, plus
+    # the image pull credentials that the deployment spec can hold.
+    "app_deployments": DigitalOceanEndpointConfig(
+        name="app_deployments",
+        path="/v2/apps/{app_id}/deployments",
+        data_selector="deployments",
+        primary_keys=["app_id", "id"],
+        partition_key="created_at",
+        sensitive_fields=frozenset({"envs", "log_destinations", "registry_credentials"}),
+        fanout=DependentEndpointConfig(
+            parent_name="apps",
+            resolve_param="app_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "app_id"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # Deployment and autoscaling events per app. A deployment event embeds the full deployment,
+    # spec included, so it is stripped the same way as `app_deployments`.
+    "app_events": DigitalOceanEndpointConfig(
+        name="app_events",
+        path="/v2/apps/{app_id}/events",
+        data_selector="events",
+        primary_keys=["app_id", "id"],
+        partition_key="created_at",
+        sensitive_fields=frozenset({"envs", "log_destinations", "registry_credentials"}),
+        fanout=DependentEndpointConfig(
+            parent_name="apps",
+            resolve_param="app_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "app_id"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # Node pool sizing and autoscaling bounds per Kubernetes cluster. The endpoint takes no page
+    # params and returns every pool of the cluster in one response.
+    "kubernetes_node_pools": DigitalOceanEndpointConfig(
+        name="kubernetes_node_pools",
+        path="/v2/kubernetes/clusters/{cluster_id}/node_pools",
+        data_selector="node_pools",
+        primary_keys=["kubernetes_cluster_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="kubernetes_clusters",
+            resolve_param="cluster_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "kubernetes_cluster_id"},
+            parent_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    "uptime_checks": DigitalOceanEndpointConfig(
+        name="uptime_checks",
+        path="/v2/uptime/checks",
+        data_selector="checks",
+    ),
+    # Current per-region status and the last outage of each uptime check. The endpoint returns
+    # one object under `state` rather than a list, and the object carries no check id.
+    "uptime_check_states": DigitalOceanEndpointConfig(
+        name="uptime_check_states",
+        path="/v2/uptime/checks/{check_id}/state",
+        data_selector="state",
+        primary_keys=["check_id"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="uptime_checks",
+            resolve_param="check_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "check_id"},
+            parent_params={"per_page": PAGE_SIZE},
+        ),
+    ),
+    # `/v2/registries` replaces the deprecated single-registry `/v2/registry` endpoints, which
+    # stop working once an account has more than one registry.
+    "registries": DigitalOceanEndpointConfig(
+        name="registries",
+        path="/v2/registries",
+        data_selector="registries",
+        primary_keys=["name"],
+        partition_key="created_at",
+    ),
+    # Repositories per container registry, with tag and manifest counts and the size of the
+    # latest manifest.
+    "registry_repositories": DigitalOceanEndpointConfig(
+        name="registry_repositories",
+        path="/v2/registries/{registry_name}/repositoriesV2",
+        data_selector="repositories",
+        # Repository names are only unique within their registry.
+        primary_keys=["registry_name", "name"],
+        fanout=DependentEndpointConfig(
+            parent_name="registries",
+            resolve_param="registry_name",
+            resolve_field="name",
+            include_from_parent=["name"],
+            # Lands on the row's own `registry_name`, which holds the same value, and keeps the
+            # repository's `name` column intact.
+            parent_field_renames={"name": "registry_name"},
+            parent_params={"per_page": PAGE_SIZE},
+            child_params={"per_page": PAGE_SIZE},
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(DIGITALOCEAN_ENDPOINTS.keys())

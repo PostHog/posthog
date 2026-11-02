@@ -5,26 +5,26 @@ PostHog-authored. Not part of the vendored upstream skill.
 Two engines report on the same commit in this repo, and they are easy to confuse:
 
 - **Depot runners** run GitHub Actions jobs from `.github/workflows/`. GitHub is still the engine, and checks come from the `github-actions` app. See the `depot-github-runners` skill.
-- **Depot CI** is its own engine. It parses workflows under `.depot/workflows/`, which GitHub Actions ignores, and reports its own check runs from the `depot-code-access` app. That is what this skill covers.
+- **Depot CI** is its own engine. It parses workflows under `.depot/workflows/`, which GitHub Actions ignores, and reports its own check runs from one of three Depot apps (see [Which app posts a Depot check](#which-app-posts-a-depot-check)). That is what this skill covers.
 
 Neither vendor documents any of what follows. It comes from running one job graph on both engines against the same commit and reading the check runs each posted. To re-derive it, put twin workflows in `.github/workflows/` and `.depot/workflows/`, give each job a shape from the table below, and have an `if: always()` job print `toJSON(needs)`.
 
 ## Conclusions the two engines post
 
-| Job shape                                  | GHA `needs.result` | GHA check run               | Depot `needs.result` | Depot check run           |
-| ------------------------------------------ | ------------------ | --------------------------- | -------------------- | ------------------------- |
-| Plain success                              | `success`          | `success`                   | `success`            | `success`                 |
-| `if: false`                                | `skipped`          | `skipped`                   | `skipped`            | `skipped`                 |
-| `if:` expression that is false             | `skipped`          | `skipped`                   | `skipped`            | `skipped`                 |
-| Skipped because a dependency skipped       | `skipped`          | `skipped`                   | `skipped`            | `skipped`                 |
-| **Matrix that expands to zero cells**      | **`failure`**      | **none posted**             | **`skipped`**        | **`skipped`**             |
-| Two cell matrix                            | `success`          | two checks, `(1)` and `(2)` | `success`            | one check, no cell suffix |
-| Job-level `continue-on-error`, step fails  | `success`          | **`failure`**               | `success`            | **`failure`**             |
-| Step-level `continue-on-error`, step fails | `success`          | `success`                   | `success`            | `success`                 |
-| Hard failure                               | `failure`          | `failure`                   | `failure`            | `failure`                 |
-| `if: always()` gate over all of the above  | `success`          | `success`                   | `success`            | `success`                 |
+| Job shape                                  | GHA `needs.result` | GHA check run               | Depot `needs.result` | Depot check run    |
+| ------------------------------------------ | ------------------ | --------------------------- | -------------------- | ------------------ |
+| Plain success                              | `success`          | `success`                   | `success`            | `success`          |
+| `if: false`                                | `skipped`          | `skipped`                   | `skipped`            | `skipped`          |
+| `if:` expression that is false             | `skipped`          | `skipped`                   | `skipped`            | `skipped`          |
+| Skipped because a dependency skipped       | `skipped`          | `skipped`                   | `skipped`            | `skipped`          |
+| **Matrix that expands to zero cells**      | **`failure`**      | **none posted**             | **`skipped`**        | **`skipped`**      |
+| Two cell matrix                            | `success`          | two checks, `(1)` and `(2)` | `success`            | one check per cell |
+| Job-level `continue-on-error`, step fails  | `success`          | **`failure`**               | `success`            | **`failure`**      |
+| Step-level `continue-on-error`, step fails | `success`          | `success`                   | `success`            | `success`          |
+| Hard failure                               | `failure`          | `failure`                   | `failure`            | `failure`          |
+| `if: always()` gate over all of the above  | `success`          | `success`                   | `success`            | `success`          |
 
-The engines agree everywhere except the empty matrix and the matrix check granularity.
+The engines agree everywhere except the empty matrix.
 
 ## Two cases where the check disagrees with the run
 
@@ -36,7 +36,8 @@ The engines agree everywhere except the empty matrix and the matrix check granul
 
 - A check run that concludes `skipped` **satisfies** a required status check, and the Trunk merge queue scores it the same way. The repo already depends on this: `Build Docker image` is a required context that concludes `skipped` on most PRs, and they merge.
 - A required context that **no check run ever reports** stays pending and blocks. This is the empty-matrix failure mode above, and it is also what a `paths:` filter does when it silences a whole workflow.
-- Required contexts are pinned to one app. Every entry in this repo's `master` ruleset carries `integration_id: 15368`, the `github-actions` app. Read them with:
+- A check run that stays `in_progress` blocks, and GitHub keeps every completed check run on its commit. Depot creates a job's own check only when the job resolves, so a new run on an already green commit (a draft marked ready, a reopen) cannot hold the commit pending: the old success stands until the new gate job ends. That is why the required backend context is the gate job's `Backend CI on Depot / Test results` check, posted by the PostHog tests app: a passing draft run does not post it, so the context stays missing until the ready run posts the verdict. A draft shows the check only when its run failed.
+- A ruleset entry with an `integration_id` accepts a check from that one app only. An entry without one accepts a check from any app, which GitHub's UI calls "Any source". Most entries in this repo's `master` ruleset carry `integration_id: 15368`, the `github-actions` app. `Backend CI on Depot / Test results` carries `2492437`, the `tests-posthog` app. `Backend CI on Depot / Django Tests Pass on Depot` carries none. Read them with:
 
   ```bash
   gh api repos/PostHog/posthog/rulesets --jq '.[] | select(.name=="master") | .id'
@@ -44,21 +45,42 @@ The engines agree everywhere except the empty matrix and the matrix check granul
       --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks'
   ```
 
-  A check run posted by any other app does not satisfy a context pinned to `github-actions`, however exactly the name matches. Depot CI's app id is `219785`.
+  A check run from any other app does not satisfy a context pinned to `github-actions`, even when the name matches exactly.
 
 - Trunk merge queue takes its required list from GitHub branch protection by default, and can override it from the Trunk UI or from `merge.required_statuses` in `.trunk/trunk.yaml`. The trunk.yaml form matches on **name only**, with no app pinning, so a repo that sets both can have Trunk and GitHub disagree about which app's check counts. This repo sets no `merge:` block, so branch protection is the source.
+
+## Which app posts a Depot check
+
+Depot's [GitHub checks page](https://depot.dev/docs/ci/observability/github-checks#install-the-apps) says a check can come from any of these apps, with the same name:
+
+| App               | Slug                | App id    |
+| ----------------- | ------------------- | --------- |
+| Depot Checks      | `depot-checks`      | `4964980` |
+| Depot Checks 2    | `depot-checks-2`    | `4968192` |
+| Depot Code Access | `depot-code-access` | `219785`  |
+
+Depot uses the Depot Checks apps first and falls back to Depot Code Access. A check stays with the app that created it.
+
+A required context for a check that Depot posts must use "Any source", as [Depot's GitHub checks page](https://depot.dev/docs/ci/observability/github-checks#update-required-check-sources) says. Match a Depot check by its name, or by its `details_url`, which holds the Depot workflow ID. Never match it by one app ID. GitHub's GraphQL `checkSuites` takes `filterBy: {checkName}`, which matches a suite from any app.
+
+A check that a Depot job posts itself through the REST API comes from the app whose token the step used, so its required context can stay pinned to that app. `Backend CI on Depot / Test results` is one.
 
 ## Naming
 
 Depot names each check `<workflow name> / <job name>`. GitHub Actions names it `<job name>` alone. The workflow name is therefore part of every Depot context, and renaming a workflow renames every check it posts.
 
-Matrix jobs differ: GitHub Actions posts one check per cell and appends the cell to the name, Depot posts one check for the whole job. Depot also posts internal expansion checks named `<file>:<job key>:_dynamicMatrix` for matrices built from `fromJSON`.
+Both engines post one check per matrix cell. Depot also posts an internal expansion check named `<file>:<job key>` for a matrix built from `fromJSON`, for example `Backend CI on Depot / ci-backend.yml:django`, which concludes `skipped`.
 
 ## When a check run appears
 
 Depot creates a job's check run when it resolves the job, not when it creates the run: a job that starts gets its check in the same second as Depot's own `started_at` for the job, and a job that is skipped gets a `skipped` check when its dependencies settle. A job behind a long dependency chain therefore has no check run at all until it starts. Measured 2026-09-17 on three runs of `Backend CI on Depot` (for example run `bbtwxmr3b5`): the first job's check appeared 53 to 65 seconds after the run was created, and the gate job's check appeared 21 minutes later, when the matrix finished. GitHub Actions differs: it posts every job's check as `queued` when the run is created. A poller that treats "no check run yet" as "the run does not exist" is wrong on Depot; poll the first job in the `needs` graph to learn whether Depot picked the event up, and the gate to learn the verdict.
 
 ## Reruns
+
+GitHub's Re-run button on a Depot check does nothing. GitHub's [checks guide](https://docs.github.com/en/rest/guides/using-the-rest-api-to-interact-with-checks) says the request goes to the GitHub App that created the check run, and Depot's app does not act on it: measured 2026-10-16, GitHub reported the rerun as requested and Depot started no attempt.
+A `/depot retry` comment on the pull request starts the retry instead. `.github/workflows/depot-retry-on-comment.yml` runs `depot ci retry --failed` on the pull request's newest run.
+It runs on GitHub Actions because Depot CI records a run for every comment that reaches an `issue_comment` workflow. A job `if:` that is false still leaves a run with a `skipped` job, and Depot ignores a workflow-level `if:`. Measured 2026-10-21 with push-triggered probe workflows in run `ps_01p74dcdmm`, because a comment trigger runs only from the default branch.
+That command works while other jobs of the workflow still run, and it reruns the jobs downstream of each retried job, so the gate reads the new attempt.
 
 Retrying a failed Depot job created a new check run with the same name and left the failed one behind in the measured 2026-09-17 run `jb7zh5rvnk`: the retried cell got check run `105270302262` while `105262890457` stayed `completed/failure`; only `filter=all` on the check-runs API listed both. GitHub Actions does the same per attempt, which is why a superseded run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine: the API's default `filter=latest` returns only the newest, and `max_by(.id)` does the same on a full listing. Two details matter when the read decides something: a GitHub Actions rerun queues a fresh check run for every job before any of them runs, so a script that wants the last verdict filters on `status == "completed"` before it takes the newest; and the check-runs API lists every pull request's checks for a head SHA, so a script that acts for one pull request filters on `pull_requests[].number` when it is present.
 
@@ -73,7 +95,15 @@ In the following cancelled runs, an unstarted job received a `cancelled` check w
 
 ## Finding one event's Depot run
 
-Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
+Check timestamps and `pull_requests` could not identify which Depot run belonged to an event in these cases.
+Until October 2026, the GitHub Actions relay matched events through the Depot wait job's check name.
+The name ended with `(PR <number>, event <pull_request.updated_at>)` because Depot includes evaluated job-name expressions in its check names.
+The relay built the same name from the GitHub event payload, found that check, and read the Depot workflow ID from its `details_url`.
+It then read the gate check for that workflow.
+
+On 2026-09-24, Depot posted check `107656013423` for [the relay example](https://github.com/PostHog/posthog/pull/105886) with the suffix `(PR 105886, event 2026-09-24T13:33:14Z)`.
+GitHub relay job `107655803961` matched it using `EVENT_AT: 2026-09-24T13:33:14Z` and reported success.
+The relay no longer runs, but this example shows how a check name can identify an event when timestamps and PR associations cannot.
 
 ### Racing events
 
@@ -81,15 +111,24 @@ Two events of one commit that arrive within a second or two race the concurrency
 
 - PR 106429: GitHub Actions cancelled the run of the newer event (15:17:40Z) and kept the older one (15:17:39Z). Depot kept 15:17:40Z and cancelled Depot run `rtl932mrbc` with "Cancelled due to the workflow concurrency policy".
 - PR 106435: GitHub Actions kept the newer event (15:17:41Z). Depot kept the older one (15:17:40Z) and cancelled `nzb661zql2`.
-- Neither cancelled Depot run posted a wait check, so each surviving GitHub relay found no run for its event and failed after the grace period, although Depot's run for the other event passed on the same commit.
+- Neither canceled Depot run posted a wait check. Each surviving GitHub relay found no run for its event and failed after the grace period, although Depot's other run passed on the same commit.
 
-GitHub Actions alone does the same. Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other, 52 of them 0 to 2 seconds apart. GitHub kept the older run in 6 pairs, all 0 to 1 second apart. So after its grace period, the relay follows the Depot run of an event of the same pull request up to 2 seconds away (`RACING_EVENT_SECONDS`), newest first.
+GitHub Actions can also keep the older event.
+Among the 946 `ci-backend.yml` pull request runs created on 2026-09-25 between 11:30Z and 16:00Z, 56 same-commit pairs were created within 30 seconds of each other.
+Of those, 52 pairs were created 0 to 2 seconds apart.
+GitHub kept the older run in 6 pairs, all 0 to 1 second apart.
+The relay therefore accepted a Depot run for another event on the same pull request within 2 seconds of its own event, checking newest first.
+Readers that match events by timestamp need to allow for this race.
 
 The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
 
 ### Superseded runs
 
-Depot's concurrency policy keeps the workflow it created last, and a Depot run gets its workflow some time after the run itself, so the policy can keep an older event. Measured 2026-09-29 on 284 `ci-backend.yml` pull request workflows: the workflow followed its run by 55 seconds at the median and 120 seconds at most, and in 11 of 165 consecutive run pairs of one pull request the older run's workflow was created first or in the same second. Two of those cancelled the event that GitHub Actions had handed off, and the relay failed with "Depot CI started no run for this event":
+Depot's concurrency policy keeps the workflow it created last.
+A run receives its workflow after the run itself is created, so workflow creation order can differ from event order.
+On 2026-09-29, across 284 `ci-backend.yml` pull request workflows, the delay was 55 seconds at the median and 120 seconds at most.
+In 11 of 165 consecutive run pairs for one pull request, the older run's workflow was created first or in the same second.
+Two races canceled the event that GitHub Actions had handed off, and the relay failed with "Depot CI started no run for this event":
 
 - PR 107856: run `wq9rjmvr7z` for head `056fb05982` was created at 16:09:59Z and got its workflow at 16:11:10Z. Run `0k16ml32s1` for the newer head `b9fbb26201` was created at 16:10:18Z and got its workflow at 16:11:09Z, so Depot cancelled `0k16ml32s1`.
 - PR 108622: two events of `d484f7a101` at 18:29:23Z and 18:29:34Z. GitHub Actions kept the second. Depot kept the first, whose gate passed, and the relay's 2-second racing window did not reach it.
@@ -107,7 +146,7 @@ The CLI needs ids that the GitHub API does not carry. Start from a check run's `
 ```bash
 # Job and workflow ids for the depot checks on a commit
 gh api "repos/PostHog/posthog/commits/$SHA/check-runs?per_page=100" --paginate \
-    --jq '.check_runs[] | select(.app.slug=="depot-code-access") | "\(.name)\t\(.details_url)"'
+    --jq '.check_runs[] | select((.details_url // "") | startswith("https://depot.dev/")) | "\(.name)\t\(.details_url)"'
 
 # Everything else, including the run id, from a job id
 depot ci diagnose --job <job-id> -o json
@@ -126,8 +165,8 @@ Depot CI checks out the pull request merge ref (`refs/pull/<n>/merge`) and posts
 
 From Depot's [compatibility page](https://depot.dev/docs/ci/compatibility), not measured here:
 
-- Fork pull requests get no run; Depot lists support as planned. The backend router keeps them on GitHub Actions, see [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
-- `environment:` is unsupported, and `uses:` cannot reference a workflow in another repository.
+- Depot does not run fork pull requests. After review, a maintainer re-creates the pull request in the main repository. See [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
+- `environment:` is unsupported. For a `uses:` call to a workflow in another repository, see `github-actions-compatibility.md`.
 - `secrets.GITHUB_TOKEN` is a GitHub App installation token, not the Actions token. GitHub Packages rejects it. The rate limit it draws on is the app installation's pool, which is shared across repos and is not the per-repo Actions bucket that `monitor-github-rate-limit.yml` watches.
 - Non-Depot `runs-on` labels are treated as `depot-ubuntu-latest`.
 - Secrets and variables live in Depot's own store (`depot ci secrets`, `depot ci vars`), not in GitHub's.

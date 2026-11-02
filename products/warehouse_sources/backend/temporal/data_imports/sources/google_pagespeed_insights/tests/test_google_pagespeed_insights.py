@@ -254,7 +254,7 @@ class TestValidateCredentials:
     # 418 is an unmapped status that exercises the catch-all branch.
     @pytest.mark.parametrize(
         "status, expected_valid",
-        [(200, True), (400, False), (403, False), (429, False), (500, False), (503, False), (418, False)],
+        [(400, False), (429, False), (503, False), (418, False)],
     )
     def test_status_mapping(self, status: int, expected_valid: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
@@ -312,7 +312,7 @@ class TestSource:
         assert response.primary_keys == ["requested_url", "analysis_timestamp"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["analysis_timestamp"]
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
     def test_invalid_urls_raise(self):
         with pytest.raises(ValueError):

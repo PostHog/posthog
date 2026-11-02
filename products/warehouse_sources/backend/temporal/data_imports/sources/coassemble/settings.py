@@ -108,6 +108,14 @@ COASSEMBLE_ENDPOINTS: dict[str, CoassembleEndpointConfig] = {
             stamp_column="clientIdentifier",
         ),
     ),
+    # Workspace-wide limits and current-period totals, one row per metric. Unpaged: the endpoint
+    # documents no page/length params and returns a handful of rows.
+    "workspace_allowances": CoassembleEndpointConfig(
+        name="workspace_allowances",
+        path="/usage/allowances",
+        primary_keys=["metric", "periodStart"],
+        page_size=None,
+    ),
 }
 
 ENDPOINTS = tuple(COASSEMBLE_ENDPOINTS.keys())

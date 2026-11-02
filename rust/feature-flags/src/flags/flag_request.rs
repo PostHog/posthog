@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::api::errors::FlagError;
 use crate::handler::flags::EvaluationRuntime;
+use crate::utils::bounded_json5;
 
 /// Maximum length for distinct_id values.
 /// This limit ensures compatibility with batch export destinations (Redshift, Postgres)
@@ -128,7 +129,7 @@ impl FlagRequest {
         };
 
         // Use json5 to parse, which handles NaN/Infinity natively
-        let mut value: Value = match json5::from_str(&payload) {
+        let mut value: Value = match bounded_json5::from_str(&payload) {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!("failed to parse JSON: {}", e);
@@ -290,6 +291,7 @@ mod tests {
     use crate::flags::flag_definitions_cache::FlagDefinitionsCache;
     use crate::flags::flag_request::{FlagRequest, MAX_DISTINCT_ID_LEN, MAX_LIB_LEN};
     use crate::flags::flag_service::FlagService;
+    use crate::utils::bounded_json5::MAX_NESTING_DEPTH;
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_hypercache_reader, setup_pg_reader_client,
         setup_redis_client, setup_team_hypercache_reader,
@@ -479,6 +481,24 @@ mod tests {
 
         // Check that string containing "NaN" is preserved
         assert_eq!(metrics.get("payload"), Some(&json!("{'foo': NaN}")));
+    }
+
+    #[test]
+    fn test_nesting_past_depth_limit_is_rejected() {
+        // The request object and person_properties are the first two levels.
+        let levels = MAX_NESTING_DEPTH - 1;
+        let json_str = format!(
+            r#"{{"distinct_id": "user123", "token": "my_token1", "person_properties": {{"v": {}{}}}}}"#,
+            "[".repeat(levels),
+            "]".repeat(levels)
+        );
+
+        let result = FlagRequest::from_bytes(Bytes::from(json_str));
+
+        assert!(
+            matches!(result, Err(FlagError::RequestDecodingError(_))),
+            "{result:?}"
+        );
     }
 
     #[test]

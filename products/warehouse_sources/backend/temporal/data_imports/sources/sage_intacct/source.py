@@ -66,7 +66,7 @@ class SageIntacctSource(ResumableSource[SageIntacctSourceConfig, SageIntacctResu
             label="Sage Intacct",
             docsUrl="https://posthog.com/docs/cdp/sources/sage-intacct",
             iconPath="/static/services/sage_intacct.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

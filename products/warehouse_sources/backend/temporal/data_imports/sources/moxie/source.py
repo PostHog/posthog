@@ -97,7 +97,7 @@ class MoxieSource(SimpleSource[MoxieSourceConfig]):
             name=ExternalDataSourceType.MOXIE,
             category=DataWarehouseSourceCategory.CRM,
             label="Moxie",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["freelance crm", "invoicing", "time tracking"],
             caption="""Enter your Moxie workspace base URL and API key to pull your clients, projects, invoices, and more into the PostHog Data warehouse.
 

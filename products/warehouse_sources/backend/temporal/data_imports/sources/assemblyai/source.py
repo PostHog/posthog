@@ -70,7 +70,7 @@ class AssemblyAISource(ResumableSource[AssemblyAISourceConfig, AssemblyAIResumeC
             name=ExternalDataSourceType.ASSEMBLYAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AssemblyAI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Enter your AssemblyAI API key to sync your speech-to-text transcripts into the PostHog "
                 "Data warehouse. Find your key in the [AssemblyAI dashboard](https://www.assemblyai.com/app/api-keys).\n\n"

@@ -24,6 +24,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PassRateBucket,
     ReadyToMergeBucket,
     RepoOverview,
+    RevertShareBucket,
     RunFailureLogs,
     TimeToGreenBucket,
     WorkflowHealthBucket,
@@ -633,6 +634,26 @@ class ReadyToMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class RevertShareBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RevertShareBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to revert_share_series_granularity (top of hour, midnight, or Monday). "
+                "Keyed on the revert's own merge time."
+            },
+            "merged_pr_count": {"help_text": "PRs merged in this bucket, all authors and bots included."},
+            "reverting_pr_count": {
+                "help_text": "Of those, PRs whose title names a revert: GitHub's 'Revert \"...\"' or a "
+                "conventional-commit 'revert: ...' / 'revert(scope): ...' title."
+            },
+            "revert_share": {
+                "help_text": "reverting_pr_count divided by merged_pr_count. Null when nothing merged in the bucket.",
+                "allow_null": True,
+            },
+        }
+
+
 class DeliveryStageTimingSerializer(DataclassSerializer):
     class Meta:
         dataclass = DeliveryStageTiming
@@ -712,6 +733,12 @@ class RepoOverviewSerializer(DataclassSerializer):
         "null; the whole series is empty when the issue-events table isn't synced or include_series=false, "
         "so fall back to open_to_merge_series.",
     )
+    revert_share_series = RevertShareBucketSerializer(
+        many=True,
+        help_text="Reverting merges over all merges (all authors, bots included) per bucket across the window, "
+        "oldest first, zero-filled, bucketed by revert_share_series_granularity. Empty buckets carry a null "
+        "share; the whole series is empty when include_series=false.",
+    )
 
     class Meta:
         dataclass = RepoOverview
@@ -737,6 +764,23 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "so dividing them by this count spreads all CI spend over the merges."
             },
             "merged_pr_count_prev": {"help_text": "Merged-PR count over the previous window."},
+            "reverting_pr_count": {
+                "help_text": "PRs merged in the window whose title names a revert: GitHub's 'Revert \"...\"' or a "
+                "conventional-commit 'revert: ...' / 'revert(scope): ...' title. Counts the revert when it merges, "
+                "not the change it undid, which may have merged in an earlier window. Same population as "
+                "merged_pr_count."
+            },
+            "reverting_pr_count_prev": {"help_text": "Reverting-PR count over the previous window."},
+            "revert_share": {
+                "help_text": "reverting_pr_count divided by merged_pr_count: the share of merges that undid an "
+                "earlier merge. The guardrail to watch when review requirements are loosened. Null when nothing "
+                "merged.",
+                "allow_null": True,
+            },
+            "revert_share_prev": {
+                "help_text": "The same share over the previous window. Null when nothing merged.",
+                "allow_null": True,
+            },
             "median_open_to_merge_seconds": {
                 "help_text": "Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. "
                 "Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.",
@@ -925,6 +969,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "ready_to_merge_series_granularity": {
                 "help_text": "Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'."
+            },
+            "revert_share_series_granularity": {
+                "help_text": "Bucket width of the revert_share_series trend: 'hour', 'day', or 'week'."
             },
         }
 

@@ -65,7 +65,7 @@ class CoverallsSource(ResumableSource[CoverallsSourceConfig, CoverallsResumeConf
             name=ExternalDataSourceType.COVERALLS,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Coveralls",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["code coverage", "coverage", "coveralls.io"],
             caption="""Pull per-build code coverage history from [Coveralls](https://coveralls.io) into the PostHog Data warehouse to track coverage trends and catch regressions across repositories.
 

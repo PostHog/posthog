@@ -10,6 +10,7 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.integrations import IntegrationNotFound
 from posthog.models import Integration, User
 from posthog.temporal.common.client import sync_connect
 
@@ -269,6 +270,58 @@ def test_backfills_for_export_lists_every_backfill_newest_first_within_the_team(
     assert api.list_backfills_for_export(export_id, other_team.pk) == []
 
 
+@pytest.mark.parametrize("scope", ["other_team", "other_export"])
+def test_runs_and_backfills_are_scoped_to_the_team_and_export(team, organization, scope):
+    export_id = _create_export(team)
+    run_id = _create_run(batch_export_id=export_id, finished_at=IN_WINDOW, status=BatchExportRun.Status.RUNNING)
+    backfill_id = testing.create_backfill(export_id, team_id=team.pk, status=BatchExportBackfill.Status.RUNNING)
+    if scope == "other_team":
+        team_id, scoped_export_id = create_team(organization=organization).pk, export_id
+    else:
+        team_id, scoped_export_id = team.pk, _create_export(team, name="other")
+    every_run = contracts.BatchExportRunFilters(
+        created=contracts.DatetimeRange(
+            start=dt.datetime(2000, 1, 1, tzinfo=dt.UTC), end=dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
+        )
+    )
+    page = contracts.ListPage(ordering=("-created_at",), bound=None, offset=0, limit=10)
+
+    assert [run.id for run in api.list_batch_export_runs(team.pk, export_id, filters=every_run, page=page)] == [run_id]
+    assert api.list_batch_export_runs(team_id, scoped_export_id, filters=every_run, page=page) == []
+    assert api.list_batch_export_backfills(team_id, scoped_export_id, page=page) == []
+    # A leaked run or backfill would get past the lookup and reach Temporal instead of raising.
+    for read_run in (api.get_batch_export_run, api.retry_batch_export_run, api.cancel_batch_export_run):
+        with pytest.raises(contracts.BatchExportRunNotFoundError):
+            read_run(team_id, scoped_export_id, run_id)
+    for read_backfill in (api.get_batch_export_backfill, api.cancel_batch_export_backfill):
+        with pytest.raises(contracts.BatchExportBackfillNotFoundError):
+            read_backfill(team_id, scoped_export_id, backfill_id)
+    if scope == "other_team":
+        with pytest.raises(contracts.BatchExportNotFoundError):
+            api.create_batch_export_backfill(team_id, export_id, start_at=None, end_at=None)
+
+
+@pytest.mark.parametrize("scope", ["other_team", "deleted"])
+def test_pause_unpause_and_delete_refuse_another_teams_or_a_deleted_export(team, organization, scope):
+    export_id = _create_export(team, paused=True)
+    if scope == "other_team":
+        team_id = create_team(organization=organization).pk
+    else:
+        team_id = team.pk
+        testing.update_batch_export(export_id, team_id=team.pk, deleted=True)
+
+    # A leaked lookup would pause silently, reach Temporal to unpause, or run the delete.
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.pause_batch_export(team_id, export_id, note="pause")
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.unpause_batch_export(team_id, export_id, note="unpause", backfill=False)
+    with pytest.raises(contracts.BatchExportNotFoundError):
+        api.delete_batch_export(export_id, team_id)
+
+    export = BatchExport.objects.get(id=export_id)
+    assert (export.paused, export.deleted) == (True, scope == "deleted")
+
+
 def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
     first = _create_export(team, name="first")
     second = _create_export(team, name="second")
@@ -375,7 +428,7 @@ def test_destination_test_step_refuses_an_integration_from_another_team(team, or
 
     with (
         mock.patch("products.batch_exports.backend.destination_tests.get_destination_test"),
-        pytest.raises(Integration.DoesNotExist),
+        pytest.raises(IntegrationNotFound),
     ):
         api.run_destination_test_step(
             team.pk,

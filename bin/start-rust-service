@@ -88,6 +88,8 @@ case "$RS_SVC" in
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
     # `ai` mode produces to the AI lane as its main topic, matching prod capture-ai
     export CAPTURE_MODE=ai
+    # Keep AI events under the local Kafka 1MB message limit (see docker-compose.base.yml)
+    export AI_MAX_EVENT_BYTES=900000
     export LOG_LEVEL=debug
     export DEBUG=1
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
@@ -376,7 +378,6 @@ case "$RS_SVC" in
     # In production, pod names resolve via K8s DNS.
     export POD_NAME=127.0.0.1
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
-    export KAFKA_PERSON_STATE_TOPIC=personhog_updates
     export FALLBACK_DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
     # Pair with the identity service's and the writer's default table, or
     # leader cache misses read a table the identity never wrote.
@@ -389,7 +390,8 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
-    export KAFKA_TOPIC=personhog_updates
+    export ETCD_ENDPOINTS=http://localhost:2379
+    export ETCD_PREFIX=/personhog/
     export KAFKA_CONSUMER_GROUP=personhog-writer
     export FLUSH_INTERVAL_MS=5000
     export FLUSH_BUFFER_SIZE=1000

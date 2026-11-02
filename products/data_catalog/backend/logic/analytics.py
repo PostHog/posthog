@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from posthog.hogql.database.database import get_data_warehouse_table_name
 
-from posthog.event_usage import get_request_analytics_properties, report_user_action, report_user_or_team_action
+from posthog.event_usage import (
+    AnalyticsProps,
+    get_request_analytics_properties,
+    report_user_action,
+    report_user_or_team_action,
+)
 from posthog.models import Team, User
 
 if TYPE_CHECKING:
@@ -21,6 +26,7 @@ if TYPE_CHECKING:
 
 METRIC_CREATED_EVENT = "data catalog metric created"
 METRIC_UPDATED_EVENT = "data catalog metric updated"
+METRIC_NAME_CONFLICT_EVENT = "data catalog metric name conflict"
 METRIC_APPROVED_EVENT = "data catalog metric approved"
 METRIC_APPROVAL_BLOCKED_EVENT = "data catalog metric approval blocked"
 METRIC_DELETED_EVENT = "data catalog metric deleted"
@@ -49,6 +55,7 @@ def capture_metric_event(
     user: Optional[User],
     request: "Request | None" = None,
     extra: Optional[dict[str, Any]] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> None:
     _report(
         event,
@@ -67,6 +74,7 @@ def capture_metric_event(
         team=team,
         user=user,
         request=request,
+        analytics_props=analytics_props,
     )
 
 
@@ -126,10 +134,12 @@ def _report(
     team: Team,
     user: Optional[User],
     request: "Request | None",
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> None:
     properties["is_system"] = user is None
     if user is not None:
-        report_user_action(user, event, properties, team=team, request=request)
+        report_user_action(user, event, properties, team=team, request=request, analytics_props=analytics_props)
         return
-    analytics_props = get_request_analytics_properties(request) if request is not None else None
+    if request is not None:
+        analytics_props = get_request_analytics_properties(request)
     report_user_or_team_action(event, properties, user=None, team=team, analytics_props=analytics_props)

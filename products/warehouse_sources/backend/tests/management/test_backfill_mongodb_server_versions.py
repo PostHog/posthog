@@ -49,7 +49,7 @@ def test_unreachable_source_does_not_stop_the_survey(team) -> None:
     unreachable = _create_source(team, "unreachable.example.com")
     reachable = _create_source(team, "reachable.example.com")
 
-    def probe(connection_string: str, team_id: int) -> dict[str, Any]:
+    def probe(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> dict[str, Any]:
         if "unreachable" in connection_string:
             raise TimeoutError("server selection timed out")
         return {"engine": "mongodb", "server_version": "7.0.14", "wire_version": 21}
@@ -68,7 +68,7 @@ def test_live_run_keeps_a_write_that_landed_during_the_probe(team) -> None:
     # merge into this run's opening snapshot would drop whatever landed while the probe ran.
     source = _create_source(team, "reachable.example.com")
 
-    def probe(connection_string: str, team_id: int) -> dict[str, Any]:
+    def probe(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> dict[str, Any]:
         ExternalDataSource.objects.filter(pk=source.pk).update(connection_metadata={"database": "analytics"})
         return {"engine": "mongodb", "server_version": "7.0.14", "wire_version": 21}
 

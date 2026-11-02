@@ -45,7 +45,6 @@ class TestProviderRouting(SimpleTestCase):
             ("openrouter",),
             ("fireworks",),
             ("minimax",),
-            ("zeabur",),
         ]
     )
     def test_get_provider_returns_correct_adapter(self, provider_name):
@@ -103,6 +102,21 @@ class TestProviderRouting(SimpleTestCase):
         assert isinstance(provider, OpenAICompatibleAdapter)
         assert provider.base_url == "https://api.example.com/v1"
 
+    def test_get_provider_anthropic_reads_foundry_endpoint(self):
+        from products.ai_observability.backend.llm.client import _get_provider
+        from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
+
+        mock_key = MagicMock()
+        mock_key.encrypted_config = {
+            "api_key": "irrelevant",
+            "azure_endpoint": "https://contoso.services.ai.azure.com/",
+        }
+
+        provider = _get_provider("anthropic", mock_key)
+
+        assert isinstance(provider, AnthropicAdapter)
+        assert provider.foundry_endpoint == "https://contoso.services.ai.azure.com/"
+
     def test_get_provider_openai_compatible_without_provider_key_has_no_base_url(self):
         from products.ai_observability.backend.llm.client import _get_provider
         from products.ai_observability.backend.llm.providers.openai_compatible import OpenAICompatibleAdapter
@@ -150,7 +164,6 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client._validate_provider("openrouter")
         client._validate_provider("fireworks")
         client._validate_provider("minimax")
-        client._validate_provider("zeabur")
 
 
 class TestApiKeyExtraction(SimpleTestCase):

@@ -68,7 +68,7 @@ class CoinGeckoSource(ResumableSource[CoinGeckoSourceConfig, CoinGeckoResumeConf
             name=ExternalDataSourceType.COINGECKO,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="CoinGecko",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your CoinGecko API key to pull cryptocurrency market data into the PostHog Data warehouse.
 
 Create a key in your [CoinGecko developer dashboard](https://www.coingecko.com/en/developers/dashboard). Free **Demo** keys (`x-cg-demo-api-key`) and paid **Pro** keys (`x-cg-pro-api-key`) use different hosts — pick the plan that matches your key.
@@ -103,6 +103,7 @@ The global market cap chart and NFT market tables need a Pro key on the Analyst 
                     ),
                     SourceFieldInputConfig(
                         name="coin_ids",
+                        sync_setting=True,
                         label="Coin IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -112,6 +113,7 @@ The global market cap chart and NFT market tables need a Pro key on the Analyst 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

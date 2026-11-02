@@ -1,6 +1,20 @@
 {
     "name": "Kafka consumers",
     "description": "Consumer lag and throughput of Kafka topics and consumer groups from the Kafka exporter.",
+    "variables": [
+        {
+            "name": "instance",
+            "label": "Instance",
+            "source": "sql",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'instance' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "lag",
@@ -11,7 +25,14 @@
                     {
                         "name": "a",
                         "metricName": "kafka_consumergroup_lag",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -36,7 +57,14 @@
                     {
                         "name": "a",
                         "metricName": "kafka_topic_partition_current_offset",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -61,7 +89,14 @@
                     {
                         "name": "a",
                         "metricName": "kafka_consumergroup_current_offset",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -86,7 +121,14 @@
                     {
                         "name": "a",
                         "metricName": "kafka_brokers",
-                        "aggregation": "max"
+                        "aggregation": "max",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -114,6 +156,13 @@
                         "groupBy": [
                             {
                                 "key": "consumergroup"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }
@@ -144,6 +193,13 @@
                             {
                                 "key": "topic"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -173,6 +229,13 @@
                             {
                                 "key": "topic"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -201,6 +264,13 @@
                         "groupBy": [
                             {
                                 "key": "consumergroup"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }

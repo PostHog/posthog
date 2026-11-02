@@ -48,7 +48,7 @@ class DrataSource(ResumableSource[DrataSourceConfig, DrataResumeConfig]):
             name=ExternalDataSourceType.DRATA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Drata",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Drata API key to pull your compliance data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API keys** in [Drata](https://app.drata.com/). A key with **read** scopes is sufficient; pick the region that matches your Drata account.

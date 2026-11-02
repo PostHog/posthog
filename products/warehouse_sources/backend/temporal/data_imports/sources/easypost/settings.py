@@ -182,6 +182,17 @@ EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
         path="/trackers",
         incremental_fields=_created_at_fields(),
     ),
+    "usps_claims": EasypostEndpointConfig(
+        name="usps_claims",
+        path="/carrier_claims/usps_claims",
+        # USPS lost/damaged claims, separate from insurance /claims. A claim carries no
+        # `created_at` and the list takes no time filter, so full refresh only. Accounts not
+        # enrolled in USPS claims get a 422, so it stays unselected by default.
+        incremental_fields=[],
+        partition_key=None,
+        should_sync_default=False,
+        supports_start_datetime=False,
+    ),
 }
 
 ENDPOINTS = tuple(EASYPOST_ENDPOINTS.keys())

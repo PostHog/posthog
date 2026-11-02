@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     METRIC_SET_WINDOW_DAYS,
     METRIC_SETS,
     PRIMARY_KEYS,
+    RELEASE_FILTER_OPTIONS,
     ListEndpoint,
     MetricSetEndpoint,
 )
@@ -601,6 +602,46 @@ def _iter_list_rows(
             resume_token = None
 
 
+def _release_filter_option_rows(payload: dict[str, Any], package_name: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for track in payload.get("tracks") or []:
+        for release in track.get("servingReleases") or []:
+            for version_code in release.get("versionCodes") or []:
+                rows.append(
+                    {
+                        "app": package_name,
+                        "track": track.get("displayName"),
+                        "trackType": track.get("type"),
+                        "release": release.get("displayName"),
+                        # int64 arrives as a string; the vitals tables hold `versionCode` as an int.
+                        "versionCode": _dimension_value({"int64Value": version_code}),
+                    }
+                )
+    return rows
+
+
+def _iter_release_filter_option_rows(
+    client: GooglePlayConsoleClient,
+    package_names: list[str],
+    manager: ResumableSourceManager[GooglePlayConsoleResumeConfig],
+    resume: GooglePlayConsoleResumeConfig | None,
+) -> Iterator[list[dict[str, Any]]]:
+    resume_app = resume.app if resume and resume.app else None
+
+    for index, package_name in enumerate(package_names):
+        if resume_app is not None and package_name < resume_app:
+            continue
+
+        payload = client.request("GET", f"apps/{package_name}:fetchReleaseFilterOptions")
+        rows = _release_filter_option_rows(payload, package_name)
+        if index + 1 < len(package_names):
+            manager.save_state(GooglePlayConsoleResumeConfig(app=package_names[index + 1]))
+        if rows:
+            yield rows
+        else:
+            manager.safe_point()
+
+
 def _parse_date(value: Any) -> dt.date | None:
     if isinstance(value, dt.datetime):
         return value.date()
@@ -726,6 +767,31 @@ def _list_endpoint_response(
     )
 
 
+def _release_filter_options_response(
+    key: ServiceAccountKey,
+    package_names: tuple[str, ...],
+    api_version: str,
+    manager: ResumableSourceManager[GooglePlayConsoleResumeConfig],
+    logger: FilteringBoundLogger,
+) -> SourceResponse:
+    def get_rows() -> Iterator[list[dict[str, Any]]]:
+        client = GooglePlayConsoleClient(key, api_version, logger)
+        yield from _iter_release_filter_option_rows(
+            client=client,
+            package_names=resolve_package_names(client, package_names),
+            manager=manager,
+            resume=_load_resume_state(manager),
+        )
+
+    return SourceResponse(
+        name=RELEASE_FILTER_OPTIONS,
+        items=get_rows,
+        primary_keys=PRIMARY_KEYS[RELEASE_FILTER_OPTIONS],
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def google_play_console_source(
     key: ServiceAccountKey,
     package_names: tuple[str, ...],
@@ -749,5 +815,8 @@ def google_play_console_source(
         return _list_endpoint_response(
             list_endpoint, key, package_names, api_version, resumable_source_manager, logger, watermark
         )
+
+    if resource_name == RELEASE_FILTER_OPTIONS:
+        return _release_filter_options_response(key, package_names, api_version, resumable_source_manager, logger)
 
     raise ValueError(f"Unknown Google Play Console endpoint: {resource_name}")

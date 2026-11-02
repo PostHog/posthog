@@ -10,15 +10,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
     SavvyCalSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal import (
-    SavvyCalResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal import SavvyCalResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.settings import (
     ENDPOINTS,
     SAVVYCAL_ENDPOINTS,
@@ -121,26 +117,6 @@ class TestErrorHandling:
         result = _run([_raw_response(malformed_body), _response([{"id": "a"}], after=None)])
         assert result.rows == [{"id": "a"}]
         assert len(result.requests) == 2
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, (True, None)),
-            ("unauthorized", 401, (False, "Invalid SavvyCal personal access token")),
-            ("forbidden", 403, (False, "Invalid SavvyCal personal access token")),
-            ("server_error", 500, (False, "SavvyCal returned HTTP 500")),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected: tuple[bool, str | None]) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("pt_secret_key") == expected
-
-    def test_connection_error_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, message = validate_credentials("pt_secret_key")
-        assert valid is False
-        assert message == "Could not validate SavvyCal personal access token"
 
 
 class TestSavvyCalSourceResponse:

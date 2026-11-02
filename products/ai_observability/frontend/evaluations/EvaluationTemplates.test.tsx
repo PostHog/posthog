@@ -18,10 +18,10 @@ describe('EvaluationTemplates', () => {
 
     afterEach(cleanup)
 
-    it('replaces Start with AI with the evaluation prompt card', () => {
+    it('replaces Start with AI with the agent card', () => {
         render(<EvaluationTemplatesEmptyState />)
 
-        expect(screen.getByText(/Use the connected PostHog MCP server/)).toBeInTheDocument()
+        expect(screen.getByText('Connect MCP')).toBeInTheDocument()
         expect(screen.queryByText('Start with AI')).not.toBeInTheDocument()
     })
 })

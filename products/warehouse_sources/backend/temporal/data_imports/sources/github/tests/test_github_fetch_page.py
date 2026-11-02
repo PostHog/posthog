@@ -15,6 +15,7 @@ from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -287,47 +288,55 @@ def test_fetch_page_waits_for_egress_budget_before_asking_for_it(installation_id
 
     with (
         mock.patch.object(github, "github_installation_pace_seconds", return_value=pace) as pace_for,
-        mock.patch.object(github, "activity") as temporal_activity,
+        mock.patch.object(github, "interruptible_wait") as wait,
         mock.patch.object(GithubSource, "_egress_identity", return_value=identity),
     ):
-        temporal_activity.in_activity.return_value = True
         result = _drive("issues", [ScriptedResponse(json=[])])
 
     assert result.raised is None
-    expected_waits = [] if expected_wait is None else [mock.call(timeout=expected_wait)]
-    assert temporal_activity.wait_for_worker_shutdown_sync.call_args_list == expected_waits
+    expected_waits = [] if expected_wait is None else [mock.call(expected_wait)]
+    assert wait.call_args_list == expected_waits
     assert pace_for.called is (installation_id is not None)
     assert result.paths == ["/repos/o/r/issues"]
 
 
 @pytest.mark.parametrize(
-    "in_activity,expect_drain_wait,expect_sleep",
+    "clock_at_signal,expected_sleeps",
     [
-        (True, True, False),
-        # Outside an activity there is no worker to drain, so a plain sleep is the whole behavior.
-        (False, False, True),
+        # The signal comes after the wait ends, so the wait takes its full length.
+        (100.0, [1.0] * 5),
+        # The signal comes in the middle of the wait, which is the end of the shutdown grace.
+        (3.0, [1.0] * 3),
+        # The signal came before the wait, so the wait returns at once.
+        (0.0, []),
     ],
 )
-def test_fetch_page_budget_wait_yields_to_a_draining_worker(in_activity, expect_drain_wait, expect_sleep):
-    # The pipeline tests for worker shutdown only between the chunks a source yields, so a wait that
-    # slept would hold a draining pod for its full duration and delay the hand-off by that much.
-    # Waiting on the shutdown event returns the moment the pod starts draining. Nothing about the
-    # sync looks wrong when this regresses; drains just get slower.
+def test_fetch_page_budget_wait_holds_during_the_shutdown_grace_and_ends_after_it(clock_at_signal, expected_sleeps):
+    # The signal is the hand-off gate, which stays false for the whole grace. A wait on the raw worker
+    # shutdown event returned at the SIGTERM instead, so imports skipped their pacing during the grace.
     session = mock.Mock()
     session.request.return_value = _ok_response()
     identity = github.GithubEgressIdentity(installation_id="123")
+    clock = {"now": 0.0}
+    sleeps: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        clock["now"] += seconds
 
     with (
-        mock.patch.object(github, "github_installation_pace_seconds", return_value=30.0),
-        mock.patch.object(github, "activity") as temporal_activity,
-        mock.patch.object(github.time, "sleep") as sleep,
+        mock.patch.object(github, "github_installation_pace_seconds", return_value=5.0),
         mock.patch.object(github, "make_tracked_session", return_value=session),
+        mock.patch("time.sleep", side_effect=fake_sleep),
+        activate_safe_point(
+            lambda: None,
+            covers_framework_checkpoints=False,
+            is_shutting_down=lambda: clock["now"] >= clock_at_signal,
+        ),
     ):
-        temporal_activity.in_activity.return_value = in_activity
         github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
 
-    assert temporal_activity.wait_for_worker_shutdown_sync.called is expect_drain_wait
-    assert sleep.called is expect_sleep
+    assert sleeps == expected_sleeps
 
 
 def _error_response(status_code: int, message: str, headers: dict[str, str] | None = None) -> mock.Mock:
@@ -355,6 +364,10 @@ def _error_response(status_code: int, message: str, headers: dict[str, str] | No
             github.GithubResourceUnavailableError,
         ),
         ("Secret scanning is disabled on this repository.", github.GithubResourceUnavailableError),
+        (
+            "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+            github.GithubResourceUnavailableError,
+        ),
         # A real denial stays fatal, and carries GitHub's own reason so the curated copy can name it.
         ("Resource not accessible by integration", github.GithubAccessDeniedError),
         ("Must have admin rights to Repository.", github.GithubAccessDeniedError),

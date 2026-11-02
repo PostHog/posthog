@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 import logging
 import datetime
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
@@ -22,6 +23,8 @@ from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infe
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
 
+if TYPE_CHECKING:
+    from products.posthog_ai.eval_harness.harness.django_env import NullDbBlocker
 logger = logging.getLogger(__name__)
 
 EVAL_SEED = "b1ef3c66-5f43-488a-98be-6b46d92fbcef"
@@ -164,6 +167,23 @@ def ensure_master_demo_team(django_db_blocker) -> int:
                 "Check object storage connectivity and the captured setup errors."
             )
         return team.id
+
+
+def create_empty_eval_project(django_db_blocker: NullDbBlocker, *, label: str) -> tuple[Team, User]:
+    suffix = uuid.uuid4().hex[:8]
+    with django_db_blocker.unblock(), transaction.atomic():
+        org = Organization.objects.create(name=f"Hedgebox ({label}-{suffix})")
+        user = User.objects.create_and_join(
+            org,
+            f"eval-{label}-{suffix}@posthog.test",
+            None,
+            EVAL_USER_FULL_NAME,
+            OrganizationMembership.Level.ADMIN,
+            theme_mode="system",
+            role_at_organization="engineering",
+        )
+        team = Team.objects.create(organization=org, is_demo=True)
+    return team, user
 
 
 def copy_demo_data_to_new_team(

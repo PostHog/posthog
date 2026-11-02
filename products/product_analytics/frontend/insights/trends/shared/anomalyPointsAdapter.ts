@@ -32,7 +32,7 @@ export function buildAnomalyMarkers(
         if (!result || isHidden(result)) {
             continue
         }
-        const days: string[] = result.action?.days ?? result.days ?? []
+        const days: string[] = result.days ?? []
         if (!days.length) {
             continue
         }

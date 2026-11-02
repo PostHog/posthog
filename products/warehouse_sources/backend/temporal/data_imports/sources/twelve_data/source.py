@@ -129,7 +129,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
             caption="Import market data from Twelve Data: instrument catalogs, historical prices, quotes, dividends, splits, and earnings.",
             docsUrl="https://posthog.com/docs/cdp/sources/twelve-data",
             iconPath="/static/services/twelve_data.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["stocks", "forex", "crypto", "market data", "twelvedata"],
             fields=cast(
                 list[FieldType],
@@ -144,6 +144,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -153,6 +154,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                     ),
                     SourceFieldSelectConfig(
                         name="interval",
+                        sync_setting=True,
                         label="Time series interval",
                         required=True,
                         defaultValue=DEFAULT_TIME_SERIES_INTERVAL,
@@ -163,6 +165,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Time series start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

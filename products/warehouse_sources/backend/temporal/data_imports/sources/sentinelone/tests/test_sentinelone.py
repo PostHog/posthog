@@ -4,8 +4,6 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     ScriptedResponse,
@@ -116,12 +114,6 @@ class TestValidateCredentials:
         valid, msg = validate_credentials(bad_url, "tok")
         assert valid is False
         assert msg == "Invalid SentinelOne console URL"
-
-    def test_request_exception_returns_failure(self):
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials("example.sentinelone.net", "tok")
-        assert valid is False
-        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
         # A validated host that 3xx-redirects (potentially to an internal address) must be

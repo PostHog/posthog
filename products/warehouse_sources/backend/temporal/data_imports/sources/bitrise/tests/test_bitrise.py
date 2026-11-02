@@ -92,18 +92,27 @@ class TestValidateCredentials:
         assert {request.path for request in network.requests_log} == {"/v0.1/me"}
 
 
-class TestApps:
-    def test_paginates_via_next_anchor_and_saves_state(self) -> None:
+class TestFlatCursorListings:
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("apps", "/v0.1/apps"),
+            ("activities", "/v0.1/me/activities"),
+        ],
+    )
+    def test_paginates_via_next_anchor_and_saves_state(self, endpoint: str, path: str) -> None:
         result = _driver().run(
-            "apps",
+            endpoint,
             [
-                _response({"data": [{"slug": "app1"}], "paging": {"next": "anchor1"}}),
-                _response({"data": [{"slug": "app2"}], "paging": {}}),
+                _response({"data": [{"slug": "row1"}], "paging": {"next": "anchor1"}}),
+                _response({"data": [{"slug": "row2"}], "paging": {}}),
             ],
         )
 
         assert result.raised is None
-        assert [row["slug"] for row in result.rows] == ["app1", "app2"]
+        assert [row["slug"] for row in result.rows] == ["row1", "row2"]
+        assert result.paths == [path, path]
+        assert result.params("limit") == ["50", "50"]
         # The second page carries the anchor returned by the first.
         assert result.params("next") == [None, "anchor1"]
         # State saved once, after the first page yielded and only while more pages remain.
@@ -208,6 +217,76 @@ class TestBranches:
             {"app_slug": "app1", "branch": "release/1.0"},
         ]
         assert result.paths[1] == "/v0.1/apps/app1/branches"
+
+
+class TestSinglePageAppChildren:
+    @pytest.mark.parametrize(
+        "endpoint, path, expected_limit",
+        [
+            ("archived_builds", "/v0.1/apps/{app}/archived-builds", "1000"),
+            ("build_requests", "/v0.1/apps/{app}/build-requests", None),
+        ],
+    )
+    def test_fans_out_over_apps_with_one_request_per_app(
+        self, endpoint: str, path: str, expected_limit: str | None
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response({"data": [{"slug": "app1"}, {"slug": "app2"}, {"slug": "gone"}], "paging": {}}),
+                # A paging anchor must not trigger a second request: the endpoint takes no anchor param.
+                _response({"data": [{"slug": "r1"}], "paging": {"next": "ignored"}}),
+                _response({"data": [{"slug": "r2"}, {"slug": "r3"}]}),
+                # An app deleted between enumeration and its fetch must not fail the sync.
+                _response({"message": "Not Found"}, status_code=404),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["slug"], row["app_slug"]) for row in result.rows] == [
+            ("r1", "app1"),
+            ("r2", "app2"),
+            ("r3", "app2"),
+        ]
+        assert result.paths[1:] == [path.format(app=app) for app in ("app1", "app2", "gone")]
+        assert [request.param("limit") for request in result.requests[1:]] == [expected_limit] * 3
+        assert all(request.param("app_slug") is None for request in result.requests[1:])
+
+
+class TestAvailableStacks:
+    @pytest.mark.parametrize(
+        "body, expected_rows",
+        [
+            (
+                {
+                    "linux-docker-android-22.04": {
+                        "id": "linux-docker-android-22.04",
+                        "os": "linux",
+                        "status": "stable",
+                    },
+                    "osx-xcode-16.0.x": {"id": "osx-xcode-16.0.x", "os": "macos", "removal-date": "2027-01-01"},
+                },
+                [
+                    {"id": "linux-docker-android-22.04", "os": "linux", "status": "stable"},
+                    {"id": "osx-xcode-16.0.x", "os": "macos", "removal-date": "2027-01-01"},
+                ],
+            ),
+            # The map key stands in for a missing or empty `id`.
+            (
+                {"osx-xcode-edge": {"title": "Xcode edge"}, "linux-edge": {"id": "", "os": "linux"}},
+                [{"title": "Xcode edge", "id": "osx-xcode-edge"}, {"id": "linux-edge", "os": "linux"}],
+            ),
+            # Non-object values are not stacks.
+            ({"osx-xcode-16.0.x": {"id": "osx-xcode-16.0.x"}, "note": "x"}, [{"id": "osx-xcode-16.0.x"}]),
+            ({}, []),
+        ],
+    )
+    def test_explodes_stack_map_into_rows(self, body: dict[str, Any], expected_rows: list[dict[str, Any]]) -> None:
+        result = _driver().run("available_stacks", [_response(body)])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert result.paths == ["/v0.1/available-stacks"]
 
 
 class TestOrganizationMembers:

@@ -37,10 +37,16 @@ export function EvaluationsTabs({
                         ...accessTab(Scene.AIObservabilityEvaluation, urls.aiObservabilityEvaluations()),
                         'data-attr': 'evaluations-tab',
                     },
-                    !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] && {
+                    (!!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] ||
+                        !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) && {
                         key: 'offline-evals',
                         label: 'Offline evals',
-                        ...accessTab(Scene.AIObservabilityOfflineExperiments, urls.aiObservabilityOfflineEvaluations()),
+                        ...accessTab(
+                            Scene.AIObservabilityOfflineExperiments,
+                            featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]
+                                ? urls.aiObservabilityOfflineEvaluations()
+                                : urls.aiObservabilityDatasets()
+                        ),
                         'data-attr': 'offline-evals-tab',
                     },
                     {

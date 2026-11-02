@@ -336,24 +336,6 @@ class TestV2ScheduleGuard(BaseTest):
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
 
-    def test_saved_query_without_a_node_is_not_reported_as_v1_eligible(self):
-        nodeless = self._saved_query("sync_failed")
-        with mock.patch(
-            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            return_value={str(self.v2_dag.id)},
-        ):
-            result = get_v2_saved_query_ids([nodeless.id], team_id=self.team.pk)
-        assert result == {nodeless.id}
-
-    def test_saved_query_without_a_node_stays_v1_eligible_when_no_dag_is_v2_scheduled(self):
-        nodeless = self._saved_query("sync_failed_on_v1_team")
-        with mock.patch(
-            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            return_value=set(),
-        ):
-            result = get_v2_saved_query_ids([nodeless.id], team_id=self.team.pk)
-        assert result == set()
-
     @parameterized.expand([("v2_node_created_first", True), ("v1_node_created_first", False)])
     def test_saved_query_in_two_dags_is_on_v2_when_either_dag_is(self, _name: str, v2_first: bool):
         shared = self._saved_query("in_two_dags")
@@ -363,7 +345,7 @@ class TestV2ScheduleGuard(BaseTest):
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
             return_value={str(self.v2_dag.id)},
         ):
-            result = get_v2_saved_query_ids([shared.id], team_id=self.team.pk)
+            result = get_v2_saved_query_ids([shared.id])
         assert result == {shared.id}
 
 

@@ -36,6 +36,11 @@ def declared_actions(manifest: dict | None) -> set[str]:
     return set(_posthog_section(manifest).get("actions") or [])
 
 
+def declared_tools(manifest: dict | None) -> set[str]:
+    """The PostHog MCP tools a capabilities manifest declares for ph.tools."""
+    return set(_posthog_section(manifest).get("tools") or [])
+
+
 def declared_connectors(manifest: dict | None) -> dict[str, set[str]]:
     """The ph.connectors tools a capabilities manifest declares, keyed by provider."""
     declared: dict[str, set[str]] = {}
@@ -61,6 +66,7 @@ class CapabilityWidening:
     network_origins_added: list[str]
     state_scopes_added: list[str]
     actions_added: list[str]
+    tools_added: list[str]
     connectors_added: list[ConnectorGrant]
 
     @property
@@ -73,6 +79,7 @@ class CapabilityWidening:
             or self.network_origins_added
             or self.state_scopes_added
             or self.actions_added
+            or self.tools_added
             or self.connectors_added
         )
 
@@ -96,6 +103,7 @@ def capability_widening(before: dict | None, after: dict | None) -> CapabilityWi
         network_origins_added=sorted(set(_network_origins(after)) - set(_network_origins(before))),
         state_scopes_added=sorted(set(after_ph.get("state") or []) - set(before_ph.get("state") or [])),
         actions_added=sorted(set(after_ph.get("actions") or []) - set(before_ph.get("actions") or [])),
+        tools_added=sorted(declared_tools(after) - declared_tools(before)),
         connectors_added=_connectors_added(declared_connectors(before), declared_connectors(after)),
     )
 

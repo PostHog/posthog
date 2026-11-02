@@ -195,6 +195,7 @@ const changeFeedList = (): ToolBase<ReturnType<typeof ChangeFeedListSchema>, Sch
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
+                kinds: params.kinds,
                 limit: params.limit,
             },
         })

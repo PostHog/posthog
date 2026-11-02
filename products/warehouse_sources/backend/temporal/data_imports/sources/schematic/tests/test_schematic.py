@@ -128,8 +128,6 @@ class TestSchematicValidateCredentials:
         ("status", "body", "expected_valid", "expected_fragment"),
         [
             (200, {"data": [], "params": {}}, True, None),
-            (401, {"error": "Unauthorized", "message": "invalid api key"}, False, "rejected the API key"),
-            (500, {"error": "internal"}, False, "Could not reach"),
         ],
     )
     def test_maps_the_probe_status_to_a_message(

@@ -584,8 +584,7 @@ def test_empty_scope_and_failure_rate_equality(rows: int, allowed_rate: float, s
     assert result.examined_row_count == rows
 
 
-@pytest.mark.parametrize("enabled", [True, False])
-def test_gateway_access_and_attribution(enabled: bool) -> None:
+def test_gateway_access_and_attribution() -> None:
     team = cast(
         "Team", SimpleNamespace(pk=42, id=42, uuid=UUID(int=42), organization_id=7, api_token="example-api-token")
     )
@@ -596,7 +595,6 @@ def test_gateway_access_and_attribution(enabled: bool) -> None:
             CLICKHOUSE_USE_HTTP=False,
             CLICKHOUSE_USE_HTTP_PER_TEAM=[],
         ),
-        patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=enabled),
         patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=False),
         patch.object(
             httpx.AsyncClient,
@@ -605,18 +603,6 @@ def test_gateway_access_and_attribution(enabled: bool) -> None:
             return_value=httpx.Response(200, json={"model": "example-model", "answers": {"row_0": {"noul": 0.9}}}),
         ) as send,
     ):
-        if not enabled:
-            with pytest.raises(QueryError, match="not enabled"):
-                QuestionGatewayEvaluator(
-                    team=team,
-                    model_id="example-model",
-                    question="Is this valid?",
-                    check_id="example-check",
-                    run_id="example-run",
-                    distinct_id="example-user",
-                )
-            assert not send.called
-            return
         runner = QuestionGatewayEvaluator(
             team=team,
             model_id="example-model",

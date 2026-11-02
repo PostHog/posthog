@@ -6,7 +6,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 
 import { initKeaTests } from '~/test/init'
-import { EntityFilter } from '~/types'
 
 import filtersJson from './__mocks__/filters.json'
 import { legacyFiltersToSeries } from './legacyFilters'
@@ -69,16 +68,10 @@ describe('renameModalLogic', () => {
             })
         })
 
-        it('resolves the legacy series object the results table passes', async () => {
+        it('selects the series the results table picks by index', async () => {
             await expectLogic(relevantEntityFilterLogic, () => {
-                // The trends runner emits `order`, not an index.
-                relevantEntityFilterLogic.actions.selectFilter({
-                    id: '9',
-                    name: 'Users signed up',
-                    type: 'actions',
-                    order: 2,
-                } as EntityFilter)
-            }).toDispatchActions(['selectFilter', 'selectSeries'])
+                relevantEntityFilterLogic.actions.selectSeriesAt(2)
+            }).toDispatchActions(['selectSeriesAt', 'selectSeries'])
 
             await expectLogic(logic).toMatchValues({
                 name: 'Users signed up',

@@ -11,9 +11,12 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 _MAX_SKILL_DESCRIPTION_LENGTH = 1024
 
+# A skill name becomes a directory under dist/skills and .agents/skills, so it must stay one path segment.
+SKILL_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
+
 
 class SkillFrontmatter(BaseModel):
-    name: str
+    name: str = Field(pattern=SKILL_NAME_PATTERN)
     description: str = Field(max_length=_MAX_SKILL_DESCRIPTION_LENGTH)
 
 

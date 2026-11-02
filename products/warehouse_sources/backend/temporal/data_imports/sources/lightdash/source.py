@@ -138,5 +138,5 @@ class LightdashSource(SimpleSource[LightdashSourceConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

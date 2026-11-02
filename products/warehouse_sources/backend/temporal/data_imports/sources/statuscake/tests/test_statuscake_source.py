@@ -13,12 +13,6 @@ class TestStatuscakeSource:
         self.source = StatuscakeSource()
         self.team_id = 123
 
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(
-            StatuscakeSourceConfig(api_key="token"), self.team_id, names=["uptime_tests", "uptime_history"]
-        )
-        assert {s.name for s in schemas} == {"uptime_tests", "uptime_history"}
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.statuscake.source.statuscake_source")
     def test_source_for_pipeline_drops_watermark_on_full_refresh(self, mock_statuscake_source):
         # A full refresh must not carry a stale watermark into the transport, or the sync would

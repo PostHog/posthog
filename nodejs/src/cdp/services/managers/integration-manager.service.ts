@@ -1,7 +1,7 @@
 import { IntegrationType } from '~/cdp/types'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 
@@ -16,6 +16,7 @@ export class IntegrationManagerService {
         this.lazyLoader = new LazyLoader({
             name: 'integration_manager',
             loader: async (ids) => await this.fetchIntegrations(ids),
+            loaderRetry: DEFAULT_LOADER_RETRY,
         })
         this.pubSub.on<{ integrationIds: IntegrationType['id'][] }>('reload-integrations', (message) => {
             logger.debug('⚡', '[PubSub] Reloading integrations!', { integrationIds: message.integrationIds })

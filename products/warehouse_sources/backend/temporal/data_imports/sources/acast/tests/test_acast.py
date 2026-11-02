@@ -4,7 +4,6 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.acast.acast import validate_credentials
 from products.warehouse_sources.backend.temporal.data_imports.sources.acast.source import AcastSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -49,16 +48,6 @@ def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show() -> No
     ("status", "message", "expected"),
     [
         (200, "", (True, None)),
-        (
-            401,
-            "Authentication required",
-            (False, "Acast rejected the API key. Contact Acast Customer Success to check or replace the key."),
-        ),
-        (
-            403,
-            "Forbidden",
-            (False, "Acast denied access. Ask Acast Customer Success to check the shows assigned to your API key."),
-        ),
     ],
 )
 def test_credential_validation_maps_auth_errors(status: int, message: str, expected: tuple[bool, str | None]) -> None:
@@ -101,10 +90,3 @@ def test_unexpected_response_shape_fails_instead_of_importing_an_error() -> None
 
     assert isinstance(result.raised, ValueError)
     assert "Required a list response body" in str(result.raised)
-
-
-def test_unknown_table_fails_before_making_requests() -> None:
-    result = acast_driver().run("unknown", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

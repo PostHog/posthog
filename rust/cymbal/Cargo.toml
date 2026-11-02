@@ -60,6 +60,7 @@ common-temporal = { path = "../common/temporal" }
 
 
 [dev-dependencies]
+common-dns = { path = "../common/dns", features = ["test-util"] }
 common-compression = { path = "../common/compression" }
 # For constructing IO-flavored RedisErrors in redis_heal classifier tests
 redis = { workspace = true }

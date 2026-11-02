@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
+    LemonButton,
     LemonSegmentedButton,
     LemonSkeleton,
     LemonTable,
@@ -18,8 +19,10 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { DetectorType } from '~/queries/schema/schema-general'
 
@@ -49,12 +52,30 @@ const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: s
     },
 }
 
-function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
+function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: AlertType['id'] }): JSX.Element {
+    const logic = alertLogic({ alertId })
+    const { expandedInvestigationChecks } = useValues(logic)
+    const { toggleInvestigationSummary } = useActions(logic)
+    const expanded = !!expandedInvestigationChecks[check.id]
+    const summaryRef = useRef<HTMLDivElement>(null)
+    const [isClamped, setIsClamped] = useState(false)
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
     const summary = check.investigation_summary?.trim() || null
     const verdict = check.investigation_verdict ?? null
     const suppressed = !!check.notification_suppressed_by_agent
+
+    useLayoutEffect(() => {
+        const element = summaryRef.current
+        if (!element || expanded) {
+            return
+        }
+        const measure = (): void => setIsClamped(element.scrollHeight > element.clientHeight)
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [summary, expanded])
 
     if (status === 'done') {
         const verdictCfg = verdict ? VERDICT_CONFIG[verdict] : null
@@ -67,17 +88,33 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                         </LemonTag>
                     </Tooltip>
                 )}
-                <Tooltip title={summary || undefined}>
-                    <div className="text-sm leading-normal line-clamp-2 text-muted">
-                        {verdictCfg && (
-                            <Tooltip title={verdictCfg.tooltip}>
-                                <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
-                            </Tooltip>
+                {verdictCfg && (
+                    <Tooltip title={verdictCfg.tooltip}>
+                        <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
+                    </Tooltip>
+                )}
+                {summary && (
+                    <>
+                        <div
+                            ref={summaryRef}
+                            className={`text-sm leading-normal text-muted ${expanded ? '' : 'line-clamp-2'}`}
+                        >
+                            <LemonMarkdown disableImages="all" disableLinks disableMentions lowKeyHeadings>
+                                {summary}
+                            </LemonMarkdown>
+                        </div>
+                        {(expanded || isClamped) && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                onClick={() => toggleInvestigationSummary(check.id)}
+                                aria-expanded={expanded}
+                            >
+                                {expanded ? 'Show less' : 'Show more'}
+                            </LemonButton>
                         )}
-                        {verdictCfg && summary && <span> — </span>}
-                        {summary && <span>{summary}</span>}
-                    </div>
-                </Tooltip>
+                    </>
+                )}
                 {shortId && (
                     <Link to={`/notebooks/${shortId}`} className="inline-flex items-center gap-1 text-sm">
                         <IconNotebook /> View notebook <IconOpenInNew className="text-xs" />
@@ -191,18 +228,26 @@ export function AlertHistorySection({
                 },
             })
         }
-        if (alertHistoryIsAnomalyDetection) {
+        // The AI detector has no score. Its checks read as fired or not fired, with a kind and a reason.
+        if (alertHistoryIsAnomalyDetection && !isLLMDetectorAlert) {
             columns.push({
-                title: alertHistoryChartSeriesName === 'Anomaly confidence' ? 'Anomaly confidence' : 'Score',
-                tooltip:
-                    alertHistoryChartSeriesName === 'Anomaly confidence'
-                        ? "How sure the model was that the latest point is an anomaly. This is the model's own estimate, not a measured probability."
-                        : undefined,
+                title: 'Score',
                 align: 'right',
                 render: (_value, check) => {
                     const scores = check.anomaly_scores
                     const lastScore = scores?.length ? scores[scores.length - 1] : null
                     return lastScore != null ? lastScore.toFixed(3) : '—'
+                },
+            })
+        }
+        if (alertHistoryChecksSortedDesc.some((check) => typeof check.triggered_metadata?.kind === 'string')) {
+            columns.push({
+                title: 'Kind',
+                render: (_value, check) => {
+                    const kind = check.triggered_metadata?.kind
+                    return typeof kind === 'string' && kind !== 'none'
+                        ? capitalizeFirstLetter(kind.replaceAll('_', ' '))
+                        : '—'
                 },
             })
         }
@@ -226,7 +271,7 @@ export function AlertHistorySection({
         if (investigationAgentEnabled) {
             columns.push({
                 title: 'Investigation',
-                render: (_value, check) => <InvestigationCell check={check} />,
+                render: (_value, check) => <InvestigationCell check={check} alertId={alertId} />,
             })
         }
         if (isAnyRowSqlAlert) {
@@ -286,10 +331,11 @@ export function AlertHistorySection({
         })
         return columns
     }, [
+        alertId,
         alertHistoryIsAnomalyDetection,
         investigationAgentEnabled,
         isAnyRowSqlAlert,
-        alertHistoryChartSeriesName,
+        isLLMDetectorAlert,
         showWhyColumn,
         alertHistoryChecksSortedDesc,
     ])

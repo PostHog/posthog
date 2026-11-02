@@ -85,14 +85,22 @@ class TestMightyNetworksSource:
 
     def test_get_endpoint_permissions_probes_every_requested_endpoint(self) -> None:
         with scripted_network(
-            [ScriptedResponse(status=200), ScriptedResponse(status=403, json={"message": "missing scope"})]
+            [
+                ScriptedResponse(status=200),
+                ScriptedResponse(status=403, json={"message": "missing scope"}),
+                ScriptedResponse(status=200),
+            ]
         ) as network:
-            permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["Members", "Purchases"])
+            permissions = self.source.get_endpoint_permissions(
+                self.config, self.team_id, ["Members", "Purchases", "SpaceMembers"]
+            )
 
-        assert permissions == {"Members": None, "Purchases": "missing scope"}
+        assert permissions == {"Members": None, "Purchases": "missing scope", "SpaceMembers": None}
+        # A fan-out table probes the parent list it walks, since its own path needs a parent id.
         assert [request.path for request in network.requests_log] == [
             "/admin/v1/networks/1234/members",
             "/admin/v1/networks/1234/purchases",
+            "/admin/v1/networks/1234/spaces",
         ]
-        assert [request.param("per_page") for request in network.requests_log] == ["1", "1"]
+        assert [request.param("per_page") for request in network.requests_log] == ["1", "1", "1"]
         assert all(request.headers["authorization"] == "Bearer key" for request in network.requests_log)

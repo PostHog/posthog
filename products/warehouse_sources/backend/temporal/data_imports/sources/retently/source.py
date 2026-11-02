@@ -55,7 +55,7 @@ class RetentlySource(ResumableSource[RetentlySourceConfig, RetentlyResumeConfig]
             name=ExternalDataSourceType.RETENTLY,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Retently",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["nps", "csat", "ces", "survey", "customer feedback"],
             caption="""Enter your Retently API key to pull your customer feedback data into the PostHog Data warehouse.
 

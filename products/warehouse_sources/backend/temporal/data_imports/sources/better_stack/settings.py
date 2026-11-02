@@ -16,6 +16,11 @@ BETTER_STACK_BASE_URL = "https://uptime.betterstack.com/api"
 # while this one returns 401 on a bad token.
 BETTER_STACK_ORG_BASE_URL = "https://betterstack.com/api"
 
+# Source-level version labels. Both pins read incidents from /v3. The v3 pin also reads
+# escalation policies from /v3/policies, which adds team and policy-group fields over /v2/policies.
+BETTER_STACK_V2 = "v2"
+BETTER_STACK_V3 = "v3"
+
 # A parent row deleted between the parent listing and the child fetch 404s. Skip that parent
 # instead of failing the whole fan-out.
 _SKIP_MISSING_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
@@ -25,6 +30,8 @@ _SKIP_MISSING_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ig
 class BetterStackEndpointConfig:
     name: str
     path: str
+    # Path served under the v3 pin, where it differs from `path`.
+    v3_path: Optional[str] = None
     # Host serving this resource. Defaults to the Uptime API.
     base_url: str = BETTER_STACK_BASE_URL
     # Only True where Better Stack exposes a genuine server-side date filter on this endpoint's
@@ -44,6 +51,11 @@ class BetterStackEndpointConfig:
     should_sync_default: bool = True
     # Set where the resource only exists per parent row (e.g. /monitors/{monitor_id}/sla).
     fanout: Optional[DependentEndpointConfig] = None
+
+    def path_for_version(self, api_version: str) -> str:
+        if api_version == BETTER_STACK_V3 and self.v3_path is not None:
+            return self.v3_path
+        return self.path
 
     @property
     def default_incremental_field(self) -> str | None:
@@ -221,6 +233,7 @@ BETTER_STACK_ENDPOINTS: dict[str, BetterStackEndpointConfig] = {
     "escalation_policies": BetterStackEndpointConfig(
         name="escalation_policies",
         path="/v2/policies",
+        v3_path="/v3/policies",
     ),
     # The routes still carry the feature's former name, `urgencies`.
     "severities": BetterStackEndpointConfig(

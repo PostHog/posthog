@@ -143,6 +143,7 @@ class Command(BaseCommand):
             while not stop.is_set():
                 Path("/tmp/dispatcher-heartbeat").touch()
                 try:
+                    await sync_to_async(close_old_connections)()
                     await sync_to_async(materialize_due_scheduled_task_runs)(SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE)
                     if monotonic() - last_metrics_sample >= 15:
                         await sync_to_async(sample_dispatch_metrics)()

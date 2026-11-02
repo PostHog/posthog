@@ -45,6 +45,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterGroupValueMap,
 } from 'lib/components/TaxonomicFilter/types'
+import { groupNamedBySearch } from 'lib/components/TaxonomicFilter/utils/groupNamedBySearch'
 import { hiddenEventMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
@@ -61,7 +62,6 @@ import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { HiddenEventExplanation } from './HiddenEventExplanation'
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
-import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -718,7 +718,6 @@ const MAX_OTHER_GROUP_SWITCHES = 3
 function InfiniteListEmptyState(): JSX.Element {
     const {
         searchQuery,
-        activeTab,
         taxonomicGroups,
         taxonomicGroupTypes,
         metaGroupTypes,
@@ -726,8 +725,9 @@ function InfiniteListEmptyState(): JSX.Element {
         infiniteListCounts,
         infiniteListResultCounts,
         eventNames,
+        ownsSearchInput,
     } = useValues(taxonomicFilterLogic)
-    const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
+    const { setIncludeStaleEvents, setActiveTab, setSearchQuery } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
 
     const { group, needsMoreSearchCharacters, minSearchQueryLength, isSuggestedFilters, listGroupType } =
@@ -739,11 +739,6 @@ function InfiniteListEmptyState(): JSX.Element {
         !emptySearchQuery &&
         !includeStaleEvents &&
         (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
-    // Inactive tabs stay mounted but hidden, so only the open tab's empty state may ask for suggestions.
-    const canOfferEventMatch =
-        !emptySearchQuery &&
-        listGroupType === activeTab &&
-        (listGroupType === TaxonomicFilterGroupType.Events || isSuggestedFilters)
 
     // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
     // jump there so the user doesn't have to guess which tab their match lives in.
@@ -754,6 +749,11 @@ function InfiniteListEmptyState(): JSX.Element {
         taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
         allSectionHasResults
 
+    // A search for a category's name offers that whole category, and replaces the named jump to it below.
+    const namedGroupType =
+        emptySearchQuery || !ownsSearchInput ? null : groupNamedBySearch(searchQuery, taxonomicGroupTypes)
+    const namedGroupName = taxonomicGroups.find((g) => g.type === namedGroupType)?.name
+
     // Named jumps come first because they say where the match is. The "all" jump stays as the fallback.
     // Keyed off result counts (not `infiniteListCounts`/`totalListCount`) so render-backed groups like
     // the SQL expression editor, whose affordance row makes `totalListCount` non-zero for any query,
@@ -763,6 +763,7 @@ function InfiniteListEmptyState(): JSX.Element {
             ? taxonomicGroupTypes.filter(
                   (groupType) =>
                       groupType !== listGroupType &&
+                      groupType !== namedGroupType &&
                       !metaGroupTypes.has(groupType) &&
                       (infiniteListResultCounts[groupType] ?? 0) > 0
               )
@@ -823,7 +824,6 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
-                    {canOfferEventMatch && <TaxonomicEventMatchSuggestions />}
                     {canOfferStaleToggle && (
                         <LemonButton
                             type="secondary"
@@ -832,6 +832,20 @@ function InfiniteListEmptyState(): JSX.Element {
                             onClick={() => setIncludeStaleEvents(true)}
                         >
                             Include stale events
+                        </LemonButton>
+                    )}
+                    {namedGroupType && namedGroupName && (
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            data-attr={`taxonomic-show-group-${namedGroupType}`}
+                            onClick={() => {
+                                reportTaxonomicFilterCategorySelected(namedGroupType, eventNames?.[0])
+                                setSearchQuery('')
+                                setActiveTab(namedGroupType)
+                            }}
+                        >
+                            Show all {namedGroupName.toLowerCase()}
                         </LemonButton>
                     )}
                     {otherGroupTypesWithResults.slice(0, MAX_OTHER_GROUP_SWITCHES).map((groupType) => {

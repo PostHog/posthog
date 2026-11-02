@@ -82,4 +82,51 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "contact": "Contact associated with the membership.",
         },
     },
+    "digital_products": {
+        "description": "Digital products sold through creator stores, funnels, or white-label areas.",
+        "docs_url": "https://developer.systeme.io/reference/api_paymentdigital-products_get_collection",
+        "columns": {
+            "id": "Unique digital product identifier.",
+            "name": "Digital product name.",
+            "source": "Area the digital product comes from: digital-store, funnel, or Whitelabel.",
+            "createdAt": "Date and time the digital product was created.",
+            "pricePlansCount": "Number of price plans attached to the digital product.",
+            "resourcesCount": "Number of resources attached to the digital product.",
+            "confirmationEmailId": "Identifier of the confirmation email sent after purchase.",
+        },
+    },
+    "physical_products": {
+        "description": "Physical products with SKU, price, and stock details.",
+        "docs_url": "https://developer.systeme.io/reference/api_paymentphysical-products_get_collection",
+        "columns": {
+            "id": "Unique physical product identifier.",
+            "name": "Physical product name.",
+            "createdAt": "Date and time the physical product was created.",
+            "updatedAt": "Date and time the physical product was last updated.",
+            "sku": "Stock keeping unit of the physical product.",
+            "currency": "Currency code of the product price.",
+            "price": "Product price in the smallest currency unit.",
+            "limitStock": "Whether the stock of the product is limited.",
+            "stock": "Number of units in stock when the stock is limited.",
+        },
+    },
+    "campaigns": {
+        "description": "Automated email campaigns that send a sequence of steps to contacts.",
+        "docs_url": "https://developer.systeme.io/reference/api_mailingcampaigns_get_collection",
+        "columns": {
+            "id": "Unique campaign identifier.",
+            "name": "Campaign name.",
+            "senderEmail": "Email address the campaign sends from.",
+        },
+    },
+    "campaign_steps": {
+        "description": "Email steps of each campaign, with content metadata and position in the sequence.",
+        "docs_url": "https://developer.systeme.io/reference/api_mailingcampaigns_campaignidsteps_get_collection",
+        "columns": {
+            "id": "Unique campaign step identifier.",
+            "campaignId": "Identifier of the campaign that contains the step.",
+            "content": "Step email subject, preview text, editor type, and sender details.",
+            "state": "Whether the step is active, and its position in the campaign.",
+        },
+    },
 }

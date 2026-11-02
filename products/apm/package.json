@@ -2,5 +2,21 @@
     "name": "@posthog/products-apm",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@types/react": "*",
+        "@xyflow/react": "*",
+        "clsx": "*",
+        "elkjs": "*",
+        "react": "*"
     }
 }

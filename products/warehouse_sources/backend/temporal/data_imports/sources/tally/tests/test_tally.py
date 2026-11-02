@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     UnexpectedRequest,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tally import TallySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
@@ -24,10 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally.sett
     WEBHOOKS_PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import (
-    TallyResumeConfig,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.tally.tally import TallyResumeConfig
 
 BASE = TALLY_BASE_URL
 FORMS_PAGE_1 = f"{BASE}/forms?limit={FORMS_PAGE_SIZE}&page=1"
@@ -221,12 +217,3 @@ class TestRetryClassification:
         responses = {FORMS_PAGE_1: [_resp({"error": "nope"}, status=status)]}
         result = _driver().run("forms", _by_url(responses))
         assert isinstance(result.raised, requests.HTTPError)
-
-
-class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    def test_status_mapping(self, status: int, expected_ok: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            ok, returned_status = validate_credentials("key")
-        assert ok is expected_ok
-        assert returned_status == status

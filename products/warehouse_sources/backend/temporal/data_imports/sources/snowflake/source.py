@@ -64,6 +64,8 @@ _UNENCRYPTED_KEY_WITH_PASSPHRASE_MESSAGE = (
     "Remove the passphrase, or paste your encrypted private key, then {action}"
 )
 
+_RESOURCE_MONITOR_QUOTA_ERROR = "cannot be resumed because resource monitor"
+
 # Shown when `validate_credentials` hits a transient connect blip (see `get_retryable_errors`). The
 # sync path retries such a blip quietly, but interactive validation has nothing to retry
 # automatically, so it tells the user it was a brief blip and to try again rather than capturing it
@@ -84,6 +86,7 @@ _MFA_ENFORCED_MESSAGE = (
 )
 
 SnowflakeErrors = {
+    _RESOURCE_MONITOR_QUOTA_ERROR: "The Snowflake warehouse can't resume because its resource monitor has used its credit quota. Raise the quota or wait for it to reset, then try again.",
     "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then try again.",
     "or attempt to login with another role": "Role specified doesn't exist or is not authorized",
     "Incorrect username or password was specified": "Incorrect username or password was specified",
@@ -306,6 +309,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -478,6 +482,17 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # opens a new connection and re-executes from scratch, so this is self-recovering rather
             # than a bug. The query id in the message is volatile, so we match the stable phrase.
             "SQL execution was cancelled by the client due to a timeout",
+            # Snowflake error 090073 (22000): the warehouse can't resume because the customer's resource
+            # monitor used its credit quota. Monitors reset on the schedule the customer set (daily,
+            # weekly or monthly), and the customer can raise the quota at any time. Disabling the
+            # schema would leave the sync off after the quota returns, so keep it enabled and retry.
+            # The query id and names are volatile, so we match the stable phrase.
+            _RESOURCE_MONITOR_QUOTA_ERROR,
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            _RESOURCE_MONITOR_QUOTA_ERROR: "Your Snowflake warehouse can't resume because its resource monitor has used its credit quota. This sync tries again on its own and works again once you raise the quota or it resets.",
         }
 
     def reconcile_schema_metadata(

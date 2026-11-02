@@ -116,7 +116,7 @@ class CloudsmithSource(ResumableSource[CloudsmithSourceConfig, CloudsmithResumeC
             name=ExternalDataSourceType.CLOUDSMITH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cloudsmith",
-            caption="""Sync your Cloudsmith repositories, packages, entitlements, webhooks, vulnerability scans, audit log, members and teams.
+            caption="""Sync your Cloudsmith repositories, packages, package dependencies, entitlements, webhooks, vulnerability scans, audit logs, quota history, members and teams.
 
 Create an API key in Cloudsmith under **Account settings → API settings**. The key inherits your own access, so use a key from a user who can see every repository you want to sync. The workspace is the slug in your Cloudsmith URLs, for example `acme` in `https://cloudsmith.io/~acme/`.
 """,
@@ -144,5 +144,5 @@ Create an API key in Cloudsmith under **Account settings → API settings**. The
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

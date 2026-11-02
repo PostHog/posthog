@@ -1,9 +1,9 @@
 import { dayjs } from 'lib/dayjs'
 
 import type {
-    HogFlowBatchJobApi,
-    HogFlowMinimalApi,
     HogFlowScheduleApi,
+    SendCalendarBatchJobApi,
+    SendCalendarFlowApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import {
@@ -12,23 +12,15 @@ import {
     calendarRange,
     calendarSendsForFlow,
     describeRepeat,
+    mergeCalendarFlows,
     dropTarget,
-    isScheduledEmailFlow,
     moveBlockedReason,
     movedScheduleFields,
     periodLabel,
     scheduleSendTimes,
     sendAudience,
+    splitRange,
 } from './sendCalendarUtils'
-
-const EMAIL_STEP = { type: 'function_email' }
-
-const flow = (
-    trigger: string,
-    actions: unknown[] = [EMAIL_STEP],
-    status: string = 'active'
-): Pick<HogFlowMinimalApi, 'status' | 'trigger' | 'actions'> =>
-    ({ status, trigger: { type: trigger }, actions }) as Pick<HogFlowMinimalApi, 'status' | 'trigger' | 'actions'>
 
 const schedule = (
     rrule: string,
@@ -46,22 +38,15 @@ const schedule = (
     updated_at: starts_at,
 })
 
-const job = (id: string, status: HogFlowBatchJobApi['status'], created_at: string): HogFlowBatchJobApi =>
-    ({ id, status, hog_flow: 'flow', created_at }) as HogFlowBatchJobApi
+const job = (id: string, status: SendCalendarBatchJobApi['status'], created_at: string): SendCalendarBatchJobApi => ({
+    id,
+    status,
+    created_at,
+})
 
 const LONDON_OCT_19_TO_NOV_1 = calendarRange(['2026-10-19', '2026-11-01'], 'Europe/London')
 
 describe('sendCalendarUtils', () => {
-    it.each([
-        ['a batch workflow with an email step', flow('batch'), true],
-        ['a scheduled workflow with an email step', flow('schedule'), true],
-        ['an event-triggered workflow', flow('event'), false],
-        ['a batch workflow without an email step', flow('batch', [{ type: 'delay' }]), false],
-        ['a draft', flow('batch', [EMAIL_STEP], 'draft'), false],
-    ])('decides whether to show %s', (_, value, expected) => {
-        expect(isScheduledEmailFlow(value)).toBe(expected)
-    })
-
     const COHORT_FILTER = { key: 'id', type: 'cohort', value: 21 }
     const EMAIL_IS_SET = { key: 'email', type: 'person', operator: 'is_set', value: 'is_set' }
     const COHORT_EXCLUSION = { key: 'id', type: 'cohort', operator: 'not_in', value: 22 }
@@ -69,35 +54,28 @@ describe('sendCalendarUtils', () => {
     it.each([
         [
             'a broadcast that filters on a cohort and a person property',
-            { type: 'batch', filters: { properties: [COHORT_FILTER, EMAIL_IS_SET] } },
-            [EMAIL_STEP],
+            { trigger_type: 'batch', audience_properties: [COHORT_FILTER, EMAIL_IS_SET] },
             { cohortIds: [21], filters: [EMAIL_IS_SET], accounts: false, address: null },
         ],
         [
             'a broadcast that leaves out a cohort',
-            { type: 'batch', filters: { properties: [COHORT_FILTER, COHORT_EXCLUSION] } },
-            [EMAIL_STEP],
+            { trigger_type: 'batch', audience_properties: [COHORT_FILTER, COHORT_EXCLUSION] },
             { cohortIds: [21], filters: [COHORT_EXCLUSION], accounts: false, address: null },
         ],
         [
             'a batch workflow that runs for each account',
-            { type: 'batch', filters: { properties: [], audience_type: 'accounts' } },
-            [EMAIL_STEP],
+            { trigger_type: 'batch', audience_properties: [], audience_type: 'accounts' },
             { cohortIds: [], filters: [], accounts: true, address: null },
         ],
         [
             'a scheduled workflow, which sends to the To address of its email',
-            { type: 'schedule' },
-            [
-                {
-                    type: 'function_email',
-                    config: { inputs: { email: { value: { to: { email: 'team@example.com' } } } } },
-                },
-            ],
+            { trigger_type: 'schedule', audience_properties: [], email_to: 'team@example.com' },
             { cohortIds: [], filters: [], accounts: false, address: 'team@example.com' },
         ],
-    ])('reads who %s sends to', (_, trigger, actions, expected) => {
-        expect(sendAudience({ trigger, actions } as Pick<HogFlowMinimalApi, 'trigger' | 'actions'>)).toEqual(expected)
+    ])('reads who %s sends to', (_, value, expected) => {
+        expect(
+            sendAudience({ audience_type: null, email_to: null, ...value } as unknown as SendCalendarFlowApi)
+        ).toEqual(expected)
     })
 
     it.each([
@@ -123,18 +101,22 @@ describe('sendCalendarUtils', () => {
     it('takes future sends from schedules and past sends from batch jobs', () => {
         const sends = calendarSendsForFlow(
             {
-                flow: { id: 'flow', name: 'Weekly digest', origin_product: null } as HogFlowMinimalApi,
+                id: 'flow',
+                name: 'Weekly digest',
+                origin_product: null,
+                trigger_type: 'batch',
+                audience_properties: [],
                 schedules: [
                     schedule('FREQ=WEEKLY;BYDAY=TU', '2026-09-01T08:00:00Z'),
                     schedule('FREQ=WEEKLY;BYDAY=FR', '2026-09-04T15:00:00Z', 'paused'),
                     schedule('FREQ=DAILY;COUNT=1', '2026-10-22T10:00:00Z', 'completed'),
                 ],
-                batchJobs: [
+                batch_jobs: [
                     job('sent', 'completed', '2026-10-20T08:00:05Z'),
                     job('failed', 'failed', '2026-10-19T09:00:00Z'),
                     job('outside', 'completed', '2026-10-05T08:00:00Z'),
                 ],
-            },
+            } as unknown as SendCalendarFlowApi,
             LONDON_OCT_19_TO_NOV_1,
             dayjs('2026-10-21T12:00:00Z')
         )
@@ -297,5 +279,33 @@ describe('sendCalendarUtils', () => {
             starts_at: '2026-10-26T09:00:00.000Z',
             rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO',
         })
+    })
+
+    it('splits a long range into pieces the endpoint accepts', () => {
+        const start = dayjs.utc('2026-09-01')
+        const pieces = splitRange({ start, end: start.add(121, 'day') }, 92)
+
+        expect(pieces.map((piece) => [piece.start.toISOString(), piece.end.toISOString()])).toEqual([
+            ['2026-09-01T00:00:00.000Z', '2026-12-02T00:00:00.000Z'],
+            ['2026-12-02T00:00:00.000Z', '2026-12-31T00:00:00.000Z'],
+        ])
+    })
+
+    it('joins the runs of a flow that two range pieces returned', () => {
+        const run = (id: string): SendCalendarBatchJobApi => ({ id }) as SendCalendarBatchJobApi
+        const piece = (runs: SendCalendarBatchJobApi[]): SendCalendarFlowApi =>
+            ({ id: 'flow-1', batch_jobs: runs }) as unknown as SendCalendarFlowApi
+
+        const merged = mergeCalendarFlows([[piece([run('a'), run('b')])], [piece([run('b'), run('c')])]])
+
+        expect(merged.map((flow) => flow.batch_jobs.map((job) => job.id))).toEqual([['a', 'b', 'c']])
+    })
+
+    it('counts every send of an hourly schedule when given a higher limit', () => {
+        const hourly = { rrule: 'FREQ=HOURLY', starts_at: '2026-10-01T00:00:00Z', timezone: 'UTC' }
+        const range = { start: dayjs.utc('2026-10-01'), end: dayjs.utc('2026-10-31') }
+
+        expect(scheduleSendTimes(hourly, range)).toHaveLength(200)
+        expect(scheduleSendTimes(hourly, range, 5000)).toHaveLength(720)
     })
 })

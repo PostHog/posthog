@@ -1,4 +1,3 @@
-import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -12,6 +11,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from products.wizard.backend.facade.contracts import (
     CreateWizardRunInput,
@@ -71,7 +71,7 @@ class TestWizardObservability(TestCase):
             patch.object(metrics.WIZARD_RUN_DISPATCH_ATTEMPTS_TOTAL, "labels") as counter,
             patch.object(events, "ph_background_capture") as background_capture,
             patch.object(events.User.objects, "filter") as users,
-            self.assertLogs("products.wizard.backend.observability.service", level=logging.INFO) as logs,
+            capture_logs() as logs,
         ):
             counter.return_value.inc.side_effect = ValueError("Metric unavailable") if metric_fails else None
             users.return_value.values_list.return_value.first.return_value = "example-user"
@@ -82,11 +82,13 @@ class TestWizardObservability(TestCase):
         counter.return_value.inc.assert_called_once_with()
         background_capture.return_value.assert_called_once()
         self.assertEqual(background_capture.return_value.call_args.kwargs["event"], "wizard run dispatch finished")
-        messages = [record.getMessage() for record in logs.records]
+        messages = [log["event"] for log in logs]
         self.assertEqual("wizard_run_dispatch_metric_failed" in messages, metric_fails)
         self.assertEqual("wizard_run_dispatch_event_failed" in messages, event_fails)
         self.assertEqual(messages[-1], "wizard_run_dispatch_finished")
-        self.assertEqual(logs.records[-1].levelno, logging.INFO)
+        self.assertEqual(logs[-1]["log_level"], "info")
+        self.assertEqual(logs[-1]["run_id"], str(run.id))
+        self.assertEqual(logs[-1]["outcome"], WizardRunDispatchOutcome.SUCCEEDED.value)
 
 
 def _cloud_run() -> WizardRunDTO:

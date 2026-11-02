@@ -61,7 +61,14 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     snapshots: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "json": json.loads(json.dumps(request.json or {}))})
+        snapshots.append(
+            {
+                "method": request.method,
+                "url": request.url,
+                "params": dict(request.params or {}),
+                "json": json.loads(json.dumps(request.json or {})),
+            }
+        )
         return mock.MagicMock()
 
     session.prepare_request.side_effect = _prepare
@@ -74,10 +81,12 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
 
 
 class TestBuildSearchBody:
-    def test_users_has_query_string_and_sort_fields(self):
-        body = _build_search_body(FUSIONAUTH_ENDPOINTS["Users"], {})
+    @pytest.mark.parametrize("endpoint", ["Users", "Entities", "UserRegistrations"])
+    def test_query_string_searches_have_query_string_and_sort_fields(self, endpoint):
+        body = _build_search_body(FUSIONAUTH_ENDPOINTS[endpoint], {})
         assert body["search"]["queryString"] == "*"
         assert body["search"]["sortFields"] == [{"name": "insertInstant", "order": "asc"}]
+        assert "orderBy" not in body["search"]
 
 
 class TestFusionAuthOffsetPaginator:
@@ -206,6 +215,18 @@ parameterized_secret_cases = pytest.mark.parametrize(
             },
         ),
         ("Tenants", "tenants", {"id": "t2", "emailConfiguration": None}, {"id": "t2", "emailConfiguration": None}),
+        (
+            "Entities",
+            "entities",
+            {"id": "e1", "clientId": "e1", "clientSecret": "fake-secret"},
+            {"id": "e1", "clientId": "e1"},
+        ),
+        (
+            "EntityGrants",
+            "grants",
+            {"id": "g1", "userId": "u1", "entity": {"id": "e1", "clientSecret": "fake-secret"}},
+            {"id": "g1", "userId": "u1", "entity": {"id": "e1"}},
+        ),
     ],
 )
 
@@ -376,3 +397,171 @@ class TestReadBounded:
         with pytest.raises(FusionAuthResponseTimeoutError):
             _read_bounded(cast(requests.Response, response), max_bytes=100, max_seconds=0)
         assert response.closed is True
+
+
+class TestFusionAuthUserRegistrations:
+    @pytest.mark.parametrize(
+        "users, expected",
+        [
+            (
+                [
+                    {
+                        "id": "u1",
+                        "registrations": [
+                            {
+                                "id": "r1",
+                                "applicationId": "a1",
+                                "roles": ["admin"],
+                                "tokens": {"idp": "fake-token"},
+                                "authenticationToken": "fake-auth-token",
+                            },
+                            {"id": "r2", "applicationId": "a2", "roles": []},
+                        ],
+                    },
+                    {"id": "u2", "registrations": [{"id": "r3", "applicationId": "a1"}]},
+                ],
+                [
+                    {"id": "r1", "applicationId": "a1", "roles": ["admin"], "userId": "u1"},
+                    {"id": "r2", "applicationId": "a2", "roles": [], "userId": "u1"},
+                    {"id": "r3", "applicationId": "a1", "userId": "u2"},
+                ],
+            ),
+            ([{"id": "u1"}, {"id": "u2", "registrations": []}, {"id": "u3", "registrations": None}], []),
+            (
+                [{"id": "u1", "registrations": ["not-an-object", {"id": "r1", "applicationId": "a1"}]}],
+                [{"id": "r1", "applicationId": "a1", "userId": "u1"}],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rows_are_one_per_registration(self, MockSession, users, expected):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({"users": users})])
+        source = fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint="UserRegistrations",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+        assert _rows(source) == expected
+        assert snaps[0]["url"].endswith("/api/user/search")
+        assert snaps[0]["json"]["search"]["queryString"] == "*"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_user_search_from_saved_offset(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({"users": [{"id": "u9", "registrations": [{"applicationId": "a1"}]}]})])
+        source = fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint="UserRegistrations",
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(FusionAuthResumeConfig(offset=300)),
+        )
+        assert _rows(source) == [{"applicationId": "a1", "userId": "u9"}]
+        assert snaps[0]["json"]["search"]["startRow"] == 300
+
+
+class TestFusionAuthPerUserFanout:
+    def _source(self, endpoint):
+        return fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+
+    @pytest.mark.parametrize(
+        "endpoint, child_path, data_selector",
+        [
+            ("UserConsents", "/api/user/consent", "userConsents"),
+            ("UserActionLogs", "/api/user/action", "actions"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_each_user_and_skips_missing_users(self, MockSession, endpoint, child_path, data_selector):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response({"users": [{"id": "u1"}, {"id": "u2"}, {"id": "u3"}]}),
+                _response({data_selector: [{"id": "c1"}, {"id": "c2"}]}),
+                _response({"generalErrors": [{"message": "not found"}]}, status_code=404),
+                _response({data_selector: []}),
+            ],
+        )
+
+        assert [row["id"] for row in _rows(self._source(endpoint))] == ["c1", "c2"]
+        assert snaps[0]["method"] == "POST"
+        assert snaps[0]["url"].endswith("/api/user/search")
+        assert snaps[0]["json"]["search"]["queryString"] == "*"
+        assert [snap["url"].removeprefix("https://auth.example.com") for snap in snaps[1:]] == [
+            f"{child_path}?userId=u1",
+            f"{child_path}?userId=u2",
+            f"{child_path}?userId=u3",
+        ]
+        assert all(snap["method"] == "GET" for snap in snaps[1:])
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pages_through_users(self, MockSession):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response({"users": [{"id": f"u{i}"} for i in range(100)]}),
+                *[_response({"userConsents": [{"id": f"c{i}"}]}) for i in range(100)],
+                _response({"users": [{"id": "u100"}]}),
+                _response({"userConsents": [{"id": "c100"}]}),
+            ],
+        )
+
+        assert len(_rows(self._source("UserConsents"))) == 101
+        user_searches = [snap for snap in snaps if snap["method"] == "POST"]
+        assert [snap["json"]["search"]["startRow"] for snap in user_searches] == [0, 100]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_runtime_host_check_blocks_unsafe_domain(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response({"users": [{"id": "u1"}]})])
+        with mock.patch.object(fusionauth_module, "_is_host_safe", return_value=(False, "internal address")):
+            with pytest.raises(fusionauth_module.FusionAuthHostNotAllowedError):
+                _rows(self._source("UserConsents"))
+        session.send.assert_not_called()
+
+
+class TestFusionAuthLookups:
+    @pytest.mark.parametrize(
+        "endpoint, data_selector, responses, expected_ids, expected_params",
+        [
+            (
+                "UserActions",
+                "userActions",
+                [[{"id": "a1"}, {"id": "a2"}], [{"id": "a2"}, {"id": "a3", "active": False}]],
+                ["a1", "a2", "a3"],
+                [{}, {"inactive": "true"}],
+            ),
+            ("UserActions", "userActions", [[], []], [], [{}, {"inactive": "true"}]),
+            ("UserActionReasons", "userActionReasons", [[{"id": "r1"}, {"id": "r2"}]], ["r1", "r2"], [{}]),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_lookups(self, MockSession, endpoint, data_selector, responses, expected_ids, expected_params):
+        session = MockSession.return_value
+        snaps = _wire(session, [_response({data_selector: rows}) for rows in responses])
+        source = fusionauth_source(
+            base_url="https://auth.example.com",
+            api_key="tok",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
+        )
+
+        assert [row["id"] for row in _rows(source)] == expected_ids
+        assert [snap["params"] for snap in snaps] == expected_params
+        assert all(snap["method"] == "GET" and snap["json"] == {} for snap in snaps)

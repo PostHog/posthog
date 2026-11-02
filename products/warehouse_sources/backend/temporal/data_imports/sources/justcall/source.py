@@ -65,7 +65,7 @@ class JustCallSource(ResumableSource[JustCallSourceConfig, JustCallResumeConfig]
 Generate an API key and secret under **Account Settings → Developers (APIs and Webhooks)** in your [JustCall dashboard](https://app.justcall.io/). The credentials have read access to your account's calls, texts, contacts, and phone numbers.""",
             iconPath="/static/services/justcall.png",
             docsUrl="https://posthog.com/docs/cdp/sources/justcall",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -19,10 +19,6 @@ class TestInstanaSource:
         # sent to a freshly-specified host.
         assert self.source.connection_host_fields == ["base_url"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["applications"])
-        assert [s.name for s in schemas] == ["applications"]
-
     @pytest.mark.parametrize(
         ("probe_result", "expected_valid"),
         [

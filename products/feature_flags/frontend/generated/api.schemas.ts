@@ -878,26 +878,25 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 }
 
 /**
+ * * `semver_eq` - semver_eq
+ * * `semver_neq` - semver_neq
  * * `semver_gt` - semver_gt
  * * `semver_gte` - semver_gte
  * * `semver_lt` - semver_lt
  * * `semver_lte` - semver_lte
- * * `semver_eq` - semver_eq
- * * `semver_neq` - semver_neq
  * * `semver_tilde` - semver_tilde
  * * `semver_caret` - semver_caret
  * * `semver_wildcard` - semver_wildcard
  */
-export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+export type SemverOperatorEnumApi = (typeof SemverOperatorEnumApi)[keyof typeof SemverOperatorEnumApi]
 
-export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+export const SemverOperatorEnumApi = {
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
     SemverGt: 'semver_gt',
     SemverGte: 'semver_gte',
     SemverLt: 'semver_lt',
     SemverLte: 'semver_lte',
-    SemverEq: 'semver_eq',
-    SemverNeq: 'semver_neq',
     SemverTilde: 'semver_tilde',
     SemverCaret: 'semver_caret',
     SemverWildcard: 'semver_wildcard',
@@ -924,16 +923,16 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
     group_type_index?: number | null
     /** Semantic version comparison operator.
      *
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard */
-    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    operator: SemverOperatorEnumApi
     /** Semantic version string. */
     value: string
 }
@@ -1024,6 +1023,10 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
     operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
     /** Cohort comparison value (single or list, depending on usage). */
     value: unknown
+    /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
+    cohort_deleted?: boolean
+    /** Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write. */
+    cohort_missing?: boolean
 }
 
 /**
@@ -1175,7 +1178,40 @@ export interface FeatureFlagCreateRequestSchemaApi {
     bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
+/**
+ * * `errors` - Errors or bugs
+ * * `metrics` - Metrics got worse
+ * * `planned` - It was planned
+ * * `wrong_configuration` - Wrong configuration
+ * * `other` - Other
+ */
+export type RollbackReasonEnumApi = (typeof RollbackReasonEnumApi)[keyof typeof RollbackReasonEnumApi]
+
+export const RollbackReasonEnumApi = {
+    Errors: 'errors',
+    Metrics: 'metrics',
+    Planned: 'planned',
+    WrongConfiguration: 'wrong_configuration',
+    Other: 'other',
+} as const
+
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
+    /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+    ask_rollback_reason?: boolean
+    /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+     *
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other */
+    rollback_reason?: RollbackReasonEnumApi | null
+    /**
+     * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+     * @maxLength 1000
+     * @nullable
+     */
+    rollback_reason_note?: string | null
     /** Feature flag key. */
     key?: string
     /** Feature flag description (stored in the `name` field for backwards compatibility). */
@@ -1211,6 +1247,11 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | null
+    /**
+     * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it.
+     * @minimum 0
+     */
+    version?: number
 }
 
 export interface ChangeApi {
@@ -1361,6 +1402,285 @@ export interface FlagApprovalConflictApi {
     required_approvers: unknown
 }
 
+export type PropertyGroupOperatorEnumApi =
+    (typeof PropertyGroupOperatorEnumApi)[keyof typeof PropertyGroupOperatorEnumApi]
+
+export const PropertyGroupOperatorEnumApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type EventPropFilterTypeEnumApi = (typeof EventPropFilterTypeEnumApi)[keyof typeof EventPropFilterTypeEnumApi]
+
+export const EventPropFilterTypeEnumApi = {
+    Event: 'event',
+    Element: 'element',
+} as const
+
+export interface EventPropFilterApi {
+    type: EventPropFilterTypeEnumApi
+    key: string
+    value: unknown
+    operator?: string | null
+}
+
+export interface HogQLFilterApi {
+    type: 'hogql'
+    key: string
+    value?: unknown
+}
+
+export interface BehavioralFilterApi {
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'behavioral'
+    key: string | number
+    value: string
+    event_type: string
+    time_value?: number | null
+    time_interval?: string | null
+    negation?: boolean
+    operator?: string | null
+    operator_value?: number | null
+    seq_time_interval?: string | null
+    seq_time_value?: number | null
+    seq_event?: string | number | null
+    seq_event_type?: string | null
+    total_periods?: number | null
+    min_periods?: number | null
+    event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
+    explicit_datetime?: string | null
+    explicit_datetime_to?: string | null
+}
+
+export interface CohortFilterApi {
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'cohort'
+    key: 'id'
+    value: number
+    negation?: boolean
+}
+
+export interface PersonFilterApi {
+    operator?: string | null
+    value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person'
+    key: string
+    negation?: boolean
+}
+
+/**
+ * Filter on a top-level persons-table column (e.g. created_at) rather than the
+ * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+ */
+export interface PersonMetadataFilterApi {
+    operator?: string | null
+    value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person_metadata'
+    key: string
+    negation?: boolean
+}
+
+/**
+ * AND/OR group containing cohort filters. Named to avoid collision with analytics Group model.
+ */
+export interface CohortFilterGroupApi {
+    type: PropertyGroupOperatorEnumApi
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
+}
+
+export interface CohortFiltersApi {
+    properties: CohortFilterGroupApi
+    filterTestAccounts?: boolean | null
+}
+
+/**
+ * * `static` - static
+ * * `person_property` - person_property
+ * * `behavioral` - behavioral
+ * * `realtime` - realtime
+ * * `analytical` - analytical
+ */
+export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
+
+export const CohortTypeEnumApi = {
+    Static: 'static',
+    PersonProperty: 'person_property',
+    Behavioral: 'behavioral',
+    Realtime: 'realtime',
+    Analytical: 'analytical',
+} as const
+
+export interface CohortConditionTypeFlagsApi {
+    /** The filters include a person property or person_metadata condition. */
+    person_properties: boolean
+    /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
+    behavioral: boolean
+    /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+    lifecycle: boolean
+    /** The filters include a nested reference to another cohort. */
+    cohorts: boolean
+}
+
+/**
+ * * `static` - Static
+ * * `person_properties` - Person properties
+ * * `daily` - Daily
+ * * `building` - Building
+ * * `rebuilding` - Rebuilding
+ * * `ready` - Ready
+ * * `needs_attention` - Needs attention
+ */
+export type CohortRealtimeStateEnumApi = (typeof CohortRealtimeStateEnumApi)[keyof typeof CohortRealtimeStateEnumApi]
+
+export const CohortRealtimeStateEnumApi = {
+    Static: 'static',
+    PersonProperties: 'person_properties',
+    Daily: 'daily',
+    Building: 'building',
+    Rebuilding: 'rebuilding',
+    Ready: 'ready',
+    NeedsAttention: 'needs_attention',
+} as const
+
+/**
+ * * `waiting` - Waiting
+ * * `scanning` - Scanning
+ * * `checking` - Checking
+ */
+export type CohortHistoryBuildPhaseEnumApi =
+    (typeof CohortHistoryBuildPhaseEnumApi)[keyof typeof CohortHistoryBuildPhaseEnumApi]
+
+export const CohortHistoryBuildPhaseEnumApi = {
+    Waiting: 'waiting',
+    Scanning: 'scanning',
+    Checking: 'checking',
+} as const
+
+export interface CohortHistoryBuildApi {
+    /** What the build is doing now: `waiting` to start, `scanning` past events, or `checking` the membership it produced. A build that is queued but has not started reports `waiting` too.
+     *
+     * * `waiting` - Waiting
+     * * `scanning` - Scanning
+     * * `checking` - Checking */
+    phase: CohortHistoryBuildPhaseEnumApi
+    /**
+     * How much of the event history has been scanned, 0 to 100. Null outside the `scanning` phase, and while the scan is still being planned.
+     * @nullable
+     */
+    percent_complete: number | null
+    /**
+     * When this build last made progress. Null while it is still queued.
+     * @nullable
+     */
+    updated_at: string | null
+}
+
+export interface CohortRealtimeReadinessApi {
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+     *
+     * * `static` - Static
+     * * `person_properties` - Person properties
+     * * `daily` - Daily
+     * * `building` - Building
+     * * `rebuilding` - Rebuilding
+     * * `ready` - Ready
+     * * `needs_attention` - Needs attention */
+    state: CohortRealtimeStateEnumApi
+    /**
+     * When the cohort became targetable by feature flags. Null unless the state is `ready`.
+     * @nullable
+     */
+    ready_at: string | null
+    /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
+    build: CohortHistoryBuildApi | null
+}
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
+export interface CohortApi {
+    readonly id: number
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 1000 */
+    description?: string
+    groups?: unknown
+    deleted?: boolean
+    filters?: CohortFiltersApi | null
+    query?: unknown
+    /** @nullable */
+    readonly version: number | null
+    /** @nullable */
+    readonly pending_version: number | null
+    readonly is_calculating: boolean
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly last_calculation: string | null
+    /** @nullable */
+    readonly last_backfill_person_properties_at: string | null
+    readonly errors_calculating: number
+    /** @nullable */
+    readonly last_error_message: string | null
+    /** @nullable */
+    readonly count: number | null
+    /**
+     * Number of IDs supplied by the most recent static cohort import. Null if the cohort was never populated from a list of IDs.
+     * @nullable
+     */
+    readonly last_import_total_count: number | null
+    /**
+     * How many of the IDs in the most recent static cohort import matched no person, and so were not added to the cohort.
+     * @nullable
+     */
+    readonly last_import_unmatched_count: number | null
+    is_static?: boolean
+    /** Type of cohort based on filter complexity
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
+    cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
+    /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+    readonly condition_type: CohortConditionTypeFlagsApi | null
+    /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
+    readonly realtime: CohortRealtimeReadinessApi | null
+    readonly experiment_set: readonly number[]
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
+    _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
+    _create_static_person_ids?: string[]
+}
+
+export interface CreateStaticCohortForFlagResponseApi {
+    /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
+    readonly cohort: CohortApi
+}
+
 export interface DependentFlagApi {
     /** Feature flag ID */
     id: number
@@ -1369,6 +1689,17 @@ export interface DependentFlagApi {
     /** Feature flag name */
     name: string
 }
+
+export interface FeatureFlagSetActiveRequestApi {
+    /**
+     * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out.
+     * @minimum 0
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
 
 export interface FeatureFlagRollOutToEveryoneRequestApi {
     /**
@@ -1383,8 +1714,6 @@ export interface FeatureFlagRollOutToEveryoneRequestApi {
      */
     variant_key?: string | null
 }
-
-export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
 
 export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
     /**
@@ -1502,7 +1831,7 @@ export interface FeatureFlagTestEvaluationResponseApi {
      */
     reason_description?: string | null
     /**
-     * The index of the condition that matched, if applicable
+     * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
      * @nullable
      */
     condition_index: number | null
@@ -1515,8 +1844,10 @@ export interface FeatureFlagTestEvaluationResponseApi {
      * @nullable
      */
     evaluation_distinct_id: string | null
-    /** Detailed analysis of each condition in the feature flag */
+    /** Detailed analysis of each condition in the feature flag. Always empty for a flag with config version 2, which `conditions_unavailable_reason` then explains. */
     conditions: FeatureFlagConditionAnalysisApi[]
+    /** Present only when `conditions` is empty because the evaluated config has no per-condition analysis. An empty list then does not mean the flag has no conditions or rules. */
+    conditions_unavailable_reason?: string
 }
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }

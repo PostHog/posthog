@@ -16,7 +16,7 @@ from django.utils import timezone
 import httpx
 from anthropic import APIStatusError
 from parameterized import parameterized
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -669,8 +669,7 @@ class TestWidgetData(APIBaseTest):
             snapshots.capture(self.NODE_ID, version.id, parent.id)
         assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 1
 
-    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
-    def test_snapshot_creation_pins_metadata_and_rejects_changed_inputs(self, _flag: MagicMock) -> None:
+    def test_snapshot_creation_pins_metadata_and_rejects_changed_inputs(self) -> None:
         instance = self._mapping()
         version = self._pinned_version(instance)
         run = self._run()
@@ -708,9 +707,6 @@ class TestWidgetData(APIBaseTest):
                 WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
         assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
 
-    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
-    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
-    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
     @patch("products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=[])
     def test_dashboard_publication_attaches_results_atomically(self, *_mocks: MagicMock) -> None:
@@ -727,7 +723,10 @@ class TestWidgetData(APIBaseTest):
             "name": "Results",
         }
 
-        with patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=False):
+        with patch(
+            "products.dashboards.backend.widget_publication.create_widget_tile",
+            side_effect=ValidationError("Cannot create widget tile."),
+        ):
             assert self.client.post(path, payload).status_code == 400
         assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
         assert not dashboard.tiles.exists()
@@ -785,8 +784,7 @@ class TestWidgetData(APIBaseTest):
         assert self.client.post(path, {**refresh, "previous_snapshot_id": response.json()["id"]}).status_code == 403
         assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
 
-    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
-    def test_snapshot_frame_endpoint_checks_query_access_and_notebook_ownership(self, _flag: MagicMock) -> None:
+    def test_snapshot_frame_endpoint_checks_query_access_and_notebook_ownership(self) -> None:
         version = self._pinned_version(self._mapping())
         run = self._run()
         run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 1}
@@ -794,10 +792,6 @@ class TestWidgetData(APIBaseTest):
         snapshot = WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
         path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/{snapshot.id}/frames/{self.INPUT_NAME}/"
         assert self.client.get(path).status_code == 200
-        with patch(
-            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=False
-        ):
-            assert self.client.get(path).status_code == 404
         with patch(
             "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._has_query_access",
             return_value=False,
@@ -856,9 +850,6 @@ class TestWidgetData(APIBaseTest):
         cleanup_widget_snapshots()
         assert list(NotebookWidgetSnapshot.objects.for_team(self.team.id).values_list("id", flat=True)) == [recent.id]
 
-    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
-    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
-    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
     @patch("products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=[])
     def test_dashboard_refresh_does_not_share_the_snapshot_creation_bucket(self, *_mocks: MagicMock) -> None:
@@ -1370,17 +1361,15 @@ class TestWidgetData(APIBaseTest):
             ("frame", "get", f"frames/{INPUT_NAME}/", None),
         ]
     )
-    def test_widget_endpoint_is_hidden_when_the_feature_is_disabled(
+    def test_widget_endpoint_requires_authentication(
         self, _name: str, method: str, suffix: str, data: dict[str, str] | None
     ) -> None:
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/{suffix}"
 
-        with patch(
-            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=False
-        ):
-            response = self.client.post(url, data=data, format="json") if method == "post" else self.client.get(url)
+        self.client.logout()
+        response = self.client.post(url, data=data, format="json") if method == "post" else self.client.get(url)
 
-        assert response.status_code == 404
+        assert response.status_code == 401
         assert not NotebookWidgetInstance.objects.for_team(self.team.id).filter(notebook=self.notebook).exists()
 
     def test_generation_starts_before_the_widget_has_a_current_version(self) -> None:

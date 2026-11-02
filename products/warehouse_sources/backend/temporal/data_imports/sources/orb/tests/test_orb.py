@@ -24,6 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb im
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settings import ENDPOINTS, ORB_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.source import OrbSource
 
+TOP_LEVEL_ENDPOINTS = [e for e in ENDPOINTS if ORB_ENDPOINTS[e].fanout is None]
+FANOUT_ENDPOINTS = [e for e in ENDPOINTS if ORB_ENDPOINTS[e].fanout is not None]
+
 
 def _response(body: dict[str, Any]) -> MagicMock:
     response = MagicMock()
@@ -82,7 +85,7 @@ class TestGetResource:
         endpoint = cast(dict[str, Any], resource["endpoint"])
         return cast(dict[str, Any], endpoint["params"])
 
-    @parameterized.expand(list(ENDPOINTS))
+    @parameterized.expand(TOP_LEVEL_ENDPOINTS)
     def test_resource_shape(self, endpoint: str) -> None:
         cfg = ORB_ENDPOINTS[endpoint]
         resource = get_resource(endpoint, should_use_incremental_field=False)
@@ -112,7 +115,7 @@ class TestGetResource:
         assert param["cursor_path"] == cfg.incremental_field
         assert param["convert"] is _format_incremental_value
 
-    @parameterized.expand([e for e in ENDPOINTS if ORB_ENDPOINTS[e].incremental_param is None])
+    @parameterized.expand([e for e in TOP_LEVEL_ENDPOINTS if ORB_ENDPOINTS[e].incremental_param is None])
     def test_full_refresh_endpoint_ignores_incremental_flag(self, endpoint: str) -> None:
         # Items / Coupons have no server-side time filter: even with incremental requested they
         # stay full-refresh (replace) so we never silently emit a bogus filter param.
@@ -162,9 +165,107 @@ class TestOrbSource:
         assert result.saved_states == [OrbResumeConfig(next_cursor="next-1")]
         assert result.committed_states == [OrbResumeConfig(next_cursor="next-1")]
 
+    @parameterized.expand(
+        [
+            ("CreditLedgerEntries", "customers", "credits/ledger", "customer_id", None),
+            ("BalanceTransactions", "customers", "balance_transactions", "customer_id", None),
+            ("CreditBlocks", "customers", "credits", "customer_id", "true"),
+            ("SubscriptionSchedules", "subscriptions", "schedule", "subscription_id", None),
+        ]
+    )
+    def test_fanout_walks_every_parent_and_tags_rows(
+        self,
+        endpoint: str,
+        parent: str,
+        child_suffix: str,
+        parent_key: str,
+        include_all_blocks: str | None,
+    ) -> None:
+        result = self._driver().run(
+            endpoint,
+            [
+                self._page([{"id": "p_1"}, {"id": "p_gone"}, {"id": "p_2"}]),
+                self._page([{"id": "entry-1"}], next_cursor="child-next"),
+                self._page([{"id": "entry-2"}]),
+                # A parent deleted after the parent listing must not fail the fan-out.
+                ScriptedResponse(status=404, json={"title": "Not found"}),
+                self._page([{"id": "entry-3"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            f"/v1/{parent}",
+            f"/v1/{parent}/p_1/{child_suffix}",
+            f"/v1/{parent}/p_1/{child_suffix}",
+            f"/v1/{parent}/p_gone/{child_suffix}",
+            f"/v1/{parent}/p_2/{child_suffix}",
+        ]
+        assert result.params("cursor") == [None, None, "child-next", None, None]
+        assert result.params("limit") == ["100"] * 5
+        assert result.params("include_all_blocks") == [None] + [include_all_blocks] * 4
+        assert result.rows == [
+            {"id": "entry-1", parent_key: "p_1"},
+            {"id": "entry-2", parent_key: "p_1"},
+            {"id": "entry-3", parent_key: "p_2"},
+        ]
+
+    @parameterized.expand(
+        [
+            ("CustomerCosts", "customers", "customer_id"),
+            ("SubscriptionCosts", "subscriptions", "subscription_id"),
+        ]
+    )
+    def test_costs_fanout_fetches_one_unpaginated_response_per_parent(
+        self, endpoint: str, parent: str, parent_key: str
+    ) -> None:
+        cost = {"timeframe_start": "2026-10-01T00:00:00Z", "subtotal": "1.00", "total": "1.00", "per_price_costs": []}
+        result = self._driver().run(
+            endpoint,
+            [
+                self._page([{"id": "p_1"}, {"id": "p_2"}]),
+                ScriptedResponse(json={"data": [{**cost, "timeframe_end": "2026-10-02T00:00:00Z"}]}),
+                ScriptedResponse(json={"data": [{**cost, "timeframe_end": "2026-10-03T00:00:00Z"}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/v1/{parent}", f"/v1/{parent}/p_1/costs", f"/v1/{parent}/p_2/costs"]
+        # The parent listing still pages at the maximum size; the costs endpoint takes no page size.
+        assert result.params("limit") == ["100", None, None]
+        assert [(row[parent_key], row["timeframe_end"]) for row in result.rows] == [
+            ("p_1", "2026-10-02T00:00:00Z"),
+            ("p_2", "2026-10-03T00:00:00Z"),
+        ]
+
+    def test_fanout_resume_skips_completed_customers(self) -> None:
+        result = self._driver().run(
+            "CreditLedgerEntries",
+            [
+                self._page([{"id": "cus_1"}, {"id": "cus_2"}]),
+                self._page([{"id": "entry-3"}]),
+            ],
+            resume_state=OrbResumeConfig(
+                fanout_state={
+                    "completed": ["/customers/cus_1/credits/ledger"],
+                    "current": "/customers/cus_2/credits/ledger",
+                    "child_state": {"next_cursor": "saved-cursor"},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/customers", "/v1/customers/cus_2/credits/ledger"]
+        assert result.params("cursor") == [None, "saved-cursor"]
+        assert result.rows == [{"id": "entry-3", "customer_id": "cus_2"}]
+
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_mapping(self, _label: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("key") is expected

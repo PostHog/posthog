@@ -58,7 +58,7 @@ class SkyvernSource(ResumableSource[SkyvernSourceConfig, SkyvernResumeConfig]):
             name=ExternalDataSourceType.SKYVERN,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Skyvern",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Skyvern API key to automatically pull your Skyvern browser-automation data into the PostHog Data warehouse.
 
 You can find your API key in your [Skyvern settings](https://app.skyvern.com/settings).

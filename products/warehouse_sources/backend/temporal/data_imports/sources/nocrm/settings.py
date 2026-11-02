@@ -1,10 +1,17 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
+# noCRM caps `/leads` at a default of 100 per page; request the max to minimise round-trips against
+# the low (~2000 req/day) account quota.
+PAGE_SIZE = 100
 
-@dataclass
+
+@dataclass(frozen=True)
 class NoCRMEndpointConfig:
     name: str
     path: str
@@ -27,6 +34,13 @@ class NoCRMEndpointConfig:
     partition_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
+    # Set for endpoints noCRM only exposes per parent row (per lead / per user).
+    fanout: Optional[DependentEndpointConfig] = None
+    # False for child endpoints that return their whole collection in one response, with no
+    # documented limit/offset params.
+    paginated: bool = True
+    default_incremental_field: Optional[str] = None
+    page_size: int = PAGE_SIZE
 
 
 def _updated_at_incremental_fields() -> list[IncrementalField]:
@@ -41,6 +55,30 @@ def _updated_at_incremental_fields() -> list[IncrementalField]:
         },
     ]
 
+
+# Lead sub-resources are only listable per lead, so these fan out over `/leads` (one request per lead).
+LEAD_FANOUT = DependentEndpointConfig(
+    parent_name="leads",
+    resolve_param="lead_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "lead_id"},
+    # `/leads` hides unassigned leads unless asked, which would drop their histories and comments.
+    parent_params={"order": "id", "direction": "asc", "include_unassigned": "true"},
+    # A lead deleted between the parent listing and its child fetch 404s; skip it.
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
+
+# `/follow_ups` requires a `lead_id` or `user_id`. There are far fewer users than leads, so fan out
+# over users. The default status set is undocumented, so ask for every status explicitly.
+USER_FANOUT = DependentEndpointConfig(
+    parent_name="users",
+    resolve_param="user_id",
+    resolve_field="id",
+    include_from_parent=[],
+    child_params={"status": "todo,standby,done"},
+    child_response_actions=[{"status_code": 404, "action": "ignore"}],
+)
 
 NOCRM_ENDPOINTS: dict[str, NoCRMEndpointConfig] = {
     "leads": NoCRMEndpointConfig(
@@ -97,6 +135,35 @@ NOCRM_ENDPOINTS: dict[str, NoCRMEndpointConfig] = {
         name="fields",
         path="/fields",
         incremental_fields=[],
+    ),
+    # Per-lead fan-outs cost one request per lead against the daily quota, so they are opt-in.
+    "lead_action_histories": NoCRMEndpointConfig(
+        name="lead_action_histories",
+        path="/leads/{lead_id}/action_histories",
+        incremental_fields=[],
+        partition_key="created_at",
+        primary_keys=["lead_id", "id"],
+        should_sync_default=False,
+        fanout=LEAD_FANOUT,
+    ),
+    "lead_comments": NoCRMEndpointConfig(
+        name="lead_comments",
+        path="/leads/{lead_id}/comments",
+        incremental_fields=[],
+        partition_key="created_at",
+        primary_keys=["lead_id", "id"],
+        should_sync_default=False,
+        fanout=LEAD_FANOUT,
+        paginated=False,
+    ),
+    "follow_ups": NoCRMEndpointConfig(
+        name="follow_ups",
+        # The framework only binds resolve params in the path, so `user_id` rides in the query string here.
+        path="/follow_ups?user_id={user_id}",
+        incremental_fields=[],
+        partition_key="created_at",
+        fanout=USER_FANOUT,
+        paginated=False,
     ),
 }
 

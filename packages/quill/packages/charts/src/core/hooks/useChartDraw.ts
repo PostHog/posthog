@@ -20,8 +20,8 @@ interface UseChartDrawOptions {
     overlayCtx: CanvasRenderingContext2D | null
     dimensions: ChartDimensions | null
     scales: ChartScales | null
-    series: ResolvedSeries[]
-    labels: string[]
+    series?: ResolvedSeries[]
+    labels?: string[]
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
@@ -32,13 +32,17 @@ interface UseChartDrawOptions {
     hoverAnimationMs?: number
 }
 
+// Shared defaults: a fresh `[]` per render would repaint the static layer on every hover.
+const NO_SERIES: ResolvedSeries[] = []
+const NO_LABELS: string[] = []
+
 export function useChartDraw({
     ctx,
     overlayCtx,
     dimensions,
     scales,
-    series,
-    labels,
+    series = NO_SERIES,
+    labels = NO_LABELS,
     hoverIndex,
     hoverPosition,
     theme,

@@ -7,9 +7,10 @@ import {
     Empty,
     EmptyDescription,
     EmptyHeader,
-    EmptyMedia,
+    IconStack,
+    IconStackItem,
     EmptyTitle,
-    ItemGroup,
+    CardGroup,
     Select,
     SelectContent,
     SelectItem,
@@ -39,9 +40,11 @@ export function QuillTicketsList(): JSX.Element {
         return (
             <Empty>
                 <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                        <IconSupport />
-                    </EmptyMedia>
+                    <IconStack>
+                        <IconStackItem color="var(--color-product-support-light)">
+                            <IconSupport />
+                        </IconStackItem>
+                    </IconStack>
                     <EmptyTitle>Support chat isn't available right now</EmptyTitle>
                     <EmptyDescription>
                         An ad blocker or network policy can stop it from loading. You can still ask PostHog AI or the
@@ -85,8 +88,7 @@ export function QuillTicketsList(): JSX.Element {
                     Switched browsers?{' '}
                     <Button
                         variant="link"
-                        size="xs"
-                        className="h-auto p-0"
+                        size="inline"
                         onClick={() => setView('restore')}
                         data-attr="sidebar-recover-tickets"
                     >
@@ -136,11 +138,11 @@ export function QuillTicketsList(): JSX.Element {
                     </Button>
                 </div>
             ) : (
-                <ItemGroup combined>
+                <CardGroup>
                     {filteredTickets.map((ticket: ConversationTicket) => (
                         <QuillTicketRow key={ticket.id} ticket={ticket} onOpen={() => setCurrentTicket(ticket)} />
                     ))}
-                </ItemGroup>
+                </CardGroup>
             )}
         </div>
     )

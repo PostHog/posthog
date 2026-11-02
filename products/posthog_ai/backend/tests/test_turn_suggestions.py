@@ -61,6 +61,7 @@ from products.posthog_ai.backend.turn_suggestions.service import (
     MAX_TRANSCRIPT_LOG_BYTES,
     TURN_SUGGESTION_METHOD,
     TurnSuggestionOutcome,
+    _capture_classified,
     generate_turn_suggestion,
 )
 from products.posthog_ai.backend.turn_suggestions.transcript import (
@@ -248,6 +249,7 @@ def _verdict(offer: OfferKind = OfferKind.SCOUT, intent: TurnIntent = TurnIntent
         show_probability=0.92,
         picked=offer,
         offer_probabilities={offer.value: 0.8},
+        scout_recurrence_probability=0.9,
         draft=_DRAFTS.get(offer),
     )
 
@@ -508,6 +510,7 @@ def _judgment(**overrides: Any) -> TurnJudgment:
         intent=TurnIntent.METRIC_STATE,
         offer=OfferKind.SCOUT,
         offer_probabilities={"scout": 0.7, "notebook": 0.3},
+        scout_recurrence_probability=0.9,
         scout_mode=ScoutMode.REPORT,
         cadence=ScoutCadence.WEEKLY,
         notebook_template=NotebookTemplate.CONVERSATION,
@@ -562,10 +565,16 @@ class TestJudgeTurn(SimpleTestCase):
         offer = questions["offer"]
         assert isinstance(offer, ChoiceQuestion) and set(offer.criteria) == ALL_OFFERS
 
-    def test_a_turn_with_one_possible_offer_skips_the_offer_question(self):
+    @parameterized.expand([("recurring", 0.9), ("one_time", 0.1), ("missing", None)])
+    def test_a_turn_with_one_possible_offer_skips_the_offer_question(
+        self, _name: str, recurrence_probability: float | None
+    ) -> None:
         transcript = build_turn_transcript(_metric_turn())
         only_scout = frozenset({OfferKind.SCOUT})
-        answers = _answers({"show_offer": 0.8}, {"intent": "metric_state", "scout_mode": "report", "cadence": "weekly"})
+        nouls = {"show_offer": 0.8}
+        if recurrence_probability is not None:
+            nouls["scout_recurring"] = recurrence_probability
+        answers = _answers(nouls, {"intent": "metric_state", "scout_mode": "report", "cadence": "weekly"})
 
         with patch(
             f"{JUDGMENT}.build_system_one_client", return_value=MagicMock(decide=MagicMock(return_value=answers))
@@ -574,6 +583,9 @@ class TestJudgeTurn(SimpleTestCase):
 
         assert "offer" not in build_judge_questions(transcript, only_scout)
         assert judgment is not None and judgment.offer == OfferKind.SCOUT
+        assert judgment.scout_recurrence_probability == (recurrence_probability or 0.0)
+        expected = OfferKind.SCOUT if recurrence_probability == 0.9 else OfferKind.NONE
+        assert pick_offer(judgment, only_scout) == expected
 
     def test_a_turn_with_more_issues_than_a_choice_takes_still_offers_the_one_the_answer_names(self):
         issues = [{"id": f"issue-{index}", "name": f"Error {index:03d}"} for index in range(300)]
@@ -677,6 +689,31 @@ class TestPickOffer(SimpleTestCase):
         [
             ("offers_what_jev_picked", {}, ALL_OFFERS, OfferKind.SCOUT),
             ("below_the_show_threshold", {"show_probability": 0.3}, ALL_OFFERS, OfferKind.NONE),
+            (
+                "one_time_investigation",
+                {
+                    "intent": TurnIntent.DIAGNOSTIC,
+                    "scout_mode": ScoutMode.INVESTIGATE,
+                    "scout_recurrence_probability": 0.1,
+                },
+                ALL_OFFERS,
+                OfferKind.NONE,
+            ),
+            ("one_time_report", {"scout_recurrence_probability": 0.1}, ALL_OFFERS, OfferKind.NONE),
+            ("below_recurrence_threshold", {"scout_recurrence_probability": 0.49}, ALL_OFFERS, OfferKind.NONE),
+            ("at_recurrence_threshold", {"scout_recurrence_probability": 0.5}, ALL_OFFERS, OfferKind.SCOUT),
+            (
+                "repeatable_investigation",
+                {"intent": TurnIntent.DIAGNOSTIC, "scout_mode": ScoutMode.INVESTIGATE},
+                ALL_OFFERS,
+                OfferKind.SCOUT,
+            ),
+            (
+                "one_time_investigation_notebook",
+                {"offer": OfferKind.NOTEBOOK, "scout_recurrence_probability": 0.1},
+                ALL_OFFERS,
+                OfferKind.NOTEBOOK,
+            ),
             ("pick_the_project_cannot_act_on", {}, frozenset({OfferKind.NOTEBOOK}), OfferKind.NONE),
             ("alert_without_an_insight", {"offer": OfferKind.ALERT, "insight": None}, ALL_OFFERS, OfferKind.NONE),
             ("alert_on_a_funnel", {"offer": OfferKind.ALERT, "insight": FUNNEL_INSIGHT}, ALL_OFFERS, OfferKind.NONE),
@@ -872,6 +909,7 @@ class TestClassifyTurn(SimpleTestCase):
         )
 
         assert verdict is not None and verdict.draft == draft
+        assert verdict.scout_recurrence_probability == 0.9
         assert draft_scout_mock.call_args.kwargs["mode"] == ScoutMode.WATCH
         assert draft_scout_mock.call_args.kwargs["cadence"] == ScoutCadence.DAILY
         assert card_copy(draft).title == "Get a Slack message when this changes"
@@ -883,11 +921,53 @@ class TestClassifyTurn(SimpleTestCase):
         assert verdict.picked == OfferKind.SCOUT
         assert verdict.draft is None
 
+    def test_a_one_time_investigation_is_not_drafted(self) -> None:
+        verdict, draft_scout_mock, draft_notebook_mock = self._classify(
+            _judgment(intent=TurnIntent.DIAGNOSTIC, scout_mode=ScoutMode.INVESTIGATE, scout_recurrence_probability=0.1)
+        )
+
+        assert verdict is not None and verdict.picked == OfferKind.NONE and verdict.draft is None
+        assert verdict.scout_recurrence_probability == 0.1
+        draft_scout_mock.assert_not_called()
+        draft_notebook_mock.assert_not_called()
+
     def test_a_failed_judgment_returns_none(self):
         verdict, draft_scout_mock, _ = self._classify(None)
 
         assert verdict is None
         draft_scout_mock.assert_not_called()
+
+
+class TestCaptureClassified(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("accepted_scout", 0.9, True),
+            ("rejected_scout", 0.1, False),
+            ("zero_score", 0.0, False),
+            ("failed_judgment", None, False),
+        ]
+    )
+    def test_records_recurrence_probability(self, _name: str, probability: float | None, emitted: bool) -> None:
+        verdict = (
+            replace(
+                _verdict(offer=OfferKind.SCOUT if emitted else OfferKind.NONE), scout_recurrence_probability=probability
+            )
+            if probability is not None
+            else None
+        )
+        with patch(f"{SERVICE}.ph_scoped_capture") as capture:
+            _capture_classified(
+                MagicMock(team_id=7, task_id="task-1", id="run-1"),
+                MagicMock(distinct_id="user-1"),
+                verdict,
+                emitted=emitted,
+                turn_index=0,
+            )
+
+        event = capture.return_value.__enter__.return_value.call_args.kwargs
+        assert event["event"] == "posthog ai turn suggestion classified"
+        assert event["properties"]["scout_recurrence_probability"] == probability
+        assert event["properties"]["emitted"] is emitted
 
 
 def _gateway_reply(payload: dict) -> MagicMock:

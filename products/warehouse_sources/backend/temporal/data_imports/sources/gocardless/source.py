@@ -85,7 +85,7 @@ class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeC
 Create a read-only access token in the [GoCardless dashboard](https://manage.gocardless.com/developers) under Developers > Create > Access token. Sandbox and live environments use separate hosts and tokens — make sure the environment matches your token.""",
             iconPath="/static/services/gocardless.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gocardless",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

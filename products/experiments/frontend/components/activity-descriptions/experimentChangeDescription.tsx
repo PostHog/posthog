@@ -6,6 +6,7 @@ import { ActivityChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
 import { getExposureConfigDisplayName } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -123,6 +124,22 @@ const describeMetricReorder = (before: unknown, after: unknown, description: str
     return equal(membershipOnlyRewrite, a) ? null : description
 }
 
+/**
+ * Compares the setting the analysis applies on each side, not the stored key. A write that adds or
+ * drops the key without changing the setting gets no line, and a write that drops an explicit
+ * `false` turns the filter back on.
+ */
+function describeTestAccountFilterChange(
+    before: ExperimentExposureCriteria | null,
+    after: ExperimentExposureCriteria | null
+): string | null {
+    const filteredAfter = resolveFilterTestAccounts(after)
+    if (resolveFilterTestAccounts(before) === filteredAfter) {
+        return null
+    }
+    return filteredAfter ? 'added the test account filter' : 'removed the test account filter'
+}
+
 export const getExperimentChangeDescription = (
     experimentChange: ActivityChange
 ): string | JSX.Element | (string | JSX.Element)[] | null => {
@@ -235,15 +252,8 @@ export const getExperimentChangeDescription = (
 
             const changes: (string | JSX.Element | null)[] = Object.keys(after || {}).map((key) =>
                 match(key as keyof ExperimentExposureCriteria)
-                    .with('filterTestAccounts', () => {
-                        if (typedAfter?.filterTestAccounts === typedBefore?.filterTestAccounts) {
-                            return null
-                        }
-
-                        return typedAfter?.filterTestAccounts
-                            ? 'added the test account filter'
-                            : 'removed the test account filter'
-                    })
+                    // Described below, because a write that drops the key can change the setting too.
+                    .with('filterTestAccounts', () => null)
                     .with('multiple_variant_handling', () => {
                         if (typedAfter?.multiple_variant_handling === typedBefore?.multiple_variant_handling) {
                             return null
@@ -291,6 +301,8 @@ export const getExperimentChangeDescription = (
                     })
                     .exhaustive()
             )
+
+            changes.unshift(describeTestAccountFilterChange(typedBefore, typedAfter))
 
             // Check if exposure_config was removed (returning to default)
             if (typedBefore?.exposure_config && !typedAfter?.exposure_config) {

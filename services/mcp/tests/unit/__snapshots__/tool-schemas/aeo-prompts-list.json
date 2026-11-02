@@ -1,0 +1,35 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "active": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only list prompts that are on (true) or off (false). Omit to list both."
+        },
+        "include_archived": {
+            "default": false,
+            "description": "Also list archived prompts. Archived prompts are left out by default.",
+            "type": "boolean"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "topic": {
+            "description": "Only list prompts with this topic. An empty value lists the prompts that have no topic.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

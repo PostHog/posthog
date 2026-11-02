@@ -21,6 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.paddle import PaddleSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.constants import (
+    EXPLORE_METRICS_RESOURCE_NAME,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PaddlePermissionError,
     PaddleResumeConfig,
@@ -30,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.pad
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.settings import (
     ENDPOINTS as PADDLE_ENDPOINTS,
+    EXPLORE_METRICS_LOOKBACK_SECONDS,
     INCREMENTAL_FIELDS as PADDLE_INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -160,7 +164,12 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(PADDLE_ENDPOINTS, PADDLE_INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            PADDLE_ENDPOINTS,
+            PADDLE_INCREMENTAL_FIELDS,
+            names,
+            default_incremental_lookback_seconds={EXPLORE_METRICS_RESOURCE_NAME: EXPLORE_METRICS_LOOKBACK_SECONDS},
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PaddleResumeConfig]:
         return ResumableSourceManager[PaddleResumeConfig](inputs, PaddleResumeConfig)

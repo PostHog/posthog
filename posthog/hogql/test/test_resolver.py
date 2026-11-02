@@ -7,7 +7,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -15,6 +15,7 @@ from posthog.schema import HogQLQueryModifiers
 
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
+from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -22,6 +23,8 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
+    IntegerDatabaseField,
+    SavedQuery,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -34,10 +37,123 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
-from posthog.hogql.resolver import ResolutionError, resolve_types
+from posthog.hogql.resolver import ResolutionError, Resolver, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
+
+
+class TestSavedViewBounds(SimpleTestCase):
+    def _context(self, views: dict[str, str]) -> HogQLContext:
+        database = Database()
+        database.tables.merge_with(
+            TableNode(
+                children={
+                    name: TableNode(
+                        name=name,
+                        table=SavedQuery(id=name, name=name, query=query, fields={"x": IntegerDatabaseField(name="x")}),
+                    )
+                    for name, query in views.items()
+                }
+            )
+        )
+        return HogQLContext(database=database, enable_select_queries=True)
+
+    @parameterized.expand(
+        [
+            ("direct", {"first": "select * from first"}),
+            ("indirect", {"first": "select * from second", "second": "select * from first"}),
+            ("union", {"first": "select 1 union all select * from first"}),
+        ]
+    )
+    def test_rejects_cycles(self, _name: str, views: dict[str, str]) -> None:
+        with self.assertRaisesRegex(QueryError, "Circular dependency"):
+            resolve_types(parse_select("select * from first"), self._context(views), "hogql")
+
+    @parameterized.expand(
+        [
+            ("sibling", "select a.x from leaf a join leaf b on a.x = b.x", "select 1 as x"),
+            ("union", "select a.x from leaf a join leaf b on a.x = b.x", "select 1 as x union all select 2 as x"),
+            ("shadow", "select * from leaf", "with leaf as (select 1 as x) select * from leaf"),
+        ]
+    )
+    def test_repeated_views_are_not_cycles_or_nested_depth(self, _name: str, query: str, body: str) -> None:
+        with patch("posthog.hogql.resolver.MAX_VIEW_DEPTH", 1):
+            resolved = resolve_types(parse_select(query), self._context({"leaf": body}), "hogql")
+        self.assertIsNotNone(resolved.type)
+
+    @parameterized.expand([("default", False), ("direct_resolver", True)])
+    def test_repeated_expansions_share_a_limit(self, _name: str, direct: bool) -> None:
+        views = {"leaf": "select 1 as x"}
+        previous = "leaf"
+        for name in ("middle", "top"):
+            views[name] = f"select a.x from {previous} a join {previous} b on a.x = b.x"
+            previous = name
+        context = self._context(views)
+        with patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 6):
+            with self.assertRaisesRegex(QueryError, "6 saved view expansions"):
+                if direct:
+                    Resolver(context, "hogql").visit(parse_select("select * from top"))
+                else:
+                    resolve_types(parse_select("select * from top"), context, "hogql")
+        with patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 7):
+            self.assertIsNotNone(resolve_types(parse_select("select * from top"), context, "hogql").type)
+
+    def test_nested_depth_is_bounded(self) -> None:
+        context = self._context({"first": "select * from second", "second": "select 1"})
+        with patch("posthog.hogql.resolver.MAX_VIEW_DEPTH", 1):
+            with self.assertRaisesRegex(QueryError, "1 nested saved views"):
+                resolve_types(parse_select("select * from first"), context, "hogql")
+
+    def test_repeated_views_share_sql_size_budget(self) -> None:
+        body = "select '✓' as x"
+        context = self._context({"leaf": body})
+        with patch("posthog.hogql.compilation.MAX_EXPANDED_VIEW_SQL_BYTES", len(body.encode("utf-8"))):
+            self.assertIsNotNone(resolve_types(parse_select("select * from leaf"), context, "hogql").type)
+            with self.assertRaisesRegex(QueryError, "SQL expansion size limit"):
+                resolve_types(parse_select("select a.x from leaf a cross join leaf b"), context, "hogql")
+
+    def test_preparation_and_nested_resolvers_share_expansion_budget(self) -> None:
+        context = self._context({"leaf": "select 1 as x"})
+
+        def resolve_another_view(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+            resolve_types(parse_select("select * from leaf"), context, "hogql")
+            return node
+
+        with patch("posthog.hogql.compilation.MAX_VIEW_EXPANSIONS", 1):
+            with self.assertRaisesRegex(QueryError, "1 saved view expansions"):
+                prepare_and_print_ast(
+                    parse_select("select * from leaf"),
+                    context,
+                    "hogql",
+                    prepared_ast_transform=resolve_another_view,
+                )
+
+    def test_printing_uses_preparation_deadline_and_next_query_gets_fresh_budget(self) -> None:
+        context = self._context({})
+        with patch("posthog.hogql.compilation.time.monotonic", return_value=0.0) as clock:
+
+            def advance_clock(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+                clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
+                return node
+
+            with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                prepare_and_print_ast(parse_select("select 1"), context, "hogql", prepared_ast_transform=advance_clock)
+            sql, _ = prepare_and_print_ast(parse_select("select 1"), context, "hogql")
+            self.assertIn("SELECT 1", sql)
+
+    def test_deadline_is_checked_during_view_expansion(self) -> None:
+        context = self._context({"leaf": "select 1 as x"})
+        with patch("posthog.hogql.compilation.time.monotonic", return_value=0.0) as clock:
+
+            def parse_slow_view(query: str) -> ast.SelectQuery | ast.SelectSetQuery:
+                parsed = parse_select(query)
+                clock.return_value = COMPILATION_TIMEOUT_SECONDS + 1
+                return parsed
+
+            with patch("posthog.hogql.resolver.parse_select", side_effect=parse_slow_view):
+                with self.assertRaisesRegex(QueryError, "compilation exceeded its time limit"):
+                    resolve_types(parse_select("select * from leaf"), context, "hogql")
 
 
 class TestResolver(BaseTest):
@@ -450,7 +566,9 @@ class TestResolver(BaseTest):
         )
         with self.assertRaises(QueryError) as e:
             expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(str(e.exception), "Unable to resolve field: e")
+        message = str(e.exception)
+        self.assertTrue(message.startswith("Unable to resolve field: e. Available fields: "), message)
+        self.assertNotIn("custom property", message)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
@@ -525,6 +643,87 @@ class TestResolver(BaseTest):
         self.assertTrue(
             "distinct_id" in message or "person_id" in message,
             f"expected a plausible suggestion in: {message}",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "table_columns",
+                "SELECT group_type_index FROM groups",
+                {"index", "key", "properties"},
+                {"team_id", "revenue_analytics"},
+                " If group_type_index is a custom property, read it as properties.group_type_index.",
+            ),
+            (
+                "quoted_property_name",
+                "SELECT `checkout plan` FROM events",
+                {"event", "timestamp", "properties"},
+                {"team_id", "pdi", "poe", "goe_0", "override"},
+                " If checkout plan is a custom property, read it as properties.`checkout plan`.",
+            ),
+            ("aliased_subquery", "SELECT x FROM (SELECT 1 AS a, 2 AS b) AS t", {"a", "b"}, set(), None),
+            ("non_json_properties", "SELECT zz FROM (SELECT 1 AS properties) AS t", {"properties"}, set(), None),
+            (
+                "ambiguous_properties",
+                "SELECT zz FROM events e JOIN persons p ON e.person_id = p.id",
+                {"properties", "event"},
+                set(),
+                " If a field name exists in multiple tables, qualify it with the table name or alias.",
+            ),
+            (
+                "column_aliased_table",
+                "SELECT zz FROM events AS e(a, b)",
+                {"a", "b", "properties"},
+                {"uuid", "event"},
+                " If zz is a custom property, read it as properties.zz.",
+            ),
+        ]
+    )
+    def test_unresolved_field_without_close_match_lists_available_fields(
+        self, _name: str, query: str, listed: set[str], not_listed: set[str], expected_hint: str | None
+    ) -> None:
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+        message = str(ctx.exception)
+        fields_part, _, hint = message.partition("Available fields: ")[2].partition(".")
+        fields = set(fields_part.split(", "))
+        self.assertLessEqual(listed, fields, message)
+        self.assertFalse(not_listed & fields, message)
+        self.assertEqual(hint, expected_hint or "", message)
+
+    @parameterized.expand(
+        [
+            (
+                "aliases_first",
+                "SELECT beta AS picked, zz FROM (SELECT 1 AS gamma, 2 AS beta, 3 AS alpha) AS t",
+                "picked, gamma, beta, alpha.",
+            ),
+            (
+                "joined_tables",
+                "SELECT zz FROM (SELECT 1 AS shared, 2 AS left_only) AS l "
+                "JOIN (SELECT 1 AS shared, 2 AS right_only) AS r ON l.shared = r.shared",
+                "shared, left_only, right_only."
+                " If a field name exists in multiple tables, qualify it with the table name or alias.",
+            ),
+        ]
+    )
+    def test_unresolved_field_lists_columns_in_order(self, _name: str, query: str, expected: str) -> None:
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+        self.assertEqual(str(ctx.exception), f"Unable to resolve field: zz. Available fields: {expected}")
+
+    @parameterized.expand([(30, ""), (31, ", and 1 more")])
+    def test_unresolved_field_caps_available_columns(self, column_count: int, expected_more: str) -> None:
+        columns = [f"column_{index:02}" for index in range(column_count, 0, -1)]
+        select = ", ".join(f"1 AS {column}" for column in columns)
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(f"SELECT zz FROM (SELECT {select}) AS t"), self.context, dialect="clickhouse")
+
+        expected_fields = ", ".join(columns[:30])
+        self.assertEqual(
+            str(ctx.exception), f"Unable to resolve field: zz. Available fields: {expected_fields}{expected_more}."
         )
 
     @pytest.mark.usefixtures("unittest_snapshot")

@@ -52,6 +52,7 @@ ONE_MILLISECOND = timedelta(milliseconds=1)
 class CrispResumeConfig:
     paginator_state: dict[str, Any]
     started_at: str | None = None
+    conversations_loaded: int = 0
 
 
 class CrispPathPaginator(PageNumberPaginator):
@@ -249,6 +250,8 @@ def windowed_messages_resource(
     manager: ResumableSourceManager[CrispResumeConfig],
     save_state: Callable[[dict[str, Any] | None], None],
     initial_state: dict[str, Any] | None,
+    loaded_before: int,
+    with_messages: set[str],
 ) -> Resource:
     fanout = settings.fanout
     assert fanout is not None
@@ -279,8 +282,6 @@ def windowed_messages_resource(
             rows.extend(page if isinstance(page, list) else [page])
         return rows
 
-    with_messages: set[str] = set()
-
     def count_conversation(row: dict[str, Any]) -> dict[str, Any]:
         with_messages.add(str(row.get("session_id")))
         return row
@@ -293,6 +294,33 @@ def windowed_messages_resource(
         *fanout.child_response_actions,
         *(child_endpoint.get("response_actions") or []),
     ]
+
+    finished_before = set((initial_state or {}).get("completed") or [])
+    child_path = child_endpoint["path"]
+    assert child_path is not None
+    cutoff_ms = started_at.timestamp() * 1000
+
+    def unread(row: dict[str, Any]) -> bool:
+        updated_at = row.get("updated_at")
+        if isinstance(updated_at, int | float) and updated_at > cutoff_ms:
+            # parent_path_map defers this conversation, so the fan-out reads nothing for it.
+            return False
+        return child_path.format(session_id=quote(str(row.get("session_id")), safe="")) not in finished_before
+
+    # An earlier attempt can stop inside a window. If this attempt stopped before it finished that
+    # window, the watermark of the run would skip the window's unread conversations. So a resumed
+    # attempt may stop only after it reaches a window with a conversation that it has to read.
+    caught_up = not finished_before
+
+    def done() -> bool:
+        return caught_up and loaded_before + len(with_messages) >= CONVERSATIONS_PER_RUN
+
+    def windows() -> Iterator[list[dict[str, Any]]]:
+        nonlocal caught_up
+        for rows in conversation_windows(list_window, start, started_at, done, manager.safe_point):
+            caught_up = caught_up or any(unread(row) for row in rows)
+            yield rows
+
     rest_config: RESTAPIConfig = {
         "client": client_config(config, api_version),
         "resources": [
@@ -301,13 +329,7 @@ def windowed_messages_resource(
                 "table_name": parent.name,
                 "write_disposition": "replace",
                 "endpoint": endpoint_config(parent, config.website_id),
-                "data_iterator": lambda: conversation_windows(
-                    list_window,
-                    start,
-                    started_at,
-                    lambda: len(with_messages) >= CONVERSATIONS_PER_RUN,
-                    manager.safe_point,
-                ),
+                "data_iterator": windows,
                 "data_map": parent_path_map(fanout.resolve_param, fanout.include_from_parent, started_at),
             },
             {
@@ -373,10 +395,17 @@ def crisp_source(
         else datetime.now(UTC)
     )
 
+    loaded_before = resume.conversations_loaded if resume is not None else 0
+    with_messages: set[str] = set()
+
     def save_state(state: dict[str, Any] | None) -> None:
         if state is not None:
             manager.save_state(
-                CrispResumeConfig(paginator_state=state, started_at=started_at.isoformat() if defer_changed else None)
+                CrispResumeConfig(
+                    paginator_state=state,
+                    started_at=started_at.isoformat() if defer_changed else None,
+                    conversations_loaded=loaded_before + len(with_messages) if defer_changed else 0,
+                )
             )
 
     initial_state = resume.paginator_state if resume is not None else None
@@ -390,6 +419,8 @@ def crisp_source(
             manager,
             save_state,
             initial_state,
+            loaded_before,
+            with_messages,
         )
     elif settings.fanout is not None:
         parent = ENDPOINTS[settings.fanout.parent_name]

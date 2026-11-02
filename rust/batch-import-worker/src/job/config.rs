@@ -246,6 +246,7 @@ impl SourceConfig {
         context: Arc<AppContext>,
         is_restarting: bool,
         job_id: Uuid,
+        team_id: i32,
     ) -> Result<Box<dyn DataSource>, Error> {
         let staging_dir = context.config.staging_dir();
         let staging_max_bytes = context.config.staging_dir_max_bytes;
@@ -277,6 +278,7 @@ impl SourceConfig {
                     .create_source(
                         secrets,
                         context.config.managed_migrations_role_arn.as_deref(),
+                        team_id,
                     )
                     .await?,
             )),
@@ -285,6 +287,7 @@ impl SourceConfig {
                     .create_gzip_source(
                         secrets,
                         context.config.managed_migrations_role_arn.as_deref(),
+                        team_id,
                         staging_dir,
                         staging_max_bytes,
                         staging_backend,
@@ -412,13 +415,34 @@ impl UrlListConfig {
 impl S3SourceConfig {
     /// Reject endpoint URLs that point to private/internal IPs.
     /// Catches literal IP addresses that would bypass DNS-level SSRF protection.
-    fn validate_endpoint_url(url: &str, allow_internal_ips: bool) -> Result<(), Error> {
+    ///
+    /// A listed out-of-band interaction domain is logged above the escape hatch below, so a
+    /// probe is recorded whatever `allow_internal_ips` says. That check refuses nothing.
+    fn validate_endpoint_url(
+        url: &str,
+        allow_internal_ips: bool,
+        team_id: i32,
+    ) -> Result<(), Error> {
+        // Parsed once: the detection below runs on every endpoint, while a parse failure is only
+        // an error on the path that goes on to check the address.
+        let parsed = url::Url::parse(url);
+
+        if let Ok(ref parsed) = parsed {
+            if let Some(url::Host::Domain(host)) = parsed.host() {
+                common_dns::oob_domains::note_oob_domain(
+                    host,
+                    "batch_import_s3_endpoint",
+                    Some(team_id),
+                );
+            }
+        }
+
         if allow_internal_ips {
             return Ok(());
         }
 
-        let parsed = url::Url::parse(url)
-            .map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
+        let parsed =
+            parsed.map_err(|e| Error::msg(format!("Invalid endpoint URL '{}': {}", url, e)))?;
 
         let host = parsed
             .host()
@@ -613,6 +637,7 @@ impl S3SourceConfig {
         &self,
         secrets: &JobSecrets,
         managed_migrations_role_arn: Option<&str>,
+        team_id: i32,
     ) -> Result<aws_sdk_s3::config::Builder, Error> {
         let mut builder = aws_sdk_s3::config::Builder::new()
             .region(Region::new(self.region.clone()))
@@ -648,7 +673,7 @@ impl S3SourceConfig {
         };
 
         if let Some(ref url) = self.endpoint_url {
-            Self::validate_endpoint_url(url, self.allow_internal_ips)?;
+            Self::validate_endpoint_url(url, self.allow_internal_ips, team_id)?;
             builder = builder.endpoint_url(url).force_path_style(true);
 
             if !self.allow_internal_ips {
@@ -668,9 +693,10 @@ impl S3SourceConfig {
         &self,
         secrets: &JobSecrets,
         managed_migrations_role_arn: Option<&str>,
+        team_id: i32,
     ) -> Result<aws_sdk_s3::Client, Error> {
         let builder = self
-            .build_s3_config(secrets, managed_migrations_role_arn)
+            .build_s3_config(secrets, managed_migrations_role_arn, team_id)
             .await?;
         Ok(aws_sdk_s3::Client::from_conf(builder.build()))
     }
@@ -679,9 +705,10 @@ impl S3SourceConfig {
         &self,
         secrets: &JobSecrets,
         managed_migrations_role_arn: Option<&str>,
+        team_id: i32,
     ) -> Result<S3Source, Error> {
         let client = self
-            .build_client(secrets, managed_migrations_role_arn)
+            .build_client(secrets, managed_migrations_role_arn, team_id)
             .await?;
 
         Ok(S3Source::new(
@@ -691,17 +718,19 @@ impl S3SourceConfig {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_gzip_source(
         &self,
         secrets: &JobSecrets,
         managed_migrations_role_arn: Option<&str>,
+        team_id: i32,
         staging_dir: PathBuf,
         staging_max_bytes: u64,
         staging_backend: Option<Arc<dyn StagingBackend>>,
         staged_plaintext_max_bytes: u64,
     ) -> Result<GzipS3Source, Error> {
         let client = self
-            .build_client(secrets, managed_migrations_role_arn)
+            .build_client(secrets, managed_migrations_role_arn, team_id)
             .await?;
 
         let remote_staging = staging_backend.map(|backend| RemoteStaging {
@@ -813,6 +842,7 @@ impl JobConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_dns::test_util::capture_oob_logs;
 
     fn create_test_job_config() -> JobConfig {
         JobConfig {
@@ -1148,7 +1178,7 @@ mod tests {
             serde_json::json!({"endpoint_url": "https://acct123.r2.cloudflarestorage.com"}),
         );
         let err = config
-            .build_s3_config(&empty_secrets(), None)
+            .build_s3_config(&empty_secrets(), None, 1)
             .await
             .unwrap_err()
             .to_string();
@@ -1159,7 +1189,7 @@ mod tests {
     async fn test_build_s3_config_rejects_role_auth_without_managed_migrations_role() {
         let config = role_auth_config(serde_json::json!({}));
         let err = config
-            .build_s3_config(&empty_secrets(), None)
+            .build_s3_config(&empty_secrets(), None, 1)
             .await
             .unwrap_err()
             .to_string();
@@ -1171,7 +1201,7 @@ mod tests {
         let mut config = role_auth_config(serde_json::json!({}));
         config.external_id = None;
         let err = config
-            .build_s3_config(&empty_secrets(), None)
+            .build_s3_config(&empty_secrets(), None, 1)
             .await
             .unwrap_err()
             .to_string();
@@ -1192,7 +1222,7 @@ mod tests {
         secrets.insert("ak".to_string(), Value::String("key-id".to_string()));
         secrets.insert("sk".to_string(), Value::String("key-secret".to_string()));
         let secrets = JobSecrets { secrets };
-        assert!(config.build_s3_config(&secrets, None).await.is_ok());
+        assert!(config.build_s3_config(&secrets, None, 1).await.is_ok());
     }
 
     #[tokio::test]
@@ -1206,7 +1236,7 @@ mod tests {
         }"#;
         let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         let err = config
-            .build_s3_config(&empty_secrets(), None)
+            .build_s3_config(&empty_secrets(), None, 1)
             .await
             .unwrap_err()
             .to_string();
@@ -1225,7 +1255,7 @@ mod tests {
         for patch in cases {
             let config = role_auth_config(patch.clone());
             let err = config
-                .build_s3_config(&empty_secrets(), None)
+                .build_s3_config(&empty_secrets(), None, 1)
                 .await
                 .unwrap_err()
                 .to_string();
@@ -1248,7 +1278,7 @@ mod tests {
         }"#;
         let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         let err = config
-            .build_s3_config(&empty_secrets(), None)
+            .build_s3_config(&empty_secrets(), None, 1)
             .await
             .unwrap_err()
             .to_string();
@@ -1260,7 +1290,7 @@ mod tests {
         let json = r#"{"bucket": "b", "prefix": "p", "region": "us-east-1"}"#;
         let config: S3SourceConfig = serde_json::from_str(json).unwrap();
         let err = config
-            .build_s3_config(&empty_secrets(), None)
+            .build_s3_config(&empty_secrets(), None, 1)
             .await
             .unwrap_err()
             .to_string();
@@ -1282,7 +1312,7 @@ mod tests {
 
     #[test]
     fn test_validate_endpoint_url_rejects_metadata_service() {
-        let result = S3SourceConfig::validate_endpoint_url("http://169.254.169.254", false);
+        let result = S3SourceConfig::validate_endpoint_url("http://169.254.169.254", false, 1);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -1292,19 +1322,19 @@ mod tests {
 
     #[test]
     fn test_validate_endpoint_url_rejects_private_ip() {
-        let result = S3SourceConfig::validate_endpoint_url("http://10.0.0.1:9000", false);
+        let result = S3SourceConfig::validate_endpoint_url("http://10.0.0.1:9000", false, 1);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_endpoint_url_rejects_loopback() {
-        let result = S3SourceConfig::validate_endpoint_url("http://127.0.0.1:9000", false);
+        let result = S3SourceConfig::validate_endpoint_url("http://127.0.0.1:9000", false, 1);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_validate_endpoint_url_rejects_ipv6_loopback() {
-        let result = S3SourceConfig::validate_endpoint_url("http://[::1]:9000", false);
+        let result = S3SourceConfig::validate_endpoint_url("http://[::1]:9000", false, 1);
         assert!(result.is_err());
     }
 
@@ -1313,20 +1343,51 @@ mod tests {
         let result = S3SourceConfig::validate_endpoint_url(
             "https://acct123.r2.cloudflarestorage.com",
             false,
+            1,
         );
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_endpoint_url_accepts_internal_when_allowed() {
-        let result = S3SourceConfig::validate_endpoint_url("http://localhost:9000", true);
+        let result = S3SourceConfig::validate_endpoint_url("http://localhost:9000", true, 1);
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_endpoint_url_rejects_invalid_url() {
-        let result = S3SourceConfig::validate_endpoint_url("not-a-url", false);
+        let result = S3SourceConfig::validate_endpoint_url("not-a-url", false, 1);
         assert!(result.is_err());
+        // The out-of-band domain check parses the url first, and must leave this input alone.
+        assert!(S3SourceConfig::validate_endpoint_url("not-a-url", true, 1).is_ok());
+    }
+
+    #[test]
+    fn test_validate_endpoint_url_logs_an_out_of_band_domain_and_still_accepts_it() {
+        for (url, listed) in [
+            ("https://bucket.oast.live:9000", true),
+            ("https://notoast.me:9000", false),
+        ] {
+            // The check sits above the internal-ip escape hatch, so it runs under both values.
+            for allow_internal_ips in [false, true] {
+                let logs = capture_oob_logs(|| {
+                    assert!(
+                        S3SourceConfig::validate_endpoint_url(url, allow_internal_ips, 4242)
+                            .is_ok(),
+                        "detection must not refuse {url}"
+                    );
+                });
+                let seen = logs.contains("security.oob_domain_seen")
+                    && logs.contains("batch_import_s3_endpoint");
+                assert_eq!(seen, listed, "unexpected log for {url}: {logs}");
+                if listed {
+                    assert!(
+                        logs.contains("team_id=4242"),
+                        "the log line names the project that configured the endpoint: {logs}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -1,10 +1,14 @@
+from collections.abc import Callable
 from datetime import timedelta
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.apps import apps
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.logic.account_property_runs import (
@@ -162,6 +166,63 @@ class TestAccountPropertyRuns(TeamScopedTestMixin, BaseTest):
             "stage-workflow-job-1",
             "00000000-0000-4000-8000-000000000001",
         )
+
+    @parameterized.expand(
+        [
+            (
+                "phase",
+                lambda context, source_id: update_account_property_sync_runs_phase(
+                    context,
+                    phase=SyncPhase.SYNCING,
+                    workflow_id="sync-workflow-job-1-tracked",
+                    workflow_run_id="00000000-0000-4000-8000-000000000002",
+                    attempt=2,
+                    segment=SyncSegment.TRACKED,
+                    source_id=source_id,
+                ),
+                ("running", "syncing"),
+            ),
+            (
+                "finalize",
+                lambda context, source_id: finalize_account_property_sync_runs(
+                    context,
+                    status=SyncStatus.FAILED,
+                    phase=SyncPhase.SYNCING,
+                    error="Couldn't update accounts.",
+                    segment=SyncSegment.TRACKED,
+                    source_id=source_id,
+                ),
+                ("failed", "syncing"),
+            ),
+        ]
+    )
+    def test_source_scoped_updates_leave_sibling_sources_untouched(
+        self,
+        _case: str,
+        update: Callable[[AccountPropertySyncRunContext, UUID], None],
+        expected: tuple[str, str],
+    ) -> None:
+        sibling = CustomPropertySource.objects.create(
+            team=self.team,
+            definition=create_custom_property_definition(team_id=self.team.id, name="Tier"),
+            saved_query=self.saved_query,
+            key_column="external_id",
+            source_column="tier",
+        )
+        self._start_runs()
+
+        update(self.context, self.source.id)
+
+        states = {
+            (run.source_id, run.segment): (run.status, run.phase)
+            for run in CustomPropertySyncRun.objects.for_team(self.team.id).filter(job_id="job-1")
+        }
+        assert states == {
+            (self.source.id, "tracked"): expected,
+            (self.source.id, "ignored"): ("running", "staging"),
+            (sibling.id, "tracked"): ("running", "staging"),
+            (sibling.id, "ignored"): ("running", "staging"),
+        }
 
     def test_account_runs_remain_active_during_their_workflow_timeout(self) -> None:
         self._start_runs()

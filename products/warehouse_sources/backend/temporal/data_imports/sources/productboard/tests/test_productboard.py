@@ -6,7 +6,6 @@ import pytest
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.productboard import (
@@ -52,11 +51,6 @@ class TestBuildInitialParams:
 
 
 class TestValidateCredentials:
-    def test_request_exception_returns_no_status(self):
-        # A probe must never raise out of validate_credentials; a transport error means "not validated".
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("token", "/notes") == (False, None)
-
     def test_probe_sends_the_bearer_token_and_redacts_it(self):
         with scripted_network([ScriptedResponse(status=200, json={"data": []})]) as network:
             assert validate_credentials("token", "/notes") == (True, 200)

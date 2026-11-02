@@ -1,15 +1,17 @@
 use std::future::ready;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::routing::get;
 use common_metrics::setup_metrics_routes;
 use health::{readiness_handler, HealthRegistry};
 use ingestion_control_plane::api;
+use ingestion_control_plane::backup::{self, BackupStore, S3BackupStore};
 use ingestion_control_plane::config::Config;
 use ingestion_control_plane::state::AppState;
 use tokio::signal;
-use tracing::info;
 use tracing::level_filters::LevelFilter;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -63,7 +65,8 @@ async fn main() {
         }
     });
 
-    let state = AppState::new(config).expect("failed to initialize app state");
+    let mut state = AppState::new(config).expect("failed to initialize app state");
+    start_changelog_backups(&mut state).await;
 
     let router = api::router(state)
         .route("/_readiness", get(readiness_handler))
@@ -82,4 +85,23 @@ async fn main() {
         .with_graceful_shutdown(shutdown())
         .await
         .expect("server failed");
+}
+
+async fn start_changelog_backups(state: &mut AppState) {
+    let bucket = state.config.changelog_backup_bucket.clone();
+    if bucket.is_empty() {
+        info!("CHANGELOG_BACKUP_BUCKET not set; changelog backups disabled");
+        return;
+    }
+    let Some(etcd) = state.etcd.clone() else {
+        warn!("CHANGELOG_BACKUP_BUCKET is set without ETCD_ENDPOINTS; changelog backups disabled");
+        return;
+    };
+    let backups: Arc<dyn BackupStore> = Arc::new(S3BackupStore::from_env(bucket).await);
+    state.backups = Some(backups.clone());
+    tokio::spawn(backup::run(
+        etcd,
+        state.config.personhog_etcd_prefix.clone(),
+        backups,
+    ));
 }

@@ -131,7 +131,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
             ),
             iconPath="/static/services/aws_savings_plans.png",
             docsUrl=self.api_docs_url,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -162,6 +162,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

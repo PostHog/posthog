@@ -57,6 +57,10 @@ class LangfuseEndpointConfig:
     # ascending backfill the first page is the oldest traffic, which is where costs are most often
     # a flat 0. The table adopts int64, and every later fractional value then fails to cast.
     float_fields: frozenset[str] = frozenset()
+    # Split a score `value` whose type follows the row's dataType (a number, a boolean, or a string)
+    # into a numeric `value` and a text `stringValue`, the shape of the legacy scores API. Arrow holds
+    # one type per column, so a page that mixes NUMERIC and CATEGORICAL scores fails to load.
+    split_score_values: bool = False
     # Page the endpoint by keyset instead of by offset: after each page, move the from-filter up to
     # the newest row seen and restart at page 1. Langfuse answers a deep offset with a 422 resource
     # limit, which kills a backfill that walks far enough. Only safe on an endpoint that is pinned
@@ -132,8 +136,7 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         default_incremental_field="timestamp",
         incremental_filter_param="fromTimestamp",
         extra_params={"fields": _SCORE_FIELDS},
-        # No float_fields: `value` is numeric only when dataType is NUMERIC, and carries a string
-        # for CATEGORICAL/TEXT scores, so widening it would hide a genuine mixed-type column.
+        split_score_values=True,
         partition_key="timestamp",
         sort_mode="desc",
         incremental_lookback=_DEFAULT_LOOKBACK,

@@ -218,7 +218,7 @@ async def test_store_sentiment_report_emits_generic_metrics_only() -> None:
             return_value=report_run,
         ),
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         result = await store_report_run_activity(inputs)
 
@@ -263,7 +263,7 @@ async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() ->
             return_value=report_run,
         ) as create_report_run,
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         await store_report_run_activity(inputs)
 
@@ -282,6 +282,41 @@ async def test_store_legacy_boolean_report_emits_normalized_generic_metrics() ->
     assert properties["$ai_report_evaluation_target"] == "generation"
     assert properties["$ai_report_referenced_generation_ids"] == ["generation-id"]
     assert properties["$ai_report_referenced_trace_ids"] == ["customer/trace:42"]
+
+
+@pytest.mark.asyncio
+async def test_store_strips_nul_from_report_content() -> None:
+    report_run = MagicMock(id="run-id", report_id="report-id")
+    content = {
+        "title": "Quoted \x00output",
+        "sections": [{"title": "Findings", "content": "The model replied \x00 twice\x00"}],
+        "citations": [{"generation_id": "generation-id", "trace_id": "trace-id", "reason": "empty\x00 answer"}],
+        "metrics": None,
+    }
+    inputs = StoreReportRunInput(
+        report_id="report-id",
+        team_id=1,
+        evaluation_id="evaluation-id",
+        content=content,
+        period_start="2026-07-01T00:00:00+00:00",
+        period_end="2026-07-02T00:00:00+00:00",
+    )
+
+    with (
+        patch(
+            "products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects.create",
+            return_value=report_run,
+        ) as create_report_run,
+        patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
+    ):
+        await store_report_run_activity(inputs)
+
+    stored_content = create_report_run.call_args.kwargs["content"]
+    assert stored_content["title"] == "Quoted output"
+    assert stored_content["sections"][0]["content"] == "The model replied  twice"
+    assert stored_content["citations"][0]["reason"] == "empty answer"
+    assert create_event.call_args.kwargs["properties"]["$ai_report_content"] == stored_content
 
 
 @pytest.mark.asyncio
@@ -309,7 +344,7 @@ async def test_store_metrics_unavailable_report_omits_placeholder_metrics() -> N
             return_value=report_run,
         ) as create_report_run,
         patch("posthog.models.team.Team.objects.get", return_value=MagicMock()),
-        patch("posthog.models.event.util.create_event") as create_event,
+        patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as create_event,
     ):
         await store_report_run_activity(inputs)
 

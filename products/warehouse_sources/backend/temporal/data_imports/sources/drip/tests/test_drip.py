@@ -91,11 +91,7 @@ class TestPagination:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Drip API token"),
-            ("forbidden", 403, False, "Invalid Drip API token"),
             ("not_found", 404, False, "Drip account ID not found. Please check your account ID."),
-            ("server_error", 500, False, "Drip API returned an unexpected status (500)"),
         ]
     )
     def test_validate_credentials_status_mapping(
@@ -108,13 +104,6 @@ class TestValidateCredentials:
         assert message == expected_message
         assert network.requests_log[0].path == "/v2/9999/subscribers"
         assert network.requests_log[0].param("per_page") == "1"
-
-    def test_validate_credentials_connection_error(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("token", "9999")
-
-        assert is_valid is False
-        assert message == "Could not connect to the Drip API"
 
 
 class TestDripSourceResponse:

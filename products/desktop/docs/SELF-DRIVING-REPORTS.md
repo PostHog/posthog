@@ -12,6 +12,9 @@ When both destinations are available and the chat token has the required scopes,
 The agent asks for agreement on the text and selected destination before writing. If a scout note is unavailable or refused, it offers a work-log entry and asks again.
 Pure Q&A needs no save offer. Saving feedback does not resolve or dismiss the report.
 Select text in either report view to ask about that passage.
+Resolve marks an accepted report as done. Choose Implemented manually when you made the change outside the report's task, or No action needed when the report was useful but needs no implementation. You can also record that the issue was already fixed or explain another outcome. The reason and optional details are saved with the resolution. A No action needed resolution does not count as a fix and stops pending or active follow-up checks.
+Dismiss rejects a report with a reason. Both actions remove it from the active inbox, and its history keeps Resolved and Dismissed separate. Resolving a report with an open implementation PR closes that PR after confirmation.
+Activity entries use the verdict recorded with each feedback entry. Resolving shows Report resolved, dismissing shows Report dismissed, and older feedback without a recorded verdict shows Report feedback added. Later status changes do not rewrite these activity labels.
 Reports with a PR show Open in GitHub as the first header button, followed by Chat.
 Copy-link options are in the More report actions menu. Report actions do not offer canvas creation.
 

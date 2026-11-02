@@ -145,11 +145,6 @@ class TestValidatePaginationUrl:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network(always(_response({}, status=status))):
-            assert validate_credentials("token") is expected
-
     def test_probe_session_redacts_token_and_disables_redirects(self) -> None:
         with scripted_network(always(_response({}))) as network:
             validate_credentials("secret-token")

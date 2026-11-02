@@ -50,6 +50,7 @@ A `card` or `http` step does only that.
 | `wait_for` | A target that must be visible. In a `goto` step it waits after the load, otherwise after the action. The wait is cut from the video, so wait on real content, not on a fixed time                               |
 | `say`      | The voiceover line for the step, when it should differ from the caption. `""` keeps the step silent                                                                                                             |
 | `sticker`  | A hedgehog that pops in once the action is done: `{ "hog": "mailbox", "text": "You've got mail", "position": "bottom-right", "seconds": 3 }`. Positions: `bottom-right`, `bottom-left`, `top-right`, `top-left` |
+| `zoom`     | `true` frames the clicked or typed-in target until just after the action. `{ "target": …, "level": 1.6 }` frames a detail once it is on screen, for the rest of the step. See [Zoom](#zoom)                     |
 | `hold`     | Seconds to stay on the result. Default: a quarter of a second per caption word, at least 1.5. With a voiceover, half a second, and the step always waits for its line to finish. Usually leave it unset         |
 | `card`     | A full-screen card mid-video, with the same fields as `title`                                                                                                                                                   |
 | `http`     | A terminal card that types out a curl command, sends the request, and shows the response. See below                                                                                                             |
@@ -89,6 +90,18 @@ The card types out the request as a curl command, with secrets shown as `$NAME`,
 The video masks secret values in all the text it shows, including the response body. It also masks PostHog secret keys, such as `phx_` and `phs_` keys.
 It cannot mask what a `type` step types into the app or what the app itself shows, so never type a secret in a demo.
 With `expect_status`, any other status fails the recording, so a broken call never ends up in a finished video.
+
+## Zoom
+
+A step with `zoom` moves the camera in, and the camera eases back out when the step ends.
+Captions, stickers and cards stay put, because they are drawn over the zoomed frame.
+A zoom upscales the recorded page, so zoomed text is a little soft. Keep zooms to about 1.5x when text has to be read.
+
+- `"zoom": true` frames what the step clicks or types into, from the moment the pointer heads for it until about half a second after the action. The page usually changes after a click, so the camera does not stay.
+- `"zoom": { "target": { "selector": "[data-attr=draft-tag]" }, "level": 1.8 }` frames something the step produced, such as a new tag, a count or a table row, from when it is on screen to the end of the step.
+
+Without `level`, the zoom fills about half the view with the target, between 1.25x and 2x.
+Pick two to five beats in a video. The key click and the proof are usually enough.
 
 ## Voiceover
 

@@ -7,16 +7,14 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { DomainConnectProviderName } from '~/queries/schema/schema-general'
 
+import type { EmailDomainConnectCheckApi } from 'products/integrations/frontend/generated/api.schemas'
+
 export interface DomainConnectProvider {
     endpoint: string
     name: DomainConnectProviderName
 }
 
-export interface DomainConnectInfo {
-    supported: boolean
-    provider_name: DomainConnectProviderName | null
-    available_providers: DomainConnectProvider[]
-}
+export type DomainConnectInfo = EmailDomainConnectCheckApi
 
 export interface DomainConnectLogicProps {
     /** Unique key to prevent state sharing between instances (not `key` because React strips it) */
@@ -54,12 +52,12 @@ export interface domainConnectLogicActions {
         errorObject?: any
     }
     checkDomainSuccess: (
-        domainConnectInfo: DomainConnectInfo | null,
+        domainConnectInfo: EmailDomainConnectCheckApi | null,
         payload?: {
             value: true
         }
     ) => {
-        domainConnectInfo: DomainConnectInfo | null
+        domainConnectInfo: EmailDomainConnectCheckApi | null
         payload?: {
             value: true
         }
@@ -86,6 +84,22 @@ export type domainConnectLogicType = MakeLogicType<
     DomainConnectLogicProps,
     domainConnectLogicMeta
 >
+
+function openBlankProviderTab(): Window | null {
+    const providerTab = window.open('', '_blank')
+    if (providerTab) {
+        providerTab.opener = null
+    }
+    return providerTab
+}
+
+function sendProviderTabTo(providerTab: Window | null, url: string): void {
+    if (providerTab) {
+        providerTab.location.href = url
+    } else {
+        window.location.assign(url)
+    }
+}
 
 export const domainConnectLogic = kea<domainConnectLogicType>([
     path((key) => ['lib', 'components', 'DomainConnect', 'domainConnectLogic', key]),
@@ -115,13 +129,13 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
         providerName: [
             (s) => [s.domainConnectInfo],
             (info: DomainConnectInfo | null): DomainConnectProviderName | null => {
-                return info?.provider_name ?? null
+                return (info?.provider_name as DomainConnectProviderName | null) ?? null
             },
         ],
         availableProviders: [
             (s) => [s.domainConnectInfo],
             (info: DomainConnectInfo | null): DomainConnectProvider[] => {
-                return info?.available_providers ?? []
+                return (info?.available_providers as DomainConnectProvider[] | undefined) ?? []
             },
         ],
         hasAnyOption: [
@@ -133,6 +147,7 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
     }),
     listeners(({ props }) => ({
         openDomainConnect: async ({ providerEndpoint }) => {
+            const providerTab = openBlankProviderTab()
             const currentUrl = window.location.href.split('?')[0]
             const redirectUri = `${currentUrl}?domain_connect=${props.context}`
 
@@ -144,8 +159,9 @@ export const domainConnectLogic = kea<domainConnectLogicType>([
                     redirect_uri: redirectUri,
                     provider_endpoint: providerEndpoint,
                 })
-                window.open(url, '_blank', 'noopener,noreferrer')
+                sendProviderTabTo(providerTab, url)
             } catch (e) {
+                providerTab?.close()
                 if (e instanceof ApiError) {
                     lemonToast.error(`Failed to generate Domain Connect URL: ${e.detail || 'Please try again.'}`)
                 } else {

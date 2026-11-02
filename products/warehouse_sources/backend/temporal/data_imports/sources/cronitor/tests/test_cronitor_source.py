@@ -13,17 +13,20 @@ class TestCronitorSource:
         self.team_id = 123
         self.config = CronitorSourceConfig(api_key="key")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["metrics"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "metrics"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
             ((True, 200), True, None),
-            ((False, 401), False, "Invalid Cronitor API key. Make sure the key has the monitor:read scope."),
-            ((False, 403), False, "Invalid Cronitor API key. Make sure the key has the monitor:read scope."),
+            (
+                (False, 401),
+                False,
+                "Cronitor rejected your API key. Copy the full key from Settings → API keys in your Cronitor account, then try again.",
+            ),
+            (
+                (False, 403),
+                False,
+                "Your Cronitor API key is missing the monitor:read scope. Update the key's scopes in Cronitor, then reconnect.",
+            ),
             ((False, None), False, "Could not connect to Cronitor with the provided API key"),
         ],
     )

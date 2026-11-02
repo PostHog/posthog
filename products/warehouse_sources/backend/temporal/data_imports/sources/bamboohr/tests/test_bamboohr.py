@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.b
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import (
     BAMBOOHR_ENDPOINTS,
+    CUSTOM_FIELD_ID,
+    CUSTOM_FIELDS_PAGE_SIZE,
     EMPLOYEE_TABLE_EMPLOYEE_ID,
     GOAL_ID,
     LOCATIONS_PAGE_SIZE,
@@ -227,12 +229,6 @@ class TestValidateCredentials:
             assert message is not None
         assert network.requests_log[0].path == "/api/gateway.php/acme/v1/meta/fields"
 
-    def test_validate_credentials_connection_error(self) -> None:
-        with scripted_network([ConnectionError("boom")]):
-            valid, message = validate_credentials("acme", "key")
-        assert valid is False
-        assert message is not None
-
     def test_invalid_subdomain_rejected_before_request(self) -> None:
         with scripted_network([]) as network:
             valid, message = validate_credentials("acme/v1/employees/123?", "key")
@@ -420,6 +416,25 @@ class TestPageLinksPagination:
             ("holidays", "v1/holidays", {"orderBy": "startDate asc", "pageSize": 100}, {"next": None}),
             ("custom_fields", "v1/hris/custom-fields", {"pageSize": 1000}, {"next": None}),
             ("archived_custom_fields", "v1/hris/custom-fields/archived", {"pageSize": 1000}, {}),
+            (
+                "time_tracking_employees",
+                "v1/time-tracking/employees",
+                {"orderBy": "employeeId asc", "pageSize": 100},
+                {},
+            ),
+            (
+                "time_tracking_configurations",
+                "v1/time-tracking/configurations",
+                {"orderBy": "createdAt asc", "pageSize": 100},
+                {},
+            ),
+            ("time_tracking_kiosks", "v1/time-tracking/kiosks", {"orderBy": "createdAt asc", "pageSize": 100}, {}),
+            (
+                "time_tracking_time_clocks",
+                "v1/time-tracking/time-clocks",
+                {"orderBy": "serialNumber asc", "pageSize": 100},
+                {},
+            ),
         ]
     )
     def test_walks_pages_by_the_next_link(
@@ -514,6 +529,41 @@ class TestGoalStreams:
 
         assert result.raised is None
         assert result.paths[1] == ("/api/gateway.php/acme/v1/performance/employees/7%2F..%2F..%2Fmeta%2Fusers%3F/goals")
+
+
+class TestCustomFieldListValues:
+    def test_values_carry_their_field_and_non_list_fields_are_skipped(self) -> None:
+        responses = [
+            ScriptedResponse(json={"data": [{"id": "4001"}, {"id": "4002"}], "_links": {}}),
+            ScriptedResponse(
+                json={"id": "4001", "type": "list", "values": [{"id": "1", "display": "Red", "count": 3}]}
+            ),
+            ScriptedResponse(status=422, json={"title": "Invalid custom field ID."}),
+        ]
+
+        result = _driver().run("custom_field_list_values", responses)
+
+        # Value ids repeat across fields, so the field id has to be on every row.
+        assert result.raised is None
+        assert result.rows == [{"id": "1", "display": "Red", "count": 3, CUSTOM_FIELD_ID: "4001"}]
+        assert result.paths == [
+            "/api/gateway.php/acme/v1/hris/custom-fields",
+            "/api/gateway.php/acme/v1/hris/custom-fields/4001/list-values",
+            "/api/gateway.php/acme/v1/hris/custom-fields/4002/list-values",
+        ]
+        assert result.queries[0] == {"pageSize": (str(CUSTOM_FIELDS_PAGE_SIZE),)}
+
+    def test_field_ids_from_the_api_cannot_extend_the_request_path(self) -> None:
+        responses = [
+            ScriptedResponse(json={"data": [{"id": "../../other?x="}], "_links": {}}),
+            ScriptedResponse(json={"id": "x", "values": [{"id": "1"}]}),
+        ]
+
+        result = _driver().run("custom_field_list_values", responses)
+
+        assert result.raised is None
+        assert result.paths[1] == "/api/gateway.php/acme/v1/hris/custom-fields/..%2F..%2Fother%3Fx%3D/list-values"
+        assert result.rows == [{"id": "1", CUSTOM_FIELD_ID: "../../other?x="}]
 
 
 class TestEndpointCatalog:

@@ -114,5 +114,5 @@ class ReferralHeroSource(ResumableSource[ReferralHeroSourceConfig, ReferralHeroR
                     )
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

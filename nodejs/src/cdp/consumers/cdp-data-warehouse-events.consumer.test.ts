@@ -155,6 +155,56 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(invocations).toHaveLength(0)
         })
 
+        describe('with a hog function for the team', () => {
+            beforeEach(async () => {
+                await insertHogFunction({
+                    team_id: team.id,
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                    ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
+                })
+            })
+
+            const lookupError = new Error('canceling statement due to conflict with recovery')
+
+            it.each([
+                {
+                    lookup: 'the team lookup',
+                    spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
+                },
+                {
+                    lookup: 'the hog function lookup',
+                    spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
+                },
+                {
+                    lookup: 'the hog flow lookup',
+                    spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam'),
+                },
+            ])(
+                'should fail the batch when $lookup throws, and queue the row when the batch is read again',
+                async ({ spy }) => {
+                    spy().mockRejectedValueOnce(lookupError)
+                    const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                    const messages = [createKafkaMessage(createDataWarehouseEvent(team.id))]
+
+                    await expect(handleBatch(messages)).rejects.toBe(lookupError)
+                    expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+                    const { backgroundTask } = await handleBatch(messages)
+                    await backgroundTask
+                    expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+                }
+            )
+
+            it('should skip a row with an out-of-range team_id and keep the rest', async () => {
+                const invocations = await processor._parseKafkaBatch([
+                    createKafkaMessage({ ...createDataWarehouseEvent(team.id), team_id: 3_000_000_000 }),
+                    createKafkaMessage(createDataWarehouseEvent(team.id)),
+                ])
+                expect(invocations).toHaveLength(1)
+            })
+        })
+
         it('should handle schema validation errors gracefully', async () => {
             const invalidEvent = { team_id: 'not-a-number' }
             const messages = [createKafkaMessage(invalidEvent)]

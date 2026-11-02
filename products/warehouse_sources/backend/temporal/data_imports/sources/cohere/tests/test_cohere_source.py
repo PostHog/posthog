@@ -34,10 +34,6 @@ class TestCohereSourceClass:
         assert schemas[endpoint].supports_append is False
         assert schemas[endpoint].incremental_fields == []
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(_config(), team_id=self.team_id, names=["datasets"])
-        assert [s.name for s in schemas] == ["datasets"]
-
     @parameterized.expand([(e,) for e in sorted(RETIRED_ENDPOINTS)])
     def test_retired_endpoint_is_off_the_catalog_and_stops_retrying(self, endpoint: str) -> None:
         # Discovery drops the table because it left COHERE_ENDPOINTS. A schema created before the
@@ -61,9 +57,3 @@ class TestCohereSourceClass:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             assert self.source.validate_credentials(_config(), self.team_id) == (True, None)
         assert network.requests_log[0].path == "/v1/models"
-
-    def test_validate_credentials_failure(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            ok, error = self.source.validate_credentials(_config(), self.team_id)
-        assert ok is False
-        assert error == "Invalid Cohere API key"

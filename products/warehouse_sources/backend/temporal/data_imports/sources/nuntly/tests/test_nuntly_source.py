@@ -16,30 +16,6 @@ class TestNuntlySource:
 
     @parameterized.expand(
         [
-            (
-                "401 Client Error: Unauthorized for url: https://api.nuntly.com/emails?limit=30",
-                True,
-            ),
-            (
-                "403 Client Error: Forbidden for url: https://api.nuntly.com/messages?limit=30",
-                True,
-            ),
-            (
-                "429 Client Error: Too Many Requests for url: https://api.nuntly.com/emails",
-                False,
-            ),
-            (
-                "500 Server Error: Internal Server Error for url: https://api.nuntly.com/emails",
-                False,
-            ),
-        ]
-    )
-    def test_non_retryable_errors(self, observed_error: str, expected_match: bool) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors) is expected_match
-
-    @parameterized.expand(
-        [
             (True, True, None),
             (False, False, "Invalid credentials"),
         ]

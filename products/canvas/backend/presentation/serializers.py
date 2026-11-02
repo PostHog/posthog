@@ -41,7 +41,9 @@ _CANVAS_URL_HELP_TEXT = (
 
 def canvas_url(canvas: CanvasRecord) -> str:
     # The same shape the thread-message announcements use; the route deep-links
-    # into the desktop app and renders in the web app.
+    # into the desktop app and renders in the web app. This URL has no
+    # `/project/<id>/` prefix because released desktop apps read it, and their
+    # share link parser only matches `/code/canvas/<channel>/<canvas>`.
     return f"{settings.SITE_URL}/code/canvas/{canvas.channel_id}/{canvas.id}"
 
 
@@ -252,6 +254,18 @@ class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
             "'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
         ),
     )
+    # Optional so projects published before ph.tools exist unchanged.
+    tools = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        default=list,
+        max_length=32,
+        help_text=(
+            "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', "
+            "'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the "
+            "promote review."
+        ),
+    )
     agentRequests = serializers.BooleanField(required=False, default=False)
 
 
@@ -339,6 +353,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
                 "captureEvents": [],
                 "state": [],
                 "actions": [],
+                "tools": [],
                 "agentRequests": False,
             },
             "network": {"origins": []},
@@ -1121,6 +1136,10 @@ class CanvasCapabilityWideningSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Action verbs the draft newly declares it may invoke via ph.actions.",
     )
+    tools_added = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="PostHog MCP tools the draft newly declares it may run via ph.tools.",
+    )
     connectors_added = CanvasConnectorDeclarationSerializer(
         many=True,
         help_text="Connector providers and tools the draft newly declares it may call via ph.connectors.",
@@ -1140,16 +1159,40 @@ class CanvasActionDefinitionSerializer(serializers.Serializer):
     )
 
 
+class CanvasToolDefinitionSerializer(serializers.Serializer):
+    """One PostHog MCP tool a canvas may declare, as the host renders it before running it."""
+
+    name = serializers.CharField(help_text="MCP tool name, e.g. 'feature-flag-enable'.")
+    title = serializers.CharField(help_text="Human-readable tool title.")
+    summary = serializers.CharField(help_text="One line naming what the tool does.")
+    # The name shadows Field.read_only for mypy only: DRF moves declared fields off the class.
+    read_only = serializers.BooleanField(  # type: ignore[assignment]
+        help_text="True when the tool only reads. A canvas runs read-only tools with ph.tools.read, others with "
+        "ph.tools.call."
+    )
+    destructive = serializers.BooleanField(
+        help_text="True when the tool deletes or overwrites something; the host warns the viewer before it runs."
+    )
+
+
 class CanvasActionsResponseSerializer(serializers.Serializer):
-    """The action registry: every verb a canvas may declare and invoke."""
+    """The action registry: every verb and PostHog MCP tool a canvas may declare and invoke."""
 
     actions = CanvasActionDefinitionSerializer(many=True, help_text="Registered verbs, sorted by name.")
+    tools = CanvasToolDefinitionSerializer(
+        many=True,
+        help_text="PostHog MCP tools a canvas may declare in capabilities.posthog.tools, sorted by name. Read each "
+        "tool's input schema with the MCP `info` command.",
+    )
 
 
 class CanvasActionInvokeSerializer(serializers.Serializer):
     """Payload for invoking one action verb."""
 
-    verb = serializers.CharField(max_length=64, help_text="Registered verb to invoke, e.g. 'tasks.create'.")
+    # Untrimmed, so the scope check and the dispatch read the same verb.
+    verb = serializers.CharField(
+        max_length=64, trim_whitespace=False, help_text="Registered verb to invoke, e.g. 'tasks.create'."
+    )
     payload = serializers.DictField(
         required=False,
         default=dict,
@@ -1164,6 +1207,27 @@ class CanvasActionResultSerializer(serializers.Serializer):
     result = serializers.DictField(
         help_text="Verb-specific result, e.g. {'task_id': ...} for tasks.create.",
     )
+
+
+class CanvasToolInvokeSerializer(serializers.Serializer):
+    """Payload for running one PostHog MCP tool."""
+
+    # Untrimmed, so the scope check and the dispatch read the same name.
+    tool = serializers.CharField(
+        max_length=200, trim_whitespace=False, help_text="MCP tool to run, e.g. 'feature-flag-enable'."
+    )
+    arguments = serializers.DictField(
+        required=False,
+        default=dict,
+        help_text="The tool's input, exactly as an MCP client passes it.",
+    )
+
+
+class CanvasToolResultSerializer(serializers.Serializer):
+    """Result of one PostHog MCP tool run."""
+
+    tool = serializers.CharField(help_text="The tool that ran.")
+    result = serializers.DictField(help_text="The tool's JSON result.")
 
 
 class CanvasConnectorToolSerializer(serializers.Serializer):

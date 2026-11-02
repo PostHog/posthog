@@ -19,11 +19,6 @@ class TestJfrogArtifactorySource:
         # The access token is sent to base_url, so retargeting it must re-require the token.
         assert self.source.connection_host_fields == ["base_url"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["artifacts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "artifacts"
-
     @pytest.mark.parametrize(
         "probe_return, schema_name, expected_valid, expected_message_part",
         [

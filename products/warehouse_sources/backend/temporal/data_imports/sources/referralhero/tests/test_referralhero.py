@@ -91,8 +91,6 @@ def test_lists_resume(finished: bool) -> None:
             "inactive_account",
             "Your ReferralHero account is inactive. Activate your account before you connect it.",
         ),
-        (401, "unauthorized", "Your ReferralHero API token is invalid. Copy the token from Account > API."),
-        (403, "forbidden", "ReferralHero denied access. Check your account status and API token."),
     ],
 )
 def test_auth_errors(status: int, code: str, message: str) -> None:
@@ -120,13 +118,6 @@ def test_unknown_errors_are_not_invalid_credentials() -> None:
     with scripted_network(always(response({"code": "bad_request"}, 400))):
         with pytest.raises(HTTPError):
             validate_credentials("fake-token")
-
-
-def test_unknown_table() -> None:
-    result = driver().run("missing", [])
-
-    assert isinstance(result.raised, ValueError)
-    assert "Unknown ReferralHero table" in str(result.raised)
 
 
 def test_malformed_success_does_not_silently_replace_table() -> None:

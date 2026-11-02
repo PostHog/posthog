@@ -58,7 +58,7 @@ class BoldSignSource(ResumableSource[BoldSignSourceConfig, BoldSignResumeConfig]
             name=ExternalDataSourceType.BOLDSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="BoldSign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your BoldSign API key to pull your eSignature documents, templates, and contacts into the PostHog Data warehouse.
 
 Create an API key in your [BoldSign account settings](https://app.boldsign.com/settings) under **API** → **API Key**. API keys carry all scopes by default.

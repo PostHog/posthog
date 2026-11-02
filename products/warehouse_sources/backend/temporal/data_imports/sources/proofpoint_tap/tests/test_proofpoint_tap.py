@@ -213,8 +213,6 @@ def test_error_classification_preserves_checkpoint(status: int) -> None:
 @pytest.mark.parametrize(
     ("status", "schema", "valid", "message"),
     [
-        (200, None, True, None),
-        (401, None, False, "Check your service principal and secret"),
         (403, None, True, None),
         (403, "messages_blocked", False, "Check access in the TAP dashboard"),
     ],

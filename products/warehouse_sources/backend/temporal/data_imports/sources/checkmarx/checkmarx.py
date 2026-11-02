@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkmarx.
     CheckmarxFanOutConfig,
     RegionHosts,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -134,7 +137,7 @@ class CheckmarxAuth:
         return self._token
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             CheckmarxRetryableError,

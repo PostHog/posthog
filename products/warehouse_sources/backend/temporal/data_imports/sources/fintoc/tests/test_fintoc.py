@@ -103,6 +103,41 @@ def test_movements_fanout_keeps_account_keys_and_tokens_private(
     )
 
 
+def test_business_account_movements_fan_out_with_api_key_only(
+    http_mock: MagicMock,
+    manager: MagicMock,
+    inputs: MagicMock,
+) -> None:
+    calls: list[tuple[str, dict[str, list[str]]]] = []
+
+    def respond(request: PreparedRequest) -> tuple[int, object, dict[str, str]]:
+        parts = urlsplit(request.url or "")
+        query = parse_qs(parts.query)
+        calls.append((parts.path, query))
+        assert request.headers["Authorization"] == "sk_test_example"
+        if parts.path == "/v2/accounts":
+            return 200, [{"id": "acc_one"}, {"id": "acc_two"}], {}
+        account = parts.path.split("/")[3]
+        if "starting_after" not in query:
+            return (
+                200,
+                [{"id": f"mov_{account}_first", "account_id": account}],
+                {"Link": f'<https://api.fintoc.com{parts.path}?starting_after=mov_{account}_first>; rel="next"'},
+            )
+        return 200, [{"id": f"mov_{account}_last", "account_id": account}], {}
+
+    http_mock.side_effect = respond
+    result = FintocAPI("sk_test_example", "2026-02-01").source("business_account_movements", [], inputs, manager)
+    rows = [row for page in cast(Iterable[Any], result.items()) for row in page]
+    assert rows == [
+        {"id": f"mov_{account}_{position}", "account_id": account}
+        for account in ("acc_one", "acc_two")
+        for position in ("first", "last")
+    ]
+    assert result.primary_keys == ["account_id", "id"]
+    assert all("link_token" not in query and "confirmed_only" not in query for _, query in calls)
+
+
 def test_movements_resume_restores_token_and_skips_finished_accounts(
     http_mock: MagicMock,
     manager: MagicMock,

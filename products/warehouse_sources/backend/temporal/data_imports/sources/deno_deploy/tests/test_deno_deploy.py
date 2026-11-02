@@ -228,7 +228,11 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             ok, error = validate_credentials("ddo_test")

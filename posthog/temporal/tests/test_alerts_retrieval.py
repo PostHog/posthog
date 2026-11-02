@@ -18,6 +18,9 @@ from posthog.temporal.alerts.admission import INFLIGHT_KEY, SLOT_LEASE_SECONDS, 
 from posthog.temporal.alerts.types import AlertInfo, ScheduleDueAlertChecksWorkflowInputs
 from posthog.temporal.tests.test_alerts_activities import _create_alert
 
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+
 
 @pytest.fixture(autouse=True)
 def clear_inflight_slots():
@@ -93,14 +96,31 @@ async def test_retrieve_due_alerts_excludes_future_checks_and_applies_the_docume
             next_check_at=next_check_at,
         )
         alert_label_by_id[str(alert.id)] = label
+    # Platform-owned and aged real-time, so each would lead the result if the insight stack still checked it.
+    platform_owned_specs = [
+        ("platform_owned_in_shadow", datetime(2026, 9, 5, tzinfo=UTC)),
+        ("platform_owned_after_shadow", datetime(2026, 9, 2, tzinfo=UTC)),
+        ("platform_owned_without_cutover_time", None),
+    ]
+    for label, owner_changed_at in platform_owned_specs:
+        alert = await _create_alert(
+            ateam,
+            calculation_interval=AlertCalculationInterval.REAL_TIME.value,
+            next_check_at=datetime(2026, 9, 10, 11, 20, tzinfo=UTC),
+        )
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            owner=PlatformAlertOwner.PLATFORM, owner_changed_at=owner_changed_at
+        )
+        alert_label_by_id[str(alert.id)] = label
 
     with time_machine.travel("2026-09-10T12:00:00Z", tick=False):
         alerts = await ActivityEnvironment().run(
             retrieve_due_alerts,
-            ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=len(alert_specs)),
+            ScheduleDueAlertChecksWorkflowInputs(max_alerts_per_run=len(alert_label_by_id)),
         )
 
     assert [alert_label_by_id[alert.alert_id] for alert in alerts] == [
+        "platform_owned_in_shadow",
         "aged_real_time",
         "fresh_real_time",
         "fresh_15_minutes",

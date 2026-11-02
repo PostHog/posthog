@@ -52,7 +52,7 @@ class ImpactPartnerSource(ResumableSource[ImpactPartnerSourceConfig, ImpactPartn
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["impact.com", "impact radius", "publisher", "affiliate"],
             label="impact.com Partner",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your impact.com Account SID and Auth Token to pull the data your partner (publisher) account sees into the PostHog Data warehouse.
 
 Find these in impact.com under **Settings > Technical > API**. Create a Read-Only access token, then copy its Account SID and Auth Token below.
@@ -144,7 +144,10 @@ If your account is a brand (advertiser) account, use the impact.com source inste
         ):
             return True, None
 
-        return False, "Invalid Impact.com Account SID or Auth Token"
+        return False, (
+            "Your impact.com Account SID or Auth token isn't valid for a partner account. "
+            "Check both values, or use the impact.com source for a brand account."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ImpactPartnerResumeConfig]:
         return ResumableSourceManager[ImpactPartnerResumeConfig](inputs, ImpactPartnerResumeConfig)

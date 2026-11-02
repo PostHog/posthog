@@ -12,7 +12,7 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
+import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ChatMessage as TicketMessage } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
@@ -86,7 +86,7 @@ export function QuillTicketMessages({ messages, messagesLoading }: QuillTicketMe
                             </ChatBubble>
                             <ChatMessageFooter>
                                 <Text size="xs" variant="muted" render={<span translate="no" />}>
-                                    {dayjs(message.createdAt).fromNow()}
+                                    <TZLabel time={message.createdAt} />
                                 </Text>
                             </ChatMessageFooter>
                         </ChatMessageContent>

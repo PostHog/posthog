@@ -90,4 +90,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_SITE_URL_COLUMN,
         },
     },
+    "page_query_stats": {
+        "description": (
+            "Traffic statistics for each search query that led to each of the site's top pages on Bing. "
+            "Bing updates this data weekly and retains about six months."
+        ),
+        "docs_url": f"{_API_DOCS_BASE}.getpagequerystats",
+        "columns": {
+            "page": "The page URL the statistics are for, taken from the site's top pages.",
+            **_DATE_COLUMN,
+            "query": "The search query users typed before they saw or clicked the page.",
+            **_QUERY_STATS_METRIC_COLUMNS,
+            **_SITE_URL_COLUMN,
+        },
+    },
+    "crawl_issues": {
+        "description": "The site's URLs that currently have crawl issues in Bing.",
+        "docs_url": f"{_API_DOCS_BASE}.getcrawlissues",
+        "columns": {
+            "url": "The URL that has crawl issues.",
+            "http_code": "The HTTP status code Bingbot received for the URL.",
+            "issues": (
+                "Bit flags for the issue types found: 1 = HTTP 301, 2 = HTTP 302, 4 = HTTP 4xx, "
+                "8 = HTTP 5xx, 16 = blocked by robots.txt, 32 = contains malware, 64 = important URL "
+                "blocked by robots.txt, 128 = DNS errors, 256 = timeout errors."
+            ),
+            "in_links": "Number of inbound links Bing found to the URL.",
+            **_SITE_URL_COLUMN,
+        },
+    },
+    "link_counts": {
+        "description": "The site's pages that have inbound links, with the number of inbound links for each.",
+        "docs_url": f"{_API_DOCS_BASE}.getlinkcounts",
+        "columns": {
+            "url": "The page URL on the site.",
+            "count": "Number of inbound links Bing found to the page.",
+            **_SITE_URL_COLUMN,
+        },
+    },
 }

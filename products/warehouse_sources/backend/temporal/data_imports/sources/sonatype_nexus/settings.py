@@ -46,6 +46,36 @@ SONATYPE_NEXUS_ENDPOINTS: dict[str, SonatypeNexusEndpointConfig] = {
         name="tasks",
         path="/tasks",
     ),
+    # A user id is only unique within its user source (realm), e.g. `default` vs `LDAP`.
+    "users": SonatypeNexusEndpointConfig(
+        name="users",
+        path="/security/users",
+        primary_keys=["source", "userId"],
+        paginated=False,
+    ),
+    "roles": SonatypeNexusEndpointConfig(
+        name="roles",
+        path="/security/roles",
+        primary_keys=["source", "id"],
+        paginated=False,
+    ),
+    "privileges": SonatypeNexusEndpointConfig(
+        name="privileges",
+        path="/security/privileges",
+        primary_keys=["name"],
+        paginated=False,
+    ),
+    "blob_stores": SonatypeNexusEndpointConfig(
+        name="blob_stores",
+        path="/blobstores",
+        primary_keys=["name"],
+        paginated=False,
+    ),
 }
+
+# Nexus caps a user search that names no source, or an external source, at 100 users.
+# Only the local `default` source is listed in full.
+NEXUS_DEFAULT_USER_SOURCE = "default"
+NEXUS_USER_SEARCH_LIMIT = 100
 
 ENDPOINTS = tuple(SONATYPE_NEXUS_ENDPOINTS.keys())

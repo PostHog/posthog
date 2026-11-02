@@ -14,9 +14,8 @@ from posthog.models import (
     OrganizationDomain,
     OrganizationMembership,
 )
-
-from ee.models.scim_provisioned_user import SCIMProvisionedUser
-from ee.models.scim_request_log import SCIMRequestLog
+from posthog.models.scim_provisioned_user import SCIMProvisionedUser
+from posthog.models.scim_request_log import SCIMRequestLog
 
 
 class TestIdentityProviderConfigAPI(APIBaseTest):

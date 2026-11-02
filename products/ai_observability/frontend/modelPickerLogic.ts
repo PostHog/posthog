@@ -22,6 +22,7 @@ export interface ModelOption {
     isRecommended?: boolean
     supportsDecisions?: boolean
     supportsChat?: boolean
+    supportsReasoning?: boolean
 }
 
 export interface ProviderModelGroup {
@@ -58,7 +59,7 @@ function getByokModelNotice(
         return null
     }
     const failedKeys = providerKeys.filter(
-        (key) => failedByokProviderKeyIds.includes(key.id) && !allowsCustomModel(key.provider)
+        (key) => failedByokProviderKeyIds.includes(key.id) && !allowsCustomModel(key)
     )
     if (failedKeys.length > 0) {
         return { kind: 'models-failed', keys: failedKeys }
@@ -77,9 +78,9 @@ function getByokModelNotice(
     return providerKeys.length === 0 ? { kind: 'no-keys' } : { kind: 'no-usable-keys' }
 }
 
-// Azure chat completions need a deployment name, and Azure does not always list deployments.
-function allowsCustomModel(provider: LLMProvider): boolean {
-    return provider === 'azure_openai'
+// Azure OpenAI and Claude on Microsoft Foundry need a deployment name, and Azure does not always list deployments.
+function allowsCustomModel(key: LLMProviderKey): boolean {
+    return key.provider === 'azure_openai' || (key.provider === 'anthropic' && !!key.azure_endpoint_display)
 }
 
 function providerKeyGroupLabel(key: LLMProviderKey, keysPerProvider: Record<string, number>, suffix = ''): string {
@@ -289,6 +290,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 is_recommended?: boolean
                                 supports_decisions?: boolean
                                 supports_chat?: boolean
+                                supports_reasoning?: boolean
                             })[]
                             return rawModels.map((m) => ({
                                 id: m.id,
@@ -298,6 +300,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                                 isRecommended: m.is_recommended ?? false,
                                 supportsDecisions: m.supports_decisions ?? false,
                                 supportsChat: m.supports_chat ?? !m.supports_decisions,
+                                supportsReasoning: m.supports_reasoning ?? false,
                                 providerKeyId: key.id,
                             }))
                         } catch {
@@ -414,7 +417,7 @@ export const modelPickerLogic = kea<modelPickerLogicType>([
                 const groups: ProviderModelGroup[] = []
                 for (const key of providerKeys) {
                     const models = byKeyId[key.id] ?? []
-                    const customModelKey = allowsCustomModel(key.provider) && key.state === 'ok'
+                    const customModelKey = allowsCustomModel(key) && key.state === 'ok'
                     if (models.length > 0 || customModelKey) {
                         groups.push({
                             provider: key.provider,

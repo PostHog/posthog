@@ -48,7 +48,7 @@ class BitriseSource(ResumableSource[BitriseSourceConfig, BitriseResumeConfig]):
             name=ExternalDataSourceType.BITRISE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bitrise",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Bitrise API token to pull your CI build data into the PostHog Data warehouse.
 
 You can create a personal access token in your [Bitrise security settings](https://app.bitrise.io/me/account/security), or use a workspace API token from your workspace settings.
@@ -105,6 +105,12 @@ You can create a personal access token in your [Bitrise security settings](https
                 )
             if endpoint == "branches":
                 return "Only branches that already have builds on Bitrise are listed"
+            if endpoint == "archived_builds":
+                return "The Bitrise API returns at most 1000 archived builds per app"
+            if endpoint == "build_requests":
+                return "Only open build requests are listed"
+            if endpoint == "activities":
+                return "Activity events of the account that owns the API token. Disabled by default because every sync reads the full history"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

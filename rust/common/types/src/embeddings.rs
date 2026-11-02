@@ -70,6 +70,9 @@ pub enum EmbeddingModel {
     OpenAITextEmbeddingSmall,
     #[serde(rename = "text-embedding-3-large-3072")]
     OpenAITextEmbeddingLarge,
+    // Served at 256 dimensions through the OpenAI `dimensions` parameter, for high-volume documents.
+    #[serde(rename = "text-embedding-3-small-256")]
+    OpenAITextEmbeddingSmall256,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -81,7 +84,8 @@ pub struct ApiLimits {
 impl EmbeddingModel {
     pub fn name(&self) -> &'static str {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall => "text-embedding-3-small",
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => "text-embedding-3-small",
             EmbeddingModel::OpenAITextEmbeddingLarge => "text-embedding-3-large",
         }
     }
@@ -90,20 +94,33 @@ impl EmbeddingModel {
         match self {
             EmbeddingModel::OpenAITextEmbeddingSmall => 1536,
             EmbeddingModel::OpenAITextEmbeddingLarge => 3072,
+            EmbeddingModel::OpenAITextEmbeddingSmall256 => 256,
+        }
+    }
+
+    pub fn requested_dimensions(&self) -> Option<usize> {
+        match self {
+            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+                None
+            }
+            EmbeddingModel::OpenAITextEmbeddingSmall256 => Some(256),
         }
     }
 
     pub fn model_input_window(&self) -> usize {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall => 8192,
-            EmbeddingModel::OpenAITextEmbeddingLarge => 8192,
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => 8192,
         }
     }
 
     /// Apply model-specific escaping/sanitisation to input text before tokenisation.
     pub fn escape_input<'a>(&self, content: &'a str) -> std::borrow::Cow<'a, str> {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => {
                 const OPENAI_SPECIAL_TOKENS: [(&str, &str); 6] = [
                     ("<|endoftext|>", ">|endoftext|<"),
                     ("<|fim_prefix|>", ">|fim_prefix|<"),
@@ -128,37 +145,38 @@ impl EmbeddingModel {
 
     pub fn model_url(&self) -> &'static str {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                "https://api.openai.com/v1/embeddings"
-            }
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => "https://api.openai.com/v1/embeddings",
         }
     }
 
     pub fn limits_key(&self) -> &'static str {
         // Based on our openai usage limits, these are distinct buckets
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall => "openai_text_embedding_small",
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => "openai_text_embedding_small",
             EmbeddingModel::OpenAITextEmbeddingLarge => "openai_text_embedding_large",
         }
     }
 
     pub fn provider(&self) -> &'static str {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                "openai"
-            }
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => "openai",
         }
     }
 
     pub fn api_limits(&self) -> ApiLimits {
         // TODO - these are VERY conservative, but keep in mind each pod will max out at this.
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                ApiLimits {
-                    requests_per_minute: 3_000,
-                    tokens_per_minute: 1_000_000,
-                }
-            }
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => ApiLimits {
+                requests_per_minute: 3_000,
+                tokens_per_minute: 1_000_000,
+            },
         }
     }
 
@@ -168,7 +186,9 @@ impl EmbeddingModel {
         headers: &dyn Fn(&str) -> Option<String>,
     ) -> Option<ApiLimits> {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => {
                 let rpm = headers("x-ratelimit-limit-requests")?.parse().ok()?;
                 let tpm = headers("x-ratelimit-limit-tokens")?.parse().ok()?;
                 Some(ApiLimits {
@@ -181,10 +201,13 @@ impl EmbeddingModel {
 
     pub fn construct_request_body(&self, text: &str) -> Value {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => {
                 let request = OAIEmbeddingRequest {
                     input: text.to_string(),
                     model: self.name().to_string(),
+                    dimensions: self.requested_dimensions(),
                 };
                 serde_json::to_value(request).expect("We are able to serialize the request")
             }
@@ -193,7 +216,9 @@ impl EmbeddingModel {
 
     pub fn extract_embedding_from_response_body(&self, response: &Value) -> Option<Vec<f64>> {
         match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+            EmbeddingModel::OpenAITextEmbeddingSmall
+            | EmbeddingModel::OpenAITextEmbeddingLarge
+            | EmbeddingModel::OpenAITextEmbeddingSmall256 => {
                 let response: OAIEmbeddingResponse =
                     serde_json::from_value(response.clone()).ok()?;
                 response.data.into_iter().next().map(|d| d.embedding)
@@ -206,6 +231,8 @@ impl EmbeddingModel {
 struct OAIEmbeddingRequest {
     input: String,
     model: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dimensions: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -254,6 +281,49 @@ impl From<EmbeddingResponse> for Vec<EmbeddingRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn small_256_round_trips_through_its_table_name() {
+        let json = serde_json::to_string(&EmbeddingModel::OpenAITextEmbeddingSmall256).unwrap();
+        assert_eq!(json, "\"text-embedding-3-small-256\"");
+        let parsed: EmbeddingModel = serde_json::from_str(&json).unwrap();
+        assert!(matches!(
+            parsed,
+            EmbeddingModel::OpenAITextEmbeddingSmall256
+        ));
+        assert_eq!(parsed.model_dimension(), 256);
+        assert_eq!(parsed.name(), "text-embedding-3-small");
+    }
+
+    #[test]
+    fn small_256_request_body_asks_openai_for_256_dimensions() {
+        let body = EmbeddingModel::OpenAITextEmbeddingSmall256.construct_request_body("hi");
+        assert_eq!(body["model"], "text-embedding-3-small");
+        assert_eq!(body["dimensions"], 256);
+        assert_eq!(body["input"], "hi");
+    }
+
+    #[test]
+    fn full_size_models_do_not_send_dimensions() {
+        for model in [
+            EmbeddingModel::OpenAITextEmbeddingSmall,
+            EmbeddingModel::OpenAITextEmbeddingLarge,
+        ] {
+            let body = model.construct_request_body("hi");
+            assert!(
+                body.get("dimensions").is_none(),
+                "{model:?} must not send dimensions"
+            );
+        }
+    }
+
+    #[test]
+    fn small_256_shares_the_small_model_rate_limit_bucket() {
+        assert_eq!(
+            EmbeddingModel::OpenAITextEmbeddingSmall256.limits_key(),
+            EmbeddingModel::OpenAITextEmbeddingSmall.limits_key()
+        );
+    }
 
     #[test]
     fn test_escape_input() {

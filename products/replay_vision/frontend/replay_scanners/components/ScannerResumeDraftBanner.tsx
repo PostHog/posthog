@@ -21,8 +21,7 @@ export function ScannerResumeDraftBanner(): JSX.Element | null {
     }
 
     const handleResume = (): void => {
-        const { template: _template, ...params } = router.values.searchParams
-        router.actions.push(combineUrl(urls.replayVisionScannerDetails('new'), params).url)
+        router.actions.push(combineUrl(urls.replayVisionScannerDetails('new'), router.values.searchParams).url)
     }
 
     return (

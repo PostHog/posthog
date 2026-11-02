@@ -40,7 +40,8 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 
-from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import PostgreSQLIntegration
 from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
 
 from products.batch_exports.backend.facade.destinations.postgres import (
@@ -259,18 +260,16 @@ class PostgresDestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
-    def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
+    def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
         # `from_inputs` accepts anything exposing credentials/authority/tls, which the
         # integration wrapper does, so the batch export path and this one resolve credentials
         # identically.
         return PostgreSQLClient.from_inputs(PostgreSQLIntegration(integration), database=self._database)
 
-    async def _load_integration(self, integration_id: int) -> Integration:
+    async def _load_integration(self, integration_id: int) -> IntegrationRecord:
         try:
-            return await Integration.objects.aget(
-                id=integration_id, team_id=self._ctx.team_id, kind=self.integration_kind
-            )
-        except Integration.DoesNotExist as err:
+            return await IntegrationManager.kinds(self.integration_kind).aget(self._ctx.team_id, integration_id)
+        except IntegrationNotFound as err:
             # The same error batch exports raises, which its destinations never retry: a
             # deleted or re-kinded integration cannot be recovered by trying again.
             raise PostgreSQLIntegrationNotFoundError(
@@ -291,23 +290,21 @@ class PostgresDestinationWriter:
     async def _client(self) -> AsyncIterator[PostgreSQLClient]:
         client = await self._make_client()
 
-        # The pre-check resolves the host only to classify it; `connect()` resolves it again.
+        # The pre-check resolves the host only to classify it. `connect()` resolves it again,
+        # checks those addresses, and dials only them.
         host_detail = await host_configuration_error_detail(client.host, client.port)
         if host_detail is not None:
             raise DestinationConfigurationError(self._ctx.destination_name, host_detail)
 
-        # `connect()` resolves and dials the integration's hostname with no connection-time
-        # address validation or pinning, same as batch exports' own Postgres destination on
-        # this same client. An editor-controlled hostname could DNS-rebind to a private address
-        # between resolution and connect; closing that needs pinning inside `PostgreSQLClient`
-        # itself (posthog#86986 review discussion), which this product can't reach into, so
-        # every caller of this shared client is fixed together rather than patched here alone.
         async with AsyncExitStack() as stack:
             # Entered apart from the body, so only a failure to connect is classified here, never
             # an error the caller raises while it holds the connection.
             try:
                 await stack.enter_async_context(client.connect(is_error_retryable=_is_connect_error_retryable))
             except PostgreSQLConnectionError as err:
+                # The client's host check refused the address. Its message hides which check failed.
+                if isinstance(err.__cause__, ValueError):
+                    raise DestinationConfigurationError(self._ctx.destination_name, str(err)) from err
                 detail = connect_configuration_error_detail(err.__cause__) if err.__cause__ else None
                 if detail is not None:
                     raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
@@ -361,7 +358,7 @@ class PostgresDestinationWriter:
         # Declared at creation rather than added later, so the merge target carries its own
         # constraint. `_ensure_unique_index` still covers a table the customer already had,
         # which this never touches.
-        key = [(name, type_name) for name, type_name in fields if name in set(primary_keys or ())]
+        key = [name for name, _ in fields if name in set(primary_keys or ())]
 
         await client.acreate_table(
             self._schema,

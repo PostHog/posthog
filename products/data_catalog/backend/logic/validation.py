@@ -44,8 +44,8 @@ MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
 MAX_DESCRIPTION_LENGTH = 300
 DESCRIPTION_TOO_LONG_MESSAGE = (
     f"Description is too long. Say what the metric is in 1-2 short sentences, under {MAX_DESCRIPTION_LENGTH} "
-    "characters. Leave out source tables, lineage, column lists, and comparisons with other metrics; put query "
-    "rationale in 'reasoning'."
+    "characters. Leave out source tables, lineage, column lists, and comparisons with other metrics; put the "
+    "query's design decisions in 'reasoning'."
 )
 
 # HogQLQuery carries fields that would let a caller bypass team query controls (a raw ClickHouse

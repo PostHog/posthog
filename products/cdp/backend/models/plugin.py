@@ -118,6 +118,12 @@ def update_validated_data_from_url(validated_data: dict[str, Any], url: str) -> 
     return plugin_json
 
 
+def get_secret_fields(config_schema: dict[str, Any] | list[dict[str, Any]]) -> set[str]:
+    if isinstance(config_schema, dict):
+        return {key for key, field in config_schema.items() if isinstance(field, dict) and field.get("secret")}
+    return {field["key"] for field in config_schema if isinstance(field, dict) and field.get("secret")}
+
+
 class PluginManager(models.Manager):
     def install(self, **kwargs) -> "Plugin":
         if "organization_id" not in kwargs and "organization" in kwargs:

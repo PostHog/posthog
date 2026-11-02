@@ -56,7 +56,7 @@ class ChameleonSource(ResumableSource[ChameleonSourceConfig, ChameleonResumeConf
             name=ExternalDataSourceType.CHAMELEON,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Chameleon",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Chameleon API secret to automatically pull your Chameleon data into the PostHog Data warehouse.
 
 You can generate an account-specific API secret in your [Chameleon account settings](https://app.chameleon.io/settings/tokens). The secret is only shown once, so copy it when you create it.""",

@@ -62,6 +62,13 @@ MEMBRAIN_ENDPOINTS: dict[str, MembrainEndpointConfig] = {
         paged=True,
         partition_key="CreatedDate",
     ),
+    # Products attached to an opportunity (Sales Project), one row per line item.
+    "opportunity_products": MembrainEndpointConfig(
+        name="opportunity_products",
+        path="/opportunityProducts/",
+        paged=True,
+        partition_key="CreatedDate",
+    ),
     "account_growth_items": MembrainEndpointConfig(
         name="account_growth_items",
         path="/accountGrowthItems/",
@@ -93,6 +100,17 @@ MEMBRAIN_ENDPOINTS: dict[str, MembrainEndpointConfig] = {
         primary_keys=["EntityType", "Id"],
     ),
     "products": MembrainEndpointConfig(name="products", path="/products/"),
+    "currencies": MembrainEndpointConfig(name="currencies", path="/currencies/"),
+    "activity_types": MembrainEndpointConfig(name="activity_types", path="/activityTypes/"),
+    "labels": MembrainEndpointConfig(name="labels", path="/labels/"),
+    # Process definitions return one row per active process with its Stages (each holding Steps)
+    # and CustomFields as nested arrays.
+    "sales_processes": MembrainEndpointConfig(name="sales_processes", path="/salesProcesses/"),
+    "prospecting_processes": MembrainEndpointConfig(name="prospecting_processes", path="/prospectingProcesses/"),
+    "ticket_processes": MembrainEndpointConfig(name="ticket_processes", path="/ticketProcesses/"),
+    "account_growth_processes": MembrainEndpointConfig(
+        name="account_growth_processes", path="/accountGrowthProcesses/"
+    ),
 }
 
 ENDPOINTS = tuple(MEMBRAIN_ENDPOINTS.keys())
@@ -100,9 +118,9 @@ ENDPOINTS = tuple(MEMBRAIN_ENDPOINTS.keys())
 # All endpoints are full refresh only for now. The main list endpoints do document server-side
 # ChangedFromDate/ChangedToDate and CreatedFromDate/CreatedToDate range filters (both ends of a
 # range must be provided together), but the reference is the only evidence available: the filters
-# could not be verified against a live instance here (no credentials), and four of the paged
-# endpoints (prospects, opportunities, accountGrowthItems, tickets) document no SortBy, so row
-# order inside a window is unknown. Enabling incremental is a matter of populating this dict,
-# mapping the user's cursor into the range params in `membrain.py`, and passing an explicit upper
-# bound, once the filters are verified live.
+# could not be verified against a live instance here (no credentials), and five of the paged
+# endpoints (prospects, opportunities, opportunityProducts, accountGrowthItems, tickets) document
+# no SortBy, so row order inside a window is unknown. Enabling incremental is a matter of
+# populating this dict, mapping the user's cursor into the range params in `membrain.py`, and
+# passing an explicit upper bound, once the filters are verified live.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

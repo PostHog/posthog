@@ -16,11 +16,6 @@ class TestOptimizelySource:
         self.team_id = 123
         self.config = OptimizelySourceConfig(api_token="api-token")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["experiments"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "experiments"
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

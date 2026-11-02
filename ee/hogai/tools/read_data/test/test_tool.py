@@ -1574,6 +1574,7 @@ class TestReadDataTool(BaseTest):
         mock_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         mock_content = VisualizationArtifactContent(name="Allowed Insight", query=mock_query)
         mock_insight = MagicMock(spec=Insight)
+        mock_insight.query = {"kind": "InsightVizNode", "source": mock_query.model_dump(exclude_none=True)}
 
         context_manager.artifacts = MagicMock()
         context_manager.artifacts.aget_visualization = AsyncMock(

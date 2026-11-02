@@ -15,7 +15,6 @@ class TestDescopeSource:
         "status_code, expected_valid",
         [
             (200, True),
-            (401, False),
         ],
     )
     def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:

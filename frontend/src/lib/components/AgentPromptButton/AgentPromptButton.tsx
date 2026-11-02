@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { useKeyboardNavigation } from 'lib/lemon-ui/LemonMenu/useKeyboardNavigation'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -26,8 +29,9 @@ import {
 } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -65,12 +69,15 @@ const ICON_SIZE: Record<AgentPromptButtonSize, QuillButtonProps['size']> = {
     sm: 'icon-sm',
     lg: 'icon-lg',
     row: 'icon',
+    inline: 'icon-xs',
 }
 
 export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
     /** Agent always shown on the main button, in place of the one the user last picked. */
     pinnedAgentKey?: AgentPromptDestination
+    /** Agents left out of the menu, for prompts a given agent cannot act on. */
+    excludeAgentKeys?: AgentPromptDestination[]
     /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
     labelMode?: 'action' | 'destination'
     /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
@@ -78,6 +85,10 @@ export interface AgentPromptButtonProps {
     onOpenChange?: (open: boolean) => void
     size?: AgentPromptButtonSize
     variant?: NonNullable<QuillButtonProps['variant']>
+    /** `lemon` renders a LemonButton with a side menu, to sit beside other Lemon buttons. `size` and `variant` apply to `quill` only. */
+    appearance?: 'quill' | 'lemon'
+    /** LemonButton type for the `lemon` appearance. */
+    lemonType?: 'primary' | 'secondary'
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
     defaultOpen?: boolean
     /** Fired whenever a combo runs (agent deeplink opened or clipboard copied). Useful for analytics. */
@@ -101,7 +112,6 @@ interface AgentDef {
 }
 
 interface AgentOpenContext {
-    askSidePanelMax: (prompt: string) => void
     actionLabel: string
     repository?: string
 }
@@ -199,7 +209,7 @@ const AGENTS: AgentDef[] = [
         name: 'PostHog AI',
         logo: <IconSparkles className="size-4 shrink-0 text-ai" />,
         verb: 'Open',
-        open: (prompt, { askSidePanelMax }) => askSidePanelMax(prompt),
+        open: (prompt) => newInternalTab(urls.ai(undefined, prompt)),
     },
     {
         key: 'posthog-code',
@@ -283,11 +293,14 @@ export function buildAgentPrompt(
 export function AgentPromptButton({
     actions,
     pinnedAgentKey,
+    excludeAgentKeys,
     labelMode = 'action',
     menuClassName,
     onOpenChange,
     size = 'default',
     variant = 'default',
+    appearance = 'quill',
+    lemonType = 'secondary',
     defaultOpen = false,
     onRun,
     repository,
@@ -300,11 +313,16 @@ export function AgentPromptButton({
     const { rememberedAgentKey, rememberedActionKeys } = useValues(agentPromptButtonLogic)
     const { rememberAgent, rememberAction } = useActions(agentPromptButtonLogic)
     const [open, setOpen] = useState(defaultOpen)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const availableAgents = AGENTS.filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
+    const availableAgents = AGENTS.filter(
+        (agent) => !(todayRailEnabled && agent.key === 'posthog-ai') && !excludeAgentKeys?.includes(agent.key)
+    )
+    // The Lemon menu renders its overlay directly, so it wires LemonMenu's arrow-key focus handling itself.
+    const lemonKeyboard = useKeyboardNavigation<HTMLButtonElement>(
+        (actions.length > 1 ? actions.length : 0) + availableAgents.length
+    )
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
@@ -330,7 +348,7 @@ export function AgentPromptButton({
         if (!agent) {
             return
         }
-        agent.open(prompt, { askSidePanelMax, actionLabel: action.label, repository })
+        agent.open(prompt, { actionLabel: action.label, repository })
     }
 
     const selectAgent = (agentKey: AgentPromptDestination): void => {
@@ -341,6 +359,63 @@ export function AgentPromptButton({
 
     const handleMainClick = (): void => {
         runCombo(activeAction.key, activeAgent.key)
+    }
+
+    if (appearance === 'lemon') {
+        return (
+            // Focus and key events bubble up from the side action, which takes no handlers of its own.
+            // React also bubbles them up from the portaled menu, so only events from inside this subtree count.
+            <div
+                className="contents"
+                onFocus={(e) => e.currentTarget.contains(e.target) && lemonKeyboard.onTriggerFocus(e)}
+                onKeyDown={(e) => e.currentTarget.contains(e.target as Node) && lemonKeyboard.onTriggerKeyDown(e)}
+            >
+                <LemonButton
+                    type={lemonType}
+                    size="small"
+                    icon={<AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />}
+                    onClick={handleMainClick}
+                    data-attr={dataAttr}
+                    title={`Run: ${buttonLabel}`}
+                    sideAction={{
+                        'aria-label': actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent',
+                        dropdown: {
+                            placement: 'bottom-end',
+                            onVisibilityChange: onOpenChange,
+                            overlay: (
+                                <LemonMenuOverlay
+                                    itemsRef={lemonKeyboard.itemsRef}
+                                    onKeyDown={lemonKeyboard.onItemsKeyDown}
+                                    items={[
+                                        actions.length > 1 && {
+                                            title: 'Content',
+                                            items: actions.map((action) => ({
+                                                label: action.label,
+                                                icon: action.icon,
+                                                active: action.key === activeAction.key,
+                                                onClick: () => selectAction(action.key),
+                                            })),
+                                        },
+                                        {
+                                            title: 'Open in',
+                                            items: availableAgents.map((agent) => ({
+                                                label: agent.name,
+                                                icon: (
+                                                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                                ),
+                                                onClick: () => selectAgent(agent.key),
+                                            })),
+                                        },
+                                    ]}
+                                />
+                            ),
+                        },
+                    }}
+                >
+                    <span className="truncate max-w-64">{buttonLabel}</span>
+                </LemonButton>
+            </div>
+        )
     }
 
     return (

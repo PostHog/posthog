@@ -16,6 +16,7 @@ import json
 import time
 import signal
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.conf import settings
@@ -33,6 +34,7 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
 )
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 from posthog.settings import CONSTANCE_CONFIG
 
 logger = structlog.get_logger(__name__)
@@ -188,6 +190,26 @@ def _is_permanent_client_error(status_code: object) -> bool:
     return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
 
 
+# One worker, so a hung cache or database call blocks later lookups instead of piling up threads.
+# Each caller still waits at most the timeout, then logs without a team.
+_TEAM_LOOKUP_TIMEOUT_SECONDS = 2.0
+_team_lookup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dlq-team-lookup")
+
+
+def _team_id_for_token(token: object) -> int | None:
+    """Best-effort team lookup so a DLQ log line can name the affected team. Never raises and never
+    waits past the timeout: a slow or failed lookup must not stall or retry a DLQ write."""
+    if not isinstance(token, str):
+        return None
+    try:
+        team = _team_lookup_executor.submit(Team.objects.get_team_from_cache_or_token, token).result(
+            timeout=_TEAM_LOOKUP_TIMEOUT_SECONDS
+        )
+    except Exception:
+        return None
+    return team.id if team else None
+
+
 class PersonPropertyUpdateConsumer:
     def __init__(
         self,
@@ -225,11 +247,11 @@ class PersonPropertyUpdateConsumer:
             self._dlq_producer = get_producer(topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ)
         return self._dlq_producer
 
-    def _dlq(self, value: bytes, reason: str) -> str:
+    def _dlq(self, value: bytes, reason: str, token: object = None) -> str:
         """Route a poison message to the DLQ. Returns ``DLQ`` only once the write is confirmed
         delivered; a failed DLQ write returns ``RETRY`` so the source offset stays uncommitted and
         the message is redelivered rather than silently dropped from both topics."""
-        logger.warning("person_property_update.dlq", reason=reason)
+        logger.warning("person_property_update.dlq", reason=reason, team_id=_team_id_for_token(token))
         producer = self._get_dlq_producer()
         result = producer.produce(
             topic=KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
@@ -309,7 +331,7 @@ class PersonPropertyUpdateConsumer:
             # 0 (transport/client-side), retryable 4xx (408/429), and 5xx stay transient -> uncommitted.
             status_code = getattr(exc, "status_code", None)
             if _is_permanent_client_error(status_code):
-                return self._dlq(value, f"capture_client_error:{status_code}")
+                return self._dlq(value, f"capture_client_error:{status_code}", kwargs["token"])
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
             return RETRY
@@ -319,12 +341,12 @@ class PersonPropertyUpdateConsumer:
         # A drop is terminal: capture rejected the event permanently (e.g. invalid/stale token,
         # validation failure), so it's poison. DLQ it rather than redelivering forever.
         if result.dropped:
-            return self._dlq(value, "capture_dropped")
+            return self._dlq(value, "capture_dropped", kwargs["token"])
         # A permanent whole-request 4xx is likewise poison (bad/stale token, validation), so DLQ it
         # too. Everything else (exhausted retries, unaccounted, retryable 4xx, 5xx, transport) is
         # transient -> retry.
         if result.error and _is_permanent_client_error(result.status_code):
-            return self._dlq(value, f"capture_error:{result.status_code}")
+            return self._dlq(value, f"capture_error:{result.status_code}", kwargs["token"])
         RETRY_TOTAL.inc()
         return RETRY
 

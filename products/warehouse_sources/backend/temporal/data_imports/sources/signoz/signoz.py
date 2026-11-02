@@ -6,10 +6,16 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    _looks_like_json,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,6 +40,7 @@ SIGNOZ_API_VERSION_V5 = "v5"
 QUERY_RANGE_PATH = "/api/v5/query_range"
 
 HOST_NOT_ALLOWED_ERROR = "SigNoz host is not allowed"
+NON_JSON_RESPONSE_ERROR = "SigNoz host returned a non-JSON response"
 
 
 class SigNozRetryableError(Exception):
@@ -43,6 +50,10 @@ class SigNozRetryableError(Exception):
 
 
 class SigNozHostNotAllowedError(Exception):
+    pass
+
+
+class SigNozNonJSONResponseError(Exception):
     pass
 
 
@@ -143,6 +154,11 @@ def validate_credentials(
         return False, HOST_NOT_ALLOWED_ERROR
 
     if response.status_code == 200:
+        if not _looks_like_json(response.content):
+            return (
+                False,
+                "This host didn't return SigNoz API data. Check that it points at your SigNoz instance, not a login or proxy page.",
+            )
         return True, None
 
     if response.status_code == 401:
@@ -285,7 +301,7 @@ def get_rows(
     # can't reliably strip, so they must never reach the shared sample bucket.
     session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,), capture=False)
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((SigNozRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=_retry_wait,
@@ -317,7 +333,14 @@ def get_rows(
             logger.error(f"SigNoz API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()
 
-        return response.json()
+        try:
+            return response.json()
+        except requests.exceptions.JSONDecodeError as e:
+            # An HTML or empty 2xx body means the host isn't a SigNoz API (a landing, login, or
+            # proxy page), so retrying won't help. A truncated JSON body stays retryable.
+            if not _looks_like_json(response.content):
+                raise SigNozNonJSONResponseError(NON_JSON_RESPONSE_ERROR) from e
+            raise
 
     if config.kind == "config":
         items = _extract_config_items(fetch(f"{base}{config.path}"), config)

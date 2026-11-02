@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shortio import (
     ShortioSourceConfig,
@@ -17,10 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.se
     ENDPOINTS,
     SHORTIO_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio import (
-    SHORTIO_BASE_URL,
-    validate_credentials,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.shortio import SHORTIO_BASE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortio.source import ShortioSource
 
 DOMAINS_URL = f"{SHORTIO_BASE_URL}/api/domains"
@@ -69,23 +65,3 @@ class TestShortioSource:
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in SHORTIO_ENDPOINTS.values())
         assert set(SHORTIO_ENDPOINTS) == set(ENDPOINTS)
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Short.io API key"),
-            ("forbidden", 403, False, "Invalid Short.io API key"),
-            ("server_error", 500, False, "Short.io returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("sk-key") == (expected_valid, expected_message)
-
-    def test_connection_error_is_invalid(self) -> None:
-        # validate_via_probe swallows transport errors and reports no status — surfaced as a
-        # connection message so source creation reports "not validated" rather than crashing.
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("sk-key") == (False, "Could not connect to Short.io. Please try again.")

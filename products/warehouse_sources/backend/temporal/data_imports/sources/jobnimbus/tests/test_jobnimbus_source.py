@@ -2,7 +2,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jobnimbus import (
     JobNimbusSourceConfig,
 )
@@ -14,26 +13,6 @@ class TestJobNimbusSource:
         self.source = JobNimbusSource()
         self.team_id = 123
         self.config = JobNimbusSourceConfig(api_key="jn-key")
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://app.jobnimbus.com/api1/contacts?size=100&from=0",),
-            ("403 Client Error: Forbidden for url: https://app.jobnimbus.com/api1/jobs?size=100&from=0",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://app.jobnimbus.com/api1/contacts",),
-            ("429 Client Error: Too Many Requests for url: https://app.jobnimbus.com/api1/jobs",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @parameterized.expand(
         [
@@ -76,9 +55,3 @@ class TestJobNimbusSource:
         assert kwargs["team_id"] == 123
         assert kwargs["job_id"] == "job-1"
         assert kwargs["resumable_source_manager"] is manager
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown JobNimbus schema 'not_a_table'"

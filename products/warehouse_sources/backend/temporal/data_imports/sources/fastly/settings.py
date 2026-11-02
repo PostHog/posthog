@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #                       across `attributes` and `relationships`, and the next page is a body link.
 # - "stats_list":       GET /stats returns one array of time buckets per service, keyed by service id.
 # - "origin_inspector": fan out over every service, reading its origin metrics timeseries.
+# - "ai_usage_metrics": GET an unpaginated AI Runtime Control usage report; rows sit under `data`.
 FastlyEndpointKind = Literal[
     "object",
     "service_list",
@@ -34,11 +35,12 @@ FastlyEndpointKind = Literal[
     "json_api_list",
     "stats_list",
     "origin_inspector",
+    "ai_usage_metrics",
 ]
 
-# Fastly reports both metrics families in whole time buckets keyed by their start. The cursor is the
-# bucket start as a Unix timestamp, which is also what the `from` / `start` request params take, so a
-# watermark feeds straight back into the next sync with no reformatting.
+# Fastly reports every metrics family in whole time buckets keyed by their start. The cursor is the
+# bucket start as a Unix timestamp, which is also what the `/stats` and Origin Inspector `from` / `start`
+# request params take, so a watermark feeds straight back into the next sync with no reformatting.
 _BUCKET_START_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
         "label": "Bucket start",
@@ -174,6 +176,18 @@ FASTLY_ENDPOINTS: dict[str, FastlyEndpointConfig] = {
         # service and would sync an empty table.
         should_sync_default=False,
         description="Daily origin latency, status code and byte counts per origin host, for services with Origin Inspector enabled.",
+    ),
+    "ai_usage_metrics": FastlyEndpointConfig(
+        name="ai_usage_metrics",
+        path="/ai-runtime-control/v1/usage-metrics",
+        kind="ai_usage_metrics",
+        partition_key="start_time",
+        primary_keys=["start_time", "usage_type", "virtual_key_id", "provider", "model"],
+        incremental_fields=_BUCKET_START_INCREMENTAL_FIELDS,
+        incremental_lookback_seconds=METRICS_LOOKBACK_SECONDS,
+        # AI Runtime Control is a separate product, so most accounts would sync an empty table.
+        should_sync_default=False,
+        description="Daily AI Runtime Control request, session and token usage per virtual key, provider and model.",
     ),
     "service_authorizations": FastlyEndpointConfig(
         name="service_authorizations",

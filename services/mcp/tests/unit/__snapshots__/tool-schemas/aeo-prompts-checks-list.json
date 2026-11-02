@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "engine": {
+            "description": "Only list checks from this answer engine, for example 'claude-web-search'.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "description": "The prompt id (a UUID), from `aeo-prompts-list`.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "version": {
+            "description": "Only list checks that ran this version of the prompt.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

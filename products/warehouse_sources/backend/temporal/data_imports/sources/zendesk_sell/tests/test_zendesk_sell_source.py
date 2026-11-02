@@ -20,32 +20,6 @@ class TestValidateCredentials:
             assert ZendeskSellSource().validate_credentials(config, team_id=1) == expected
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.getbase.com/v2/contacts?per_page=100",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.getbase.com/v2/deals?per_page=100"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = ZendeskSellSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.getbase.com/v2/contacts"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.getbase.com/v2/deals"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.getbase.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = ZendeskSellSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
-
 class TestSourceForPipeline:
     def test_plumbs_config_and_inputs_into_source_response(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}

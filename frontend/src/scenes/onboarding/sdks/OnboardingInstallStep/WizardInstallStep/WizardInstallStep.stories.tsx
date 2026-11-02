@@ -126,11 +126,13 @@ function installStepStory({
     drive,
     waitForSelector,
     play,
+    simple = false,
 }: {
     featureFlags?: Record<string, string | boolean>
     drive?: () => void
     waitForSelector: string
     play?: () => Promise<void>
+    simple?: boolean
 }): Story {
     return {
         render: () => {
@@ -143,6 +145,12 @@ function installStepStory({
                 // over from an earlier story in the same browser session before driving this one.
                 activeCloudRunLogic.actions.clearActiveCloudRun()
                 drive?.()
+                if (simple) {
+                    router.actions.push(urls.simpleOnboarding(), {
+                        step: `${OnboardingStepKey.INSTALL}:${ProductKey.PRODUCT_ANALYTICS}`,
+                    })
+                    return
+                }
                 setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
                 router.actions.push(
                     urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
@@ -171,26 +179,51 @@ export const TestArm: Story = installStepStory({
     waitForSelector: '[data-attr="wizard-cloud-run-open-pr"]',
 })
 
+const startCloudRun = (): void =>
+    activeCloudRunLogic.actions.setActiveCloudRun('task-1', 'run-1', new Date().toISOString(), MOCK_TEAM_ID)
+
+// The panel mounts in the 'connecting' phase; hold the snapshot until the mocked stream's pipeline
+// steps have rendered so it captures the mid-run timeline, not the placeholder.
+const waitForPipelineTimeline = async (): Promise<void> => {
+    await waitFor(
+        () => {
+            const timeline = document.querySelector('[data-attr="installation-progress"]')
+            if (!timeline?.textContent?.includes('Running setup wizard')) {
+                throw new Error('pipeline timeline not ready')
+            }
+        },
+        { timeout: 8000, interval: 200 }
+    )
+}
+
 /**
  * A cloud run underway: the step pins to the run's live pipeline (fed by the mocked task-run
  * stream), the local tab is blocked, and Continue is unblocked.
  */
 export const CloudRunInProgress: Story = installStepStory({
     featureFlags: { [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test' },
-    drive: () =>
-        activeCloudRunLogic.actions.setActiveCloudRun('task-1', 'run-1', new Date().toISOString(), MOCK_TEAM_ID),
+    drive: startCloudRun,
     waitForSelector: '[data-attr="installation-progress"]',
-    play: async () => {
-        // The panel mounts in the 'connecting' phase; hold the snapshot until the mocked stream's
-        // pipeline steps have rendered so it captures the mid-run timeline, not the placeholder.
-        await waitFor(
-            () => {
-                const timeline = document.querySelector('[data-attr="installation-progress"]')
-                if (!timeline?.textContent?.includes('Running setup wizard')) {
-                    throw new Error('pipeline timeline not ready')
-                }
-            },
-            { timeout: 8000, interval: 200 }
-        )
-    },
+    play: waitForPipelineTimeline,
+})
+
+const SIMPLE_FLOW_CLOUD_FLAGS = {
+    [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test',
+    [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test',
+}
+
+/** The simple flow's compact install step on the cloud arm, with GitHub connected. */
+export const SimpleFlowCloudArm: Story = installStepStory({
+    simple: true,
+    featureFlags: SIMPLE_FLOW_CLOUD_FLAGS,
+    waitForSelector: '[data-attr="wizard-cloud-run-open-pr"]',
+})
+
+/** A cloud run underway in the simple flow: the compact step pins to the run's live pipeline. */
+export const SimpleFlowCloudRunInProgress: Story = installStepStory({
+    simple: true,
+    featureFlags: SIMPLE_FLOW_CLOUD_FLAGS,
+    drive: startCloudRun,
+    waitForSelector: '[data-attr="installation-progress"]',
+    play: waitForPipelineTimeline,
 })

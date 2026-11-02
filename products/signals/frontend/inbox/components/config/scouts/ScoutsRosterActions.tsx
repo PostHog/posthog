@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -20,9 +23,19 @@ export function ScoutsRosterActions(): JSX.Element {
     const { user } = useValues(userLogic)
     // Every trial endpoint requires skill editor access, so the page is empty without it.
     const trialsDisabledReason = useScoutCreateDisabledReason()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     return (
         <>
-            {currentTeamId === 2 && user?.is_staff && (
+            {currentTeamId === 2 && user?.is_staff && todayRailNav ? (
+                <Button
+                    variant="outline"
+                    render={<LinkPrimitive to={urls.inboxScoutTrials()} />}
+                    disabledReason={trialsDisabledReason}
+                    data-attr="scout-open-comparisons"
+                >
+                    Trials
+                </Button>
+            ) : currentTeamId === 2 && user?.is_staff ? (
                 <LemonButton
                     type="secondary"
                     size="small"
@@ -32,7 +45,7 @@ export function ScoutsRosterActions(): JSX.Element {
                 >
                     Trials
                 </LemonButton>
-            )}
+            ) : null}
             <AskAboutScoutsMenu />
             <ShowSuggestionsButton />
             <ScoutNewButton surface="fleet_list" size="small" onCreated={() => loadScoutConfigs()} />
@@ -51,11 +64,26 @@ function ShowSuggestionsButton(): JSX.Element | null {
     const { askForSuggestions } = useActions(scoutSuggestionsLogic)
     // Opening the chat ends in a skill write, so it carries the editor gate. Reopening needs neither.
     const creationDisabledReason = useScoutCreateDisabledReason()
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     if (!suggestButtonVisible) {
         return null
     }
     const busyReason = showSuggestionsBusyReason({ hasPicks, isRefreshing, suggestionSetLoading, runningChatType })
     const gateReason = hasPicks ? null : (creationDisabledReason ?? aiConsentDisabledReason)
+    if (todayRailNav) {
+        return (
+            <Button
+                variant="outline"
+                loading={!!busyReason}
+                disabledReason={busyReason ?? gateReason}
+                onClick={() => askForSuggestions()}
+                data-attr="scout-suggestions-show"
+            >
+                <IconSparkles />
+                Suggest a scout
+            </Button>
+        )
+    }
     return (
         <LemonButton
             type="secondary"
@@ -119,6 +147,37 @@ function AskAboutScoutsMenu(): JSX.Element {
     // doesn't make every scout CTA in the header look like it's loading.
     const isStarting = prompts.some(({ chatType }) => chatType === runningChatType)
     const anotherTaskIsStarting = runningChatType !== null && !isStarting
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <DropdownMenu>
+                <DropdownMenuTrigger
+                    render={
+                        <Button
+                            variant="outline"
+                            loading={isStarting}
+                            disabledReason={anotherTaskIsStarting ? 'Starting another task…' : undefined}
+                        />
+                    }
+                >
+                    <IconSparkles />
+                    Ask
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    {prompts.map(({ label, chatType }) => (
+                        <DropdownMenuItem
+                            key={chatType}
+                            disabled={anotherTaskIsStarting || isStarting || !!aiConsentDisabledReason}
+                            onClick={() => startScoutChatTask(chatType, label)}
+                        >
+                            {label}
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+    }
 
     return (
         <LemonMenu

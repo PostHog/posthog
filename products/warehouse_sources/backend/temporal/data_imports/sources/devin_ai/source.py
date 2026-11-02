@@ -58,7 +58,7 @@ class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
             name=ExternalDataSourceType.DEVINAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Devin AI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Devin service user API key and organization ID to sync your Devin data into the PostHog Data warehouse.
 
 Create a service user API key (prefixed `cog_`) in your [Devin organization settings](https://app.devin.ai/settings). The service user needs the following organization-level permissions:

@@ -59,6 +59,9 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.x.com": "X rejected the bearer token. Generate a new one in the X developer portal and reconnect the source.",
             "403 Client Error: Forbidden for url: https://api.x.com": "Your X app cannot read this endpoint. Check the project's API access and credit balance in the X developer portal, or stop syncing this table.",
+            # X's pay-per-use plan answers 402 once the project's prepaid credits run out, mirroring
+            # the check in `validate_credentials` — retrying a sync won't refill the balance.
+            "402 Client Error: Payment Required for url: https://api.x.com": "Your X developer project has run out of API credits. Add credits in the X developer portal, then try again.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -130,7 +133,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/twitter",
             iconPath="/static/services/twitter.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

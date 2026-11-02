@@ -93,7 +93,7 @@ class CloverSource(ResumableSource[CloverSourceConfig, CloverResumeConfig]):
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             keywords=["pos", "point of sale", "fiserv"],
             label="Clover (Fiserv)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Import data from one Clover merchant. Use a separate source for each merchant. "
                 "Enter a merchant API token. "

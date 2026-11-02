@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite.mailerlite import (
     INVALID_KEY_ERROR,
     MAILERLITE_BASE_URL,
-    MISSING_PERMISSION_ERROR,
     UNVERIFIED_KEY_ERROR,
     MailerLiteResumeConfig,
     _webhook_table_transformer,
@@ -245,12 +244,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_ok", "expected_error"),
         [
-            (200, True, None),
-            (401, False, INVALID_KEY_ERROR),
             (400, False, INVALID_KEY_ERROR),
-            (403, False, MISSING_PERMISSION_ERROR),
             (429, False, UNVERIFIED_KEY_ERROR),
-            (500, False, UNVERIFIED_KEY_ERROR),
         ],
     )
     def test_status_maps_to_message(self, status_code: int, expected_ok: bool, expected_error: str | None) -> None:

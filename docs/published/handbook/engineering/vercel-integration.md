@@ -105,13 +105,14 @@ sequenceDiagram
     participant PH as PostHog
 
     User->>VM: Click "Link Existing Account"
-    VM->>PH: GET /connect/vercel/callback (OAuth code, no state)
+    VM->>PH: GET /connect/vercel/callback (Marketplace OAuth code, no state)
+    PH->>PH: Exchange Marketplace code, keep the grant for the state (10 min TTL)
     PH-->>User: Redirect to Vercel's install page with a state, set a state cookie
     User->>VM: Continue on the install page
-    VM->>PH: GET /connect/vercel/callback (OAuth code + same state)
+    VM->>PH: GET /connect/vercel/callback (install OAuth code + same state)
     PH->>PH: Reject unless the state matches this browser's cookie
-    PH->>PH: Exchange code for access token
-    PH->>PH: Store session in cache (10 min TTL)
+    PH->>PH: Exchange install code, reject unless its Vercel user matches the Marketplace grant
+    PH->>PH: Sign a link session with the Marketplace grant (10 min TTL)
 
     PH-->>User: Show org selection page
     User->>PH: Select org, POST /api/vercel/connect/complete
@@ -127,6 +128,16 @@ sequenceDiagram
 - `POST /api/vercel/connect/complete` - Finalize the link
 
 **Note:** Connectable installs do NOT call the billing service. The customer keeps their existing PostHog billing. On uninstall, the `OrganizationIntegration` record is simply deleted with no billing side effects.
+
+### C. Transfer to another Vercel team
+
+A Vercel user can move a Marketplace install, with its resources, to another Vercel team ([Vercel docs](https://vercel.com/docs/integrations/install-an-integration/transferring-an-integration)). The installation ID, its access token, the PostHog organization and its billing stay the same. Vercel enables transfers per integration, so ask in [#posthog-vercel](https://posthog.slack.com/archives/C08LYBQ58N5) before relying on them.
+
+- Vercel calls `GET /v1/installations/{id}/resources/{resourceId}/plans` during the transfer, and the transfer stalls until that call succeeds.
+- Vercel does not call the installation endpoint. The `integration-configuration.transferred` webhook refreshes `config.account` (team name, dashboard URL, contact) from Vercel's account endpoint instead.
+- Connectable installs cannot be transferred, and the webhook handler leaves them unchanged.
+- The new team's contact becomes an Owner. If they signed in through Vercel before the webhook arrived, the webhook promotes them. If not, they become an Owner when they first sign in.
+- Members of the old team keep their PostHog access. Nothing removes them.
 
 ---
 

@@ -14,6 +14,7 @@ import {
 
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
+    CUSTOM_MESSAGE_TAG,
     getHogFunctionEventKind,
     logsAlertEventKindsFor,
     LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
@@ -47,6 +48,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const {
         existingHogFunctionsLoading,
         destinationGroups,
+        customizedDestinationKeys,
         pendingNotifications,
         integrationsLoading,
         integrationsFailed,
@@ -95,7 +97,12 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         return {
             key: group.key,
             title: resolveGroupLabel(group, slackChannels),
-            tags: [{ label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' }],
+            tags: [
+                { label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' },
+                ...(customizedDestinationKeys.has(group.key)
+                    ? [{ label: CUSTOM_MESSAGE_TAG.label, tooltip: CUSTOM_MESSAGE_TAG.tooltip }]
+                    : []),
+            ],
             viewAction: {
                 kind: 'button',
                 label: 'View',

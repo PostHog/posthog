@@ -91,6 +91,14 @@ ENDPOINTS: dict[str, CrossrefEndpointConfig] = {
         primary_keys=["URL"],
         description="Distinct license URLs referenced by works, with a count of works that use each.",
     ),
+    "Journals": CrossrefEndpointConfig(
+        name="Journals",
+        path="/journals",
+        # Journals carry no id of their own, and a handful have no ISSN at all, so the derived
+        # ISSN key needs the title alongside it to stay unique.
+        primary_keys=["issn_key", "title"],
+        description="Journals in Crossref with their ISSNs, publisher, subjects, DOI counts, and metadata coverage statistics.",
+    ),
 }
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {

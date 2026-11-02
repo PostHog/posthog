@@ -753,6 +753,7 @@ jobs:
                   LIVE: ${{ steps.master.outputs.live }}
                   REPAIR: ${{ steps.repair.outputs.outcome }}
                   REPAIR_URL: ${{ steps.repair.outputs.run_url }}
+                  PUBLISHES_IMAGES: ${{ vars.CD_DEPLOY_ENABLED == 'true' }}
                   THREAD_TS: ${{ needs.update-sandbox-agent-version.outputs.thread_ts }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
                   REPO_URL: ${{ github.server_url }}/${{ github.repository }}
@@ -773,6 +774,9 @@ jobs:
                   elif [ "$REPAIR" = repaired ]; then
                     outcome=repaired
                     text=":rocket: \`posthog-sandbox-base:master\` now runs @posthog/agent ${LATEST} (merged in ${commit}) after a manual rebuild, because the merge run did not build it. <${REPAIR_URL:-$RUN_URL}|View rebuild>"
+                  elif [ "$PUBLISHES_IMAGES" != true ]; then
+                    outcome=failed
+                    text=":red_circle: \`posthog-sandbox-base:master\` still does not run @posthog/agent ${LATEST} 30 minutes after ${commit} merged. This repo does not publish images, so no rebuild was attempted: run \`cd-sandbox-base-image.yml\` on master where the images are built. <${RUN_URL}|View run>"
                   else
                     outcome=failed
                     text=":red_circle: \`posthog-sandbox-base:master\` still does not run @posthog/agent ${LATEST} after ${commit} merged, and a manual rebuild did not fix it. <${RUN_URL}|View run>"

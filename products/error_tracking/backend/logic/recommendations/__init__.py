@@ -1,6 +1,5 @@
 from .alerts import AlertsRecommendation
 from .base import Recommendation
-from .long_running_issues import LongRunningIssuesRecommendation
 from .rate_limits import RateLimitsRecommendation
 from .source_maps import SourceMapsRecommendation
 
@@ -8,7 +7,6 @@ from .source_maps import SourceMapsRecommendation
 # products/error_tracking/mcp/prompts/error-tracking-recommendations-list.md — keep it in sync when adding/changing a type.
 RECOMMENDATIONS: list[Recommendation] = [
     AlertsRecommendation(),
-    LongRunningIssuesRecommendation(),
     RateLimitsRecommendation(),
     SourceMapsRecommendation(),
 ]

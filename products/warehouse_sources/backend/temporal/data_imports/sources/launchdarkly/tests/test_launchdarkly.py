@@ -84,22 +84,55 @@ class TestGetRowsTopLevel:
 
 
 class TestGetRowsFanout:
-    def test_iterates_projects_and_injects_project_key(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, parent_path, child_paths, injected_key, beta",
+        [
+            (
+                "environments",
+                "/api/v2/projects",
+                ["/api/v2/projects/p1/environments", "/api/v2/projects/p2/environments"],
+                "_project_key",
+                False,
+            ),
+            (
+                "metric_groups",
+                "/api/v2/projects",
+                ["/api/v2/projects/p1/metric-groups", "/api/v2/projects/p2/metric-groups"],
+                "_project_key",
+                True,
+            ),
+            (
+                "team_maintainers",
+                "/api/v2/teams",
+                ["/api/v2/teams/p1/maintainers", "/api/v2/teams/p2/maintainers"],
+                "_team_key",
+                False,
+            ),
+            (
+                "team_roles",
+                "/api/v2/teams",
+                ["/api/v2/teams/p1/roles", "/api/v2/teams/p2/roles"],
+                "_team_key",
+                False,
+            ),
+        ],
+    )
+    def test_iterates_parents_and_injects_parent_key(
+        self, endpoint: str, parent_path: str, child_paths: list[str], injected_key: str, beta: bool
+    ) -> None:
         result = _driver().run(
-            "environments",
-            [_page([{"key": "proj1"}, {"key": "proj2"}]), _page([{"_id": "e1"}]), _page([{"_id": "e2"}])],
+            endpoint,
+            [_page([{"key": "p1"}, {"key": "p2"}]), _page([{"_id": "c1"}]), _page([{"_id": "c2"}])],
         )
 
         assert result.raised is None
-        assert result.rows == [
-            {"_id": "e1", "_project_key": "proj1"},
-            {"_id": "e2", "_project_key": "proj2"},
-        ]
-        assert result.paths == [
-            "/api/v2/projects",
-            "/api/v2/projects/proj1/environments",
-            "/api/v2/projects/proj2/environments",
-        ]
+        assert result.rows == [{"_id": "c1", injected_key: "p1"}, {"_id": "c2", injected_key: "p2"}]
+        assert result.paths == [parent_path, *child_paths]
+        # Beta resources 403 without the header, and the GA parent list must not be sent to the beta API.
+        assert result.requests[0].headers.get("ld-api-version") is None
+        assert [request.headers.get("ld-api-version") for request in result.requests[1:]] == (
+            ["beta", "beta"] if beta else [None, None]
+        )
 
     def test_resume_midproject_uses_saved_url(self) -> None:
         resume_url = f"{BASE_URL}/projects/proj1/environments?limit=20&offset=20"
@@ -185,6 +218,40 @@ class TestGetRowsEnvironmentFanout:
         assert result.requests[0].path == "/api/v2/projects"
         assert result.requests[1].path == "/api/v2/projects/proj1/environments"
         assert result.requests[2].url == resume_url
+
+
+class TestCodeRefStatistics:
+    @pytest.mark.parametrize(
+        "flags, expected",
+        [
+            (
+                {
+                    "flag-a": [{"name": "repo-1", "hunkCount": 3}, {"name": "repo-2", "hunkCount": 1}],
+                    "flag-b": [{"name": "repo-1", "hunkCount": 7}],
+                },
+                [
+                    {"name": "repo-1", "hunkCount": 3, "_flag_key": "flag-a", "_project_key": "proj1"},
+                    {"name": "repo-2", "hunkCount": 1, "_flag_key": "flag-a", "_project_key": "proj1"},
+                    {"name": "repo-1", "hunkCount": 7, "_flag_key": "flag-b", "_project_key": "proj1"},
+                ],
+            ),
+            ({"flag-a": [], "flag-b": None}, []),
+            ({}, []),
+            (None, []),
+        ],
+    )
+    def test_flattens_flag_map_into_one_row_per_flag_and_repository(
+        self, flags: dict[str, Any] | None, expected: list[dict[str, Any]]
+    ) -> None:
+        result = _driver().run(
+            "code_ref_statistics",
+            [_page([{"key": "proj1"}]), ScriptedResponse(json={"flags": flags, "_links": {}})],
+        )
+
+        assert result.raised is None
+        assert result.rows == expected
+        assert result.requests[1].path == "/api/v2/code-refs/statistics/proj1"
+        assert result.requests[1].param("limit") is None
 
 
 class TestRetryAndErrors:

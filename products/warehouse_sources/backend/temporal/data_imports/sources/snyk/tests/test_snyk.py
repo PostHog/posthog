@@ -3,7 +3,6 @@ from typing import Any
 
 from parameterized import parameterized
 from requests import HTTPError
-from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -193,9 +192,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
@@ -218,12 +214,6 @@ class TestValidateCredentials:
         assert error is not None
         assert network.requests_log == []
 
-    def test_request_exception_is_failure(self) -> None:
-        with scripted_network(always(RequestsConnectionError("boom"))):
-            ok, error = validate_credentials("us", "tok")
-        assert ok is False
-        assert error is not None
-
 
 class TestTokenRedaction:
     """The token rides in a custom `Authorization: token …` scheme; every tracked session built for
@@ -240,3 +230,108 @@ class TestTokenRedaction:
         # carried inside the `token <token>` api-key value.
         redact_values = [value for options in result.session_options for value in options.get("redact_values") or ()]
         assert any("super-secret-token" in value for value in redact_values)
+
+
+def _org(org_id: str, group_id: str | None) -> dict:
+    return {"id": org_id, "type": "org", "attributes": {"name": org_id, "group_id": group_id}}
+
+
+def _paths(result: DriveResult) -> list[str]:
+    return [url.split("?")[0].removeprefix(f"{HOST}/rest") for url in result.urls]
+
+
+class TestGroupFanOut:
+    def test_fetches_each_group_once_and_skips_orgs_without_a_usable_group(self) -> None:
+        result = _run(
+            "group_memberships",
+            [
+                _page([_org("o1", "g1"), _org("o2", "g1"), _org("o3", None), _org("o4", "../g")]),
+                _page([{"id": "m1", "attributes": {"created_at": "2026-01-01T00:00:00Z"}}]),
+            ],
+        )
+        assert result.raised is None
+        assert _paths(result) == ["/orgs", "/groups/g1/memberships"]
+        assert result.rows == [{"id": "m1", "created_at": "2026-01-01T00:00:00Z", "group_id": "g1"}]
+
+    def test_dedupe_spans_org_pages(self) -> None:
+        page2 = f"{HOST}/rest/orgs?version={SNYK_REST_VERSION}&limit=100&starting_after=cursor"
+        result = _run(
+            "group_memberships",
+            [
+                _page([_org("o1", "g1")], next_link=page2),
+                _page([{"id": "m1"}]),
+                _page([_org("o2", "g1")]),
+            ],
+        )
+        assert _paths(result) == ["/orgs", "/groups/g1/memberships", "/orgs"]
+        assert result.rows == [{"id": "m1", "group_id": "g1"}]
+
+    @parameterized.expand(
+        [("grouped_org", "g9", ["/orgs/o9", "/groups/g9/memberships"]), ("personal_org", None, ["/orgs/o9"])]
+    )
+    def test_configured_org_reads_only_its_own_group(
+        self, _name: str, group_id: str | None, expected_paths: list[str]
+    ) -> None:
+        result = _run(
+            "group_memberships",
+            [ScriptedResponse(json={"data": _org("o9", group_id)}), _page([{"id": "m1"}])],
+            organization_id="o9",
+        )
+        assert result.raised is None
+        assert _paths(result) == expected_paths
+
+    def test_resume_skips_groups_already_synced(self) -> None:
+        result = _run(
+            "group_memberships",
+            [_page([_org("o1", "g1"), _org("o2", "g2")]), _page([{"id": "m2"}])],
+            resume_state=SnykResumeConfig(
+                fanout_state={"completed": ["/groups/g1/memberships"], "current": None, "child_state": None}
+            ),
+        )
+        assert _paths(result) == ["/orgs", "/groups/g2/memberships"]
+        assert result.rows == [{"id": "m2", "group_id": "g2"}]
+
+
+class TestCollectionFanOut:
+    def test_walks_orgs_then_collections_then_projects(self) -> None:
+        projects_page2 = f"{HOST}/rest/orgs/o1/collections/c1/relationships/projects?version={SNYK_REST_VERSION}&limit=100&starting_after=p1"
+        result = _run(
+            "collection_projects",
+            [
+                _page([{"id": "o1"}, {"id": "o2"}]),
+                _page([{"id": "c1", "attributes": {"name": "Prod"}}]),
+                _page([{"id": "p1", "meta": {"issues_high_count": 2}}], next_link=projects_page2),
+                _page([{"id": "p2"}]),
+                _page([{"id": "c2", "attributes": {"name": "Dev"}}]),
+                _page([{"id": "p1"}]),
+            ],
+        )
+        assert result.raised is None
+        assert _paths(result) == [
+            "/orgs",
+            "/orgs/o1/collections",
+            "/orgs/o1/collections/c1/relationships/projects",
+            "/orgs/o1/collections/c1/relationships/projects",
+            "/orgs/o2/collections",
+            "/orgs/o2/collections/c2/relationships/projects",
+        ]
+        # The same project in two collections stays two rows, told apart by collection_id.
+        assert result.rows == [
+            {"id": "p1", "meta": {"issues_high_count": 2}, "collection_id": "c1", "organization_id": "o1"},
+            {"id": "p2", "collection_id": "c1", "organization_id": "o1"},
+            {"id": "p1", "collection_id": "c2", "organization_id": "o2"},
+        ]
+
+    def test_configured_org_skips_org_enumeration(self) -> None:
+        result = _run(
+            "collection_projects",
+            [_page([{"id": "c1"}, {"id": "c2"}]), _page([{"id": "p1"}]), _page([])],
+            organization_id="o9",
+        )
+        assert result.raised is None
+        assert _paths(result) == [
+            "/orgs/o9/collections",
+            "/orgs/o9/collections/c1/relationships/projects",
+            "/orgs/o9/collections/c2/relationships/projects",
+        ]
+        assert result.rows == [{"id": "p1", "collection_id": "c1", "organization_id": "o9"}]

@@ -464,6 +464,7 @@ function operationIdToPascal(operationId: string): string {
 const CAST_HELPERS = {
     'string-int': 'castStringToInt',
     'boolean-string': 'castBooleanToString',
+    'object-json-string': 'castObjectToJsonString',
 } as const
 
 interface SchemaComposition {
@@ -716,7 +717,7 @@ function composeToolSchema(
             }
 
             if (override.aliases?.length) {
-                paramAliases[paramName] = override.aliases
+                paramAliases[renameMap.get(paramName) ?? paramName] = override.aliases
             }
 
             // An `optional` override must also surface as optional in the agent-facing
@@ -811,10 +812,13 @@ function composeToolSchema(
             // When the original is also a path param, the body copy was already dropped above
             // and the surviving key addresses the resource, so omitting it here would leave the
             // handler with no value for the URL.
+            const fieldSource = queryParamNames.includes(original)
+                ? `(${schemaExpr}).shape['${original}']`
+                : `${bodyImport}.shape['${original}']`
             if (!pathParamNames.includes(original)) {
                 schemaExpr += `\n    .omit({ '${original}': true })`
             }
-            schemaExpr += `\n    .extend({ ${alias}: ${bodyImport}.shape['${original}'] })`
+            schemaExpr += `\n    .extend({ ${alias}: ${fieldSource} })`
         }
     }
 
@@ -853,7 +857,11 @@ function composeToolSchema(
     // param, so an alias that is also a real parameter of this operation, or an alias
     // two params both claim, would silently drop a value. Checked after every override
     // has run, because input_schema overrides add body fields inside the loop above.
-    const declaredParamNames = new Set([...pathParamNames, ...queryParamNames, ...bodyFieldNames])
+    const declaredParamNames = new Set([
+        ...pathParamNames,
+        ...queryParamNames.map((name) => renameMap.get(name) ?? name),
+        ...bodyFieldNames,
+    ])
     const aliasOwners = new Map<string, string>()
     for (const [paramName, aliases] of Object.entries(paramAliases)) {
         for (const alias of aliases) {
@@ -881,8 +889,8 @@ function composeToolSchema(
         schemaRefBlocks,
         schemaExpr,
         pathParamNames,
-        queryParamNames,
-        csvQueryParamNames,
+        queryParamNames: queryParamNames.map((name) => renameMap.get(name) ?? name),
+        csvQueryParamNames: new Set([...csvQueryParamNames].map((name) => renameMap.get(name) ?? name)),
         bodyFieldNames,
         variantSpecificBodyFieldNames,
         renamedFields,
@@ -1110,6 +1118,15 @@ function renderHandler(config: ToolConfig, toolName: string, handlerFn: string):
     return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
 }
 
+function isSoftDeleteTool(config: ToolConfig): boolean {
+    return config.soft_delete !== undefined && config.soft_delete !== false
+}
+
+/** The HTTP method the handler sends. Soft-delete tools send PATCH to the DELETE operation's path. */
+function handlerHttpMethod(config: ToolConfig, resolved: ResolvedOperation): string {
+    return isSoftDeleteTool(config) ? 'PATCH' : resolved.method
+}
+
 // ------------------------------------------------------------------
 
 function generateToolCode(
@@ -1147,7 +1164,7 @@ function generateToolCode(
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.
     // `true` sends { deleted: true }, a string value specifies the field name (e.g. "archived").
-    const isSoftDelete = config.soft_delete !== undefined && config.soft_delete !== false
+    const isSoftDelete = isSoftDeleteTool(config)
 
     // For soft-delete tools the original operation is DELETE (typically 204 no-content),
     // but the actual request is a PATCH to the same URL. Resolve the response type from
@@ -1238,6 +1255,11 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
+            // A fallback param is already resolved into a guaranteed local above, so emit it unguarded.
+            if (localVarParams.has(bf)) {
+                handlerBody += `        body[${JSON.stringify(bodyKey)}] = ${bf}\n`
+                continue
+            }
             // Variant-specific fields (only in some union variants) need an `in`
             // narrowing guard — TypeScript rejects bare `params.X` access otherwise.
             const guard = composition.variantSpecificBodyFieldNames.has(bf)
@@ -1251,28 +1273,32 @@ function generateToolCode(
             handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
+    const transformsBody = hasBody && !!config.hooks
 
-    const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
+    const httpMethod = handlerHttpMethod(config, resolved)
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
     handlerBody += `            method: '${httpMethod}',\n`
     handlerBody += `            path: ${pathExpr},\n`
     if (isSoftDelete) {
         handlerBody += `            body: { ${softDeleteField}: true },\n`
+    } else if (transformsBody) {
+        handlerBody += `            body: await transformRequestBody(${hooksVarName(toolName)}, context, params, body),\n`
     } else if (hasBody) {
         handlerBody += `            body,\n`
     }
     if (hasQuery) {
         const queryAssignments = composition.queryParamNames
             .map((qn) => {
+                const queryKey = composition.renamedFields[qn] ?? qn
                 // explode: false params are comma-joined here because
                 // ApiClient.request() JSON-stringifies raw arrays (the
                 // json.loads()-style contract), which DRF CSV filters can't parse.
                 // Callers may pass either the array shape or a single string, so
                 // only join when it's actually an array; an empty array is omitted.
                 if (composition.csvQueryParamNames.has(qn)) {
-                    return `                ${qn}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
+                    return `                ${queryKey}: Array.isArray(params.${qn}) ? params.${qn}.join(',') || undefined : params.${qn},`
                 }
-                return `                ${qn}: params.${qn},`
+                return `                ${queryKey}: params.${qn},`
             })
             .join('\n')
         handlerBody += `            query: {\n${queryAssignments}\n            },\n`
@@ -2127,7 +2153,7 @@ function generateCategoryFile(
     const hookedTools = enabledTools.filter(([, toolConfig]) => toolConfig.hooks)
     const hooksImportLines =
         hookedTools.length > 0
-            ? `import { withToolHooks } from '@/tools/tool-hooks'\n` +
+            ? `import { ${toolCodes.some((code) => code.includes('transformRequestBody(')) ? 'transformRequestBody, ' : ''}withToolHooks } from '@/tools/tool-hooks'\n` +
               hookedTools
                   .map(([name, toolConfig]) => `import ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
                   .join('')
@@ -2206,6 +2232,9 @@ function generateDefinitionsJson(
             const supersededBy = toolConfig.superseded_by
             const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
+            // The endpoint the handler calls. The Django API reads it to refuse a write that a
+            // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
+            const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
 
             if (toolConfig.confirmed_action) {
                 // Two-tool typed-confirm paradigm: emit `<name>-prepare` and
@@ -2235,6 +2264,7 @@ function generateDefinitionsJson(
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2250,6 +2280,7 @@ function generateDefinitionsJson(
                     summary: `${baseSummary} (execute)`,
                     title: `${baseTitle} (execute)`,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
@@ -2262,6 +2293,7 @@ function generateDefinitionsJson(
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2274,6 +2306,7 @@ function generateDefinitionsJson(
                     summary: baseSummary,
                     title: baseTitle,
                     required_scopes: toolConfig.scopes,
+                    api_operations: apiOperations,
                     annotations: {
                         destructiveHint: toolConfig.annotations.destructive,
                         idempotentHint: toolConfig.annotations.idempotent,
@@ -2286,6 +2319,7 @@ function generateDefinitionsJson(
                     ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
                     ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
                     ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
                     ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
                     ...(redirectHint ? { redirect_hint: redirectHint } : {}),
                     ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
@@ -2301,6 +2335,8 @@ function generateDefinitionsJson(
                 summary: wrapperConfig.title || name,
                 title: wrapperConfig.title || name,
                 required_scopes: wrapperConfig.scopes,
+                // Every query wrapper posts to the query endpoint.
+                api_operations: ['POST /api/projects/{project_id}/query/'],
                 annotations: {
                     destructiveHint: wrapperConfig.annotations.destructive,
                     idempotentHint: wrapperConfig.annotations.idempotent,
@@ -2319,6 +2355,9 @@ function generateDefinitionsJson(
                     : {}),
                 ...(wrapperConfig.hidden_when_flag_on
                     ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
+                    : {}),
+                ...(wrapperConfig.reads_ingested_data
+                    ? { reads_ingested_data: wrapperConfig.reads_ingested_data }
                     : {}),
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
@@ -2487,6 +2526,8 @@ function generateQueryWrapperDefinitionsJson(
             summary: toolConfig.title || name,
             title: toolConfig.title || name,
             required_scopes: toolConfig.scopes,
+            // Every query wrapper posts to the query endpoint, actors lookups included.
+            api_operations: ['POST /api/projects/{project_id}/query/'],
             annotations: {
                 destructiveHint: toolConfig.annotations.destructive,
                 idempotentHint: toolConfig.annotations.idempotent,
@@ -2498,6 +2539,7 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
             ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
+            ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),

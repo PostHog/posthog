@@ -215,6 +215,32 @@ LINODE_ENDPOINTS: dict[str, LinodeEndpointConfig] = {
             },
         ],
     ),
+    "volume_quotas": LinodeEndpointConfig(
+        name="volume_quotas",
+        path="/volumes/quotas",
+        # Quotas key on a string `quota_id` (e.g. `vol-capacity-us-east`) and carry no timestamp.
+        primary_keys=["quota_id"],
+        incremental_fields=[],
+    ),
+    "volume_quota_usage": LinodeEndpointConfig(
+        name="volume_quota_usage",
+        path="/volumes/quotas/{quota_id}/usage",
+        # One row per quota: the current usage against its limit, replaced on every sync.
+        primary_keys=["quota_id"],
+        single_object=True,
+        incremental_fields=[],
+        fanout=DependentEndpointConfig(
+            parent_name="volume_quotas",
+            resolve_param="quota_id",
+            resolve_field="quota_id",
+            include_from_parent=["quota_id"],
+            parent_field_renames={"quota_id": "quota_id"},
+            # The usage request takes no page params, so the listing's page size is set here instead.
+            parent_params={"page_size": PAGE_SIZE},
+            # Quotas with `has_usage` false return 404 for their usage.
+            child_response_actions=[{"status_code": 404, "action": "ignore", "message": None}],
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(LINODE_ENDPOINTS.keys())

@@ -82,6 +82,10 @@ export function useLocalWizardRunActive(workflowId?: string): boolean {
     return installationProgress.isCurrent
 }
 
+export function canCelebrate(): boolean {
+    return !inStorybookTestRunner() && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
 /**
  * Hogfetti for a PR merged while the user is watching, exactly once per mount. Gated on the live
  * false → true transition: starts null so the first hydrated state (SSE replay / poll snapshot
@@ -98,7 +102,7 @@ export function useMergeCelebration(prMerged: boolean): { CelebrationComponent: 
         if (prev === null || prev || !prMerged || mergeCelebratedRef.current) {
             return
         }
-        if (inStorybookTestRunner() || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        if (!canCelebrate()) {
             return
         }
         mergeCelebratedRef.current = true
