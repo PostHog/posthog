@@ -35,7 +35,7 @@ Note: Compared the official Rooms reference, SDK resource modules, and external 
 
 ## 7shifts — **thin**
 
-Today (6): `departments`, `locations`, `roles`, `shifts`, `time_punches`, `users`
+Today (9): `departments`, `dining_options`, `locations`, `revenue_centers`, `roles`, `sales_categories`, `shifts`, `time_punches`, `users`
 
 Diffed against: <https://developers.7shifts.com/llms.txt>
 
@@ -49,6 +49,9 @@ Diffed against: <https://developers.7shifts.com/llms.txt>
 - [ ] `Tip pool detailed report (GET /v2/company/{company_id}/locations/{location_id}/tip_pool_detailed_report)` — compare tip allocations by employee and location with hours and wages (medium)
 - [ ] `Orders (GET /v2/company/{company_id}/location/{location_id}/orders)` — analyze sales, payments, and purchased items at each location alongside staffing (medium)
 - [ ] `Shift feedback (GET /v2/company/{company_id}/shift_feedback)` — compare employee shift feedback with workload, attendance, and staffing levels (medium)
+- [x] `POS revenue centers (GET /v2/company/{company_id}/location/{location_id}/revenue_centers)` — resolve the revenue center on POS orders to a name per location (low) → `revenue_centers` (full refresh, fan-out over `locations`)
+- [x] `POS sales categories (GET /v2/company/{company_id}/location/{location_id}/sales_categories)` — resolve the sales category on POS order items to a name per location (low) → `sales_categories` (full refresh, fan-out over `locations`)
+- [x] `POS dining options (GET /v2/company/{company_id}/location/{location_id}/dining_options)` — resolve the dining option on POS orders to a name and service mode per location (low) → `dining_options` (full refresh, fan-out over `locations`)
 
 Note: Parsed the official documentation index and OpenAPI blocks on individual operation pages. Wage and assignment collections require requests for each user; reports require company and date filters. The source pins 2026-01-01; orders appear in the latest reference and have a 90-day limit. Version and plan requirements need checks; excluded writes, OAuth, webhooks, and task configuration.
 
