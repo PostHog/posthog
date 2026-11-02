@@ -128,11 +128,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
-    const time = useTimeScale(xScale === 'time', labels, xAxis, xDomain)
-    const tickXAxis = useMemo(
-        () => (time ? { ...xAxis, interval: time.interval, allDays: time.tickLabels } : xAxis),
-        [time, xAxis]
-    )
+    const timeScale = useTimeScale(xScale === 'time', labels, xAxis?.timezone ?? 'UTC', xDomain)
     const {
         xTickFormatter,
         yTickFormatter,
@@ -142,10 +138,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis: tickXAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
-    const timeXs = useMemo(() => (time ? labels.map(time.timeScale.parse) : undefined), [time, labels])
+    const timeXs = useMemo(() => (timeScale ? labels.map(timeScale.parse) : undefined), [timeScale, labels])
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,
         movingAverage,
@@ -182,8 +178,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         showAxisLines,
         showTickMarks,
         curve,
-        timeScale: time?.timeScale,
-        xTickLabels: time?.tickLabels,
+        timeScale,
         percentStackView,
         showCrosshair,
         tooltip: timeSeriesTooltipConfig,

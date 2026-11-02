@@ -1,4 +1,4 @@
-import { buildTimeTickLabels, createTooltipDateFormatter, createXAxisTickCallback } from './dates'
+import { createTooltipDateFormatter, createXAxisTickCallback } from './dates'
 
 function weeklyDates(start: string, count: number): string[] {
     const dates: string[] = []
@@ -391,57 +391,5 @@ describe('createTooltipDateFormatter', () => {
     it('passes non-date labels through unchanged', () => {
         const format = createTooltipDateFormatter({ interval: 'day', timezone: 'UTC' })
         expect(format('not-a-date')).toBe('not-a-date')
-    })
-})
-
-describe('buildTimeTickLabels', () => {
-    it.each([
-        [
-            'starts at the first boundary inside the range',
-            ['2026-03-01T00:30:00Z', '2026-03-01T03:00:00Z', 'hour', 'UTC'],
-            ['2026-03-01T01:00:00.000Z', '2026-03-01T02:00:00.000Z', '2026-03-01T03:00:00.000Z'],
-        ],
-        [
-            'keeps days at midnight across a daylight saving change',
-            ['2026-03-07T05:00:00Z', '2026-03-10T04:00:00Z', 'day', 'America/New_York'],
-            [
-                '2026-03-07T05:00:00.000Z',
-                '2026-03-08T05:00:00.000Z',
-                '2026-03-09T04:00:00.000Z',
-                '2026-03-10T04:00:00.000Z',
-            ],
-        ],
-        [
-            'keeps the first hour on a daylight saving day',
-            ['2026-03-08T07:00:00Z', '2026-03-08T09:00:00Z', 'hour', 'America/New_York'],
-            ['2026-03-08T07:00:00.000Z', '2026-03-08T08:00:00.000Z', '2026-03-08T09:00:00.000Z'],
-        ],
-        [
-            'keeps hourly ticks on the hour after a half-hour daylight saving change',
-            ['2026-10-03T14:30:00Z', '2026-10-03T17:00:00Z', 'hour', 'Australia/Lord_Howe'],
-            ['2026-10-03T14:30:00.000Z', '2026-10-03T16:00:00.000Z', '2026-10-03T17:00:00.000Z'],
-        ],
-        [
-            'aligns quarters to quarter boundaries',
-            ['2026-02-15T00:00:00Z', '2026-08-01T00:00:00Z', 'quarter', 'UTC'],
-            ['2026-04-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'],
-        ],
-        [
-            'returns no ticks for an unknown timezone',
-            ['2026-03-01T00:00:00Z', '2026-03-02T00:00:00Z', 'day', 'Not/AZone'],
-            [],
-        ],
-    ] as const)('%s', (_, [from, to, interval, timezone], expected) => {
-        expect(buildTimeTickLabels(Date.parse(from), Date.parse(to), interval, timezone)).toEqual(expected)
-    })
-
-    it('steps up to a coarser interval when the span has too many ticks', () => {
-        const ticks = buildTimeTickLabels(
-            Date.parse('2026-03-01T00:00:00Z'),
-            Date.parse('2026-03-08T00:00:00Z'),
-            'minute',
-            'UTC'
-        )
-        expect(ticks.slice(0, 2)).toEqual(['2026-03-01T00:00:00.000Z', '2026-03-01T01:00:00.000Z'])
     })
 })

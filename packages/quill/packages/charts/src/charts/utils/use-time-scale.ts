@@ -1,25 +1,14 @@
 import { useMemo } from 'react'
 
 import type { TimeScale } from '../../core/types'
-import { buildTimeTickLabels, inferTimeInterval, type TimeInterval } from '../../utils/dates'
 import { parseDateInTimezone } from '../../utils/dayjs'
-import type { XAxisConfig } from '../../utils/use-axis-formatters'
-
-export interface TimeScaleResult {
-    timeScale: TimeScale
-    tickLabels: string[]
-    interval: TimeInterval
-}
 
 export function useTimeScale(
     enabled: boolean,
     labels: string[],
-    xAxis: XAxisConfig | undefined,
+    timezone: string,
     xDomain: readonly [number, number] | undefined
-): TimeScaleResult | undefined {
-    const timezone = xAxis?.timezone ?? 'UTC'
-    const interval = xAxis?.interval
-    const allDays = xAxis?.allDays
+): TimeScale | undefined {
     const [domainFrom, domainTo] = xDomain ?? []
     return useMemo(() => {
         if (!enabled) {
@@ -30,10 +19,8 @@ export function useTimeScale(
         const parse = (label: string): number => epochs.get(label) ?? parseDateInTimezone(label, timezone).valueOf()
         const domain: [number, number] =
             domainFrom != null && domainTo != null ? [domainFrom, domainTo] : timeExtent(epochs.values())
-        const tickInterval = interval ?? inferTimeInterval(allDays ?? labels, timezone) ?? 'day'
-        const grid = buildTimeTickLabels(domain[0], domain[1], tickInterval, timezone)
-        return { timeScale: { parse, domain }, tickLabels: grid.length > 0 ? grid : labels, interval: tickInterval }
-    }, [enabled, labels, allDays, timezone, interval, domainFrom, domainTo])
+        return { parse, domain }
+    }, [enabled, labels, timezone, domainFrom, domainTo])
 }
 
 function timeExtent(times: Iterable<number>): [number, number] {
