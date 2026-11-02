@@ -470,6 +470,8 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
 }
 
 /// Replaces every inline image in `bytes` but SVG with its reference or a marker. Returns the input unchanged when it holds none.
+/// The scan matches `data:image/` byte for byte, so a JSON escape of one of its letters hides the image. Give it bytes
+/// that [`canonical_strings`](crate::bytescan::canonical_strings) wrote.
 pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, [u8]> {
     let mut out: Option<Vec<u8>> = None;
     let mut copied_to = 0;

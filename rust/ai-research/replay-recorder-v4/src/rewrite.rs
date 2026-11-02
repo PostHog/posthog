@@ -5,8 +5,8 @@
 //! A srcset is rebuilt instead: a declined candidate leaves the list, and so does each remote candidate of a picture
 //! source whose type the fetcher does not store. An inline image, such as an SVG data URI, stays. A browser skips a
 //! source with no candidates, so it falls back to a source or an img that can load, where a marker in the list would
-//! show a broken image. The writer rebuilds each srcset in the bytes it stores, after inline images left and escapes
-//! were written again, so the rebuild never depends on a prediction of those bytes.
+//! show a broken image. The writer rebuilds each srcset in the bytes it stores, after escapes were written again and
+//! inline images left, so the rebuild never depends on a prediction of those bytes.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
-use replay_core_v4::bytescan::{unescape, write_json_string, Span};
+use replay_core_v4::bytescan::{canonical_strings, unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::{escape_in_identifier, rewrite_functions, CssRewrite};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
 use replay_core_v4::scan::images::{
@@ -26,68 +26,6 @@ use replay_core_v4::url_policy::is_remote;
 
 use crate::scrub::{Scrub, Scrubber};
 use crate::urls::url_reference;
-
-/// The bytes with each JSON string that holds an escape `write_json_string` does not write, such as `\/` or `\u0041`,
-/// written again as it writes them. Capture writes events that way, but the JSON inside a `cv` payload arrives as the
-/// page wrote it, so a URL could hide from the rewrite behind an escape.
-pub fn canonical_strings(bytes: &[u8]) -> Cow<'_, [u8]> {
-    if !bytes.contains(&b'\\') {
-        return Cow::Borrowed(bytes);
-    }
-    let mut out: Option<Vec<u8>> = None;
-    let mut copied_to = 0;
-    let mut position = 0;
-    while let Some(start) = bytes[position..]
-        .iter()
-        .position(|&b| b == b'"')
-        .map(|at| position + at)
-    {
-        let mut end = start + 1;
-        let mut canonical = true;
-        while end < bytes.len() && bytes[end] != b'"' {
-            if bytes[end] == b'\\' {
-                match bytes.get(end + 1) {
-                    Some(b'"' | b'\\' | b'b' | b'f' | b'n' | b'r' | b't') => {}
-                    Some(b'u') => canonical &= is_written_escape(bytes.get(end + 2..end + 6)),
-                    _ => canonical = false,
-                }
-                end += 1;
-            }
-            end += 1;
-        }
-        if end >= bytes.len() {
-            break;
-        }
-        if !canonical {
-            if let Ok(text) = unescape(bytes, (start, end + 1)) {
-                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
-                out.extend_from_slice(&bytes[copied_to..start]);
-                write_json_string(&text, out);
-                copied_to = end + 1;
-            }
-        }
-        position = end + 1;
-    }
-    match out {
-        Some(mut out) => {
-            out.extend_from_slice(&bytes[copied_to..]);
-            Cow::Owned(out)
-        }
-        None => Cow::Borrowed(bytes),
-    }
-}
-
-/// Whether `write_json_string` writes this `\u` escape: a control character without a short escape, in lowercase hex.
-fn is_written_escape(hex: Option<&[u8]>) -> bool {
-    let Some(&[b'0', b'0', high, low]) = hex else {
-        return false;
-    };
-    let digit = |b: u8| matches!(b, b'0'..=b'9' | b'a'..=b'f');
-    digit(high)
-        && digit(low)
-        && high <= b'1'
-        && !matches!((high, low), (b'0', b'8' | b'9' | b'a' | b'c' | b'd'))
-}
 
 /// What a declined URL becomes. The reason is the policy's metric label.
 pub fn declined_marker(reason: &str) -> String {
@@ -436,7 +374,7 @@ impl UrlRewrite {
             .filter(|&(_, unfetched)| unfetched)
             .map(|(url, _)| url.to_owned())
             .collect();
-        // The writer takes the inline images out of the raw event and then writes its escapes again, so each value
+        // The writer writes the escapes of the raw event again and then takes its inline images out, so each value
         // goes through the same two steps.
         let content_key = image_content_key(team_key);
         let stored_srcsets = srcsets
@@ -444,8 +382,7 @@ impl UrlRewrite {
             .map(|srcset| {
                 let mut sink =
                     ImageSink::new(&content_key, team_id, key_month, ImageLimits::default());
-                let extracted = extract_images(&srcset.raw, &mut sink);
-                canonical_strings(&extracted).into_owned()
+                extract_images(&canonical_strings(&srcset.raw), &mut sink).into_owned()
             })
             .collect();
         let matcher = (!patterns.is_empty())

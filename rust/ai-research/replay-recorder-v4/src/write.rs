@@ -26,7 +26,7 @@ use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
 use crate::index::{BlockIndexRow, ImageIndexRow};
-use crate::rewrite::{canonical_strings, Fallback, RewriteReport, UrlRewrite};
+use crate::rewrite::{Fallback, RewriteReport, UrlRewrite};
 use crate::scrub::Scrub;
 use crate::store::{BlobStore, StoreError};
 
@@ -152,15 +152,13 @@ fn prepare_block(
             out.write_all(b"[")?;
             out.write_all(&window)?;
             out.write_all(b",")?;
-            let canonical = canonical_strings(
-                extracted
-                    .as_deref()
-                    .unwrap_or(&message.inner[event.span.0..event.span.1]),
-            );
+            let stored = extracted
+                .as_deref()
+                .unwrap_or(&message.inner[event.span.0..event.span.1]);
             // The inspector reads image slots in full snapshots and mutations only.
             let dom_event =
                 event.kind == Some(2) || (event.kind == Some(3) && event.source == Some(0));
-            let event_bytes = rewrite.apply(&canonical, dom_event);
+            let event_bytes = rewrite.apply(stored, dom_event);
             out.write_all(&event_bytes)?;
             out.write_all(b"]\n")?;
             let line = (window.len() + event_bytes.len() + 4) as u64;
