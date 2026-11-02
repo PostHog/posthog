@@ -1,0 +1,21 @@
+.ViewOnlyArea[data-view-only] {
+    :is(input, textarea, select, button, .monaco-editor):not(
+        .LemonCollapsePanel__header,
+        [data-attr='copy-code-button']
+    ) {
+        opacity: 0.6;
+    }
+
+    // Text fields and the code editor keep pointer events so that viewers can select their text.
+    :is(input, select, button):not(
+        [type='text'],
+        [type='search'],
+        [type='email'],
+        [type='url'],
+        :not([type]),
+        .LemonCollapsePanel__header,
+        [data-attr='copy-code-button']
+    ) {
+        pointer-events: none;
+    }
+}

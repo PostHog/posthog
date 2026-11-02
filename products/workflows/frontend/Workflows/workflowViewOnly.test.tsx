@@ -5,6 +5,9 @@ import { BindLogic, Provider } from 'kea'
 
 import { LemonCollapse } from '@posthog/lemon-ui'
 
+import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -15,6 +18,10 @@ import { ViewOnlyArea } from './hogflows/panel/ViewOnlyArea'
 import { HogFlow } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowViewOnlyBanner } from './WorkflowViewOnlyBanner'
+
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn(() => Promise.resolve(true)),
+}))
 
 const WORKFLOW_ID = 'wf-view-only-1'
 
@@ -121,13 +128,28 @@ describe('view-only workflow', () => {
         ],
         ['types into a field', 'Subject', (el: HTMLElement): boolean => fireEvent.keyDown(el, { key: 'a' })],
         ['pastes into a field', 'Subject', (el: HTMLElement): boolean => fireEvent.paste(el)],
+        ['cuts from a field', 'Subject', (el: HTMLElement): boolean => fireEvent.cut(el)],
+        ['opens the context menu on a field', 'Subject', (el: HTMLElement): boolean => fireEvent.contextMenu(el)],
+        [
+            'deletes from a field through the context menu',
+            'Subject',
+            (el: HTMLElement): boolean =>
+                fireEvent(
+                    el,
+                    new InputEvent('beforeinput', {
+                        bubbles: true,
+                        cancelable: true,
+                        inputType: 'deleteContentBackward',
+                    })
+                ),
+        ],
         ['steps a number field', 'Maximum emails', (el: HTMLElement) => fireEvent.keyDown(el, { key: 'ArrowUp' })],
     ])('stops a viewer who %s inside a step', (_, label, interact) => {
         const onEdit = jest.fn()
         renderForViewer(
             <ViewOnlyArea>
                 <button aria-label="Save as team default" onClick={onEdit} onKeyDown={onEdit} />
-                <input aria-label="Subject" onKeyDown={onEdit} onPaste={onEdit} />
+                <input aria-label="Subject" onKeyDown={onEdit} onPaste={onEdit} onCut={onEdit} />
                 <input aria-label="Maximum emails" type="number" onKeyDown={onEdit} />
             </ViewOnlyArea>
         )
@@ -151,6 +173,18 @@ describe('view-only workflow', () => {
         )
 
         expect(fireEvent.keyDown(screen.getByLabelText('Subject'), keyPress)).toBe(true)
+    })
+
+    it('lets a viewer copy a webhook URL from a step', () => {
+        renderForViewer(
+            <ViewOnlyArea>
+                <CodeSnippet thing="Webhook URL">https://hooks.example.com/workflows/abc</CodeSnippet>
+            </ViewOnlyArea>
+        )
+
+        fireEvent.click(document.querySelector<HTMLElement>('[data-attr="copy-code-button"]')!)
+
+        expect(copyToClipboard).toHaveBeenCalledWith('https://hooks.example.com/workflows/abc', 'Webhook URL')
     })
 
     it('stops a viewer who toggles a push step setting', () => {
