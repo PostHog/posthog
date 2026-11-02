@@ -2,7 +2,10 @@ import { useId } from 'react'
 
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ChartOptionLabel } from './ChartOptionLabel'
+import { QuillChartOptionTextInput } from './QuillChartOptionTextInput'
 import { useChartOptionTextDraft } from './useChartOptionTextDraft'
 
 export interface ChartOptionTextInputProps {
@@ -17,8 +20,13 @@ export interface ChartOptionTextInputProps {
 }
 
 export function ChartOptionTextInput(props: ChartOptionTextInputProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const id = useId()
     const { draft, setDraft, commit } = useChartOptionTextDraft(props.value, props.onChange)
+
+    if (todayRailNav) {
+        return <QuillChartOptionTextInput {...props} draft={draft} setDraft={setDraft} commit={commit} />
+    }
 
     const { label, info, placeholder, 'data-attr': dataAttr } = props
     return (
