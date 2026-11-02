@@ -75,6 +75,13 @@ describe('viewAllFor', () => {
             "/feature-flags?search=don't",
         ],
         [
+            'a list that keeps an unclosed double quote the search reads as a letter',
+            [chip('feature_flag', 'Feature flag')],
+            'a"b -legacy',
+            'View all feature flags',
+            '/feature-flags?search=a%22b',
+        ],
+        [
             'a list that searches the name filter before the text',
             [chip('feature_flag', 'Feature flag'), chip('checkout', 'checkout', { key: 'name' })],
             'beta',
