@@ -274,8 +274,10 @@ struct Declaration {
 fn declarations(css: &str) -> Vec<Declaration> {
     let bytes = css.as_bytes();
     let mut ranges: Vec<Declaration> = Vec::new();
-    // Where the text of the current declaration starts, after the whitespace that leads it.
+    // Where the text of the current declaration starts and its last token ends. A browser drops comments and whitespace
+    // around a name, so neither counts.
     let mut segment_start: Option<usize> = None;
+    let mut segment_end = 0usize;
     let mut brace_depth = 0usize;
     let mut paren_depth = 0usize;
     let mut bracket_depth = 0usize;
@@ -283,19 +285,22 @@ fn declarations(css: &str) -> Vec<Declaration> {
     let mut font_faces = 0usize;
     let mut position = 0;
     while position < bytes.len() {
-        if segment_start.is_none() && !bytes[position].is_ascii_whitespace() {
-            segment_start = Some(position);
-        }
         if starts_with(bytes, position, b"/*") {
             position = skip_comment(bytes, position).unwrap_or(bytes.len());
             continue;
         }
+        let token = !bytes[position].is_ascii_whitespace();
+        if token {
+            segment_start.get_or_insert(position);
+        }
         if bytes[position] == b'\\' {
             position = skip_escape(bytes, position);
+            segment_end = position;
             continue;
         }
         if matches!(bytes[position], b'\'' | b'"') {
             position = skip_quoted(bytes, position).unwrap_or(bytes.len());
+            segment_end = position;
             continue;
         }
         match bytes[position] {
@@ -331,9 +336,8 @@ fn declarations(css: &str) -> Vec<Declaration> {
                     .last()
                     .is_none_or(|previous| position >= previous.end) =>
             {
-                // Each colon trims only the whitespace before it, so a long selector list stays linear.
-                let property =
-                    declaration_name(css[segment_start.unwrap_or(position)..position].trim_end());
+                let start = segment_start.unwrap_or(position);
+                let property = declaration_name(&css[start..segment_end.max(start)]);
                 let kind = match open_font_face {
                     Some(face) if face.inner_brace_depth == brace_depth => {
                         font_descriptor(&property, face.index)
@@ -349,6 +353,9 @@ fn declarations(css: &str) -> Vec<Declaration> {
                 }
             }
             _ => {}
+        }
+        if token {
+            segment_end = position + 1;
         }
         position += 1;
     }
@@ -840,8 +847,7 @@ fn scan_url_function(value: &str, start: usize, name_len: usize) -> (usize, Opti
         let Some(end) = skip_quoted(bytes, position) else {
             return (resume_at, None);
         };
-        position = end;
-        skip_whitespace(bytes, &mut position);
+        position = skip_space_and_comments(bytes, end);
         if position != contents_end {
             return (resume_at, None);
         }
@@ -1087,6 +1093,7 @@ mod tests {
             "@font-face{font-family:Relative;src:url(//cdn.example.com/relative\\2e woff2)}",
             "@font-face{font-family:Continued;src:url(\"https://cdn.example.com/continued.\\\nwoff2\")}",
             "@font-face{font-family:Broken;src:url(https://cdn.example.com/broken.\\\nwoff2)}",
+            "@font-face{font-family:Commented;/* lead */src/**/:url(\"https://cdn.example.com/commented.woff2\"/* tail */)}",
         );
         assert_eq!(
             found(css, Some("https://app.example.com/")),
@@ -1109,6 +1116,7 @@ mod tests {
                 "rewrite url(//cdn.example.com/relative\\2e woff2) => url(\"https://cdn.example.com/relative.woff2\") dropping []",
                 "resolved font https://cdn.example.com/continued.woff2",
                 "rewrite url(\"https://cdn.example.com/continued.\\\nwoff2\") => url(\"https://cdn.example.com/continued.woff2\") dropping []",
+                "font https://cdn.example.com/commented.woff2 Some(\"Commented\")",
             ]
         );
     }
@@ -1155,6 +1163,10 @@ mod tests {
             (
                 ".a{background:url(../img/a.png)}",
                 vec!["image ../img/a.png"],
+            ),
+            (
+                ".a{/* lead */background/**/:url(\"https://cdn.example.com/c.png\"/* tail */)}",
+                vec!["image https://cdn.example.com/c.png"],
             ),
             (
                 r#".a{background-image:image-set("https://cdn.example.com/1x.png" 1x, url(https://cdn.example.com/2x.png) 2x)}"#,
