@@ -1274,6 +1274,9 @@ export class CdpApi {
                 const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
                 if (send) {
                     invocation.state.send = send
+                    if (send.sensitive) {
+                        invocation.state.sensitive = true
+                    }
                 }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.

@@ -23,6 +23,7 @@ export const AcceptedSendSchema = z
             .optional(),
         replyTo: z.array(z.string()).readonly().optional(),
         tracking: z.object({ captureEngagement: z.boolean() }).readonly(),
+        sensitive: z.boolean().optional(),
     })
     .readonly()
 

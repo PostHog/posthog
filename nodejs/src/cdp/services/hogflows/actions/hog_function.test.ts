@@ -857,6 +857,42 @@ describe('HogFunctionHandler', () => {
         expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
     })
 
+    it.each([
+        ['protects a code send that asks for it', true, true],
+        ['leaves a code send that does not ask unprotected', undefined, undefined],
+    ])('%s', async (_desc, sensitive, expected) => {
+        const execute = jest
+            .spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions')
+            .mockImplementation((hogFunctionInvocation: any) =>
+                Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            )
+        invocation.state.send = {
+            content: { subject: 'Reset your password', html: '<p>https://example.com/reset?token=abc</p>' },
+            tracking: { captureEngagement: true },
+            ...(sensitive !== undefined && { sensitive }),
+        }
+
+        await hogFunctionHandler.execute({
+            invocation,
+            action: { ...action, type: 'function_email' } as Extract<HogFlowAction, { type: 'function_email' }>,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(execute.mock.calls[0][0].hogFunction.metadata?.sensitive).toBe(expected)
+    })
+
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({

@@ -41,6 +41,10 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import {
+    SENSITIVE_VARIABLES_OMITTED,
+    decodeInvocationGlobals,
+} from './services/monitoring/hog-invocation-results.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2379,6 +2383,11 @@ describe('CDP API', () => {
                     ['transactional_email/send', { ...body, send: changedContent }],
                 ],
                 [
+                    'protection turned on',
+                    ['transactional_email/send', { ...body, send: codeSend }],
+                    ['transactional_email/send', { ...body, send: { ...codeSend, sensitive: true } }],
+                ],
+                [
                     'the other route',
                     ['transactional_email', body],
                     ['transactional_email/send', { ...body, send: codeSend }],
@@ -2465,6 +2474,31 @@ describe('CDP API', () => {
             expect(res.status).toEqual(202)
             const [invocation] = mockQueueInvocations.mock.calls[0][0]
             expect(invocation.state.send).toEqual(acceptedSend)
+        })
+
+        it.each([
+            ['keeps the send of an unprotected code send', codeSend, true],
+            ['drops the send of a protected code send', { ...codeSend, sensitive: true }, false],
+        ])('%s from the run snapshot', async (_desc, acceptedSend, keepsSend) => {
+            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            const rowsService = api['invocationResultsService'].invocationResultsRowsService
+            const produceRow = jest.spyOn(rowsService['outputs'], 'produce').mockResolvedValue(undefined as any)
+
+            try {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+                await rowsService.flush()
+
+                expect(res.status).toEqual(202)
+                const [, row] = produceRow.mock.calls.find(([output]) => output === 'hog_invocation_results')!
+                const globals = (await decodeInvocationGlobals(
+                    parseJSON(row.value!.toString()).invocation_globals
+                )) as Record<string, unknown>
+                expect('send' in globals).toBe(keepsSend)
+                expect(SENSITIVE_VARIABLES_OMITTED in globals).toBe(!keepsSend)
+            } finally {
+                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+            }
         })
 
         it('queues a template send without an accepted send, even when the request carries one', async () => {

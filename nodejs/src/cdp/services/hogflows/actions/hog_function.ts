@@ -442,6 +442,9 @@ export class HogFunctionHandler implements ActionHandler {
         if (invocation.state.currentAction?.hogFunctionState?.sensitive) {
             hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
         }
+        if (send?.sensitive) {
+            hogFunction.metadata = { ...hogFunction.metadata, sensitive: true }
+        }
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
             () =>
