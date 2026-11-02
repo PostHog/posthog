@@ -66,9 +66,9 @@ This is the signal behind the in-app warning "The uneven split may bias the resu
 **Evidence.** The banner's check reports a finding when **all four** hold:
 
 - `multiple_variant_handling == "exclude"` (the default)
-- the variant rollouts are uneven.
-  A variant at 0% counts, so a flag at 0/50/50 is uneven.
-- the share of people in more than one variant is above **0.1%**.
+- the variants that the flag serves and the analysis keeps have shares more than one point apart.
+  A variant at 0% and an excluded variant don't count, so a flag at 0/50/50 is even, and a flag that serves one variant gets no finding.
+- the share of people in more than one variant is above **0.1%**, and at least 5 people are in more than one variant.
   The value is `exposures.bias_risk.multiple_variant_percentage`: the `$multiple` count over all exposures.
 - the experiment has no end date.
   After the end the check reports nothing, and the banner is gone.
