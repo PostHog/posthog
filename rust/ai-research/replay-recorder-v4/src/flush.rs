@@ -20,14 +20,13 @@ use replay_core_v4::keys::batch::{FlushKeys, KeyStore, SessionId};
 use replay_core_v4::keys::kms::AwsKms;
 use replay_core_v4::keys::rows::{key_month, write_day};
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
-use replay_core_v4::url_policy::CanonicalUrl;
 use tokio::sync::Semaphore;
 
 use crate::batch::Block;
 use crate::history::{mark_fresh, FetchHistory};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
-use crate::urls::{fetch_jobs, records, remote_images};
+use crate::urls::{fetch_jobs, records, FlushImages};
 use crate::write::{
     block_index_rows, compress_block, new_images, object_key, seal_blocking, seal_compressed,
     session_keyed_frames, write_blocks, write_images, CompressedBlock, FlushAttempt, WriteError,
@@ -171,10 +170,17 @@ pub async fn write_flush(
     drop(resolved);
     let month = key_month(&day);
     let attempt = FlushAttempt::new(now);
-    let images: Vec<_> = blocks
-        .iter()
-        .map(|block| remote_images(block, &keys, month))
-        .collect();
+    let already_sent = |reference: &str| {
+        writer
+            .sent_urls
+            .contains_key(&(day.clone(), reference.to_owned()))
+    };
+    let images = FlushImages::new(
+        blocks.iter().map(|block| &**block),
+        &keys,
+        month,
+        &already_sent,
+    );
 
     let object_key = object_key(&day, now);
     let seals: Vec<_> = blocks
@@ -249,21 +255,17 @@ pub async fn write_flush(
         kept[index] = true;
     }
     let jobs = fetch_jobs(
+        &images,
         blocks
             .iter()
             .zip(stats.iter_mut())
-            .zip(&images)
-            .zip(kept)
-            .filter_map(|(((block, stats), images), kept)| {
-                kept.then_some((&**block, stats, images.as_slice()))
-            }),
+            .enumerate()
+            .filter(|(index, _)| kept[*index])
+            .map(|(index, (block, stats))| (index, &**block, stats)),
         now.timestamp_millis(),
-        &|reference| {
-            writer
-                .sent_urls
-                .contains_key(&(day.clone(), reference.to_owned()))
-        },
+        &already_sent,
     );
+    drop(images);
 
     let session_frames = session_keyed_frames(&sealed);
     let image_rows = write_images(
@@ -310,16 +312,15 @@ pub async fn write_flush(
     Ok(())
 }
 
-async fn mark_fresh_images(writer: &Writer, images: &[Vec<(CanonicalUrl, String)>], day: &str) {
+async fn mark_fresh_images(writer: &Writer, images: &FlushImages, day: &str) {
     let Some(history) = &writer.fetch_history else {
         return;
     };
     let deadline = tokio::time::Instant::now() + HISTORY_READ_BUDGET;
-    let references = images.iter().flatten().map(|(_, reference)| reference);
     mark_fresh(
         history.as_ref(),
         &writer.sent_urls,
-        references,
+        images.unsent_references(),
         day,
         deadline,
     )

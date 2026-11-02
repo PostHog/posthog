@@ -27,14 +27,20 @@ function addon(): typeof import('@posthog/ai-research-v4-native') {
 }
 
 /**
- * Load the addon now and run one URL through it, so a stale `index.node` stops the pod at startup.
+ * Load the addon now and run one URL and one crawl history entry through it, so a stale `index.node` stops the pod at
+ * startup.
  *
- * The parser calls into it for every URL. A stale addon must stop the pod before it reads a batch.
+ * The parser calls into it for every URL, and the crawl history reader for every URL row. A stale addon must stop the
+ * pod before it reads a batch.
  */
 export function assertUrlPolicyLoaded(): void {
     const verdict = addon().tryCanonicalizeUrl('https://example.com/probe.png')
     if (!verdict.ok) {
         throw new Error(`the ai-research-v4-native addon refused a plain URL (${verdict.decline}): rebuild index.node`)
+    }
+    const entry = JSON.stringify({ kind: 'url', key: 'probe', nextFetchAtMs: 1, storageExpiresAtMs: 1, outcome: 'ok' })
+    if (addon().urlJob(1, undefined, 0) !== 'drop' || !addon().isUrlHistoryValue('probe', entry)) {
+        throw new Error('the ai-research-v4-native addon misread a crawl history entry: rebuild index.node')
     }
 }
 
