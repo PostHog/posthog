@@ -13,11 +13,20 @@ import { type LLMProvider, toLLMProvider } from './settings/llmProviderKeysLogic
 
 export const PROVIDER_SETTINGS_URL = urls.settings('project-ai-observability', 'ai-observability-byok')
 
-export function getModelPickerFooterLink(hasByokKeys: boolean): { label: string; to: string } {
-    return {
-        label: hasByokKeys ? 'Configure AI providers' : 'Add your own API keys',
-        to: PROVIDER_SETTINGS_URL,
-    }
+export interface ModelPickerFooterAction {
+    label: string
+    to?: string
+    onClick?: () => void
+    'data-attr': string
+}
+
+export function getModelPickerFooterActions(hasByokKeys: boolean, onAddKey: () => void): ModelPickerFooterAction[] {
+    return [
+        { label: 'Add API key', onClick: onAddKey, 'data-attr': 'model-picker-add-api-key' },
+        ...(hasByokKeys
+            ? [{ label: 'Manage API keys', to: PROVIDER_SETTINGS_URL, 'data-attr': 'model-picker-manage-api-keys' }]
+            : []),
+    ]
 }
 
 export function parsePlaygroundProviderKeyId(providerKeyId: string): LLMProvider | null {
@@ -30,7 +39,7 @@ export interface ModelPickerProps {
     onSelect: (modelId: string, providerKeyId: string) => void
     groups: ProviderModelGroup[]
     loading?: boolean
-    footerLink?: { label: string; to: string } | null
+    footerActions?: ModelPickerFooterAction[]
     placeholder?: string
     selectedModelName?: string
     'data-attr'?: string
@@ -105,7 +114,7 @@ export function ModelPicker({
     onSelect,
     groups,
     loading = false,
-    footerLink,
+    footerActions,
     placeholder = 'Select model',
     selectedModelName,
     'data-attr': dataAttr,
@@ -237,14 +246,16 @@ export function ModelPicker({
                 ],
             }
         }),
-        ...(footerLink
+        ...(footerActions?.length
             ? [
                   {
                       label: () => (
-                          <div className="px-2 py-1.5 border-t">
-                              <Link to={footerLink.to} className="text-xs">
-                                  {footerLink.label}
-                              </Link>
+                          <div className="flex flex-wrap items-center gap-x-3 px-2 py-1.5 border-t">
+                              {footerActions.map(({ label, to, onClick, 'data-attr': dataAttr }) => (
+                                  <Link key={label} to={to} onClick={onClick} className="text-xs" data-attr={dataAttr}>
+                                      {label}
+                                  </Link>
+                              ))}
                           </div>
                       ),
                   },

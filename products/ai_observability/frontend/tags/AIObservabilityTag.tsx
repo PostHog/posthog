@@ -35,9 +35,10 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
-import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
+import { getModelPickerFooterActions, ModelPicker } from '../ModelPicker'
 import { modelPickerLogic } from '../modelPickerLogic'
-import { LLMProviderKey } from '../settings/llmProviderKeysLogic'
+import { AddKeyModal } from '../settings/AddKeyModal'
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import {
     getUnhealthyProviderKey,
     providerKeyStateIssueDescription,
@@ -118,7 +119,8 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
     const groups = providerModelGroups
     const loading = byokModelsLoading || providerKeysLoading
 
-    const footerLink = getModelPickerFooterLink(hasByokKeys)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
+    const footerActions = getModelPickerFooterActions(hasByokKeys, () => setNewKeyModalOpen(true))
 
     return (
         <div className="bg-bg-light border rounded p-6">
@@ -136,12 +138,13 @@ function TaggerModelPicker({ id }: { id: string }): JSX.Element {
                             onSelect={selectModelFromPicker}
                             groups={groups}
                             loading={loading}
-                            footerLink={footerLink}
+                            footerActions={footerActions}
                             selectedModelName={selectedModelName}
                             data-attr="tagger-model-selector"
                         />
                     </Field>
                     <ByokModelPickerNotice />
+                    <AddKeyModal />
                 </div>
             </div>
         </div>

@@ -1,12 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { ByokModelPickerNotice } from './ByokModelPickerNotice'
-import { getModelPickerFooterLink, ModelPicker } from './ModelPicker'
+import { getModelPickerFooterActions, ModelPicker } from './ModelPicker'
 import { modelPickerLogic } from './modelPickerLogic'
-import { LLMProviderKey, LLMProviderKeyState } from './settings/llmProviderKeysLogic'
+import { AddKeyModal } from './settings/AddKeyModal'
+import { LLMProviderKey, LLMProviderKeyState, llmProviderKeysLogic } from './settings/llmProviderKeysLogic'
 
 interface StoryArgs {
     keyState: LLMProviderKeyState | null
@@ -21,6 +22,7 @@ function providerKey(state: LLMProviderKeyState): Partial<LLMProviderKey> {
 function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.Element {
     const { providerModelGroups, evaluationProviderModelGroups, hasByokKeys, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     return (
         // The story root has no width of its own, so the picker column is sized here to match the form it sits in.
@@ -31,11 +33,13 @@ function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.E
                 onSelect={() => {}}
                 groups={systemOne ? evaluationProviderModelGroups : providerModelGroups}
                 loading={byokModelsLoading || providerKeysLoading}
-                footerLink={getModelPickerFooterLink(
-                    systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys
+                footerActions={getModelPickerFooterActions(
+                    systemOne ? evaluationProviderModelGroups.some((group) => !group.disabledReason) : hasByokKeys,
+                    () => setNewKeyModalOpen(true)
                 )}
             />
             <ByokModelPickerNotice forEvaluation={systemOne} />
+            <AddKeyModal />
         </div>
     )
 }

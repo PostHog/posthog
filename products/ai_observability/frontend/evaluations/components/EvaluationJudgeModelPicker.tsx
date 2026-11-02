@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { ByokModelPickerNotice } from '../../ByokModelPickerNotice'
-import { getModelPickerFooterLink, ModelPicker } from '../../ModelPicker'
+import { getModelPickerFooterActions, ModelPicker } from '../../ModelPicker'
 import { modelPickerLogic } from '../../modelPickerLogic'
+import { AddKeyModal } from '../../settings/AddKeyModal'
+import { llmProviderKeysLogic } from '../../settings/llmProviderKeysLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationReasoningLevelButton } from './EvaluationReasoningLevelButton'
 
@@ -18,6 +20,7 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
         selectedModelSupportsReasoning,
     } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
+    const { setNewKeyModalOpen } = useActions(llmProviderKeysLogic)
 
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -31,7 +34,10 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
                         onSelect={selectModelFromPicker}
                         groups={judgeModelGroups}
                         loading={loading}
-                        footerLink={getModelPickerFooterLink(judgeModelGroups.some((group) => !group.disabledReason))}
+                        footerActions={getModelPickerFooterActions(
+                            judgeModelGroups.some((group) => !group.disabledReason),
+                            () => setNewKeyModalOpen(true)
+                        )}
                         selectedModelName={selectedModelName}
                         data-attr="evaluation-model-selector"
                     />
@@ -39,6 +45,7 @@ export function EvaluationJudgeModelPicker(): JSX.Element {
                 {selectedModelSupportsReasoning && <EvaluationReasoningLevelButton />}
             </div>
             <ByokModelPickerNotice forEvaluation />
+            <AddKeyModal />
             {usesDecisionModel && !loading && !judgeModelGroups.some((group) => group.models.length > 0) && (
                 <p className="text-sm text-muted mt-2">
                     No decision models are available from your configured AI providers.
