@@ -1975,9 +1975,8 @@ class TestPrinter(BaseTest):
                 "select 1 from events where properties.key < 'b' or properties.other like 'a%'"
             )
             self.assertEqual(two_keys_sql.count(_KEY_GUARD_SQL), 2)
-        # A JOIN ON comparison is not a filter chain. The guard prints the table alias, so check it by that alias, and
-        # prove the marker by the same comparison in a WHERE, where it is guarded.
-        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            # A JOIN ON comparison is not a filter chain. The guard prints the table alias, so check it by that alias,
+            # and prove the marker by the same comparison in a WHERE, where it is guarded.
             alias_guard_sql = _KEY_GUARD_SQL.replace("events.", "a.")
             self.assertIn(alias_guard_sql, optimized_sql("select 1 from events as a where a.properties.key < 'b'"))
             self.assertNotIn(
