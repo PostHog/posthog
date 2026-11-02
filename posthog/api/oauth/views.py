@@ -2409,6 +2409,7 @@ def _active_access_token_response(
     scoped_organizations: list[str],
     application: OAuthApplication | None,
     sandbox_task_id: uuid.UUID | None = None,
+    supports_step_up: bool = False,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2416,6 +2417,9 @@ def _active_access_token_response(
         "token_type": "access_token",
         "scope": scope,
         "is_impersonated": is_impersonated,
+        # The MCP server reads this to choose between a 403 insufficient_scope challenge and a
+        # tool error when a scope is missing.
+        "supports_step_up": supports_step_up,
         "scoped_teams": scoped_teams,
         "scoped_organizations": scoped_organizations,
         "exp": expires_at,
@@ -2645,6 +2649,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 scoped_organizations=access_token.scoped_organizations or [],
                 application=access_token.application,
                 sandbox_task_id=access_token.sandbox_task_id,
+                supports_step_up=access_token.supports_step_up,
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
