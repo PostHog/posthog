@@ -9,13 +9,13 @@ use tokio::time::Instant;
 use super::poll::InFlightPoll;
 use super::{report_revoked, Collector, Parts, PollingStrategy, Step};
 use crate::charge_limit::ChargeLimit;
-use crate::settlement::{Commit, RunOutcome, Settlement};
+use crate::settlement::{Commit, GroupSettlement, RunOutcome, Settlement};
 
 /// Nothing waits on a submitted poll: the partition budget and the in-flight
 /// limit bound admission.
 pub(crate) struct ContinuousPolling {
     collector: Collector,
-    settlement: Arc<dyn Settlement>,
+    settlement: Arc<GroupSettlement>,
     uncommitted: UncommittedCharges,
     processed: ProcessedTimestamps,
     limits: ChargeLimit,

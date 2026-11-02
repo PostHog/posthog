@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use common_kafka_consumer::{
     AssignmentEpoch, GroupCompletion, Offset, Partition, TopicOffsetLedger, TopicPartition,
@@ -17,23 +17,22 @@ use tracing::{error, info, warn};
 
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
 use crate::charge_limit::ChargeLimit;
-use crate::config::{CompletionGranularity, Config, Polling};
+use crate::config::Config;
 use crate::debug_recorder::{record_if, CommitOffset, DebugEventKind, DebugRecorder};
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::partition_budget::BudgetLimits;
 use crate::polling::{
-    self, debug_partition_offsets, debug_partition_spans, BatchStats, CappedPolling,
-    CollectedBatch, ContinuousPolling, InFlightPoll, PartitionDeliveries, Parts, PollLimits,
-    PollingStrategy, Selected, Step,
+    debug_partition_offsets, debug_partition_spans, BatchStats, CollectedBatch, ContinuousPolling,
+    InFlightPoll, PartitionDeliveries, Parts, PollLimits, PollingStrategy, Step,
 };
 use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
-use crate::settlement::{self, Commit, Settlement};
+use crate::settlement::{Commit, GroupSettlement, Settlement};
 
 fn revoke_hook(
     revoker: Revoker,
-    settlement: Arc<dyn Settlement>,
+    settlement: Arc<GroupSettlement>,
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 ) -> PartitionHook {
     Box::new(move |partitions| {
@@ -51,7 +50,7 @@ fn revoke_hook(
 }
 
 fn assign_hook(
-    settlement: Arc<dyn Settlement>,
+    settlement: Arc<GroupSettlement>,
     assignment_epoch: AssignmentEpoch,
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 ) -> PartitionHook {
@@ -69,7 +68,7 @@ fn assign_hook(
 fn wire_rebalance_hooks(
     context: &RebalanceContext,
     revoker: Revoker,
-    settlement: &Arc<dyn Settlement>,
+    settlement: &Arc<GroupSettlement>,
     assignment_epoch: AssignmentEpoch,
 ) -> Arc<Mutex<Vec<TopicPartition>>> {
     let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
@@ -86,15 +85,14 @@ fn wire_rebalance_hooks(
     revoked_partitions
 }
 
-fn commit_tick(granularity: CompletionGranularity, commit_interval: Duration) -> Duration {
+fn commit_tick(commit_interval: Duration) -> Duration {
     const HEALTH_TICK: Duration = Duration::from_secs(1);
     // A commit can resume a partition, so a tick longer than the commit
     // interval delays the resume.
-    match granularity {
-        CompletionGranularity::Group if !commit_interval.is_zero() => {
-            commit_interval.min(HEALTH_TICK)
-        }
-        _ => HEALTH_TICK,
+    if commit_interval.is_zero() {
+        HEALTH_TICK
+    } else {
+        commit_interval.min(HEALTH_TICK)
     }
 }
 
@@ -105,13 +103,9 @@ pub struct IngestionConsumerOptions {
     /// See `Config::consumer_batch_size_kb`.
     pub batch_size_bytes: usize,
     pub batch_timeout: Duration,
-    /// The capped strategy's admission cap, in polls.
-    pub max_in_flight_batches: usize,
-    pub polling: Polling,
     pub in_flight_limit: ChargeLimit,
     pub group_id: String,
     pub debug_recorder: Option<Arc<DebugRecorder>>,
-    pub completion_granularity: CompletionGranularity,
     pub commit_interval: Duration,
     pub ledger: Arc<TopicOffsetLedger>,
     pub partition_budget: BudgetLimits,
@@ -119,7 +113,7 @@ pub struct IngestionConsumerOptions {
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
 /// submits them to the [`Batcher`], and commits offsets once the batcher's
-/// completions cover a poll or a group.
+/// completions cover a group.
 pub struct IngestionConsumer {
     consumer: Arc<StreamConsumer<RebalanceContext>>,
     batcher: Batcher,
@@ -130,7 +124,7 @@ pub struct IngestionConsumer {
     batch_size: usize,
     batch_size_bytes: usize,
     batch_timeout: Duration,
-    polling: Selected,
+    in_flight_limit: ChargeLimit,
     commit_tick: Duration,
     handle: Handle,
     group_id: String,
@@ -139,7 +133,7 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
     revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
-    settlement: Arc<dyn Settlement>,
+    settlement: Arc<GroupSettlement>,
 }
 
 impl IngestionConsumer {
@@ -155,19 +149,11 @@ impl IngestionConsumer {
         handle: Handle,
     ) -> Self {
         let topic_offset_ledger = options.ledger;
-        let polling = polling::select(
-            options.polling,
-            options.completion_granularity,
-            &options.partition_budget,
-            options.in_flight_limit,
-            options.max_in_flight_batches,
-        );
-        let settlement = settlement::for_granularity(
-            options.completion_granularity,
+        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&topic_offset_ledger),
             options.commit_interval,
             options.partition_budget,
-        );
+        ));
         let revoked_partitions = wire_rebalance_hooks(
             consumer.context(),
             batcher.revoker(),
@@ -188,8 +174,8 @@ impl IngestionConsumer {
             batch_size: options.batch_size,
             batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
-            polling,
-            commit_tick: commit_tick(options.completion_granularity, options.commit_interval),
+            in_flight_limit: options.in_flight_limit,
+            commit_tick: commit_tick(options.commit_interval),
             handle,
             group_id: options.group_id,
         }
@@ -228,19 +214,15 @@ impl IngestionConsumer {
         let partition_budget = config
             .partition_budget()
             .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?;
-        let polling = polling::select(
-            config.consumer_polling_strategy,
-            config.consumer_completion_granularity,
-            &partition_budget,
-            config.in_flight_limit(),
-            config.consumer_max_background_tasks,
-        );
-        let settlement = settlement::for_granularity(
-            config.consumer_completion_granularity,
+        let in_flight_limit = config
+            .in_flight_limit()
+            .map_err(|err| anyhow::anyhow!("invalid in-flight limit: {err}"))?;
+        let commit_interval = Duration::from_millis(config.consumer_commit_interval_ms);
+        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&topic_offset_ledger),
-            Duration::from_millis(config.consumer_commit_interval_ms),
+            commit_interval,
             partition_budget,
-        );
+        ));
         let context = RebalanceContext::new();
         let revoked_partitions = wire_rebalance_hooks(
             &context,
@@ -259,8 +241,7 @@ impl IngestionConsumer {
             workers = worker_urls.len(),
             batch_size = config.consumer_batch_size,
             batch_size_kb = config.consumer_batch_size_kb,
-            completion_granularity = ?config.consumer_completion_granularity,
-            polling = ?polling,
+            in_flight_limit = ?in_flight_limit,
             "Kafka consumer subscribed"
         );
 
@@ -277,11 +258,8 @@ impl IngestionConsumer {
             batch_size: config.consumer_batch_size,
             batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
-            polling,
-            commit_tick: commit_tick(
-                config.consumer_completion_granularity,
-                Duration::from_millis(config.consumer_commit_interval_ms),
-            ),
+            in_flight_limit,
+            commit_tick: commit_tick(commit_interval),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
@@ -326,20 +304,9 @@ impl IngestionConsumer {
             },
             settlement: Arc::clone(&self.settlement),
             group_id: self.group_id.clone(),
-            debug_recorder: self.debug_recorder.clone(),
         };
-        match self.polling {
-            Selected::Capped {
-                max_in_flight_polls,
-            } => {
-                let poller = CappedPolling::new(parts, max_in_flight_polls);
-                self.run(poller, completions, errors).await;
-            }
-            Selected::Continuous { in_flight } => {
-                let poller = ContinuousPolling::new(parts, in_flight);
-                self.run(poller, completions, errors).await;
-            }
-        }
+        let poller = ContinuousPolling::new(parts, self.in_flight_limit);
+        self.run(poller, completions, errors).await;
         if let Err(err) = self.commit_all() {
             warn!(error = %err, "Could not submit pending frontiers on exit");
         }
@@ -440,7 +407,6 @@ impl IngestionConsumer {
             }
             Step::Commit(commit) => self.commit(commit).map_err(Stopped::Commit),
             Step::Stop => Err(Stopped::Drained),
-            Step::Fail(err) => Err(Stopped::Batch(err)),
         }
     }
 
@@ -557,14 +523,8 @@ impl IngestionConsumer {
         );
 
         Ok(InFlightPoll {
-            poll_id,
-            assignment_epoch,
             partitions,
             uncommitted,
-            message_count: message_count as u32,
-            covered: 0,
-            accepted: 0,
-            dispatched_at: Instant::now(),
         })
     }
 
@@ -727,17 +687,15 @@ mod tests {
     use crate::settlement::{GroupSettlement, Pause};
 
     #[rstest::rstest]
-    #[case::group_below_a_second(CompletionGranularity::Group, 200, 200)]
-    #[case::group_above_a_second(CompletionGranularity::Group, 5_000, 1_000)]
-    #[case::group_immediate(CompletionGranularity::Group, 0, 1_000)]
-    #[case::poll(CompletionGranularity::Poll, 200, 1_000)]
+    #[case::below_a_second(200, 200)]
+    #[case::above_a_second(5_000, 1_000)]
+    #[case::immediate(0, 1_000)]
     fn the_commit_tick_follows_the_commit_interval(
-        #[case] granularity: CompletionGranularity,
         #[case] commit_interval_ms: u64,
         #[case] expected_ms: u64,
     ) {
         assert_eq!(
-            commit_tick(granularity, Duration::from_millis(commit_interval_ms)),
+            commit_tick(Duration::from_millis(commit_interval_ms)),
             Duration::from_millis(expected_ms)
         );
     }
@@ -745,7 +703,7 @@ mod tests {
     #[test]
     fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
+        let settlement: Arc<GroupSettlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&ledger),
             Duration::from_secs(3600),
             BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),

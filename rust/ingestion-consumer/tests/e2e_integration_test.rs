@@ -32,7 +32,6 @@ use ingestion_consumer::batcher::state_machine::RequestBudget;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
 use ingestion_consumer::batcher::BatcherObserver;
 use ingestion_consumer::charge_limit::ChargeLimit;
-use ingestion_consumer::config::{CompletionGranularity, Polling};
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::debug_recorder::{DebugEventKind, DebugRecorder};
 use ingestion_consumer::discovery::reconcile_membership;
@@ -586,13 +585,10 @@ struct Harness {
     group_id: String,
     pub ledger: Arc<TopicOffsetLedger>,
     debug_recorder: Arc<DebugRecorder>,
-    max_in_flight: usize,
     deferred_flush_timeout: Duration,
     pack_targets: PackTargets,
     budget: Option<RequestBudget>,
-    completion_granularity: CompletionGranularity,
     partition_budget: BudgetLimits,
-    polling: Polling,
     in_flight_limit: ChargeLimit,
 }
 
@@ -666,7 +662,6 @@ impl Harness {
         topic: &str,
         partitions: i32,
         worker_count: usize,
-        max_in_flight: usize,
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
     ) -> Self {
@@ -674,17 +669,14 @@ impl Harness {
             topic,
             partitions,
             worker_count,
-            max_in_flight,
             deferred_flush_timeout,
             registry_config,
             0,
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
             None,
-            CompletionGranularity::Poll,
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
-            Polling::Capped,
             ChargeLimit::unset(),
         )
         .await
@@ -696,10 +688,6 @@ impl Harness {
             topic,
             partitions,
             1,
-            // A poll can end after one message, so later polls must reach the
-            // packer while the first waits for its run. Every poll under a
-            // held request also stays in flight, and a full cap stops polling.
-            512,
             Duration::from_secs(60),
             fast_registry_config(),
             0,
@@ -715,21 +703,17 @@ impl Harness {
                 soft_budget: Duration::from_millis(500),
                 attempts: BUDGET_ATTEMPTS,
             }),
-            CompletionGranularity::Poll,
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
-            Polling::Capped,
             ChargeLimit::unset(),
         )
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn start_with_pack_targets(
         topic: &str,
         partitions: i32,
         worker_count: usize,
-        max_in_flight: usize,
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
         pack_targets: PackTargets,
@@ -738,17 +722,14 @@ impl Harness {
             topic,
             partitions,
             worker_count,
-            max_in_flight,
             deferred_flush_timeout,
             registry_config,
             0,
             ComponentOptions::new(),
             pack_targets,
             None,
-            CompletionGranularity::Poll,
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
-            Polling::Capped,
             ChargeLimit::unset(),
         )
         .await
@@ -765,7 +746,6 @@ impl Harness {
             topic,
             1,
             worker_count,
-            1,
             deferred_flush_timeout,
             fast_registry_config(),
             0,
@@ -774,105 +754,50 @@ impl Harness {
                 .with_stall_threshold(stall_threshold),
             common::ONE_MESSAGE_PER_REQUEST,
             None,
-            CompletionGranularity::Poll,
             COMMIT_INTERVAL,
             BudgetLimits::unset(),
-            Polling::Capped,
             ChargeLimit::unset(),
         )
         .await
     }
 
-    async fn start_polling(
-        topic: &str,
-        partitions: i32,
-        worker_count: usize,
-        max_in_flight: usize,
-        batch_size_bytes: usize,
-        polling: Polling,
-    ) -> Self {
-        let (granularity, partition_budget, in_flight_limit) = match polling {
-            Polling::Capped => (
-                CompletionGranularity::Poll,
-                BudgetLimits::unset(),
-                ChargeLimit::unset(),
-            ),
-            Polling::Continuous => (
-                CompletionGranularity::Group,
-                BudgetLimits::new(
-                    NonZeroU64::new(10_000),
-                    NonZeroU64::new(UNBOUNDED_BYTES),
-                    0.8,
-                )
-                .expect("a valid budget"),
-                ChargeLimit::new(NonZeroU64::new(100_000), NonZeroU64::new(UNBOUNDED_BYTES)),
-            ),
-        };
+    async fn start_byte_capped(topic: &str, batch_size_bytes: usize) -> Self {
         Self::start_inner(
             topic,
-            partitions,
-            worker_count,
-            max_in_flight,
+            1,
+            1,
             Duration::from_secs(60),
             fast_registry_config(),
             batch_size_bytes,
             ComponentOptions::new(),
             common::PRODUCTION_PACK_TARGETS,
             None,
-            granularity,
             COMMIT_INTERVAL,
-            partition_budget,
-            polling,
-            in_flight_limit,
+            BudgetLimits::unset(),
+            ChargeLimit::unset(),
         )
         .await
     }
 
-    async fn start_byte_capped(topic: &str, batch_size_bytes: usize, polling: Polling) -> Self {
-        Self::start_polling(topic, 1, 1, 1, batch_size_bytes, polling).await
-    }
-
-    async fn start_group_granularity(
+    async fn start_committing_every(
         pack_targets: PackTargets,
         topic: &str,
         partitions: i32,
         worker_count: usize,
-        max_in_flight: usize,
-    ) -> Self {
-        Self::start_group_granularity_committing_every(
-            pack_targets,
-            topic,
-            partitions,
-            worker_count,
-            max_in_flight,
-            COMMIT_INTERVAL,
-        )
-        .await
-    }
-
-    async fn start_group_granularity_committing_every(
-        pack_targets: PackTargets,
-        topic: &str,
-        partitions: i32,
-        worker_count: usize,
-        max_in_flight: usize,
         commit_interval: Duration,
     ) -> Self {
         Self::start_inner(
             topic,
             partitions,
             worker_count,
-            max_in_flight,
             Duration::from_secs(60),
             fast_registry_config(),
             0,
             ComponentOptions::new(),
             pack_targets,
             None,
-            CompletionGranularity::Group,
             commit_interval,
             BudgetLimits::unset(),
-            Polling::Capped,
             ChargeLimit::unset(),
         )
         .await
@@ -884,37 +809,19 @@ impl Harness {
         partitions: i32,
         worker_count: usize,
         partition_budget: BudgetLimits,
-        polling: Polling,
     ) -> Self {
-        let (max_in_flight, in_flight_limit) = match polling {
-            Polling::Capped => (8, ChargeLimit::unset()),
-            // One poll slot: the continuous loop must not wait on any poll.
-            Polling::Continuous => (
-                1,
-                ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
-            ),
-        };
-        Self::start_inner(
+        Self::start_with_limits(
+            pack_targets,
             topic,
             partitions,
             worker_count,
-            max_in_flight,
-            Duration::from_secs(60),
-            fast_registry_config(),
-            0,
-            ComponentOptions::new(),
-            pack_targets,
-            None,
-            CompletionGranularity::Group,
-            COMMIT_INTERVAL,
             partition_budget,
-            polling,
-            in_flight_limit,
+            ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
         )
         .await
     }
 
-    async fn start_continuous(
+    async fn start_with_limits(
         pack_targets: PackTargets,
         topic: &str,
         partitions: i32,
@@ -926,17 +833,14 @@ impl Harness {
             topic,
             partitions,
             worker_count,
-            1,
             Duration::from_secs(60),
             fast_registry_config(),
             0,
             ComponentOptions::new(),
             pack_targets,
             None,
-            CompletionGranularity::Group,
             COMMIT_INTERVAL,
             partition_budget,
-            Polling::Continuous,
             in_flight_limit,
         )
         .await
@@ -954,17 +858,14 @@ impl Harness {
             topic,
             partitions,
             worker_count,
-            8,
             Duration::from_secs(60),
             fast_registry_config(),
             0,
             ComponentOptions::new(),
             pack_targets,
             None,
-            CompletionGranularity::Group,
             commit_interval,
             partition_budget,
-            Polling::Capped,
             ChargeLimit::unset(),
         )
         .await
@@ -975,17 +876,14 @@ impl Harness {
         topic: &str,
         partitions: i32,
         worker_count: usize,
-        max_in_flight: usize,
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
         component_options: ComponentOptions,
         pack_targets: PackTargets,
         budget: Option<RequestBudget>,
-        completion_granularity: CompletionGranularity,
         commit_interval: Duration,
         partition_budget: BudgetLimits,
-        polling: Polling,
         in_flight_limit: ChargeLimit,
     ) -> Self {
         create_topic(topic, partitions).await;
@@ -1037,14 +935,11 @@ impl Harness {
                 batch_size: 50,
                 batch_size_bytes,
                 batch_timeout: Duration::from_millis(100),
-                max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
                 debug_recorder: Some(Arc::clone(&debug_recorder)),
-                completion_granularity,
                 commit_interval,
                 ledger: Arc::clone(&ledger),
                 partition_budget,
-                polling,
                 in_flight_limit,
             },
             handle,
@@ -1074,13 +969,10 @@ impl Harness {
             group_id,
             ledger,
             debug_recorder,
-            max_in_flight,
             deferred_flush_timeout,
             pack_targets,
             budget,
-            completion_granularity,
             partition_budget,
-            polling,
             in_flight_limit,
         }
     }
@@ -1144,14 +1036,11 @@ impl Harness {
                 batch_size: 50,
                 batch_size_bytes: 0,
                 batch_timeout: Duration::from_millis(100),
-                max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 debug_recorder: None,
-                completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
                 ledger: Arc::clone(&self.ledger),
                 partition_budget: self.partition_budget,
-                polling: self.polling,
                 in_flight_limit: self.in_flight_limit,
             },
             handle,
@@ -1233,14 +1122,11 @@ impl Harness {
                 batch_size: 50,
                 batch_size_bytes: 0,
                 batch_timeout: Duration::from_millis(100),
-                max_in_flight_batches: self.max_in_flight,
                 group_id: "e2e-test".to_string(),
                 debug_recorder: None,
-                completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
                 ledger: Arc::new(TopicOffsetLedger::new()),
                 partition_budget: self.partition_budget,
-                polling: self.polling,
                 in_flight_limit: self.in_flight_limit,
             },
             handle,
@@ -1338,7 +1224,6 @@ async fn messages_per_distinct_id_arrive_in_order(#[case] pack_targets: PackTarg
         &topic,
         3,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
         pack_targets,
@@ -1606,13 +1491,10 @@ async fn a_message_that_never_fits_the_budget_lands_without_one() {
     harness.stop().await;
 }
 
-#[rstest]
-#[case::capped(Polling::Capped)]
-#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn byte_bound_caps_batches_below_the_count_bound(#[case] polling: Polling) {
+async fn byte_bound_caps_batches_below_the_count_bound() {
     let topic = format!("e2e-bytecap-{}", Uuid::new_v4());
-    let harness = Harness::start_byte_capped(&topic, 4096, polling).await;
+    let harness = Harness::start_byte_capped(&topic, 4096).await;
 
     let producer = make_producer();
     let payload = vec![b'x'; 2048];
@@ -1645,13 +1527,10 @@ async fn byte_bound_caps_batches_below_the_count_bound(#[case] polling: Polling)
     harness.stop().await;
 }
 
-#[rstest]
-#[case::capped(Polling::Capped)]
-#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn message_larger_than_byte_bound_is_still_delivered(#[case] polling: Polling) {
+async fn message_larger_than_byte_bound_is_still_delivered() {
     let topic = format!("e2e-bytecap-oversize-{}", Uuid::new_v4());
-    let harness = Harness::start_byte_capped(&topic, 4096, polling).await;
+    let harness = Harness::start_byte_capped(&topic, 4096).await;
 
     let producer = make_producer();
     produce_raw(
@@ -1682,7 +1561,6 @@ async fn failing_worker_triggers_rerouting() {
         &topic,
         2,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -1732,7 +1610,6 @@ async fn failed_sends_degrade_passive_health() {
         &topic,
         1,
         1,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -1761,7 +1638,6 @@ async fn draining_worker_takes_no_new_work_and_reroutes_in_order() {
         &topic,
         2,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -1846,7 +1722,6 @@ async fn send_failure_mid_flight_replays_to_survivor_in_order() {
         &topic,
         1,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -1903,7 +1778,6 @@ async fn partial_send_failure_replays_only_the_failed_subbatch() {
         &topic,
         1,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
         one_key_of_four_per_request,
@@ -1915,7 +1789,6 @@ async fn partial_send_failure_replays_only_the_failed_subbatch() {
         guards.push(Some(w.block().await));
     }
 
-    // One poll must carry both keys; at max_in_flight=1 a one-key poll would block the second.
     let records: Vec<(&str, usize)> = (0..4usize)
         .flat_map(|seq| [("user-1", seq), ("user-2", seq)])
         .collect();
@@ -2221,7 +2094,6 @@ async fn multi_key_send_failure_replays_every_key_in_order(#[case] pack_targets:
         &topic,
         3,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
         pack_targets,
@@ -2284,7 +2156,6 @@ async fn flush_target_failure_re_defers_then_replays_in_order() {
         &topic,
         1,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -2366,7 +2237,6 @@ async fn full_pool_drain_holds_fresh_keys_until_a_worker_returns() {
         &topic,
         1,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -2410,7 +2280,7 @@ async fn forced_reap_at_drain_timeout_reroutes_deferred_work() {
         drain_timeout: Duration::from_millis(400),
         ..fast_registry_config()
     };
-    let harness = Harness::start(&topic, 1, 2, 2, Duration::from_secs(60), registry_config).await;
+    let harness = Harness::start(&topic, 1, 2, Duration::from_secs(60), registry_config).await;
     let producer = make_producer();
 
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
@@ -2485,7 +2355,6 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
         &topic,
         1,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -2529,8 +2398,23 @@ async fn consumer_crash_before_commit_redelivers_without_loss() {
     harness.stop().await;
 }
 
-async fn assert_commits_track_the_ledger_frontier(mut harness: Harness) {
-    let topic = harness.topic.clone();
+#[tokio::test]
+async fn the_committed_offset_is_the_ledger_frontier() {
+    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
+    let mut harness = Harness::start_with_limits(
+        common::PRODUCTION_PACK_TARGETS,
+        &topic,
+        1,
+        1,
+        BudgetLimits::new(
+            NonZeroU64::new(1_000),
+            NonZeroU64::new(UNBOUNDED_BYTES),
+            0.8,
+        )
+        .expect("a valid budget"),
+        ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
+    )
+    .await;
     let producer = make_producer();
 
     for seq in 0..10usize {
@@ -2567,39 +2451,12 @@ async fn assert_commits_track_the_ledger_frontier(mut harness: Harness) {
 }
 
 #[tokio::test]
-async fn the_committed_offset_is_the_ledger_frontier() {
-    let topic = format!("e2e-ledger-commit-{}", Uuid::new_v4());
-    assert_commits_track_the_ledger_frontier(
-        Harness::start(
-            &topic,
-            1,
-            1,
-            1,
-            Duration::from_secs(60),
-            fast_registry_config(),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn group_granularity_commits_the_ledger_frontier() {
-    let topic = format!("e2e-group-commit-{}", Uuid::new_v4());
-    assert_commits_track_the_ledger_frontier(
-        Harness::start_group_granularity(common::PRODUCTION_PACK_TARGETS, &topic, 1, 1, 1).await,
-    )
-    .await;
-}
-
-#[tokio::test]
-async fn group_granularity_keeps_a_held_frontier_uncommitted_until_the_stop_commits_it() {
+async fn a_held_frontier_stays_uncommitted_until_the_stop_commits_it() {
     let metrics = metrics();
     let topic = format!("e2e-group-stop-commit-{}", Uuid::new_v4());
-    let harness = Harness::start_group_granularity_committing_every(
+    let harness = Harness::start_committing_every(
         common::PRODUCTION_PACK_TARGETS,
         &topic,
-        1,
         1,
         1,
         Duration::from_secs(3600),
@@ -2725,11 +2582,18 @@ fn accepted_partition(harness: &Harness, idx: usize) -> i32 {
 }
 
 #[tokio::test]
-async fn group_granularity_commits_a_partition_while_another_stalls() {
+async fn a_partition_commits_while_another_stalls() {
     let topic = format!("e2e-group-stall-{}", Uuid::new_v4());
     // One message per request, or the packer puts both keys on one worker.
-    let harness =
-        Harness::start_group_granularity(common::ONE_MESSAGE_PER_REQUEST, &topic, 2, 2, 2).await;
+    let harness = Harness::start_with_pack_targets(
+        &topic,
+        2,
+        2,
+        Duration::from_secs(60),
+        fast_registry_config(),
+        common::ONE_MESSAGE_PER_REQUEST,
+    )
+    .await;
     let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
 
     guards[0] = None;
@@ -2765,23 +2629,14 @@ async fn group_granularity_commits_a_partition_while_another_stalls() {
     harness.stop().await;
 }
 
-#[rstest]
-#[case::capped(Polling::Capped)]
-#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it(#[case] polling: Polling) {
+async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it() {
     let topic = format!("e2e-partition-budget-{}", Uuid::new_v4());
     let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
         .expect("a valid budget");
-    let harness = Harness::start_with_partition_budget(
-        common::PRODUCTION_PACK_TARGETS,
-        &topic,
-        1,
-        1,
-        budget,
-        polling,
-    )
-    .await;
+    let harness =
+        Harness::start_with_partition_budget(common::PRODUCTION_PACK_TARGETS, &topic, 1, 1, budget)
+            .await;
     let p0 = TopicPartition::new(&topic, 0);
     let guard = harness.workers[0].block().await;
     let producer = make_producer();
@@ -2815,24 +2670,15 @@ async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it(#[case] pollin
     harness.stop().await;
 }
 
-#[rstest]
-#[case::capped(Polling::Capped)]
-#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn a_partition_at_its_budget_does_not_pause_another(#[case] polling: Polling) {
+async fn a_partition_at_its_budget_does_not_pause_another() {
     let topic = format!("e2e-partition-budget-two-{}", Uuid::new_v4());
     let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
         .expect("a valid budget");
     // One message per request, or the packer puts both keys on one worker.
-    let harness = Harness::start_with_partition_budget(
-        common::ONE_MESSAGE_PER_REQUEST,
-        &topic,
-        2,
-        2,
-        budget,
-        polling,
-    )
-    .await;
+    let harness =
+        Harness::start_with_partition_budget(common::ONE_MESSAGE_PER_REQUEST, &topic, 2, 2, budget)
+            .await;
     let mut guards = stall_two_partitions_on_two_workers(&harness, &topic).await;
 
     guards[0] = None;
@@ -2877,31 +2723,9 @@ async fn a_partition_at_its_budget_does_not_pause_another(#[case] polling: Polli
 }
 
 #[tokio::test]
-async fn continuous_polling_commits_the_ledger_frontier() {
-    let topic = format!("e2e-continuous-commit-{}", Uuid::new_v4());
-    assert_commits_track_the_ledger_frontier(
-        Harness::start_continuous(
-            common::PRODUCTION_PACK_TARGETS,
-            &topic,
-            1,
-            1,
-            BudgetLimits::new(
-                NonZeroU64::new(1_000),
-                NonZeroU64::new(UNBOUNDED_BYTES),
-                0.8,
-            )
-            .expect("a valid budget"),
-            ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
-        )
-        .await,
-    )
-    .await;
-}
-
-#[tokio::test]
 async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
     let topic = format!("e2e-in-flight-limit-{}", Uuid::new_v4());
-    let harness = Harness::start_continuous(
+    let harness = Harness::start_with_limits(
         common::PRODUCTION_PACK_TARGETS,
         &topic,
         1,
@@ -2951,7 +2775,7 @@ async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
 async fn a_ready_backlog_does_not_keep_the_batcher_from_running() {
     const BACKLOG: usize = 2_000;
     let topic = format!("e2e-continuous-backlog-{}", Uuid::new_v4());
-    let harness = Harness::start_continuous(
+    let harness = Harness::start_with_limits(
         common::PRODUCTION_PACK_TARGETS,
         &topic,
         1,
@@ -3079,7 +2903,6 @@ async fn lost_ack_after_processing_replays_without_loss() {
         &topic,
         1,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -3130,15 +2953,8 @@ async fn lost_ack_after_processing_replays_without_loss() {
 #[tokio::test]
 async fn poison_batch_fails_safely_without_committing() {
     let topic = format!("e2e-poison-{}", Uuid::new_v4());
-    let mut harness = Harness::start(
-        &topic,
-        1,
-        2,
-        1,
-        Duration::from_secs(2),
-        fast_registry_config(),
-    )
-    .await;
+    let mut harness =
+        Harness::start(&topic, 1, 2, Duration::from_secs(2), fast_registry_config()).await;
     let producer = make_producer();
 
     for w in &harness.workers {
@@ -3165,15 +2981,8 @@ async fn poison_batch_fails_safely_without_committing() {
 #[tokio::test]
 async fn partial_acceptance_fails_the_batch_without_commit() {
     let topic = format!("e2e-partial-accept-{}", Uuid::new_v4());
-    let mut harness = Harness::start(
-        &topic,
-        1,
-        2,
-        1,
-        Duration::from_secs(2),
-        fast_registry_config(),
-    )
-    .await;
+    let mut harness =
+        Harness::start(&topic, 1, 2, Duration::from_secs(2), fast_registry_config()).await;
     let producer = make_producer();
 
     for w in &harness.workers {
@@ -3203,7 +3012,6 @@ async fn drainer_crash_mid_drain_replays_to_survivor_in_order() {
     let harness = Harness::start(
         &topic,
         1,
-        2,
         2,
         Duration::from_secs(60),
         fast_registry_config(),
@@ -3272,7 +3080,6 @@ async fn full_pool_send_failure_with_multiple_keys_recovers_in_order(
         &topic,
         2,
         2,
-        3,
         Duration::from_secs(60),
         fast_registry_config(),
         pack_targets,
@@ -3337,7 +3144,6 @@ async fn headerless_messages_survive_send_failure_replay() {
         &topic,
         1,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -3405,7 +3211,6 @@ async fn non_utf8_payload_is_delivered_not_lost() {
         &topic,
         1,
         1,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -3446,7 +3251,6 @@ async fn fleet_redeploy_migrates_work_to_new_workers_without_loss() {
     let topic = format!("e2e-redeploy-{}", Uuid::new_v4());
     let mut harness = Harness::start(
         &topic,
-        2,
         2,
         2,
         Duration::from_secs(60),
@@ -3509,13 +3313,17 @@ async fn fleet_redeploy_migrates_work_to_new_workers_without_loss() {
     harness.stop().await;
 }
 
-#[rstest]
-#[case::capped(Polling::Capped)]
-#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn second_consumer_joining_the_group_preserves_all_messages(#[case] polling: Polling) {
+async fn second_consumer_joining_the_group_preserves_all_messages() {
     let topic = format!("e2e-two-consumers-{}", Uuid::new_v4());
-    let harness = Harness::start_polling(&topic, 2, 2, 1, 0, polling).await;
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
 
     // Hold an uncommitted batch while the first consumer owns both partitions.
@@ -3562,14 +3370,17 @@ async fn second_consumer_joining_the_group_preserves_all_messages(#[case] pollin
     harness.stop().await;
 }
 
-#[rstest]
-#[case::capped(Polling::Capped)]
-#[case::continuous(Polling::Continuous)]
 #[tokio::test]
-async fn partition_lost_and_regained_keeps_the_consumer_alive(#[case] polling: Polling) {
+async fn partition_lost_and_regained_keeps_the_consumer_alive() {
     let topic = format!("e2e-regain-{}", Uuid::new_v4());
-    // 128 in-flight polls keep the consumer polling under held batches.
-    let harness = Harness::start_polling(&topic, 2, 2, 128, 0, polling).await;
+    let harness = Harness::start(
+        &topic,
+        2,
+        2,
+        Duration::from_secs(60),
+        fast_registry_config(),
+    )
+    .await;
     let producer = make_producer();
     let partitions = [
         TopicPartition::new(topic.clone(), 0),
@@ -3699,14 +3510,11 @@ async fn fenced_static_member_exits_on_fatal_error() {
             batch_size: 50,
             batch_size_bytes: 0,
             batch_timeout: Duration::from_millis(100),
-            max_in_flight_batches: 1,
             group_id: "e2e-test".to_string(),
             debug_recorder: None,
-            completion_granularity: CompletionGranularity::Poll,
             commit_interval: Duration::ZERO,
             ledger: Arc::new(TopicOffsetLedger::new()),
             partition_budget: BudgetLimits::unset(),
-            polling: Polling::Capped,
             in_flight_limit: ChargeLimit::unset(),
         },
         handle,
@@ -3805,8 +3613,8 @@ fn spawn_churn(
     })
 }
 
-async fn run_churn_suite(churn: Churn, max_in_flight: usize, strict_order: bool) {
-    let topic = format!("e2e-churn-{churn:?}-mif{max_in_flight}-{}", Uuid::new_v4());
+async fn run_churn_suite(churn: Churn, strict_order: bool) {
+    let topic = format!("e2e-churn-{churn:?}-{}", Uuid::new_v4());
     let dids = 8usize;
     let per_did = 60usize;
     let total = dids * per_did;
@@ -3816,7 +3624,6 @@ async fn run_churn_suite(churn: Churn, max_in_flight: usize, strict_order: bool)
         &topic,
         partitions,
         4,
-        max_in_flight,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -3889,38 +3696,26 @@ async fn run_churn_suite(churn: Churn, max_in_flight: usize, strict_order: bool)
 }
 
 #[tokio::test]
-async fn churn_drain_preserves_order_at_max_in_flight_2() {
-    run_churn_suite(Churn::Drain, 2, true).await;
+async fn churn_drain_preserves_order() {
+    run_churn_suite(Churn::Drain, true).await;
 }
 
 #[tokio::test]
-async fn churn_drain_preserves_order_at_max_in_flight_3() {
-    run_churn_suite(Churn::Drain, 3, true).await;
+async fn churn_send_failures_are_exactly_once() {
+    run_churn_suite(Churn::Fail, false).await;
 }
 
 #[tokio::test]
-async fn churn_send_failures_are_exactly_once_at_max_in_flight_3() {
-    run_churn_suite(Churn::Fail, 3, false).await;
-}
-
-#[tokio::test]
-async fn churn_mixed_drain_and_failures_are_exactly_once_at_max_in_flight_3() {
-    run_churn_suite(Churn::Mixed, 3, false).await;
+async fn churn_mixed_drain_and_failures_are_exactly_once() {
+    run_churn_suite(Churn::Mixed, false).await;
 }
 
 #[tokio::test]
 async fn flapping_worker_does_not_pin_batch_past_flush_timeout() {
     let topic = format!("e2e-flap-{}", Uuid::new_v4());
     // Short flush timeout so the bound is observable quickly; concurrency > 1.
-    let mut harness = Harness::start(
-        &topic,
-        1,
-        2,
-        2,
-        Duration::from_secs(2),
-        fast_registry_config(),
-    )
-    .await;
+    let mut harness =
+        Harness::start(&topic, 1, 2, Duration::from_secs(2), fast_registry_config()).await;
     let producer = make_producer();
 
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
@@ -3968,7 +3763,6 @@ async fn nacking_worker_fences_worker_stream_and_reroutes_in_order() {
         &topic,
         2,
         2,
-        1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
@@ -4016,7 +3810,6 @@ async fn same_key_across_partitions_completes_and_commits() {
     let harness = Harness::start(
         &topic,
         2,
-        1,
         1,
         Duration::from_secs(60),
         fast_registry_config(),
