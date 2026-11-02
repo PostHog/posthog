@@ -177,6 +177,16 @@ describe('resolveCredentials', () => {
             { configHost: EU },
             'host_mismatch',
         ],
+        [
+            "posthog-cli's file for the posthog.json host beats a hog login to another host",
+            {
+                ...settings(US, { [US]: 'keychain' }),
+                [POSTHOG_CLI_FILE]: JSON.stringify({ token: 'phx_cli_eu', env_id: '3', host: EU }),
+            },
+            { [US]: login('phx_us') },
+            { configHost: EU },
+            { apiKey: 'phx_cli_eu', host: EU, source: 'posthog-cli-file' },
+        ],
     ] as const)('%s', async (_name, files, keychain, options, expected) => {
         const outcome = await resolveCredentials(fakeRuntime({ files, keychain }), options).catch((error: unknown) =>
             error instanceof HogError ? error.code : error

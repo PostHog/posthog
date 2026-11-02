@@ -42,11 +42,21 @@ function parseLoginRecord(value: unknown): LoginRecord | undefined {
     return undefined
 }
 
-// A missing or broken file means hog has no settings yet.
+// A missing or broken file means hog has no settings yet. Any other read failure stops the command,
+// because a later write would replace the logins of every host with an empty file.
 export async function readSettings(runtime: Runtime): Promise<HogSettings> {
+    let text: string
+    try {
+        text = await runtime.readFile(settingsPath(runtime))
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return {}
+        }
+        throw error
+    }
     let parsed: unknown
     try {
-        parsed = JSON.parse(await runtime.readFile(settingsPath(runtime)))
+        parsed = JSON.parse(text)
     } catch {
         return {}
     }
