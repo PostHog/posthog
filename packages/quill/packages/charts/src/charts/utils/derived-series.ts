@@ -80,7 +80,10 @@ export interface BuildTrendLineSeriesInput<Meta = unknown> {
  *  only to hex source colours; non-hex inputs are passed through untouched (mirrors
  *  `applyComparisonDimming`). */
 export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeriesInput<Meta>): Series<Meta> {
-    const { sourceSeries, kind, fitUpTo, xs } = input
+    const { sourceSeries, kind, fitUpTo } = input
+    // Epoch milliseconds are too large for the regression and cancel to NaN, so fit relative to the first x.
+    const origin = input.xs?.find((x) => isFinite(x)) ?? 0
+    const xs = input.xs?.map((x) => x - origin)
     const data =
         kind === 'exponential'
             ? exponentialTrend(sourceSeries.data, fitUpTo, xs)
