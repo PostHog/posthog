@@ -19,7 +19,7 @@ import { metricsViewerLogic } from './metricsViewerLogic'
 
 export interface MetricsQueryControlsProps {
     /** Prefix of the `data-attr` of each control, so each surface keeps its own analytics names. */
-    dataAttrPrefix: 'metrics-query-editor' | 'metrics-widget-editor'
+    dataAttrPrefix: 'metrics-query-editor'
     /** The query a language switch converts while the builder has no metric yet. */
     fallbackQuery?: MetricsQuery
     /** Shows the builder / PromQL / SQL switch. Gets the query as it is now, including an unrun draft. */
@@ -28,18 +28,15 @@ export interface MetricsQueryControlsProps {
     onRerun?: () => void
     /** Offers the heatmap display, which saves a histogram query instead of a time series. */
     heatmap?: { eligible: boolean }
-    /** Offers the stat, gauge, bar gauge and table panels without the panels flag, as metric widgets need them. */
-    allPanels?: boolean
 }
 
-/** The metrics query controls of the metrics insight editor and the metric widget editor. */
+/** The metrics query controls of the metrics insight editor. */
 export function MetricsQueryControls({
     dataAttrPrefix,
     fallbackQuery,
     onSwitchLanguage,
     onRerun,
     heatmap,
-    allPanels,
 }: MetricsQueryControlsProps): JSX.Element {
     const { language, queryDraft, interval } = useValues(metricsViewerLogic)
     const { setInterval } = useActions(metricsViewerLogic)
@@ -88,7 +85,6 @@ export function MetricsQueryControls({
                     <MetricsDisplayTypeSelect
                         dataAttrPrefix={dataAttrPrefix}
                         heatmap={heatmap}
-                        allPanels={allPanels}
                         disabledReason={disabledReason}
                     />
                     <MetricsChartSettings />

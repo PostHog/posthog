@@ -17,7 +17,6 @@ export function MetricsDisplayTypeSelect({
     dataAttrPrefix,
     resultIsGrouped: resultIsGroupedProp,
     heatmap,
-    allPanels,
     disabledReason,
 }: {
     dataAttrPrefix: string
@@ -25,13 +24,11 @@ export function MetricsDisplayTypeSelect({
     resultIsGrouped?: boolean
     /** Offers the heatmap display, which saves a histogram query instead of a time series. */
     heatmap?: { eligible: boolean }
-    /** Offers the stat, gauge, bar gauge and table panels without the panels flag. */
-    allPanels?: boolean
     disabledReason: string | null
 }): JSX.Element {
     const { displayType, language, formula, namedClauses } = useValues(metricsViewerLogic)
     const { setDisplayType } = useActions(metricsViewerLogic)
-    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS') || !!allPanels
+    const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
 
     // A formula result is ungrouped even when its input clauses group. PromQL and SQL results can have any labels.
     const resultIsGrouped =
