@@ -190,19 +190,23 @@ def _to_utc_date(value: Any) -> date:
     return parser.parse(str(value)).astimezone(UTC).date()
 
 
-def _insights_window(db_incremental_field_last_value: Optional[Any]) -> SyncWindow[str]:
+def _insights_window(
+    db_incremental_field_last_value: Optional[Any], history_start: date | None = None
+) -> SyncWindow[str]:
     """The [since, until] ISO date window for one insights sync.
 
     Incremental runs start at the watermark (the pipeline already rewinds it by the configured
-    lookback); full refreshes start at the oldest day the API still reports. A watermark older than
-    that day is moved up to it too. `until` is yesterday: the API reads a `date_range` `until` as
-    inclusive and moves it to the next midnight, and it rejects a bound in the future with a 400. So
-    `until` set to today asks for a range that ends tomorrow, and every request fails. The trailing
-    lookback re-reads the day once it is complete.
+    lookback); full refreshes start at the oldest day the API still reports, or at `history_start`
+    when that is later. A watermark older than that day is moved up to it too. `until` is yesterday:
+    the API reads a `date_range` `until` as inclusive and moves it to the next midnight, and it
+    rejects a bound in the future with a 400. So `until` set to today asks for a range that ends
+    tomorrow, and every request fails. The trailing lookback re-reads the day once it is complete.
     """
     today = datetime.now(tz=UTC).date()
     until = today - timedelta(days=1)
     earliest = today - timedelta(days=INSIGHTS_HISTORY_DAYS)
+    if history_start is not None:
+        earliest = max(earliest, history_start)
     since = earliest
     if db_incremental_field_last_value is not None:
         since = max(_to_utc_date(db_incremental_field_last_value), earliest)
@@ -263,6 +267,28 @@ def _account_currency(api_key: str) -> str:
             if isinstance(currency, str) and re.fullmatch(r"[A-Z]{3}", currency):
                 return currency
     raise ValueError("OpenAI Ads did not return an account currency. Check the account settings, then sync again.")
+
+
+def _oldest_campaign_date(api_key: str) -> date | None:
+    """The day the account's oldest campaign was created, so a first sync can start there.
+
+    OpenAI Ads answers an insights range from before the account ran any campaign with a
+    `server_error`, however short the range is, so a first sync that starts a year back fails on
+    its first window every time. An account with no campaign yet has nothing to report, so the
+    window starts at today and shrinks to one day. None keeps the full reporting history.
+    """
+    for page in _retry_forbidden_server_errors(
+        _make_client(api_key).paginate(
+            path="/v1/campaigns",
+            params={"limit": 1, "order": "asc"},
+            paginator=SinglePagePaginator(),
+            data_selector="data",
+        )
+    ):
+        for campaign in page:
+            created_at = campaign.get("created_at")
+            return _to_utc_date(created_at) if created_at is not None else None
+    return datetime.now(tz=UTC).date()
 
 
 def _list_pages(client: RESTClient, path: str, params: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
@@ -411,16 +437,17 @@ def _insights_source(
     resume: OpenAIAdsResumeConfig | None,
     db_incremental_field_last_value: Optional[Any],
 ) -> SourceResponse:
-    full_window = _insights_window(db_incremental_field_last_value)
+    currency = _account_currency(api_key)
+
     if resume is not None and resume.since and resume.until:
+        full_window = _insights_window(db_incremental_field_last_value)
         windows = [SyncWindow(start=resume.since, end=resume.until)]
         next_start = date.fromisoformat(resume.until) + timedelta(days=1)
         if next_start <= date.fromisoformat(full_window.end):
             windows += _split_insights_window(SyncWindow(start=next_start.isoformat(), end=full_window.end))
     else:
-        windows = _split_insights_window(full_window)
-
-    currency = _account_currency(api_key)
+        history_start = _oldest_campaign_date(api_key) if db_incremental_field_last_value is None else None
+        windows = _split_insights_window(_insights_window(db_incremental_field_last_value, history_start))
 
     def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
         return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
