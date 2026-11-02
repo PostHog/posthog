@@ -1473,6 +1473,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         expected_agent_key = Task.mcp_agent_key_for(origin_product, profile)
         if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
             raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
+        if profile is not None:
+            mcp_builtin_agent_key = expected_agent_key
 
         initial_state: dict[str, Any] = {}
         if mcp_builtin_agent_key:

@@ -43,6 +43,7 @@ from products.tasks.backend.models import (
     MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     TASK_RUN_FINISH_REPORT_STATE_KEY,
+    MCPBuiltInAgentKey,
     SandboxEnvironment,
     SandboxSnapshot,
     Task,
@@ -754,8 +755,11 @@ class TestTask(TestCase):
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
         self.assertEqual((task.runtime, state.get("sandbox_template")), expected)
 
+    @parameterized.expand([("caller_passes_the_key", "support"), ("caller_passes_none", None)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_takes_the_agent_key_from_the_profile(self, _mock_execute_workflow):
+    def test_create_and_run_takes_the_agent_key_from_the_profile(
+        self, _name: str, passed_key: MCPBuiltInAgentKey | None, _mock_execute_workflow
+    ):
         user = User.objects.create(email="agent@test.com")
 
         with (
@@ -771,7 +775,7 @@ class TestTask(TestCase):
                 description="Runs as the support agent",
                 profile=SUPPORT_AGENT_PROFILE,
                 user_id=user.id,
-                mcp_builtin_agent_key="support",
+                mcp_builtin_agent_key=passed_key,
             )
 
             self.assertEqual(task.mcp_builtin_agent_key, "support")
