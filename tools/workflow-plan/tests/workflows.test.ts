@@ -592,6 +592,40 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
+    it.each([
+        ['ready PR', pullRequest(), true, true],
+        ['merge queue', mergeQueue(), true, false],
+        ['master push', push(), true, false],
+        ['hourly schedule', schedule(), false, false],
+    ])('frontend size comparison runs only when consumed (%s)', (name, github, headBuild, baseBuild) => {
+        const wf = workflow('ci-frontend.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: { ...allFiltersChanged(wf), ...frontendSelectors },
+        })
+        expect(plan.errors).toEqual([])
+        const steps = plan.jobs['frontend-bundle-size']?.steps ?? []
+        expect(steps.find((step) => step.name === 'Build base branch for size comparison')?.runs ?? false).toBe(
+            baseBuild
+        )
+        for (const step of [
+            'Build frontend (bundle-size + eager-graph report)',
+            'Measure PR dist size',
+            'Check toolbar bundle stays under the CloudFront gzip limit',
+            'Check toolbar graph stays inside its module boundary',
+            'Check toolbar for CSP eval violations',
+            'Calculate dist folder size',
+        ]) {
+            expect(steps.find((candidate) => candidate.name === step)?.runs ?? false, step).toBe(headBuild)
+        }
+        expect(
+            steps.find((step) => step.name === 'Check eager graph budgets and forbidden imports')?.runs ?? false
+        ).toBe(headBuild && github.event_name === 'pull_request')
+        expect(steps.find((step) => step.name === 'Post CI report — bundle size')?.runs ?? false).toBe(baseBuild)
+        expect(plan.jobs.frontend_tests?.result).toBe('success')
+    })
+
     it.each(['build', 'quality', 'typecheck', 'test'])('Desktop %s shares the fallback detector filters', (name) => {
         const filters = (file: string): Record<string, string[]> =>
             load(
