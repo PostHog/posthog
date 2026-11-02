@@ -7,10 +7,10 @@ import { subscriptions } from 'kea-subscriptions'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getBillingLimitConfig } from 'scenes/billing/billingLimitConfig'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import {
     INBOX_PRODUCT_TYPE,
     creditsPerPr as deriveCreditsPerPr,

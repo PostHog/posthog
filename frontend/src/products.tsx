@@ -12,6 +12,12 @@ import type { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
 import { examples } from '~/queries/examples'
+import {
+    isBIVisualizationNode,
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+} from '~/queries/schema/node-guards'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -21,15 +27,13 @@ import {
     HogQLFilters,
     HogQLQuery,
     HogQLVariable,
-    MetricsQuery,
     Node,
     NodeKind,
     ProductItemCategory,
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { ActivityScope, ExperimentsTabs } from '~/types'
+import { ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -53,6 +57,7 @@ import type { WorkflowsSceneTab } from '../../products/workflows/frontend/Workfl
 import type { DashboardsTab } from './scenes/dashboard/dashboards/dashboardsLogic'
 import {
     ActionType,
+    ActivityScope,
     AnnotationType,
     AnyPropertyFilter,
     DashboardType,
@@ -2072,6 +2077,7 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-cohorts-light)', 'var(--color-product-cohorts-dark)'] as FileSystemIconColor,
         href: (ref: string) => urls.cohort(ref),
         listHref: () => urls.cohorts(),
+        listSearchParam: 'search',
         filterKey: 'cohort',
     },
     dashboard: {
@@ -2104,6 +2110,7 @@ export const fileSystemTypes = {
         iconType: 'experiment',
         href: (ref: string) => urls.experiment(ref),
         listHref: () => urls.experiments(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-experiments-light)'],
         filterKey: 'experiment',
     },
@@ -2112,6 +2119,7 @@ export const fileSystemTypes = {
         iconType: 'feature_flag',
         href: (ref: string) => urls.featureFlag(ref),
         listHref: () => urls.featureFlags(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-feature-flags-light)'],
         filterKey: 'feature_flag',
     },
@@ -2120,6 +2128,7 @@ export const fileSystemTypes = {
         iconType: 'product_analytics',
         href: (ref: string) => urls.insightView(ref as InsightShortId),
         listHref: () => urls.savedInsights(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-product-analytics-light)'],
         filterKey: 'insight',
     },
@@ -2157,6 +2166,7 @@ export const fileSystemTypes = {
         iconType: 'survey',
         href: (ref: string) => urls.survey(ref),
         listHref: () => urls.surveys(),
+        listSearchParam: 'search',
         iconColor: ['var(--color-product-surveys-light)'],
         filterKey: 'survey',
     },
@@ -2292,17 +2302,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         href: urls.insightNew({ type: InsightType.LIFECYCLE }),
         iconType: 'insight/lifecycle',
         visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
-        sceneKeys: ['Insight'],
-    },
-    {
-        path: `Insight/Metrics`,
-        type: 'insight',
-        href: urls.insightNew({
-            query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
-        }),
-        flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
-        iconType: 'metrics',
-        visualOrder: INSIGHT_VISUAL_ORDER.metrics,
         sceneKeys: ['Insight'],
     },
     {
