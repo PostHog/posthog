@@ -680,9 +680,7 @@ _SANDBOX_PROTECTED_CONFIG_FIELDS = (*STEERING_FIELDS.values(), "implementation_r
 
 def _submitted_config_fields(request: Request) -> set[str]:
     # A form encoding sends a nested value as `field.key` or `field[0]`, and DRF folds it back into `field`.
-    if not isinstance(request.data, dict):
-        return set()
-    return {re.split(r"[.\[]", key, maxsplit=1)[0] for key in request.data}
+    return {re.split(r"[.\[]", key, maxsplit=1)[0] for key in request.data} if isinstance(request.data, dict) else set()
 
 
 class SignalSteeringPermission(BasePermission):
