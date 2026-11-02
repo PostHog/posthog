@@ -144,6 +144,9 @@ const ROOTS = [
             'products/subscriptions/frontend/components/Subscriptions/exportNudge/exportNudgeLogic.ts',
             // The pay gate loads the payment logic on click. It pulls in the billing product logic.
             'src/scenes/billing/paymentEntryLogic.ts',
+            // The login scene's logics. Shell code reads the login redirect from lib/utils/loginRedirect.
+            'src/scenes/authentication/auth/loginLogic.ts',
+            'src/scenes/authentication/shared/passkeyLogic.ts',
             // The rich text editor stack is for the scenes that edit text. Rendered markdown needs none of it.
             'node_modules/@tiptap/',
             'node_modules/prosemirror-',
