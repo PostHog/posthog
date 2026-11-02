@@ -245,7 +245,7 @@ class StableCursorPagination(CursorPagination):
 
         It hashes the unreversed ordering, so the next and previous cursors of one list share it.
         """
-        return hashlib.sha1(",".join(self.ordering).encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
+        return hashlib.sha256(",".join(self.ordering).encode("utf-8")).hexdigest()[:8]
 
     def cursor_link(self, cursor: PageCursor) -> str:
         tokens: dict[str, str] = {}
