@@ -288,7 +288,7 @@ export const PausedReminder: Story = {
     name: 'Paused reminder',
     render: () => <InboxOnboardingBanner />,
     play: async ({ canvas }) => {
-        await expect(canvas.findByText('Set up Self-Driving')).resolves.toBeVisible()
+        await expect(canvas.findByText('Set up Self-driving')).resolves.toBeVisible()
     },
     decorators: [
         mswDecorator({
@@ -367,7 +367,7 @@ export const GithubOptional: Story = {
         },
     },
     play: async ({ canvas }) => {
-        await canvas.findByText('Activate Self-Driving')
+        await canvas.findByText('Activate Self-driving')
         await expect(canvas.queryByText('Connect GitHub')).not.toBeInTheDocument()
     },
     decorators: [
@@ -390,7 +390,7 @@ export const QuickConnected: Story = {
     name: 'Quick setup with GitHub connected',
     play: async ({ canvas }) => {
         // Nothing is prefetched for the welcome screen, so the button is enabled as soon as the project loads.
-        const activate = (await canvas.findByText('Activate Self-Driving')).closest('button')
+        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')
         await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
         await expect(canvas.getByText('Start manually')).toBeVisible()
     },
@@ -482,7 +482,7 @@ export const QuickActivationFailed: Story = {
         quickActivationCompleted = false
     },
     play: async ({ canvas, userEvent }) => {
-        const activate = (await canvas.findByText('Activate Self-Driving')).closest('button')!
+        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')!
         await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
         await userEvent.click(activate)
         const message = await canvas.findByText('Activation interrupted')
