@@ -10,9 +10,11 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import hash_key_value
+
+from products.workflows.backend.models import SandboxSenderOrganizationBlock
 
 if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
@@ -113,6 +115,25 @@ class TestSandboxSenderAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
         assert not self._sandbox_rows().exists()
         assert self._provisioned_events() == []
+
+    def test_ensure_is_not_found_while_the_organization_is_blocked_and_keeps_existing_senders(self) -> None:
+        other_organization = Organization.objects.create(name="Other organization")
+        SandboxSenderOrganizationBlock.objects.create(organization=other_organization, reason="Abuse report")
+        block = SandboxSenderOrganizationBlock.objects.create(organization=self.organization, reason="Abuse report")
+
+        blocked = self._ensure()
+
+        assert blocked.status_code == status.HTTP_404_NOT_FOUND, blocked.json()
+        assert not self._sandbox_rows().exists()
+        assert self._provisioned_events() == []
+        block.delete()
+        unblocked = self._ensure()
+        assert unblocked.status_code == status.HTTP_200_OK, unblocked.json()
+        assert self._sandbox_rows().count() == 1
+        SandboxSenderOrganizationBlock.objects.create(organization=self.organization, reason="Abuse report")
+        reblocked = self._ensure()
+        assert reblocked.status_code == status.HTTP_404_NOT_FOUND, reblocked.json()
+        assert self._sandbox_rows().count() == 1
 
     @parameterized.expand(
         [
