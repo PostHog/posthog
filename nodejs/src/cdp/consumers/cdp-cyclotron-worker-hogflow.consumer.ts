@@ -29,7 +29,7 @@ const counterHogFlowJobsFailed = new Counter({
 
 type LoadHogFlowsResult = {
     loadedInvocations: CyclotronJobInvocationHogFlow[]
-    terminalResults: CyclotronJobInvocationResult[]
+    canceledResults: CyclotronJobInvocationResult[]
 }
 
 // A transactional email's caller holds only a send key, which grants no access to person data, so its
@@ -53,9 +53,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     public override async processInvocations(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationResult[]> {
-        const { loadedInvocations, terminalResults } = await this.loadHogFlows(invocations)
+        const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        return [...terminalResults, ...executed]
+        return [...canceledResults, ...executed]
     }
 
     /**
@@ -92,22 +92,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return result
     }
 
-    private buildFailedResult(
-        item: CyclotronJobInvocation,
-        hogFlow: HogFlow,
-        message: string
-    ): CyclotronJobInvocationResult {
-        const invocation = { ...item, hogFlow }
-        const result = createInvocationResult(invocation, {}, { finished: true, error: message })
-        result.logs.push({ level: 'error', timestamp: DateTime.now(), message })
-        return result
-    }
-
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
-        const terminalResults: CyclotronJobInvocationResult[] = []
+        const canceledResults: CyclotronJobInvocationResult[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -117,7 +106,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // (deleted) or a lookup error still cancels.
                 if (item.cancelRequestedAt) {
                     const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId).catch(() => null)
-                    terminalResults.push(this.buildCanceledResult(item, 'Run canceled', hogFlow ?? undefined))
+                    canceledResults.push(this.buildCanceledResult(item, 'Run canceled', hogFlow ?? undefined))
                     return
                 }
 
@@ -147,13 +136,19 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
                     counterHogFlowJobsFailed.labels({ reason: 'workflow_version_behind' }).inc()
 
-                    terminalResults.push(
-                        this.buildFailedResult(
-                            item,
-                            hogFlow,
-                            `Workflow version ${hogFlow.version} is older than version ${send?.hogFlowVersion}, which this send was checked against`
+                    const behind = { ...item, hogFlow }
+                    const recorded =
+                        await this.invocationResultsService.invocationResultsRowsService.recordTerminalFailureDurably(
+                            behind,
+                            {
+                                errorKind: 'workflow_version_behind',
+                                error: `Workflow version ${hogFlow.version} is older than version ${send?.hogFlowVersion}, which this send was checked against.`,
+                            }
                         )
-                    )
+                    if (recorded || !this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+                        failedInvocations.push(item)
+                        this.invocationResultsService.emailStatusService.queueUnavailableRun(item)
+                    }
 
                     return
                 }
@@ -167,7 +162,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         status: hogFlow.status,
                     })
 
-                    terminalResults.push(
+                    canceledResults.push(
                         this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active', hogFlow)
                     )
 
@@ -299,6 +294,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
-        return { loadedInvocations, terminalResults }
+        return { loadedInvocations, canceledResults }
     }
 }
