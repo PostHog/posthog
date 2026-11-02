@@ -187,6 +187,55 @@ export interface InboxPageApi {
 
 export const INBOX_PAGE_SIZE = 20
 
+function isOptionalString(value: unknown): boolean {
+    return value === undefined || value === null || typeof value === 'string'
+}
+
+function isReportDate(value: unknown): boolean {
+    return typeof value === 'string' && Number.isFinite(Date.parse(value))
+}
+
+function isInboxReport(value: unknown): boolean {
+    if (!isRecord(value)) {
+        return false
+    }
+    const assignee = value.assignee
+    const ranking = value.ranking
+    return (
+        typeof value.id === 'string' &&
+        value.id.trim().length > 0 &&
+        isOptionalString(value.title) &&
+        typeof value.status === 'string' &&
+        Array.isArray(value.source_products) &&
+        value.source_products.every((source) => typeof source === 'string') &&
+        isReportDate(value.created_at) &&
+        isReportDate(value.updated_at) &&
+        typeof value.signal_count === 'number' &&
+        Number.isSafeInteger(value.signal_count) &&
+        value.signal_count >= 0 &&
+        (value.is_suggested_reviewer === undefined || typeof value.is_suggested_reviewer === 'boolean') &&
+        isOptionalString(value.implementation_pr_url) &&
+        Array.isArray(value.pull_requests) &&
+        value.pull_requests.every(
+            (pr: unknown) =>
+                isRecord(pr) &&
+                typeof pr.url === 'string' &&
+                typeof pr.state === 'string' &&
+                typeof pr.merged === 'boolean' &&
+                isOptionalString(pr.id) &&
+                isOptionalString(pr.review_decision)
+        ) &&
+        (assignee === undefined || assignee === null || (isRecord(assignee) && typeof assignee.kind === 'string')) &&
+        (ranking === undefined ||
+            ranking === null ||
+            (isRecord(ranking) &&
+                isRecord(ranking.scores) &&
+                (ranking.scores.pr_merged === undefined ||
+                    ranking.scores.pr_merged === null ||
+                    (typeof ranking.scores.pr_merged === 'number' && Number.isFinite(ranking.scores.pr_merged)))))
+    )
+}
+
 export async function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
     const page = await apiJson<InboxPageApi>(projectPath('signals/reports/'), {
         query: { view: 'for_you', sort: 'priority', limit: INBOX_PAGE_SIZE, offset } satisfies SignalsReportsListParams,
@@ -195,7 +244,10 @@ export async function fetchInboxPage(offset: number, signal?: AbortSignal): Prom
     if (
         !isRecord(page) ||
         !Array.isArray(page.results) ||
-        page.results.some((report) => !isRecord(report) || typeof report.id !== 'string')
+        !page.results.every(isInboxReport) ||
+        !Number.isSafeInteger(page.count) ||
+        page.count < 0 ||
+        (page.next !== undefined && page.next !== null && typeof page.next !== 'string')
     ) {
         throw new Error("Couldn't load your inbox. Try again.")
     }

@@ -6,6 +6,9 @@ sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and
 `projectPath('signals/reports/')` builds `/api/projects/{projectId}/signals/reports/`.
 Streams use `apiStream` (expo's fetch, so the body streams on native) and `src/api/sse.ts`.
 
+Inbox pages validate the fields used to render report rows before they enter the query cache. A malformed page fails
+the request while previously loaded pages remain visible. The load-more retry requests the failed page again.
+
 Most existing types are written by hand per module and name the Django serializer they mirror.
 PR checks use `PullRequestChecksResponseApi` from the Signals generated schemas. New API
 types should come from the generated schemas; update the Django serializer and run
