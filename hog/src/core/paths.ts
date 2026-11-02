@@ -15,7 +15,7 @@ export function storedPath(root: string, path: string): string {
 }
 
 // hog's own folder, where it keeps its settings, the approvals it waits for and, without a keychain,
-// its credentials. posthog-cli's ~/.posthog folder is not hog's: hog only reads its credentials file.
+// its credentials. posthog-cli's ~/.posthog folder is not hog's: only `hog auth migrate` reads it.
 export function hogDir(runtime: Pick<Runtime, 'env' | 'platform' | 'homeDir' | 'fromSource'>): string {
     const { env, platform } = runtime
     const home = runtime.homeDir()

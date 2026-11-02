@@ -4,18 +4,8 @@ import { HogError } from '@/core/errors'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
-// A login as commands see it. The store keeps only its secrets, and settings.json keeps the rest,
-// so a keychain item stays small however many scopes a login gains.
-export interface PersonalApiKeyCredential {
-    type: 'personal_api_key'
-    host: string
-    projectId: string
-    apiKey: string
-}
-
-export type StoredCredential = PersonalApiKeyCredential
-
-// The part of a login the credential store keeps.
+// The part of a login the credential store keeps. settings.json keeps the rest, so a keychain item
+// stays small however many scopes a login gains.
 export interface PersonalApiKeySecret {
     apiKey: string
 }
