@@ -20,7 +20,6 @@ import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/q
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import {
     getTotalExposures,
-    hasSampleRatioMismatch,
     sampleRatioLine,
     serverSampleRatioFinding,
 } from 'products/experiments/frontend/health/exposureHealth'
@@ -167,9 +166,8 @@ export function Exposures(): JSX.Element {
     const multipleTreatmentLabel =
         resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
 
-    // Detect sample ratio mismatch (p < 0.001 is significant)
-    const hasSRM = hasSampleRatioMismatch(exposures)
     const srmLine = sampleRatioLine(exposures, healthUi === 'panel')
+    const hasSRM = srmLine !== null && srmLine.tone !== 'success'
 
     // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
     // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
@@ -496,13 +494,20 @@ export function Exposures(): JSX.Element {
                                     />
                                     {srmLine && exposures?.sample_ratio_mismatch != null && (
                                         <div className="flex items-center gap-1 text-xs mt-2">
-                                            {srmLine.tone === 'warning' ? (
+                                            {srmLine.tone !== 'success' ? (
                                                 <>
                                                     <Tooltip title={srmLine.tooltip}>
-                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                            <IconWarning className="text-sm" />
-                                                            <span className="font-semibold">{srmLine.label}</span>
-                                                        </span>
+                                                        {srmLine.tone === 'warning' ? (
+                                                            <span className="flex items-center gap-1 text-warning cursor-pointer">
+                                                                <IconWarning className="text-sm" />
+                                                                <span className="font-semibold">{srmLine.label}</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span className="flex items-center gap-1 text-secondary cursor-pointer">
+                                                                <IconInfo className="text-sm" />
+                                                                <span>{srmLine.label}</span>
+                                                            </span>
+                                                        )}
                                                     </Tooltip>
                                                     <span className="text-muted">
                                                         (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})

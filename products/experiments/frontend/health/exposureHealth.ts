@@ -24,7 +24,7 @@ export function serverSampleRatioFinding(
 
 /** What the exposures card says about the sample ratio test. */
 export type SampleRatioLine = {
-    tone: 'warning' | 'success'
+    tone: 'warning' | 'info' | 'success'
     label: string
     tooltip: string
 }
@@ -41,10 +41,18 @@ export function sampleRatioLine(
     if (exposures?.sample_ratio_mismatch == null) {
         return null
     }
+    // When every release condition sets a variant override, the split assigns nobody, so the test compares nothing.
+    // The panel's variant override finding explains the counts instead.
+    if (
+        followsServer &&
+        exposures.health_checks?.some(({ key, status }) => key === 'srm' && status === 'not_applicable')
+    ) {
+        return null
+    }
     const finding = followsServer ? serverSampleRatioFinding(exposures) : undefined
     if (finding) {
         return {
-            tone: 'warning',
+            tone: finding.severity === 'info' ? 'info' : 'warning',
             label:
                 finding.subcode === 'split_changed'
                     ? 'Sample ratio mismatch after a split change'
