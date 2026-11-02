@@ -62,6 +62,9 @@ class WhopEndpointConfig:
     def served_on(self, api_version: str) -> bool:
         return self.versions is None or api_version in self.versions
 
+    def webhooks_served_on(self, api_version: str) -> bool:
+        return self.webhook_versions is None or api_version in self.webhook_versions
+
 
 WHOP_ENDPOINTS: dict[str, WhopEndpointConfig] = {
     "memberships": WhopEndpointConfig(
@@ -243,11 +246,7 @@ WEBHOOK_SCHEMA_NAMES = tuple(SCHEMA_TO_WEBHOOK_EVENTS.keys())
 
 
 def webhook_schema_names_for(api_version: str) -> tuple[str, ...]:
-    return tuple(
-        name
-        for name in WEBHOOK_SCHEMA_NAMES
-        if WHOP_ENDPOINTS[name].webhook_versions is None or api_version in WHOP_ENDPOINTS[name].webhook_versions
-    )
+    return tuple(name for name in WEBHOOK_SCHEMA_NAMES if WHOP_ENDPOINTS[name].webhooks_served_on(api_version))
 
 
 def webhook_events_for(api_version: str) -> list[str]:
