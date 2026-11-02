@@ -39,6 +39,14 @@ export function getModelContext(): ModelContext | null {
     return fromDocument ?? fromNavigator ?? null
 }
 
+export function fillPlaceholders<T>(value: T, replacements: Record<string, string>): T {
+    let json = JSON.stringify(value)
+    for (const [placeholder, replacement] of Object.entries(replacements)) {
+        json = json.replaceAll(placeholder, JSON.stringify(replacement).slice(1, -1))
+    }
+    return JSON.parse(json) as T
+}
+
 export function formatExecResult(result: WebMCPExecResultApi): string {
     return result.content
         .map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : JSON.stringify(block)))
@@ -134,7 +142,11 @@ export const webmcpLogic = kea<webmcpLogicType>([
 
             const register = async (signal: AbortSignal): Promise<void> => {
                 // A separate chunk keeps the long description out of the main bundle.
-                const { WEBMCP_EXEC_TOOL: tool } = await import('../execTool.generated')
+                const generated = await import('../execTool.generated')
+                const tool = fillPlaceholders(generated.WEBMCP_EXEC_TOOL, {
+                    [generated.APP_ORIGIN_PLACEHOLDER]: window.location.origin,
+                    [generated.PROJECT_ID_PLACEHOLDER]: String(teamId),
+                })
                 if (signal.aborted) {
                     return
                 }

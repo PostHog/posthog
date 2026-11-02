@@ -31,8 +31,6 @@ import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
 
-/** The request state that shapes the advertised `exec` tool. Narrower than
- *  `ResolvedState`, so a build script can render the tool without a live request. */
 export type ExecToolState = Pick<
     ResolvedState,
     | 'renderUiEnabled'
