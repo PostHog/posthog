@@ -158,6 +158,7 @@ from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANK
 from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
+from products.signals.backend.presentation.spend import ReportSpendSerializer
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.ranking.access import can_view_inbox_ranking, user_flag_enabled
@@ -303,6 +304,7 @@ from products.signals.backend.slack_notification_targets import (
     validate_slack_notification_target,
 )
 from products.signals.backend.source_suggestions import current_source_suggestion
+from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
@@ -1846,7 +1848,7 @@ class SignalReportViewSet(
     def safely_get_queryset(self, queryset):
         if self.action == "read_state":
             return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
-        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics"}:
+        if self.action in {"viewed", "feedback_state", "feedback", "pr_ci_statuses", "refresh_metrics", "spend"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
             # right after the detail request that already rendered the report, `pr_ci_statuses` only
@@ -2002,6 +2004,7 @@ class SignalReportViewSet(
             "bulk_claim",
             "retrieve",
             "signals",
+            "spend",
             "refund",
             "feedback",
             "feedback_state",
@@ -2788,6 +2791,12 @@ class SignalReportViewSet(
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
         }
+
+    @extend_schema(responses=ReportSpendSerializer, operation_id="signals_report_spend")
+    @action(detail=True, methods=["get"], required_scopes=["signal_usage:read"])
+    def spend(self, request: Request, **kwargs: object) -> Response:
+        report = self.get_object()
+        return Response(ReportSpendSerializer(SpendReporting(self.team).report(report)).data)
 
     def retrieve(self, request, *args, **kwargs):
         with trial_state_errors():

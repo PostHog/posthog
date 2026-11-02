@@ -5,6 +5,25 @@ import { loadRenderUiData } from '@/ui-apps/apps/render-ui-data'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 describe('render-ui data loading', () => {
+    it.each([
+        { appKey: 'survey' as const, toolName: 'survey-get' },
+        { appKey: 'query-results' as const, toolName: 'query-trends' },
+    ])('draws $appKey from preloaded data without calling the server', async ({ appKey, toolName }) => {
+        const callServerTool = vi.fn().mockRejectedValue(new Error('MCP error -32603'))
+        const meta = { [APP_DATA_META_KEY]: { results: [] } }
+
+        expect(await loadRenderUiData({ callServerTool }, toolName, {}, appKey, meta)).toEqual({
+            structuredContent: { results: [] },
+        })
+        expect(callServerTool).not.toHaveBeenCalled()
+    })
+
+    it('fetches from the server when the result carried no preloaded data', async () => {
+        const result = { structuredContent: { id: 'example' }, content: [] }
+        const callServerTool = vi.fn().mockResolvedValue(result)
+        expect(await loadRenderUiData({ callServerTool }, 'survey-get', {}, 'survey', {})).toBe(result)
+    })
+
     it.each(['query-trends', 'insight-query'])(
         'loads %s through the advertised exec tool as JSON',
         async (toolName) => {
