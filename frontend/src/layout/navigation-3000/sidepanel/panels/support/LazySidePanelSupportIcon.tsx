@@ -2,9 +2,9 @@ import clsx from 'clsx'
 import { Suspense } from 'react'
 
 import { IconSupport } from '@posthog/icons'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 // The unread count comes from the support ticket logic, which holds the whole ticket flow.
 const SidePanelSupportIcon = lazyWithRetry(() =>
@@ -20,11 +20,12 @@ export function LazySidePanelSupportIcon({ className }: { className?: string }):
             <IconSupport />
         </span>
     )
+    // Not ChunkLoadErrorBoundary: a missing unread badge does not justify reloading the page.
     return (
-        <ChunkLoadErrorBoundary fallback={() => plainIcon}>
+        <PostHogErrorBoundary fallback={plainIcon}>
             <Suspense fallback={plainIcon}>
                 <SidePanelSupportIcon className={className} />
             </Suspense>
-        </ChunkLoadErrorBoundary>
+        </PostHogErrorBoundary>
     )
 }
