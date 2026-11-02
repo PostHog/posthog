@@ -273,6 +273,11 @@ class TestClassify(BaseTest):
                 FreshnessReason.UNSUPPORTED_BOUND,
             ),
             (
+                "after_the_datetime_range",
+                "select count() from events where timestamp >= toDateTime('2100-01-01 00:00:00') + interval 10 year",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
+            (
                 "literal_at_the_year_limit",
                 "select count() from events where timestamp >= '9999-12-31 23:00:00'",
                 FreshnessReason.UNSUPPORTED_BOUND,
