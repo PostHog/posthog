@@ -100,6 +100,20 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         action: 'Add it as a negative, or change the keyword "analytics template" from broad to exact match',
         reason: 'Spent $640 (6.4x the account CPA) on 210 clicks with no conversions',
         impact: 640,
+        steps: [
+            {
+                text: 'In Google Ads, open Campaigns and search for this campaign.',
+                copyValue: 'Search - Generic',
+            },
+            {
+                text: "Go to the campaign's negative keywords and add this one. The brackets make it exact match, so it blocks only this search.",
+                copyValue: '[free analytics template]',
+            },
+            {
+                text: 'Or, to stop similar searches too, go to Keywords, find this keyword, and change its match type to exact.',
+                copyValue: 'analytics template',
+            },
+        ],
     }),
     recommendation({
         rule: 'spend_without_conversions',
@@ -264,6 +278,16 @@ export const Modal: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    },
+}
+
+export const ModalInstructions: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+        await userEvent.click(await modal.findByText('View instructions'))
     },
 }
 
