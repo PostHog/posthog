@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
+import { cohortsModel } from '~/models/cohortsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -251,6 +252,18 @@ describe('personsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadCohorts()
             }).toMatchValues({ cohorts: null })
+        })
+
+        it.each([
+            ['the persons scene', {}, true],
+            ['a cohort tab', { cohort: 1 }, false],
+        ])('reloads the cohorts of %s when the cohort list reloads: %s', async (_, props, reloads) => {
+            cohortsModel.mount()
+            const instance = personsLogic({ syncWithUrl: true, ...props })
+            instance.mount()
+            const loadCohorts = jest.spyOn(instance.actions, 'loadCohorts')
+            await expectLogic(cohortsModel, () => cohortsModel.actions.loadCohorts()).toFinishAllListeners()
+            expect(loadCohorts).toHaveBeenCalledTimes(reloads ? 1 : 0)
         })
     })
 
