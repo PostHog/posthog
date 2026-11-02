@@ -68,6 +68,26 @@ def _iid_quantile(nu: float, n: int, lower: float, upper: float, n_clusters: int
     )
 
 
+# (name, treatment, control) pairs in which the treatment quantile has no usable variance.
+DEGENERATE_QUANTILE_CASES = [
+    (
+        "collapsed_bounds",
+        _iid_quantile(nu=0.6, n=700, lower=4.0, upper=4.0),
+        _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1),
+    ),
+    (
+        "tail_too_small_for_quantile",
+        _iid_quantile(nu=0.98, n=150, lower=3.9, upper=4.1),
+        _iid_quantile(nu=0.98, n=6_000, lower=3.9, upper=4.1),
+    ),
+    (
+        "single_cluster",
+        _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1, n_clusters=1),
+        _iid_quantile(nu=0.6, n=700, lower=3.9, upper=4.1),
+    ),
+]
+
+
 class TestSampleMeanStatistic:
     """Tests for SampleMeanStatistic."""
 

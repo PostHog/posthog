@@ -20,7 +20,11 @@ from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     StatisticError,
 )
-from products.experiments.stats.tests.test_statistics import QUANTILE_CONTROL, QUANTILE_TREATMENT
+from products.experiments.stats.tests.test_statistics import (
+    DEGENERATE_QUANTILE_CASES,
+    QUANTILE_CONTROL,
+    QUANTILE_TREATMENT,
+)
 
 
 def create_test_result_dict(result: Any) -> dict[str, Any]:
@@ -192,6 +196,20 @@ class TestTwoSidedTTest(TestCase):
         self.assertAlmostEqual(result.confidence_interval[0], ci[0], places=10)
         self.assertAlmostEqual(result.confidence_interval[1], ci[1], places=10)
         self.assertAlmostEqual(result.p_value, p_value, places=9)
+
+    @parameterized.expand(
+        [
+            (f"{name}_{mode}", treatment, control, sequential)
+            for name, treatment, control in DEGENERATE_QUANTILE_CASES
+            for mode, sequential in [("fixed_horizon", False), ("sequential", True)]
+        ]
+    )
+    def test_rejects_quantile_with_zero_variance(self, _name, treatment, control, sequential):
+        method = FrequentistMethod(FrequentistConfig(sequential_testing_enabled=sequential))
+        with self.assertRaisesRegex(
+            StatisticError, "Treatment statistic validation failed: Quantile has zero variance"
+        ):
+            method.run_test(treatment, control)
 
 
 class TestSequentialMath(TestCase):

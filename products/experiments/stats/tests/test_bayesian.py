@@ -29,7 +29,11 @@ from products.experiments.stats.shared.statistics import (
     SampleMeanStatistic,
     StatisticError,
 )
-from products.experiments.stats.tests.test_statistics import QUANTILE_CONTROL, QUANTILE_TREATMENT
+from products.experiments.stats.tests.test_statistics import (
+    DEGENERATE_QUANTILE_CASES,
+    QUANTILE_CONTROL,
+    QUANTILE_TREATMENT,
+)
 
 
 class TestGaussianPrior:
@@ -341,6 +345,13 @@ class TestBayesianMethod(TestCase):
         self.assertAlmostEqual(result.credible_interval[0], interval[0], places=10)
         self.assertAlmostEqual(result.credible_interval[1], interval[1], places=10)
         self.assertAlmostEqual(result.chance_to_win, chance_to_win, places=10)
+
+    @parameterized.expand(DEGENERATE_QUANTILE_CASES)
+    def test_rejects_quantile_with_zero_variance(self, _name, treatment, control):
+        with self.assertRaisesRegex(
+            StatisticError, "Treatment statistic validation failed: Quantile has zero variance"
+        ):
+            BayesianMethod().run_test(treatment, control)
 
 
 class TestConvenienceFunctions:
