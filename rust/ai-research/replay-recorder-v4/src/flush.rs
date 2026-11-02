@@ -310,7 +310,6 @@ pub async fn write_flush(
     Ok(())
 }
 
-/// Marks the references the fetcher would drop in `sent_urls`, so `fetch_jobs` skips them.
 async fn mark_fresh_images(writer: &Writer, images: &[Vec<(CanonicalUrl, String)>], day: &str) {
     let Some(history) = &writer.fetch_history else {
         return;

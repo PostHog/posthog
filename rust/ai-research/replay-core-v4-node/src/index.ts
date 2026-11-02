@@ -74,3 +74,13 @@ export function canonicalizeUrl(url: string): CanonicalUrl | null {
     const verdict = tryCanonicalizeUrl(url)
     return verdict.ok ? verdict.url : null
 }
+
+export type UrlJob = 'drop' | 'refresh' | 'fetch'
+
+export function urlJob(nextFetchAtMs: number, storedAtMs: number | undefined, nowMs: number): UrlJob {
+    return native.urlJob(nextFetchAtMs, storedAtMs, nowMs)
+}
+
+export function isUrlHistoryValue(key: string, value: string): boolean {
+    return native.isUrlHistoryValue(key, value)
+}

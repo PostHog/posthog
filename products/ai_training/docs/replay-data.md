@@ -683,8 +683,8 @@ Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_
 - It reads only the references of the flush that it did not send or mark that day, each one once. The read starts with the flush and runs while the flush seals its blocks.
 - It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day.
 - It sends every other job, so the fetcher still refreshes each stored copy within its interval.
-- It reads a history row only as the fetcher does. A row that the fetcher reads as a miss is a miss for the recorder too.
+- It parses a history row with the same code as the fetcher. A row that the fetcher reads as a miss is a miss for the recorder too.
 - A read that fails or takes more than 5 seconds checks nothing, and its jobs go out. The read does not retry a failed request.
 - `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
 
-`image-fetch-v4/drop-rule-vector-v4.json` holds the fetcher's drop rule and the recorder's copy of it to the same cases.
+`replay_core_v4::fetch_history` holds the drop rule, the 7-day refresh interval and the row parser. The recorder calls it directly, and the fetcher calls it through `@posthog/ai-research-v4-native`.

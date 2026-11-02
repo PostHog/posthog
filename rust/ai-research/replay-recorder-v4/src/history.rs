@@ -8,32 +8,11 @@ use chrono::NaiveDate;
 use futures::stream::{self, StreamExt};
 use metrics::{counter, histogram};
 use rand::Rng;
-use serde_json::Value;
+use replay_core_v4::fetch_history::{UrlHistory, UrlJob};
 
 pub const DYNAMODB_BATCH_GET_KEY_LIMIT: usize = 100;
 const READS_IN_FLIGHT: usize = 16;
 const MAX_CALLS_WITHOUT_PROGRESS: u32 = 5;
-
-/// The fetcher's refresh interval. `image-fetch-v4/drop-rule-vector-v4.json` holds both rules to the same cases.
-const REFRESH_INTERVAL_MS: f64 = 7.0 * 24.0 * 3600.0 * 1000.0;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct UrlHistory {
-    pub next_fetch_at_ms: f64,
-    pub stored_at_ms: Option<f64>,
-}
-
-impl UrlHistory {
-    /// The rule in `image-fetch-v4/url-fetch-consumer.ts`: before its next fetch time, a job only refreshes a stored
-    /// image that is at least the refresh interval old.
-    pub fn fetcher_drops(&self, at_ms: i64) -> bool {
-        let at_ms = at_ms as f64;
-        let refresh_due = self
-            .stored_at_ms
-            .is_some_and(|stored_at_ms| at_ms - stored_at_ms >= REFRESH_INTERVAL_MS);
-        self.next_fetch_at_ms > at_ms && !refresh_due
-    }
-}
 
 #[derive(Debug, Default, PartialEq)]
 pub struct HistoryRead {
@@ -149,54 +128,22 @@ impl FetchHistory for AwsFetchHistory {
     }
 }
 
-/// Accepts only a URL entry that `isCrawlHistoryItem` in `image-fetch-v4/dynamodb-crawl-history.ts` accepts, so that
-/// a row the fetcher reads as a miss is a miss here too.
+/// The fetcher reads a row with no finite `expires_at` as a miss, though no rule here uses the expiry.
 fn url_history(item: &HashMap<String, AttributeValue>) -> Option<(String, UrlHistory)> {
     let reference = item.get("key")?.as_s().ok()?;
     let expires_at: f64 = item.get("expires_at")?.as_n().ok()?.parse().ok()?;
-    let value: Value = serde_json::from_str(item.get("value")?.as_s().ok()?).ok()?;
-    let number = |field: &str| value.get(field).and_then(Value::as_f64);
-    let valid = expires_at.is_finite()
-        && value.get("kind").and_then(Value::as_str) == Some("url")
-        && value.get("key").and_then(Value::as_str) == Some(reference.as_str())
-        && value.get("outcome").is_some_and(Value::is_string)
-        && number("storageExpiresAtMs").is_some()
-        && value.get("cache").is_none_or(is_http_cache)
-        && value.get("storedAtMs").is_none_or(Value::is_number)
-        && value.get("_bodyChunks").is_none();
-    if !valid {
+    if !expires_at.is_finite() {
         return None;
     }
-    let entry = UrlHistory {
-        next_fetch_at_ms: number("nextFetchAtMs")?,
-        stored_at_ms: number("storedAtMs"),
-    };
+    let entry = UrlHistory::parse(reference, item.get("value")?.as_s().ok()?)?;
     Some((reference.to_owned(), entry))
 }
 
-fn is_http_cache(cache: &Value) -> bool {
-    const TEXT_FIELDS: [&str; 8] = [
-        "responseUrlHmac",
-        "responseUrl",
-        "etag",
-        "lastModified",
-        "date",
-        "age",
-        "cacheControl",
-        "expires",
-    ];
-    cache.get("requestTimeMs").is_some_and(Value::is_number)
-        && cache.get("responseTimeMs").is_some_and(Value::is_number)
-        && TEXT_FIELDS
-            .iter()
-            .all(|field| cache.get(field).is_none_or(Value::is_string))
-}
-
-fn day_end_ms(day: &str) -> Option<i64> {
+fn day_end_ms(day: &str) -> Option<f64> {
     let next_day = NaiveDate::parse_from_str(day, "%Y-%m-%d")
         .ok()?
         .succ_opt()?;
-    Some(next_day.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis())
+    Some(next_day.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis() as f64)
 }
 
 fn backoff(attempt: u32) -> Duration {
@@ -237,7 +184,7 @@ pub async fn mark_fresh<'a>(
 async fn fresh_references(
     history: &dyn FetchHistory,
     references: &[String],
-    drops_at_ms: i64,
+    drops_at_ms: f64,
     deadline: tokio::time::Instant,
 ) -> HashSet<String> {
     if references.is_empty() {
@@ -272,7 +219,7 @@ async fn fresh_references(
         unread += read.unread_references;
         first_error = first_error.or(read.error);
         for (reference, entry) in read.entries {
-            if entry.fetcher_drops(drops_at_ms) {
+            if entry.job_at(drops_at_ms) == UrlJob::Drop {
                 fresh.insert(reference);
             } else {
                 due += 1;
@@ -301,34 +248,13 @@ async fn fresh_references(
 
 #[cfg(test)]
 mod tests {
-    use serde::Deserialize;
+    use replay_core_v4::fetch_history::REFRESH_INTERVAL_MS;
     use serde_json::json;
 
     use super::*;
 
     const DAY: &str = "2026-10-26";
-
-    #[derive(Deserialize)]
-    struct DropRuleVector {
-        cases: Vec<DropRuleCase>,
-    }
-
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct DropRuleCase {
-        name: String,
-        next_fetch_in_ms: f64,
-        stored_ago_ms: Option<f64>,
-        dropped: bool,
-    }
-
-    fn drop_rule_cases() -> Vec<DropRuleCase> {
-        let vector: DropRuleVector = serde_json::from_str(include_str!(
-            "../../../../nodejs/src/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/drop-rule-vector-v4.json"
-        ))
-        .unwrap();
-        vector.cases
-    }
+    const HOUR_MS: f64 = 3600.0 * 1000.0;
 
     struct MemoryHistory {
         entries: HashMap<String, UrlHistory>,
@@ -370,26 +296,33 @@ mod tests {
 
     #[tokio::test]
     async fn reads_each_cache_miss_once_and_marks_what_the_fetcher_drops_until_the_day_ends() {
-        let day_end_ms = day_end_ms(DAY).unwrap() as f64;
-        let cases = drop_rule_cases();
+        let day_end_ms = day_end_ms(DAY).unwrap();
+        let entry = |next_fetch_in_ms: f64, stored_ago_ms: f64| UrlHistory {
+            next_fetch_at_ms: day_end_ms + next_fetch_in_ms,
+            stored_at_ms: Some(day_end_ms - stored_ago_ms),
+        };
         let history = MemoryHistory {
-            entries: cases
-                .iter()
-                .map(|case| {
-                    let entry = UrlHistory {
-                        next_fetch_at_ms: day_end_ms + case.next_fetch_in_ms,
-                        stored_at_ms: case.stored_ago_ms.map(|ago_ms| day_end_ms - ago_ms),
-                    };
-                    (case.name.clone(), entry)
-                })
-                .collect(),
+            entries: HashMap::from([
+                ("fresh".to_owned(), entry(30.0 * 24.0 * HOUR_MS, HOUR_MS)),
+                ("refetch_today".to_owned(), entry(-HOUR_MS, HOUR_MS)),
+                (
+                    "refresh_today".to_owned(),
+                    entry(30.0 * 24.0 * HOUR_MS, REFRESH_INTERVAL_MS),
+                ),
+            ]),
             read: Default::default(),
         };
         let sent_urls = crate::urls::sent_urls(100);
         sent_urls.insert((DAY.to_owned(), "sent".to_owned()), ());
-        let mut references = vec!["sent".to_owned(), "unknown".to_owned()];
-        references.extend(cases.iter().map(|case| case.name.clone()));
-        references.push(cases[0].name.clone());
+        let references = [
+            "sent",
+            "fresh",
+            "fresh",
+            "refetch_today",
+            "refresh_today",
+            "unknown",
+        ]
+        .map(str::to_owned);
 
         mark_fresh(
             &history,
@@ -402,19 +335,11 @@ mod tests {
 
         let mut read = history.read.into_inner().unwrap();
         read.sort();
-        let mut expected: Vec<String> = cases.iter().map(|case| case.name.clone()).collect();
-        expected.push("unknown".to_owned());
-        expected.sort();
-        assert_eq!(read, expected);
-        for case in &cases {
-            assert_eq!(
-                marked(&sent_urls, &case.name),
-                case.dropped,
-                "{}",
-                case.name
-            );
+        assert_eq!(read, ["fresh", "refetch_today", "refresh_today", "unknown"]);
+        assert!(marked(&sent_urls, "fresh"));
+        for reference in ["refetch_today", "refresh_today", "unknown"] {
+            assert!(!marked(&sent_urls, reference), "{reference}");
         }
-        assert!(!marked(&sent_urls, "unknown"));
     }
 
     #[tokio::test(start_paused = true)]
@@ -456,66 +381,35 @@ mod tests {
     }
 
     #[test]
-    fn reads_only_url_entries_the_fetcher_accepts_for_their_key() {
+    fn reads_a_row_only_with_a_numeric_expiry() {
         let reference = "imageurl:v4:7:2026-10:AAAAAAAAAAAAAAAAAAAAAA";
-        let item = |key: &str, value: &Value| {
-            HashMap::from([
-                ("key".to_owned(), AttributeValue::S(key.to_owned())),
-                (
-                    "expires_at".to_owned(),
-                    AttributeValue::N("1794000000".to_owned()),
-                ),
-                ("value".to_owned(), AttributeValue::S(value.to_string())),
-            ])
-        };
-        let url_entry = json!({
+        let value = json!({
             "kind": "url",
             "key": reference,
             "nextFetchAtMs": 1_795_000_000_000i64,
             "storageExpiresAtMs": 1_794_000_000_000i64,
             "outcome": "ok",
-            "cache": {"requestTimeMs": 1, "responseTimeMs": 2, "etag": "\"x\""},
-            "storedAtMs": 1_792_000_000_000i64,
         });
-        let with = |field: &str, value: Value| {
-            let mut entry = url_entry.clone();
-            entry[field] = value;
-            item(reference, &entry)
+        let row = |expires_at: Option<&str>| {
+            let mut row = HashMap::from([
+                ("key".to_owned(), AttributeValue::S(reference.to_owned())),
+                ("value".to_owned(), AttributeValue::S(value.to_string())),
+            ]);
+            if let Some(expires_at) = expires_at {
+                row.insert(
+                    "expires_at".to_owned(),
+                    AttributeValue::N(expires_at.to_owned()),
+                );
+            }
+            row
         };
-        let without = |field: &str| {
-            let mut entry = url_entry.clone();
-            entry.as_object_mut().unwrap().remove(field);
-            item(reference, &entry)
-        };
-        let mut without_expiry = item(reference, &url_entry);
-        without_expiry.remove("expires_at");
 
         assert_eq!(
-            url_history(&item(reference, &url_entry)),
-            Some((
-                reference.to_owned(),
-                UrlHistory {
-                    next_fetch_at_ms: 1_795_000_000_000.0,
-                    stored_at_ms: Some(1_792_000_000_000.0),
-                }
-            ))
+            url_history(&row(Some("1794000000")))
+                .map(|(key, history)| (key, history.next_fetch_at_ms)),
+            Some((reference.to_owned(), 1_795_000_000_000.0))
         );
-        let robots = json!({"kind": "robots", "key": reference, "nextFetchAtMs": 1});
-        for row in [
-            item("imageurl:v4:7:2026-10:other", &url_entry),
-            item(reference, &robots),
-            without_expiry,
-            without("outcome"),
-            without("storageExpiresAtMs"),
-            with("storedAtMs", Value::Null),
-            with("cache", json!({"requestTimeMs": 1})),
-            with(
-                "cache",
-                json!({"requestTimeMs": 1, "responseTimeMs": 2, "etag": null}),
-            ),
-            with("_bodyChunks", json!({"count": 1, "sha256": "0".repeat(64)})),
-        ] {
-            assert_eq!(url_history(&row), None);
-        }
+        assert_eq!(url_history(&row(None)), None);
+        assert_eq!(url_history(&row(Some("x"))), None);
     }
 }

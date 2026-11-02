@@ -1,12 +1,13 @@
-//! Neon native addon exposing the v4 URL policy, `replay_core_v4::url_policy`, to the v4 image
-//! fetcher.
+//! Neon native addon exposing the v4 URL policy, `replay_core_v4::url_policy`, and the crawl
+//! history rule, `replay_core_v4::fetch_history`, to the v4 image fetcher.
 //!
-//! The recorder collects URLs with that module, and the fetcher must refuse and canonicalize them
-//! the same way, so the fetcher calls the module rather than a second implementation. This crate is
+//! The recorder collects URLs and drops jobs with those modules, and the fetcher must decide the
+//! same way, so the fetcher calls the modules rather than a second implementation. This crate is
 //! glue only: each function converts its arguments and its result, and the rules stay in the core
 //! crate.
 
 use neon::prelude::*;
+use replay_core_v4::fetch_history::UrlHistory;
 use replay_core_v4::url_policy::{is_public_host, politeness_key, try_canonicalize};
 
 /// The registrable domain of a host.
@@ -48,10 +49,33 @@ fn try_canonicalize_url_ffi(mut cx: FunctionContext) -> JsResult<JsObject> {
     Ok(result)
 }
 
+fn url_job_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
+    let next_fetch_at_ms = cx.argument::<JsNumber>(0)?.value(&mut cx);
+    let stored_at_ms = cx
+        .argument::<JsValue>(1)?
+        .downcast::<JsNumber, _>(&mut cx)
+        .ok()
+        .map(|stored_at_ms| stored_at_ms.value(&mut cx));
+    let now_ms = cx.argument::<JsNumber>(2)?.value(&mut cx);
+    let history = UrlHistory {
+        next_fetch_at_ms,
+        stored_at_ms,
+    };
+    Ok(cx.string(history.job_at(now_ms).label()))
+}
+
+fn is_url_history_value_ffi(mut cx: FunctionContext) -> JsResult<JsBoolean> {
+    let key = cx.argument::<JsString>(0)?.value(&mut cx);
+    let value = cx.argument::<JsString>(1)?.value(&mut cx);
+    Ok(cx.boolean(UrlHistory::parse(&key, &value).is_some()))
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("politenessKey", politeness_key_ffi)?;
     cx.export_function("isPublicHost", is_public_host_ffi)?;
     cx.export_function("tryCanonicalizeUrl", try_canonicalize_url_ffi)?;
+    cx.export_function("urlJob", url_job_ffi)?;
+    cx.export_function("isUrlHistoryValue", is_url_history_value_ffi)?;
     Ok(())
 }
