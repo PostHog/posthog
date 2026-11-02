@@ -4,6 +4,10 @@ import { loaders } from 'kea-loaders'
 import { signalsReportSpend } from 'products/signals/frontend/generated/api'
 import type { ReportSpendApi } from 'products/signals/frontend/generated/api.schemas'
 
+const USAGE_RETRY_DELAY_MS = 5000
+const USAGE_RETRY_MAX_DELAY_MS = 30000
+const USAGE_RETRY_LIMIT = 6
+
 export interface ReportSpendLogicProps {
     teamId: number
     reportId: string
@@ -65,20 +69,39 @@ export const reportSpendLogic = kea<reportSpendLogicType>([
         failed: [false, { loadSpend: () => false, loadSpendSuccess: () => false, loadSpendFailure: () => true }],
     }),
     listeners(({ actions, cache, values }) => {
-        const refreshIfPending = (): void => {
+        const refreshOrRetry = (): void => {
+            cache.disposables.dispose('unsettledSpendRetry')
             if (cache.refreshPending) {
                 actions.refreshSpend()
+                return
             }
+            const attempt = cache.retryAttempt ?? 0
+            if (
+                !Object.values(values.spend ?? {}).some((amount) => amount.incomplete) ||
+                attempt >= USAGE_RETRY_LIMIT
+            ) {
+                return
+            }
+            const delay = Math.min(USAGE_RETRY_DELAY_MS * 2 ** attempt, USAGE_RETRY_MAX_DELAY_MS)
+            cache.disposables.add(() => {
+                const timer = setTimeout(() => {
+                    cache.retryAttempt = attempt + 1
+                    actions.loadSpend()
+                }, delay)
+                return () => clearTimeout(timer)
+            }, 'unsettledSpendRetry')
         }
         return {
             refreshSpend: () => {
+                cache.retryAttempt = 0
+                cache.disposables.dispose('unsettledSpendRetry')
                 cache.refreshPending = values.spendLoading
                 if (!values.spendLoading) {
                     actions.loadSpend()
                 }
             },
-            loadSpendSuccess: refreshIfPending,
-            loadSpendFailure: refreshIfPending,
+            loadSpendSuccess: refreshOrRetry,
+            loadSpendFailure: refreshOrRetry,
         }
     }),
     afterMount(({ actions }) => actions.refreshSpend()),
