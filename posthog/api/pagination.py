@@ -3,17 +3,83 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.core.exceptions import ImproperlyConfigured
 
+from rest_framework import serializers
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
-from rest_framework.utils.urls import replace_query_param
+from rest_framework.utils.urls import remove_query_param, replace_query_param
 
 from posthog.paging import CursorBound, CursorPageRequest, Page, PageRequest
 
 if TYPE_CHECKING:
     # DRF's generics module reads DEFAULT_PAGINATION_CLASS while it loads, which can point at this module.
     from rest_framework.generics import GenericAPIView
+
+
+def page_link(request: Request, param: str, value: str | int | None) -> str | None:
+    """Return the request URL with `param` set to `value`, or None when there is no such page.
+
+    Lists that page with their own parameter (`cursor`, `offset`, ...) use this to build the same
+    absolute `next` and `previous` links as DRF's paginators.
+    """
+    if value is None:
+        return None
+    return replace_query_param(request.build_absolute_uri(), param, value)
+
+
+def page_link_with_params(request: Request, params: dict[str, str | int] | None) -> str | None:
+    """Return the request URL with every query param in `params` set, or None when there is no such page.
+
+    Use this for lists whose page position takes more than one param, such as a timestamp and an id.
+    """
+    if params is None:
+        return None
+    url = request.build_absolute_uri()
+    for param, value in params.items():
+        url = replace_query_param(url, param, value)
+    return url
+
+
+def previous_offset(offset: int, limit: int) -> int | None:
+    """Return the offset of the page before the page at `offset`, or None on the first page."""
+    if offset <= 0:
+        return None
+    return max(offset - limit, 0)
+
+
+def offset_page_links(
+    request: Request, *, offset: int, limit: int, next_offset: int | None, drop: str | None = None
+) -> dict[str, str | None]:
+    """Return the `next` and `previous` links of one page of a list that pages with an `offset` param.
+
+    `drop` names a query param that the links leave out.
+    """
+    url = request.build_absolute_uri()
+    if drop is not None:
+        url = remove_query_param(url, drop)
+    previous = previous_offset(offset, limit)
+    return {
+        "next": None if next_offset is None else replace_query_param(url, "offset", next_offset),
+        "previous": None if previous is None else replace_query_param(url, "offset", previous),
+    }
+
+
+class PageLinksSerializer(serializers.Serializer):
+    """Declares the `next` and `previous` links of a page response that the view fills with `page_link`."""
+
+    next = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the next page, or null on the last page.",
+    )
+    previous = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the previous page, or null on the first page and on lists that page forward only.",
+    )
 
 
 class PrecountedLimitOffsetPagination(LimitOffsetPagination):
