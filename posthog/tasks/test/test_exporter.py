@@ -11,6 +11,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import OrganizationMembership, User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -165,6 +166,22 @@ class TestExporterTask(APIBaseTest):
         mock_export.assert_not_called()
         asset.refresh_from_db()
         assert asset.exception_type == expected_exception_type
+        assert asset.failure_type == FAILURE_TYPE_USER
+
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_subscription_export_without_an_owner_means_the_owner_was_deleted(
+        self, mock_export: MagicMock, mock_uuid: MagicMock
+    ) -> None:
+        # The subscription copied a null owner onto the asset, which only a deleted account produces.
+        asset = ExportedAsset.objects.create(
+            team=self.team, dashboard=self.exported_asset.dashboard, export_format="image/png", created_by=None
+        )
+
+        exporter.export_asset_direct(asset, source=EventSource.SUBSCRIPTION)
+
+        mock_export.assert_not_called()
+        asset.refresh_from_db()
+        assert asset.exception_type == "CreatorLeftOrganizationError"
         assert asset.failure_type == FAILURE_TYPE_USER
 
 
