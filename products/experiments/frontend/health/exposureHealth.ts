@@ -41,8 +41,7 @@ export function sampleRatioLine(
     if (exposures?.sample_ratio_mismatch == null) {
         return null
     }
-    // When every release condition sets a variant override, the split assigns nobody, so the test compares nothing.
-    // The panel's variant override finding explains the counts instead.
+    // SRM doesn't apply when every release condition sets a variant override. The override finding explains it.
     if (
         followsServer &&
         exposures.health_checks?.some(({ key, status }) => key === 'srm' && status === 'not_applicable')

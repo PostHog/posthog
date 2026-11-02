@@ -128,8 +128,7 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     exposures = ctx.exposures
     if exposures is None:
         return not_applicable(RUNS_AFTER_LAUNCH)
-    # The test compares the counts with the split, which then serves nobody. `forced_variant_release_condition`
-    # reports the overrides.
+    # The split then serves nobody, so the test compares nothing. `forced_variant_release_condition` explains it.
     if ctx.flag is not None and assigns_nobody_by_split(ctx.flag):
         return not_applicable("The split assigns nobody, because every release condition sets a variant override")
     p_value = exposures.sample_ratio_mismatch_p_value
