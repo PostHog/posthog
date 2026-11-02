@@ -2143,8 +2143,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'integration-linear',
                 title: 'Linear integration',
-                description:
-                    'Connect Linear to create and link issues directly from PostHog. Linked error tracking issues resolve and reopen with their tickets.',
+                description: 'Connect Linear to create and link issues directly from PostHog.',
                 docsUrl: Linear.docsUrl,
                 component: <Linear.SettingsSection />,
                 keywords: ['linear', 'issue', 'project management', 'task'],

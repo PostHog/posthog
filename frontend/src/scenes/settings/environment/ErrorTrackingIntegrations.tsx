@@ -21,13 +21,7 @@ export function ErrorTrackingIntegrations(): JSX.Element {
                     <img src={IconLinear} alt="" className="w-5 h-5" />
                     Linear
                 </h3>
-                <div className="flex flex-col gap-y-4">
-                    <LinearIntegration next={NEXT_URL} />
-                    <p className="m-0 text-xs text-secondary">
-                        PostHog resolves an issue when all of its linked Linear tickets are closed and at least one of
-                        them is done. It reopens the issue when a linked ticket is reopened.
-                    </p>
-                </div>
+                <LinearIntegration next={NEXT_URL} />
             </div>
             <div>
                 <h3 className="flex items-center gap-2">
