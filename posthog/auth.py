@@ -1030,6 +1030,11 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     activity_credential_type = "oauth"
     access_token: OAuthAccessToken
 
+    @property
+    def is_user_delegated(self) -> bool:
+        # Task-bound tokens represent PostHog-hosted workers, whose egress IP is not the user's.
+        return self.access_token.sandbox_task_id is not None
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.oauth"):
             authorization_token = self._extract_token(request)
@@ -1247,7 +1252,10 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
 
 class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
     activity_credential_type = "oauth"
-    is_user_delegated = True
+
+    @property
+    def is_user_delegated(self) -> bool:
+        return True
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)

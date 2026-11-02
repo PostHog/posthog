@@ -36,6 +36,7 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
+from posthog.ip_restrictions import get_ip_restriction_denial
 from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
@@ -172,6 +173,23 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         response = self.client.get("/api/ip-restrictions-cache-test/", REMOTE_ADDR="203.0.113.42")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_policy_change_during_cache_fill_cannot_restore_old_rules(self) -> None:
+        config = OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=False
+        )
+        original_set = cache.set
+
+        def enable_before_cache_write(key: str, value: object, timeout: int) -> None:
+            with self.captureOnCommitCallbacks(execute=True):
+                config.enabled = True
+                config.save()
+            original_set(key, value, timeout)
+
+        with patch("posthog.ip_restrictions.cache.set", side_effect=enable_before_cache_write):
+            self.assertIsNone(get_ip_restriction_denial(self.user, "198.51.100.7"))
+
+        self.assertIsNotNone(get_ip_restriction_denial(self.user, "198.51.100.7"))
 
     def test_enabled_with_no_rules_does_not_block(self):
         OrganizationIPRestrictions.objects.create(

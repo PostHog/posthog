@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from ipaddress import ip_address, ip_network
 from typing import Any
+from uuid import uuid4
 
 from django.core.cache import cache
 
@@ -19,7 +20,7 @@ __all__ = [
     "validate_ip_restrictions",
 ]
 
-_CACHE_KEY_PREFIX = "ip_restrictions:principal"
+_CACHE_KEY_PREFIX = "ip_restrictions:v2:principal"
 _CACHE_TTL_SECONDS = 60 * 5
 _CACHE_MISS = object()
 
@@ -46,17 +47,19 @@ _INTERNAL_CREDENTIAL_TYPES = frozenset(
 def validate_ip_restrictions(values: Iterable[str]) -> list[str]:
     """Return the entries as entered, stripped, deduplicated, and verified as IPs or CIDR blocks."""
     cleaned: list[str] = []
+    seen: set[str] = set()
     for value in values:
         entry = value.strip()
+        if entry in seen:
+            continue
+        if len(cleaned) >= MAX_IP_RESTRICTIONS:
+            raise ValueError(f"You can add at most {MAX_IP_RESTRICTIONS} IP addresses or CIDR blocks.")
         try:
             ip_network(entry, strict=False)
         except (TypeError, ValueError) as error:
             raise ValueError(f"'{entry}' is not a valid IP address or CIDR block.") from error
-        if entry not in cleaned:
-            cleaned.append(entry)
-
-    if len(cleaned) > MAX_IP_RESTRICTIONS:
-        raise ValueError(f"You can add at most {MAX_IP_RESTRICTIONS} IP addresses or CIDR blocks.")
+        seen.add(entry)
+        cleaned.append(entry)
 
     return cleaned
 
@@ -128,6 +131,10 @@ def _load_ip_restrictions_for_principal(user: Any) -> list[tuple[str, list[str]]
 def get_ip_restrictions_for_principal(user: Any) -> list[tuple[str, list[str]]]:
     cache_key = _principal_cache_key(user)
     if cache_key is not None:
+        # Invalidation removes the generation, so readers spanning a commit can only populate
+        # an obsolete key. Random generations also prevent reuse after cache eviction.
+        generation = cache.get_or_set(cache_key, str(uuid4()), _CACHE_TTL_SECONDS)
+        cache_key = f"{cache_key}:{generation}"
         cached = cache.get(cache_key, _CACHE_MISS)
         if cached is not _CACHE_MISS:
             return [(row["organization_id"], row["ip_restrictions"]) for row in cached]

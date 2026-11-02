@@ -43,8 +43,7 @@ def _invalidate_organization_ip_restrictions_cache(sender, instance: Organizatio
 
     organization_id = instance.organization_id
 
-    # Defer to the commit so a concurrent request cannot reload the pre-change rules and cache them
-    # for the full TTL once the write becomes visible.
+    # Keep the old cache generation until the new rules are visible to other requests.
     transaction.on_commit(lambda: invalidate_ip_restrictions_for_organization(organization_id))
 
 

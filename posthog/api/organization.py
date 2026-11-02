@@ -41,7 +41,7 @@ from posthog.event_usage import (
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
-from posthog.ip_restrictions import is_ip_allowed, validate_ip_restrictions
+from posthog.ip_restrictions import MAX_IP_RESTRICTIONS, is_ip_allowed, validate_ip_restrictions
 from posthog.models import Organization, OrganizationIPRestrictions, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
@@ -269,6 +269,7 @@ class OrganizationSerializer(
     )
     ip_restrictions = serializers.ListField(
         child=serializers.CharField(max_length=64),
+        max_length=MAX_IP_RESTRICTIONS,
         required=False,
         allow_empty=True,
         help_text="IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.",
@@ -609,7 +610,7 @@ class OrganizationSerializer(
             )
 
     def validate_ip_restrictions(self, value: list[str]) -> list[str]:
-        if self.instance and self.instance.ip_restrictions != value:
+        if value and self.instance and self.instance.ip_restrictions != value:
             self._validate_ip_restrictions_entitlement()
         try:
             return validate_ip_restrictions(value)
@@ -617,7 +618,7 @@ class OrganizationSerializer(
             raise serializers.ValidationError(str(error))
 
     def validate_ip_restrictions_enabled(self, value: bool) -> bool:
-        if self.instance and self.instance.ip_restrictions_enabled != value:
+        if value and self.instance and self.instance.ip_restrictions_enabled != value:
             self._validate_ip_restrictions_entitlement()
         return value
 

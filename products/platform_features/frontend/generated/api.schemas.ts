@@ -197,6 +197,7 @@ export interface OrganizationApi {
     readonly uses_most_specific_access_resolution: boolean | null
     /**
      * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
      * @items.maxLength 64
      */
     ip_restrictions?: string[]
@@ -322,6 +323,7 @@ export interface PatchedOrganizationApi {
     readonly uses_most_specific_access_resolution?: boolean | null
     /**
      * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
      * @items.maxLength 64
      */
     ip_restrictions?: string[]

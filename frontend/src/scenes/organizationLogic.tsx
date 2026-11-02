@@ -408,8 +408,16 @@ export const organizationLogic = kea<organizationLogicType>([
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
             window.location.href = urls.onboarding()
         },
-        updateOrganizationSuccess: () => {
-            lemonToast.success('Organization updated successfully!')
+        updateOrganizationSuccess: ({ currentOrganization, payload }) => {
+            if (
+                currentOrganization?.ip_restrictions_warning &&
+                payload &&
+                ('ip_restrictions' in payload || 'ip_restrictions_enabled' in payload)
+            ) {
+                lemonToast.warning(currentOrganization.ip_restrictions_warning)
+            } else {
+                lemonToast.success('Organization updated successfully!')
+            }
         },
         updateOrganizationFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
             const apiError = errorObject as ApiError | undefined

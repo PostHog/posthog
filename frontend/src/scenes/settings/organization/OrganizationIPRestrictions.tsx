@@ -1,6 +1,6 @@
 import ipaddr from 'ipaddr.js'
-import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
@@ -8,10 +8,10 @@ import { LemonButton, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-u
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, OrganizationType } from '~/types'
+import { AvailableFeature } from '~/types'
 
 const MAX_IP_RESTRICTIONS = 100
 
@@ -58,62 +58,23 @@ function isIpAllowed(ip: string, restrictions: string[]): boolean {
 }
 
 export function OrganizationIPRestrictions(): JSX.Element {
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationLoading: saving } = useValues(organizationLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const canConfigure = hasAvailableFeature(AvailableFeature.IP_RESTRICTIONS)
+    const entries = currentOrganization?.ip_restrictions ?? []
+    const enabled = currentOrganization?.ip_restrictions_enabled ?? false
 
-    const [entries, setEntries] = useState<string[]>(currentOrganization?.ip_restrictions ?? [])
-    const [enabled, setEnabled] = useState(currentOrganization?.ip_restrictions_enabled ?? false)
-    const [togglingEnabled, setTogglingEnabled] = useState(false)
     const [newEntry, setNewEntry] = useState('')
     const [newEntryError, setNewEntryError] = useState<string | null>(null)
     const [testIp, setTestIp] = useState('')
     const [testResult, setTestResult] = useState<boolean | null>(null)
-    const [saving, setSaving] = useState(false)
-
-    useEffect(() => {
-        setEntries(currentOrganization?.ip_restrictions ?? [])
-    }, [currentOrganization?.ip_restrictions])
-
-    useEffect(() => {
-        setEnabled(currentOrganization?.ip_restrictions_enabled ?? false)
-    }, [currentOrganization?.ip_restrictions_enabled])
-
-    const showWarning = (organization: OrganizationType | null | undefined): void => {
-        if (organization?.ip_restrictions_warning) {
-            lemonToast.warning(organization.ip_restrictions_warning)
-        }
-    }
-
-    const toggleEnabled = async (nextEnabled: boolean): Promise<void> => {
-        setEnabled(nextEnabled)
-        setTogglingEnabled(true)
-        try {
-            const updated = await organizationLogic.asyncActions.updateOrganization({
-                ip_restrictions_enabled: nextEnabled,
-            })
-            showWarning(updated)
-        } catch {
-            setEnabled(!nextEnabled)
-        } finally {
-            setTogglingEnabled(false)
-        }
-    }
-
-    const persistEntries = async (nextEntries: string[]): Promise<void> => {
-        const previousEntries = entries
-        setEntries(nextEntries)
-        setSaving(true)
-        try {
-            const updated = await organizationLogic.asyncActions.updateOrganization({ ip_restrictions: nextEntries })
-            showWarning(updated)
-        } catch {
-            setEntries(previousEntries)
-        } finally {
-            setSaving(false)
-        }
-    }
 
     const addEntry = (): void => {
+        if (saving || !canConfigure || restrictionReason) {
+            return
+        }
         const entry = newEntry.trim()
         if (!isValidIpOrCidr(entry)) {
             setNewEntryError('Enter a valid IP address or CIDR block, such as 203.0.113.4 or 10.0.0.0/8.')
@@ -130,18 +91,22 @@ export function OrganizationIPRestrictions(): JSX.Element {
         setNewEntry('')
         setNewEntryError(null)
         setTestResult(null)
-        void persistEntries([...entries, entry])
+        updateOrganization({ ip_restrictions: [...entries, entry] })
     }
 
     return (
-        <PayGateMini feature={AvailableFeature.IP_RESTRICTIONS} featureDetail="organization-ip-restrictions">
+        <PayGateMini
+            feature={AvailableFeature.IP_RESTRICTIONS}
+            featureDetail="organization-ip-restrictions"
+            overrideShouldShowGate={enabled}
+        >
             <div className="flex flex-col gap-4">
                 <LemonSwitch
                     label="Enable IP restrictions"
                     bordered
                     checked={enabled}
-                    onChange={(nextEnabled) => void toggleEnabled(nextEnabled)}
-                    loading={togglingEnabled}
+                    onChange={(nextEnabled) => updateOrganization({ ip_restrictions_enabled: nextEnabled })}
+                    loading={saving}
                     disabledReason={restrictionReason}
                     data-attr="ip-restrictions-enabled-toggle"
                 />
@@ -157,15 +122,18 @@ export function OrganizationIPRestrictions(): JSX.Element {
                                     setNewEntryError(null)
                                 }}
                                 onPressEnter={addEntry}
-                                disabled={!!restrictionReason || saving}
+                                disabled={!!restrictionReason || saving || !canConfigure}
                                 data-attr="ip-restrictions-input"
                             />
                             <LemonButton
                                 type="secondary"
                                 icon={<IconPlusSmall />}
                                 onClick={addEntry}
+                                loading={saving}
                                 disabledReason={
-                                    restrictionReason || (entries.length >= MAX_IP_RESTRICTIONS ? 'List is full' : null)
+                                    restrictionReason ||
+                                    (!canConfigure ? 'Upgrade your plan to add IP restrictions' : null) ||
+                                    (entries.length >= MAX_IP_RESTRICTIONS ? 'List is full' : null)
                                 }
                             >
                                 Add
@@ -183,10 +151,12 @@ export function OrganizationIPRestrictions(): JSX.Element {
                                 {entries.map((entry) => (
                                     <LemonTag
                                         key={entry}
-                                        closable={!restrictionReason && !saving}
+                                        closable={!restrictionReason && !saving && canConfigure}
                                         onClose={() => {
                                             setTestResult(null)
-                                            void persistEntries(entries.filter((current) => current !== entry))
+                                            updateOrganization({
+                                                ip_restrictions: entries.filter((current) => current !== entry),
+                                            })
                                         }}
                                     >
                                         {entry}
