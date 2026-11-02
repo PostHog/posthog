@@ -23,11 +23,18 @@ pub unsafe extern "C" fn hogql_free(pointer: *mut u8, len: usize) {
 ///
 /// # Safety
 ///
-/// `pointer` and `len` must describe a `hogql_alloc` buffer that holds valid UTF-8.
+/// `pointer` and `len` must describe a `hogql_alloc` buffer.
 #[no_mangle]
 pub unsafe extern "C" fn hogql_parse_select(pointer: *const u8, len: usize) -> u64 {
-    let query = std::str::from_utf8_unchecked(std::slice::from_raw_parts(pointer, len));
-    into_host_buffer(hogql_parser_rs::json::parse_select(query))
+    let bytes = std::slice::from_raw_parts(pointer, len);
+    into_host_buffer(parse_select(bytes))
+}
+
+fn parse_select(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(query) => hogql_parser_rs::json::parse_select(query),
+        Err(_) => r#"{"error":true,"type":"SyntaxError","message":"query is not valid UTF-8","start":{"offset":0},"end":{"offset":0}}"#.to_string(),
+    }
 }
 
 fn into_host_buffer(json: String) -> u64 {
@@ -35,4 +42,20 @@ fn into_host_buffer(json: String) -> u64 {
     let len = bytes.len() as u64;
     let pointer = Box::into_raw(bytes).cast::<u8>() as usize as u64;
     (pointer << 32) | len
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_select;
+
+    #[test]
+    fn validates_query_utf8() {
+        assert_eq!(
+            parse_select(b"SELECT 1"),
+            hogql_parser_rs::json::parse_select("SELECT 1")
+        );
+        let expected = r#"{"error":true,"type":"SyntaxError","message":"query is not valid UTF-8","start":{"offset":0},"end":{"offset":0}}"#;
+        assert_eq!(parse_select(b"SELECT \xff"), expected);
+        assert_eq!(parse_select(b"SELECT \xe2\x82"), expected);
+    }
 }
