@@ -61,6 +61,20 @@ describe('viewAllFor', () => {
             '/feature-flags?search=beta',
         ],
         [
+            'a list that searches without single-quoted excluded words',
+            [chip('feature_flag', 'Feature flag')],
+            "checkout '-legacy' 'v2 beta'",
+            'View all feature flags',
+            '/feature-flags?search=checkout%20v2%20beta',
+        ],
+        [
+            'a list that keeps an apostrophe the search reads as a letter',
+            [chip('feature_flag', 'Feature flag')],
+            "don't -legacy",
+            'View all feature flags',
+            "/feature-flags?search=don't",
+        ],
+        [
             'a list that searches the name filter before the text',
             [chip('feature_flag', 'Feature flag'), chip('checkout', 'checkout', { key: 'name' })],
             'beta',

@@ -331,13 +331,58 @@ export interface ResolvedQuery {
     filters: QueryChip[]
     /** The text that is not a filter token. */
     freeText: string
-    /** The words of `freeText` without their quotes, less the words the search excludes. */
+    /** The words the file system search reads in `freeText`, less the words it excludes. */
     includedWords: string[]
     /** The `search` string for the file system endpoint. */
     backendSearch: string
 }
 
-// The file system search removes every quote first, and then excludes a word that starts with `-` or `!`.
+function shellWords(text: string, quotes: string): string[] | null {
+    const words: string[] = []
+    let word: string | null = null
+    let quote: string | null = null
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i]
+        if (quote) {
+            if (char === quote) {
+                quote = null
+            } else if (char === '\\' && quote === '"' && (text[i + 1] === '"' || text[i + 1] === '\\')) {
+                word += text[++i]
+            } else {
+                word += char
+            }
+        } else if (/\s/.test(char)) {
+            if (word !== null) {
+                words.push(word)
+                word = null
+            }
+        } else if (quotes.includes(char)) {
+            word ??= ''
+            quote = char
+        } else if (char === '\\') {
+            if (i + 1 === text.length) {
+                return null
+            }
+            word = (word ?? '') + text[++i]
+        } else {
+            word = (word ?? '') + char
+        }
+    }
+    if (quote) {
+        return null
+    }
+    if (word !== null) {
+        words.push(word)
+    }
+    return words
+}
+
+// Mirrors `tokenize_search` in posthog/api/file_system/file_system.py, which reads an unmatched `'` as a letter.
+// The search then excludes a word that starts with `-` or `!`.
+function searchWords(text: string): string[] {
+    return shellWords(text, `"'`) ?? shellWords(text, '"') ?? text.split(/\s+/).filter(Boolean)
+}
+
 const isExcludedWord = (word: string): boolean => word.startsWith('-') || word.startsWith('!')
 
 /**
@@ -349,15 +394,10 @@ const isExcludedWord = (word: string): boolean => word.startsWith('-') || word.s
 export function resolveQuery(text: string, chips: QueryChip[], options: FilterOptions): ResolvedQuery {
     const filters = new Map<FilterKey, QueryChip>(chips.map((chip) => [chip.key, chip]))
     const freeTokens: string[] = []
-    const includedWords: string[] = []
     for (const token of tokenize(text)) {
         const parsed = parseToken(token.raw)
         if (!parsed.filter) {
             freeTokens.push(token.raw)
-            const word = token.raw.replaceAll('"', '')
-            if (word && !isExcludedWord(word)) {
-                includedWords.push(word)
-            }
             continue
         }
         const chip = resolveChip(parsed.filter, parsed.value, parsed.negated, options[parsed.filter.key])
@@ -366,10 +406,11 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
         }
     }
     const filterTokens = [...filters.values()].map((chip) => backendToken(chip.key, chip.value, chip.negated)).sort()
+    const freeText = freeTokens.join(' ')
     return {
         filters: [...filters.values()],
-        freeText: freeTokens.join(' '),
-        includedWords,
+        freeText,
+        includedWords: searchWords(freeText).filter((word) => word && !isExcludedWord(word)),
         backendSearch: [...filterTokens, ...freeTokens].join(' '),
     }
 }
