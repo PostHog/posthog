@@ -163,7 +163,7 @@ def _soft_delete_allowed(operation: McpToolApiOperation, held_tools: frozenset[s
         only_deleted = set(data) == {"deleted"}
         if holds_restore and only_deleted and data["deleted"] is False:
             return True
-        if not holds_delete:
-            return False
-        return has_update or (only_deleted and data["deleted"] is True)
+        if holds_delete and only_deleted and data["deleted"] is True:
+            return True
+        return holds_delete and has_update
     return has_update
