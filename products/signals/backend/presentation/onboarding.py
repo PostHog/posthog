@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any, cast
 
 from django.db import models
@@ -109,11 +108,6 @@ class InboxOnboardingJobsSerializer(serializers.Serializer):
     recommendations = serializers.ChoiceField(
         choices=InboxOnboardingJobStatus.choices, help_text="Dispatch status of personalized scout recommendations."
     )
-    error_tracking_backfill = serializers.ChoiceField(
-        choices=InboxOnboardingJobStatus.choices,
-        required=False,
-        help_text="Dispatch status of existing errors when activation adds the Error Tracking source.",
-    )
 
 
 @extend_schema_serializer(many=False)
@@ -162,90 +156,6 @@ class InboxOnboardingStateSerializer(serializers.Serializer):
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")
 
 
-class SelfDrivingActivationState(models.TextChoices):
-    NOT_STARTED = "not_started", "Not started"
-    IN_PROGRESS = "in_progress", "In progress"
-    COMPLETED = "completed", "Completed"
-
-
-class SelfDrivingActivationMode(models.TextChoices):
-    STANDARD = "standard", "Standard"
-    GITHUB_OPTIONAL = "github_optional", "GitHub optional"
-
-
-class SelfDrivingActivationBlockerSerializer(serializers.Serializer):
-    code = serializers.CharField(help_text="Stable reason that activation is unavailable.")
-    message = serializers.CharField(help_text="What prevents activation and how to continue.")
-    retryable = serializers.BooleanField(help_text="Whether retrying later can resolve the blocker.")
-    url = serializers.URLField(allow_null=True, help_text="Where to resolve the blocker, when available.")
-
-
-class SelfDrivingActivationScoutSerializer(serializers.Serializer):
-    skill_name = serializers.CharField(help_text="The canonical scout standard activation enables.")
-    run_interval_minutes = serializers.IntegerField(help_text="Rolling scout interval, when no cron schedule is set.")
-    run_cron_schedule = serializers.CharField(
-        allow_null=True, help_text="Project-local cron schedule, when configured."
-    )
-
-
-@extend_schema_serializer(many=False)
-class SelfDrivingActivationPreviewSerializer(serializers.Serializer):
-    state = serializers.ChoiceField(
-        choices=SelfDrivingActivationState.choices, help_text="Whether onboarding has started or completed."
-    )
-    can_activate = serializers.BooleanField(
-        help_text="Whether this user and credential can complete standard quick activation now."
-    )
-    blockers = SelfDrivingActivationBlockerSerializer(many=True, help_text="Conditions to resolve before activation.")
-    requested_project_id = serializers.IntegerField(
-        help_text="Project whose onboarding and native sources activation changes."
-    )
-    canonical_project_id = serializers.IntegerField(help_text="Parent project that owns the scout fleet.")
-    activation_mode = serializers.ChoiceField(
-        choices=SelfDrivingActivationMode.choices,
-        help_text="Server-selected activation mode to confirm when activating.",
-    )
-    automatic_implementation = serializers.BooleanField(
-        allow_null=True,
-        help_text="Whether standard activation enables automatic pull requests. Null means policy could not be read.",
-    )
-    implementation_priority = serializers.ChoiceField(
-        choices=onboarding_priorities(), help_text="Lowest priority eligible for automatic implementation."
-    )
-    sources = InboxOnboardingSourceSerializer(
-        many=True, help_text="Available native signal sources standard activation enables."
-    )
-    scanner_ids = serializers.ListField(
-        child=serializers.UUIDField(), help_text="Existing enabled replay scanners whose findings activation enables."
-    )
-    general_scout = SelfDrivingActivationScoutSerializer(help_text="General scout schedule selected for activation.")
-    setup_description = serializers.CharField(
-        help_text="Changes and project scope to explain before asking the user to activate."
-    )
-    billing_url = serializers.URLField(help_text="Organization billing page for the existing plan and limits.")
-    billing_description = serializers.CharField(
-        help_text="Billing context to show before activation. This is not a price quote."
-    )
-    inbox_url = serializers.URLField(help_text="Self-Driving inbox and setup URL.")
-    jobs = InboxOnboardingJobsSerializer(allow_null=True, help_text="Background work dispatch state after activation.")
-    first_report = FirstReportStateSerializer(
-        allow_null=True, help_text="First investigation progress, when available."
-    )
-    error_code = serializers.CharField(
-        allow_null=True, help_text="Why an activation request was refused, when present."
-    )
-
-
-class SelfDrivingActivateSerializer(serializers.Serializer):
-    expected_activation_mode = serializers.ChoiceField(
-        choices=SelfDrivingActivationMode.choices,
-        help_text="Activation mode from the preview the user approved. A changed mode returns a new preview without activating.",
-    )
-    expected_automatic_implementation = serializers.BooleanField(
-        help_text="Automatic pull request posture from the preview the user approved. A changed posture returns a new preview without activating.",
-    )
-
-
 class InboxOnboardingPermission(BasePermission):
     message = "Task agents cannot change onboarding settings."
 
@@ -260,13 +170,8 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     requires_resource_level_access = True
     serializer_class = InboxOnboardingStateSerializer
     pagination_class = None
-    request_dependent_scope_actions = {"activate"}
 
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str]:
-        if self.action == "activation":
-            return ["task:read", "signal_scout:read"]
-        if self.action == "activate":
-            return ["task:write", "signal_scout:write", "llm_skill:write"]
         return ["task:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["task:write"]
 
     def _check_scout_access(self, request: Request) -> None:
@@ -298,40 +203,6 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, self.request.user),
             lambda write: self._check_suggestion_access(self.request, write=write),
         )
-
-    @extend_schema(
-        request=None,
-        responses=SelfDrivingActivationPreviewSerializer,
-        operation_id="signals_onboarding_activation_retrieve",
-    )
-    @action(detail=False, methods=["GET"])
-    def activation(self, request: Request, *args: object, **kwargs: object) -> Response:
-        self._check_suggestion_access(request)
-        preview = self._service().activation(get_authenticator_scopes(request.successful_authenticator))
-        if is_sandbox_oauth_request(request):
-            preview = replace(preview, can_activate=False)
-        return Response(SelfDrivingActivationPreviewSerializer(preview).data)
-
-    @extend_schema(
-        request=SelfDrivingActivateSerializer,
-        responses={200: SelfDrivingActivationPreviewSerializer, 409: SelfDrivingActivationPreviewSerializer},
-        operation_id="signals_onboarding_activate_create",
-    )
-    @action(detail=False, methods=["POST"])
-    def activate(self, request: Request, *args: object, **kwargs: object) -> Response:
-        self._check_suggestion_access(request, write=True)
-        serializer = SelfDrivingActivateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            outcome = self._service().activate(
-                get_authenticator_scopes(request.successful_authenticator),
-                **serializer.validated_data,
-            )
-        except PermissionError as error:
-            raise PermissionDenied(str(error)) from error
-        except ValueError as error:
-            raise serializers.ValidationError(str(error)) from error
-        return Response(SelfDrivingActivationPreviewSerializer(outcome.preview).data, status=outcome.status_code)
 
     @extend_schema(request=None, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])

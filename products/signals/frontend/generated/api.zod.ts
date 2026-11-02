@@ -397,20 +397,6 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SignalsOnboardingActivateCreateBody = /* @__PURE__ */ zod.object({
-    expected_activation_mode: zod
-        .enum(['standard', 'github_optional'])
-        .describe('\* `standard` - Standard\n\* `github_optional` - GitHub optional')
-        .describe(
-            'Activation mode from the preview the user approved. A changed mode returns a new preview without activating.\n\n\* `standard` - Standard\n\* `github_optional` - GitHub optional'
-        ),
-    expected_automatic_implementation: zod
-        .boolean()
-        .describe(
-            'Automatic pull request posture from the preview the user approved. A changed posture returns a new preview without activating.'
-        ),
-})
-
 export const signalsOnboardingCompleteCreateBodyScannerIdsMax = 100
 
 export const signalsOnboardingCompleteCreateBodyActivationScoutsItemMax = 200

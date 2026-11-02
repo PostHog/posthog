@@ -14030,38 +14030,6 @@
         },
         "feature_flag": "scout-trials"
     },
-    "self-driving-activate": {
-        "description": "Activate Self-driving for the current project using its standard quick setup. First call self-driving-activation-get, explain that setup enables all available native sources and signal emission for enabled replay scanners at activation time, along with scouts, the automatic pull request setting and billing terms, and obtain the user's explicit agreement. Pass expected_activation_mode and expected_automatic_implementation from that preview. If the activation mode or automatic PR setting has changed, fetch the new preview and obtain agreement to the changed settings before retrying. Activation starts background work; it does not mean a report or pull request is ready. Existing or unfinished setups are preserved. Enabling signal emission for a replay scanner that does not already emit also requires replay_scanner:write and session_recording:read access.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Activate Self-driving",
-        "title": "Activate Self-driving",
-        "required_scopes": ["task:write", "signal_scout:write", "llm_skill:write"],
-        "api_operations": ["POST /api/projects/{project_id}/signals/onboarding/activate/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "self-driving-mcp-activation-tools"
-    },
-    "self-driving-activation-get": {
-        "description": "Check whether the current project can activate Self-driving and preview its standard quick setup without changing settings. Returns the sources and scouts it would enable, whether automatic pull requests would be enabled, billing information, and any blockers. Standard quick setup enables all available native sources and signal emission for enabled replay scanners at activation time. Explain that scope, these settings, any parent-project effects, and billing terms before asking to activate. An unfinished guided setup must be resumed in the app. Use self-driving-activate only after the user agrees.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Preview Self-driving activation",
-        "title": "Preview Self-driving activation",
-        "required_scopes": ["task:read", "signal_scout:read"],
-        "api_operations": ["GET /api/projects/{project_id}/signals/onboarding/activation/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "self-driving-mcp-activation-tools"
-    },
     "session-recording-bulk-delete": {
         "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
         "category": "Session replays",

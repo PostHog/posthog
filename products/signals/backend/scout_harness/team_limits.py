@@ -892,13 +892,6 @@ def team_is_enrolled(canonical_team_id: int) -> bool:
     return _resolve_enrolled(canonical_team_id, _parse_enrollment(_read_flag_payload()))
 
 
-def team_is_enrolled_after_onboarding(canonical_team_id: int, *, github_optional: bool) -> bool:
-    enrollment = _parse_enrollment(_read_flag_payload())
-    if enrollment.drained or _is_team_enrolled(canonical_team_id, enrollment.skip):
-        return False
-    return github_optional or _resolve_enrolled(canonical_team_id, enrollment)
-
-
 @dataclass(frozen=True)
 class ScoutTeamLimits:
     """A team's effective scout run caps + current usage, all resolved the way dispatch enforces."""

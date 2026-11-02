@@ -16,9 +16,6 @@ from __future__ import annotations
 
 import time
 import logging
-from functools import partial
-
-from django.db import transaction
 
 import posthoganalytics
 
@@ -59,9 +56,7 @@ class UnexpectedScoutFleetPrune(Exception):
     """
 
 
-def materialize_scout_fleet(
-    team: Team, *, surface: str | None = None, seed_inputs: tuple[list[dict], set[str]] | None = None
-) -> set[str]:
+def materialize_scout_fleet(team: Team, *, surface: str | None = None) -> set[str]:
     """Reconcile `team`'s scout fleet against the canonical skills on disk, and record the outcome.
 
     Returns the team's holdback denylist so the caller can keep withheld scouts out of the fleet
@@ -81,28 +76,22 @@ def materialize_scout_fleet(
     # snapshot too). Holdback: a held-back scout can't be seeded or enabled by a manual fleet
     # materialization. Posture: seed the same launch shape the coordinator applies, so a
     # self-serve materialization doesn't bypass the launch cost posture by enabling the fleet.
-    seed_config_layers, withheld = seed_inputs if seed_inputs is not None else resolve_sync_seed_inputs(team.id)
+    seed_config_layers, withheld = resolve_sync_seed_inputs(team.id)
     configs_before = _config_skill_names(team.id)
     result = sync_canonical_skills(team, prune=True, withheld_skill_names=withheld)
     register_missing_configs(
         team.id, seed_config_layers, withheld_skill_names=withheld, enable_new_configs=surface != "onboarding"
     )
     configs_after = _config_skill_names(team.id)
-    duration_ms = round((time.monotonic() - started_at) * 1000)
-    capture = partial(
-        _capture_fleet_synced,
+    _capture_fleet_synced(
         team=team,
         surface=surface,
         result=result,
         configs_before=configs_before,
         configs_after=configs_after,
         withheld_count=len(withheld),
-        duration_ms=duration_ms,
+        duration_ms=round((time.monotonic() - started_at) * 1000),
     )
-    if seed_inputs is not None:
-        transaction.on_commit(capture)
-    else:
-        capture()
     return withheld
 
 

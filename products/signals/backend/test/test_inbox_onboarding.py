@@ -81,7 +81,7 @@ class TestInboxOnboarding(APIBaseTest):
         with (
             patch("posthog.event_usage.posthoganalytics.capture") as capture,
             patch(
-                "products.signals.backend.onboarding_pricing.posthoganalytics.feature_enabled", return_value=True
+                "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=True
             ) as flag,
             self.captureOnCommitCallbacks(execute=True),
         ):
@@ -159,7 +159,7 @@ class TestInboxOnboarding(APIBaseTest):
             ),
             patch("posthog.event_usage.posthoganalytics.capture") as capture,
             patch(
-                "products.signals.backend.onboarding_pricing.posthoganalytics.feature_enabled",
+                "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled",
                 return_value=not automatic_implementation,
             ),
             patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay") as launch,
@@ -357,7 +357,7 @@ class TestInboxOnboarding(APIBaseTest):
             )
         assert response.status_code == expected_status, response.content
 
-    @parameterized.expand([("",), ("complete/",), ("expose/",), ("activate/",)])
+    @parameterized.expand([("",), ("complete/",), ("expose/",)])
     def test_onboarding_writes_require_a_non_sandbox_credential(self, action: str) -> None:
         application = OAuthApplication.objects.create(
             client_id=sorted(SANDBOX_OAUTH_APP_CLIENT_IDS)[0],
@@ -371,7 +371,7 @@ class TestInboxOnboarding(APIBaseTest):
             user=self.user,
             application=application,
             token="pha_onboarding_test_token",
-            scope="task:read task:write signal_scout:write llm_skill:write internal_run:read",
+            scope="task:read task:write internal_run:read",
             expires=timezone.now() + timedelta(hours=1),
             scoped_teams=[self.team.id],
         )
@@ -439,7 +439,7 @@ class TestInboxOnboarding(APIBaseTest):
             scout.refresh_from_db()
             assert scout.enabled
 
-    @parameterized.expand([("expose",), ("read",), ("activation",)])
+    @parameterized.expand([("expose",), ("read",)])
     def test_child_scoped_credential_cannot_access_parent_onboarding(self, action: str) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         raw = generate_random_token_personal()
@@ -452,11 +452,8 @@ class TestInboxOnboarding(APIBaseTest):
         )
         self.client.logout()
         response = (
-            self.client.get(
-                f"/api/projects/{child.id}/signals/onboarding/{'activation/' if action == 'activation' else ''}",
-                HTTP_AUTHORIZATION=f"Bearer {raw}",
-            )
-            if action in {"read", "activation"}
+            self.client.get(f"/api/projects/{child.id}/signals/onboarding/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+            if action == "read"
             else self.client.post(
                 f"/api/projects/{child.id}/signals/onboarding/{action}/", HTTP_AUTHORIZATION=f"Bearer {raw}"
             )
@@ -683,7 +680,7 @@ class TestInboxOnboardingActivation(BaseTest):
                 return_value=MagicMock(results=[[100, timezone.now()]]),
             ),
             patch("products.signals.backend.onboarding_activation.ph_scoped_capture") as capture,
-            patch("products.signals.backend.onboarding_pricing.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=True),
             self.captureOnCommitCallbacks(execute=True),
             patch("products.signals.backend.temporal.agentic.scout_suggestions.stamp_requested"),
             patch(
@@ -764,7 +761,7 @@ class TestInboxOnboardingActivation(BaseTest):
         with (
             patch("products.signals.backend.onboarding_activation.sync_connect") as connect,
             patch("products.signals.backend.onboarding_activation.ph_scoped_capture") as capture,
-            patch("products.signals.backend.onboarding_pricing.posthoganalytics.feature_enabled", return_value=None),
+            patch("products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled", return_value=None),
             self.captureOnCommitCallbacks(execute=True),
         ):
             InboxOnboardingActivation(self.team.id).run(job)

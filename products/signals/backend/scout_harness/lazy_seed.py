@@ -869,17 +869,6 @@ def scout_skill_row_is_proven_canonical(skill: LLMSkill) -> bool:
     return scout_skill_row_origin(skill) == "canonical" and (skill.metadata or {}).get("canonical_hash") is not None
 
 
-def registered_scout_skill_origin(team_id: int, skill_name: str) -> Literal["canonical", "custom"] | None:
-    skill = (
-        LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False)
-        .prefetch_related("files")
-        .first()
-    )
-    if skill is None:
-        return None
-    return "canonical" if scout_skill_row_is_proven_canonical(skill) else "custom"
-
-
 def _seed_metadata(canonical: CanonicalSkill, canonical_hash: str) -> dict:
     """The harness-owned `LLMSkill.metadata` keys, as this canonical revision defines them.
 

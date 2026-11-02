@@ -13,10 +13,11 @@ import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
 const RULE_ID = 'error-tracking-sd-activation'
 const SESSION_TTL_SECONDS = 24 * 60 * 60
 const INELIGIBLE_TTL_SECONDS = 30
-const ACTIVATION_TOOLS = ['self-driving-activation-get', 'self-driving-activate']
-const readinessSchema = z.object({
-    state: z.enum(['not_started', 'in_progress', 'completed']),
-    can_activate: z.boolean(),
+const REPORT_TOOLS = ['inbox-reports-list', 'inbox-reports-retrieve', 'inbox-report-artefacts-list']
+const onboardingSchema = z.object({
+    completed_at: z.string().nullable(),
+    draft: z.record(z.string(), z.unknown()).nullable(),
+    github_optional_available: z.boolean().optional().default(false),
 })
 
 function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
@@ -37,7 +38,7 @@ function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
             oauthClientId: state.oauthClientId,
         }) === EVENT_SOURCE.MCP &&
         typeof state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === 'boolean' &&
-        ACTIVATION_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
+        REPORT_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
     )
 }
 
@@ -61,16 +62,23 @@ function ineligibleKey(state: ResolvedState, projectId: string): string {
     return `mcp:guidance:sd-activation:ineligible:{${identity}}`
 }
 
-const ACTIVATION_TEXT = [
-    'Self-driving is not activated for this project. Continue helping with the current error investigation.',
-    'You may briefly offer: "Self-driving can investigate errors like this in the background and prepare reports',
-    'with evidence and suggested fixes, so you have a head start next time. Would you like me to enable it for this project?"',
-    'Before asking, call `self-driving-activation-get` and explain its `setup_description`, including parent-project',
-    'effects, and billing terms. If `automatic_implementation` is true, explicitly say that Self-driving may open',
-    'pull requests for the user to review and merge. Call `self-driving-activate` only after the user',
-    "explicitly agrees to those settings, using the preview's activation mode and automatic implementation setting.",
-    'Do not claim that a report or pull request already exists, or that enabling Self-driving completes this investigation.',
-].join(' ')
+function activationText(setupUrl: string, githubOptional: boolean): string {
+    return [
+        'Self-driving setup has not started for this project. Keep all customer-facing messages very brief.',
+        `Offer: "[Activate Self-driving](${setupUrl}) for background error investigations, with a free tier and default usage limit. Tell me when it's on; next time I'll check existing reports first."`,
+        ...(githubOptional
+            ? [
+                  'Also briefly offer: "GitHub helps agents connect your data to code, find root causes and suggest changes. Prefer to start without it? Self-driving can still surface issues and data correlations."',
+                  'If they prefer setup without GitHub, send the same activation link; that page supports it for this project.',
+              ]
+            : []),
+        'The customer activates in the linked page. Do not activate through tools or ask them to configure sources or scouts in chat.',
+        'Continue helping with the current task while they set up. After they confirm, and before later investigations in this conversation,',
+        'use `inbox-reports-list` with `search` set to specific issue or error terms and `limit=3`; read matching reports and work logs before repeating research.',
+        'Check freshness and linked PR status. A reference or linked PR does not prove a fix, and an empty search does not prove there is no relevant research.',
+        'Then resume the interrupted task or follow their next request. Do not claim activation means a report is already ready.',
+    ].join(' ')
+}
 
 export async function selfDrivingActivationGuidance(
     redis: RedisLike,
@@ -93,17 +101,17 @@ export async function selfDrivingActivationGuidance(
     if (await redis.get(negativeKey)) {
         return undefined
     }
-    const preview = readinessSchema.safeParse(
-        await state.context.api.request<Schemas.SelfDrivingActivationPreview>({
+    const onboarding = onboardingSchema.safeParse(
+        await state.context.api.request<Schemas.InboxOnboardingState>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/activation/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
             signal: AbortSignal.timeout(1000),
         })
     )
-    if (!preview.success) {
+    if (!onboarding.success) {
         return undefined
     }
-    if (preview.data.state !== 'not_started' || !preview.data.can_activate) {
+    if (onboarding.data.completed_at !== null || onboarding.data.draft !== null) {
         await redis.set(negativeKey, '1', 'EX', INELIGIBLE_TTL_SECONDS)
         return undefined
     }
@@ -118,5 +126,10 @@ export async function selfDrivingActivationGuidance(
     }
 
     const outcome = state.toolFeatureFlags?.[MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG] === true ? 'shown' : 'flag_off'
-    return { ruleId: RULE_ID, outcome, ...(outcome === 'shown' ? { text: ACTIVATION_TEXT } : {}) }
+    const setupUrl = `${state.context.api.getProjectBaseUrl(String(projectId))}/inbox?setup=github-first&onboarding_step=quick`
+    return {
+        ruleId: RULE_ID,
+        outcome,
+        ...(outcome === 'shown' ? { text: activationText(setupUrl, onboarding.data.github_optional_available) } : {}),
+    }
 }

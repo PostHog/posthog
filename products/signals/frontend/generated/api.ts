@@ -95,8 +95,6 @@ import type {
     ScoutTrialSetupApi,
     ScoutTrialStartedApi,
     ScratchpadEntryApi,
-    SelfDrivingActivateApi,
-    SelfDrivingActivationPreviewApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -402,37 +400,6 @@ export const signalsOnboardingCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(inboxOnboardingDraftApi),
-    })
-}
-
-export const getSignalsOnboardingActivateCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/onboarding/activate/`
-}
-
-export const signalsOnboardingActivateCreate = async (
-    projectId: string,
-    selfDrivingActivateApi: SelfDrivingActivateApi,
-    options?: RequestInit
-): Promise<SelfDrivingActivationPreviewApi> => {
-    return apiMutator<SelfDrivingActivationPreviewApi>(getSignalsOnboardingActivateCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(selfDrivingActivateApi),
-    })
-}
-
-export const getSignalsOnboardingActivationRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/onboarding/activation/`
-}
-
-export const signalsOnboardingActivationRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<SelfDrivingActivationPreviewApi> => {
-    return apiMutator<SelfDrivingActivationPreviewApi>(getSignalsOnboardingActivationRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
 

@@ -99,7 +99,6 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'experiment-setup-context': true,
         'scout-trials': true,
         'signals-report-checks-replace': true,
-        'self-driving-mcp-activation-tools': true,
         'inbox-report-actions-mcp': true,
         'signals-reviewer-exclusions-mcp': true,
         'ai-observability-offline-evaluations': true,

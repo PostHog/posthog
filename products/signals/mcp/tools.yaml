@@ -1743,44 +1743,6 @@ tools:
                     Steering instructions shared by every run in this trial, matching the trial UI's "Instructions for
                     every run" field. Up to 1000 characters. Does not edit the saved scout's instructions.
         feature_flag: scout-trials
-    self-driving-activate:
-        operation: signals_onboarding_activate_create
-        enabled: true
-        scopes:
-            - task:write
-            - signal_scout:write
-            - llm_skill:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Activate Self-driving
-        description: >
-            Activate Self-driving for the current project using its standard quick setup. First call
-            self-driving-activation-get, explain that setup enables all available native sources and signal emission for
-            enabled replay scanners at activation time, along with scouts, the automatic pull request setting and
-            billing terms, and obtain the user's explicit agreement. Pass expected_activation_mode and
-            expected_automatic_implementation from that preview. If the activation mode or automatic PR setting has
-            changed, fetch the new preview and obtain agreement to the changed settings before retrying. Activation
-            starts background work; it does not mean a report or pull request is ready. Existing or unfinished setups
-            are preserved. Enabling signal emission for a replay scanner that does not already emit also requires
-            replay_scanner:write and session_recording:read access.
-        feature_flag: self-driving-mcp-activation-tools
-    self-driving-activation-get:
-        operation: signals_onboarding_activation_retrieve
-        enabled: true
-        scopes:
-            - task:read
-            - signal_scout:read
-        title: Preview Self-driving activation
-        description: >
-            Check whether the current project can activate Self-driving and preview its standard quick setup without
-            changing settings. Returns the sources and scouts it would enable, whether automatic pull requests would be
-            enabled, billing information, and any blockers. Standard quick setup enables all available native sources
-            and signal emission for enabled replay scanners at activation time. Explain that scope, these settings, any
-            parent-project effects, and billing terms before asking to activate. An unfinished guided setup must be
-            resumed in the app. Use self-driving-activate only after the user agrees.
-        feature_flag: self-driving-mcp-activation-tools
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
