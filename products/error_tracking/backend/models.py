@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Now
 from django.utils import timezone
 
@@ -235,6 +236,15 @@ class ErrorTrackingExternalReference(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingexternalreference"
+        indexes = [
+            # The Linear status sync looks up a workspace's references by ticket identifier on every
+            # state change in that workspace, also for tickets that no reference links.
+            models.Index(
+                models.F("integration_id"),
+                KeyTransform("id", "external_context"),
+                name="et_extref_integration_ctx_id",
+            ),
+        ]
 
 
 class ErrorTrackingIssueCohort(UUIDTModel):
