@@ -1874,6 +1874,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalPerformance": {
+        "template": "/transactional/performance",
+        "params": [],
+        "scope": "project"
+    },
     "transactionalTemplate": {
         "template": "/transactional/library/templates/{id}",
         "params": ["id"],
