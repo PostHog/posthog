@@ -80,6 +80,10 @@ logger = structlog.get_logger(__name__)
 # Event types the formatters can render on their own, so a single one of them can be summarized by UUID.
 SUMMARIZABLE_EVENT_TYPES = ["$ai_generation", "$ai_span", "$ai_embedding", "$ai_evaluation"]
 
+# The frontend matches this code to keep the expected 404 out of error tracking
+# (CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH in frontend/src/initKea.ts). Keep both in sync.
+CONTENT_EXPIRED_ERROR_CODE = "content_expired"
+
 
 def _compact_cache_key(cache_key: str) -> str:
     return f"{cache_key}:compact"
@@ -458,7 +462,8 @@ class AIObservabilitySummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.Gener
             )
         except AIEventsExpiredError:
             raise exceptions.NotFound(
-                "The message content for this event is no longer available, so it can't be summarized."
+                "The message content for this event is no longer available, so it can't be summarized.",
+                code=CONTENT_EXPIRED_ERROR_CODE,
             ) from None
         except AIEventsUnavailableError:
             return {}

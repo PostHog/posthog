@@ -422,6 +422,16 @@ export interface TaskActivityPageDTOApi {
      * @nullable
      */
     next_before_id?: string | null
+    /**
+     * URL of the next page, with before and before_id set, or null on the final page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * Always null: the feed pages forward only.
+     * @nullable
+     */
+    readonly previous: string | null
 }
 
 export interface TaskActivityReadMarkerApi {
