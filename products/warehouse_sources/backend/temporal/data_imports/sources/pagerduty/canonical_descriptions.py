@@ -209,6 +209,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Time at which the note was last updated.",
         },
     },
+    "business_services": {
+        "description": "A business service: a capability that spans several technical services and can be owned by several teams.",
+        "docs_url": "https://developer.pagerduty.com/api-reference",
+        "columns": _columns(
+            name="The name of the business service.",
+            description="The user-provided description of the business service.",
+            point_of_contact="The point of contact assigned to the business service.",
+            team="Reference to the team that owns the business service, if any.",
+        ),
+    },
+    "maintenance_windows": {
+        "description": "A maintenance window: a period during which one or more services do not create incidents.",
+        "docs_url": "https://developer.pagerduty.com/api-reference",
+        "columns": _columns(
+            sequence_number="The order in which the maintenance window was created.",
+            start_time="Time at which the services stop creating incidents.",
+            end_time="Time at which the services start creating incidents again.",
+            description="Description of the maintenance window.",
+            created_by="Reference to the user who created the maintenance window.",
+            services="Services that the maintenance window applies to.",
+            teams="Teams associated with the maintenance window.",
+        ),
+    },
     "incident_analytics": {
         "description": "Per-incident metrics from the PagerDuty Analytics API, such as time to acknowledge, time to resolve, engaged time, and escalation counts.",
         "docs_url": "https://developer.pagerduty.com/api-reference",

@@ -14,12 +14,15 @@ from collections.abc import Sequence
 from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
 
+import structlog
+
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import RenderedInsightChart, detector_verdict_event_fields, insight_chart_url
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent
 from products.alerts.backend.logic.destinations import emit_alert_internal_events
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.platform_alert_slack import insight_transition_properties
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -29,6 +32,8 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageImage,
 )
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
+
+logger = structlog.get_logger(__name__)
 
 # Below the delivery activity's own timeout, which a flush must not use up.
 FLUSH_TIMEOUT_SECONDS: Final = 5.0
@@ -79,12 +84,30 @@ def insight_chart_image(*, team_id: int, transition: AnnouncedTransition) -> Mes
     return MessageImage(url=url, alt_text="Insight chart") if url else None
 
 
+def _formatting_properties(transition: AnnouncedTransition) -> dict[str, Any]:
+    """The Slack card fields, or none of them.
+
+    These enrich the event; the destinations it reaches do not depend on them. A stored detail the
+    formatter cannot read must cost the firing its card, never its delivery.
+    """
+    try:
+        return insight_transition_properties(transition)
+    except Exception:
+        logger.exception("alerts_insight_legacy_event_formatting_failed")
+        return {}
+
+
 def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) -> AlertInternalEvent:
     detail = transition.source_detail
     properties: dict[str, Any] = {
+        # From the transition, not the alert row: the platform never writes `state` or
+        # `last_checked_at`, so a platform-owned alert past its shadow window would report the
+        # frozen `not_firing` default on the very event that announces a firing.
         **alert.internal_event_properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
+        # Joined with newlines so each breach renders on its own line, as the insight stack sends it.
         "breaches": "\n".join(detail.get("breaches") or []),
         **detector_verdict_event_fields(detail.get("triggered_metadata")),
+        **_formatting_properties(transition),
     }
     if chart_url := insight_chart_url_of(alert.team_id, detail):
         properties["insight_chart_url"] = chart_url

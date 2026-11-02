@@ -1191,6 +1191,27 @@ def team_api_test_factory():
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
 
+        @parameterized.expand([("member", False, []), ("staff", True, ["email_sending_tier_changed"])])
+        def test_activity_hides_staff_only_rows_from_members(
+            self, _name: str, is_staff: bool, expected_activities: list[str]
+        ) -> None:
+            ActivityLog.objects.create(
+                team_id=self.team.pk,
+                organization_id=self.organization.id,
+                user=User.objects.create(email="staff@posthog.com", is_staff=True),
+                scope="Team",
+                item_id=str(self.team.pk),
+                activity="email_sending_tier_changed",
+                detail={"name": self.team.name},
+            )
+            self.user.is_staff = is_staff
+            self.user.save()
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/activity")
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert [item["activity"] for item in response.json()["results"]] == expected_activities
+
         @time_machine.travel("2022-02-08", tick=False)
         def test_team_float_config_can_be_serialized_to_activity_log(self):
             # regression test since this isn't true by default
@@ -2321,6 +2342,31 @@ def team_api_test_factory():
             settings = response.json()["conversations_settings"]
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
+
+        @parameterized.expand(
+            [
+                ("deduplicates_ids", ["C0123ABCD", "C0123ABCD"], status.HTTP_200_OK, ["C0123ABCD"]),
+                ("clears_with_null", None, status.HTTP_200_OK, []),
+                ("rejects_names", ["#support"], status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_direct_messages", ["D0123ABCD"], status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_list", "C0123ABCD", status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_string", [123], status.HTTP_400_BAD_REQUEST, None),
+                ("caps_channels", [f"C{i:08d}" for i in range(21)], status.HTTP_400_BAD_REQUEST, None),
+            ]
+        )
+        def test_automated_update_channel_allowlist_validation(
+            self, _name, channel_ids, expected_status, expected_channels
+        ):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"automated_update_slack_channel_ids": channel_ids}},
+            )
+
+            assert response.status_code == expected_status
+            if expected_channels is not None:
+                assert (
+                    response.json()["conversations_settings"]["automated_update_slack_channel_ids"] == expected_channels
+                )
 
         @parameterized.expand([(["legacy", "list"],), ("legacy string",), (1,)])
         def test_conversations_settings_merges_with_legacy_non_object_existing(self, legacy_value):

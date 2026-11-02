@@ -1,8 +1,10 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 
 import { markExecPayload, type ToolResultPayload } from '@/lib/build-tool-result'
 import { DISPATCHABLE_APP_KEYS, RENDER_UI_RESOURCE_URI, URI_MAP, type UiAppKey } from '@/resources/ui-apps.generated'
+import RENDER_UI_EXPLAIN_CHART from '@/templates/render-ui-explain-chart.md'
 import RENDER_UI_PROMPT from '@/templates/render-ui-prompt.md'
 
 import { type Context, type Tool, type ZodObjectAny } from './types'
@@ -10,6 +12,12 @@ import { type Context, type Tool, type ZodObjectAny } from './types'
 export const RENDER_UI_TOOL_NAME = 'render-ui'
 export const RENDER_UI_TOOL_TITLE = 'Render a PostHog visualization'
 export const RENDER_UI_TOOL_DESCRIPTION = RENDER_UI_PROMPT.trim()
+
+export function renderUiDescription(renderableNames: string[]): string {
+    return renderableNames.includes('explain-chart')
+        ? `${RENDER_UI_TOOL_DESCRIPTION}\n\n${RENDER_UI_EXPLAIN_CHART.trim()}`
+        : RENDER_UI_TOOL_DESCRIPTION
+}
 
 // Reverse of URI_MAP so a tool's `_meta.ui.resourceUri` resolves back to its app key.
 const URI_TO_APP_KEY = new Map<string, UiAppKey>(
@@ -19,12 +27,12 @@ const URI_TO_APP_KEY = new Map<string, UiAppKey>(
 const DISPATCHABLE = new Set<UiAppKey>(DISPATCHABLE_APP_KEYS)
 
 /** The dispatchable app key for a tool, or undefined when it has no renderable UI app. */
-function toDispatchableAppKey(tool: Tool<ZodObjectAny>): UiAppKey | undefined {
-    const resourceUri = tool._meta?.ui?.resourceUri
-    if (!resourceUri) {
+function toDispatchableAppKey(tool: Pick<McpTool, '_meta'>): UiAppKey | undefined {
+    const ui = tool._meta?.ui
+    if (!ui || typeof ui !== 'object' || !('resourceUri' in ui) || typeof ui.resourceUri !== 'string') {
         return undefined
     }
-    const appKey = URI_TO_APP_KEY.get(resourceUri)
+    const appKey = URI_TO_APP_KEY.get(ui.resourceUri)
     return appKey && DISPATCHABLE.has(appKey) ? appKey : undefined
 }
 
@@ -33,15 +41,14 @@ function toDispatchableAppKey(tool: Tool<ZodObjectAny>): UiAppKey | undefined {
  * Restricted to read-only tools: `render-ui` is annotated read-only, so it must not be a
  * back door for dispatching state-changing tools (e.g. `survey-launch`, `workflows-create`).
  */
-export function getRenderableToolNames(allTools: Tool<ZodObjectAny>[]): string[] {
+export function getRenderableToolNames(allTools: Pick<McpTool, 'name' | 'annotations' | '_meta'>[]): string[] {
     return allTools
-        .filter((tool) => tool.annotations.readOnlyHint && toDispatchableAppKey(tool) !== undefined)
+        .filter((tool) => tool.annotations?.readOnlyHint && toDispatchableAppKey(tool) !== undefined)
         .map((tool) => tool.name)
 }
 
-/** Single source of truth for the `render-ui` input contract — the executor
- *  validates with it, and `buildRenderUiToolEntry` derives the advertised
- *  `tools/list` schema from it, so the two cannot drift. */
+/** OpenAI caches the advertised catalog across accounts, so execution must
+ *  validate the same input shape against the current account's allowed tools. */
 export function makeRenderUiSchema(
     toolNames: [string, ...string[]]
 ): z.ZodObject<{ tool_name: z.ZodEnum<Record<string, string>>; tool_input: z.ZodOptional<z.ZodRecord> }> {
@@ -79,7 +86,7 @@ export function createRenderUiTool(
     return {
         name: RENDER_UI_TOOL_NAME,
         title: RENDER_UI_TOOL_TITLE,
-        description: RENDER_UI_TOOL_DESCRIPTION,
+        description: renderUiDescription(renderableNames),
         schema,
         scopes: [],
         annotations: {

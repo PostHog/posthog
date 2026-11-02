@@ -60,17 +60,18 @@ def source_caption(store: str) -> str:
     )
 
 
-def url_field(placeholder: str) -> FieldType:
+def url_field(placeholder: str, hint: str | None = None) -> FieldType:
+    caption = (
+        "Use * to match any part of a file or folder name, and ** to match across folders. A URL "
+        "without a wildcard imports the folder or file it points to."
+    )
     return SourceFieldInputConfig(
         name="url_pattern",
         label="Files URL",
         type=SourceFieldInputConfigType.TEXT,
         required=True,
         placeholder=placeholder,
-        caption=(
-            "Use * to match any part of a file or folder name, and ** to match across folders. A URL "
-            "without a wildcard imports the folder or file it points to."
-        ),
+        caption=f"{hint} {caption}" if hint else caption,
         secret=False,
     )
 

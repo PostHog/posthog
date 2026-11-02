@@ -34,6 +34,8 @@ class PagerDutyEndpointConfig:
     parent: Optional[str] = None
     parent_id_column: Optional[str] = None
     method: Literal["GET", "POST"] = "GET"
+    # Static query params sent on every list request of the endpoint.
+    extra_params: dict[str, str] = field(default_factory=dict)
     # None when rows do not arrive in ascending order of the endpoint's incremental field.
     sort_mode: Optional[Literal["asc"]] = "asc"
 
@@ -168,6 +170,18 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
     "vendors": PagerDutyEndpointConfig(
         path="/vendors",
         envelope_key="vendors",
+    ),
+    "business_services": PagerDutyEndpointConfig(
+        path="/business_services",
+        envelope_key="business_services",
+    ),
+    "maintenance_windows": PagerDutyEndpointConfig(
+        path="/maintenance_windows",
+        envelope_key="maintenance_windows",
+        # The API documents no default for `filter`, so ask for past, ongoing, and future windows
+        # explicitly. There is no `since` filter or sort param, and `start_time` moves when a window
+        # is edited, so the table is full refresh with no partition key.
+        extra_params={"filter": "all"},
     ),
 }
 

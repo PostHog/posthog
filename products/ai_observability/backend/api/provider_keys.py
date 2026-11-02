@@ -26,7 +26,7 @@ from posthog.security.url_validation import strip_userinfo
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
-from ..llm.decisions import DecisionClient, decision_evaluations_enabled
+from ..llm.decisions import DecisionClient
 from ..llm.providers.anthropic import (
     DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE,
     error_field_for_validation_message as anthropic_error_field,
@@ -82,10 +82,6 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
 
 def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
-    if provider == LLMProvider.SYSTEM_ONE and not decision_evaluations_enabled(
-        team_id, base_url=kwargs.get("base_url", "")
-    ):
-        raise exceptions.PermissionDenied("System One evaluations are not available for this project.")
     try:
         return Client.validate_key(provider, api_key, **kwargs)
     except Exception:

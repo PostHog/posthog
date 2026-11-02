@@ -5,7 +5,7 @@ import structlog
 from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.schema_enums import ProductKey
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
@@ -326,7 +326,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         try:
             session = google_analytics_session(config.google_analytics_integration_id, team_id)
-        except Integration.DoesNotExist:
+        except IntegrationNotFound:
             # The stored OAuth integration row has been deleted/disconnected before validation runs.
             # Caught explicitly so an unrelated model's DoesNotExist still surfaces as a real bug below.
             return (
@@ -405,6 +405,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     ),
                     SourceFieldInputConfig(
                         name="property_id",
+                        account_selector=True,
                         label="Property ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

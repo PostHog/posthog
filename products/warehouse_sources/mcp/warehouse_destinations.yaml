@@ -1,0 +1,124 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product warehouse_sources
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product warehouse_sources --file ../../products/warehouse_sources/mcp/warehouse_destinations.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Warehouse destinations
+feature: warehouse_sources
+url_prefix: /data-management/warehouse-destinations
+ui_apps: {}
+tools:
+    external-data-destinations-add-sources:
+        operation: external_data_destinations_add_sources_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: ?destination={params.id}
+        title: Attach sources to a warehouse destination
+        description: >
+            Attach up to 50 existing sources to a destination. Each source's tables then also sync there, except tables
+            with their own destination override: they keep the override and ignore this link. Before attaching, check
+            the destination's status with external-data-destinations-retrieve: do not attach to a failing or paused
+            destination until the user fixed it. Then call external-data-sources-destinations-retrieve for each source.
+            When destination_ids holds only the PostHog warehouse destination (is_posthog_warehouse in
+            external-data-destinations-list), the source may write there by default and would stop updating its PostHog
+            tables after this call. If the user wants to keep them and no destination in external-data-destinations-list
+            is paused, first call external-data-sources-destinations-update with that same list: it makes the warehouse
+            an explicit link. If a destination is paused, tell the user instead. When destination_ids is empty, tell the
+            user the PostHog tables stop updating. Call external-data-schemas-destinations-retrieve for each of the
+            source's tables and tell the user which have inherits_from_source false: those will not reach this
+            destination. Sources already attached, or already at the destination limit, come back in skipped with a
+            reason. An attached source sends only rows from its next syncs, so the destination holds no history until
+            those tables are resynced. Set resync=true to start a full resync of every enabled table now, including
+            tables with an override that will not reach this destination. Tell the user first: a resync re-reads every
+            row and bills every destination the source writes to.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-connect-link:
+        operation: external_data_destinations_connect_link_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a secure connect link for a destination
+        description: >
+            First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure
+            Blob). Returns a browser link where the user enters the credentials in PostHog, plus the next steps in
+            `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass integration_kind='s3-compatible'.
+            Never ask the user to paste passwords, keys or tokens into the chat.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-create:
+        operation: external_data_destinations_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: ?destination={id}
+        title: Create a warehouse destination
+        description: >
+            Create a place where warehouse sources write synced rows, from an integration that holds the credentials.
+            Get the integration id with external-data-destinations-connect-link first. Pass type, a name, the
+            integration id and the target config for the type: Postgres and Redshift take database and schema; Snowflake
+            takes database, schema, warehouse and optional role; BigQuery takes dataset and optional project; Databricks
+            takes http_path, catalog, schema and volume; S3 takes bucket, region and optional prefix and compression;
+            Azure Blob takes container_name and optional prefix and compression. Every type except Redshift tests the
+            connection on create, and a failed test returns a 400 that names the field to fix. Redshift has no test, so
+            a wrong target only shows up when the first sync fails. The target cannot change after creation, so confirm
+            it with the user first. A new destination receives nothing until a source is attached with
+            external-data-destinations-add-sources.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-list:
+        operation: external_data_destinations_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List warehouse destinations
+        description: >
+            List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of
+            them, and it is where a source writes when nothing else is configured.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-retrieve:
+        operation: external_data_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: ?destination={id}
+        title: Get a warehouse destination
+        description: >
+            Read one warehouse destination, including the target database or schema it writes to. Credentials live on
+            the linked integration and are never returned here.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-test-connection:
+        operation: external_data_destinations_test_connection_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Test a warehouse destination's connection
+        description: >
+            Run the connection test for an existing destination and return each step with its result. The test stops at
+            the first failed step, and that step's message says what to fix. Redshift has no connection test and returns
+            a 400: relay latest_error from external-data-destinations-retrieve instead. The test only reports: a paused
+            destination stays paused even when the test passes. It turns back on when the user fixes the problem and
+            saves the destination on the warehouse destinations page (the link from
+            external-data-destinations-retrieve).
+        feature_flag: warehouse-multi-destination

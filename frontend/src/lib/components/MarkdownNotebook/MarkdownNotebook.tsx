@@ -234,6 +234,7 @@ import {
     getTableCellRefKey,
     getTableColumnCount,
     getTableEdgeCellPosition,
+    isTableEmpty,
     makeEmptyTableRow,
     normalizeTableRow,
     tableCellPositionsEqual,
@@ -4736,6 +4737,27 @@ function MarkdownNotebookEditor({
         return true
     }, [commitDocument, requestFocusAfterRemovingNode])
 
+    const deleteEmptyTableAtCurrentSelection = useCallback((): boolean => {
+        const element = getSelectedInlineEditableElementOfType(
+            notebookRef.current,
+            'MarkdownNotebook__table-cell-content'
+        )
+        const nodeId = element?.dataset.markdownNotebookNodeId
+        if (!element || !nodeId) {
+            return false
+        }
+
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const node = nodes.find((currentNode) => currentNode.id === nodeId)
+        if (!node || node.type !== 'table' || !isTableEmpty(node)) {
+            return false
+        }
+
+        requestFocusAfterRemovingNode(nodeId)
+        deleteNodeWithRefCleanup(nodeId)
+        return true
+    }, [deleteNodeWithRefCleanup, requestFocusAfterRemovingNode])
+
     const insertParagraphBelowTrailingCodeBlockAtCurrentSelection = useCallback((): boolean => {
         const element = getSelectedInlineEditableElementOfType(notebookRef.current, 'MarkdownNotebook__code-block')
         const nodeId = element?.dataset.markdownNotebookNodeId
@@ -6774,7 +6796,8 @@ function MarkdownNotebookEditor({
             !event.ctrlKey &&
             (deleteListItemRangeAtCurrentSelection() ||
                 deleteListItemAtCurrentSelection(event.key === 'Backspace' ? 'backward' : 'forward') ||
-                deleteEmptyCodeBlockAtCurrentSelection())
+                deleteEmptyCodeBlockAtCurrentSelection() ||
+                deleteEmptyTableAtCurrentSelection())
         ) {
             event.preventDefault()
             event.stopPropagation()

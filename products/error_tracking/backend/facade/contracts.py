@@ -21,6 +21,11 @@ from posthog.enums import LabeledStrEnum
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
 
+class BuiltInFilterEvaluation(LabeledStrEnum):
+    CLIENT = "client"
+    SERVER = "server"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"
@@ -294,6 +299,16 @@ class ErrorTrackingSuppressionRule:
     sampling_rate: float
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingBuiltInFilter:
+    key: str
+    name: str
+    description: str
+    evaluation: BuiltInFilterEvaluation
+    enabled: bool
+    disabled_reason: str | None
 
 
 @dataclass(frozen=True)

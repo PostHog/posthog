@@ -20,6 +20,7 @@ import type {
     GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    GitHubRepositoryAccessResponseApi,
     GitHubTeamsResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
@@ -31,6 +32,7 @@ import type {
     IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubRepositoryAccessRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsGitlabMembersRetrieveParams,
     IntegrationsJiraAssignableUsersRetrieveParams,
@@ -571,6 +573,41 @@ export const integrationsGithubReposRefreshCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getIntegrationsGithubRepositoryAccessRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubRepositoryAccessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_repository_access/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_repository_access/`
+}
+
+export const integrationsGithubRepositoryAccessRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubRepositoryAccessRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubRepositoryAccessResponseApi> => {
+    return apiMutator<GitHubRepositoryAccessResponseApi>(
+        getIntegrationsGithubRepositoryAccessRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getIntegrationsGithubTeamsRetrieveUrl = (

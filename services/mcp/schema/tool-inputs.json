@@ -482,6 +482,19 @@
                             "description": "Description explaining when the event is triggered",
                             "type": "string"
                         },
+                        "owner": {
+                            "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
                         "tags": {
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                             "type": "array",
@@ -503,12 +516,36 @@
             },
             "required": ["eventName"]
         },
+        "EventDefinitionGetSchema": {
+            "type": "object",
+            "properties": {
+                "eventName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The exact name of the event (e.g. \"$pageview\", \"user_signed_up\")"
+                }
+            },
+            "required": ["eventName"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
                 "description": {
                     "description": "Description explaining when the event is triggered",
                     "type": "string"
+                },
+                "owner": {
+                    "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                    "anyOf": [
+                        {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "tags": {
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
@@ -541,6 +578,19 @@
                         "description": {
                             "description": "Description explaining when the event is triggered",
                             "type": "string"
+                        },
+                        "owner": {
+                            "description": "Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.",
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
                         },
                         "tags": {
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
@@ -722,7 +772,7 @@
                                             "description": "One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**."
                                         },
                                         "query": {
-                                            "description": "The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.",
+                                            "description": "The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.",
                                             "type": "object",
                                             "propertyNames": {
                                                 "type": "string"

@@ -31,15 +31,17 @@ MERGE_QUEUE_PAGE_SIZE = 100
 MERGE_QUEUE_PULL_REQUESTS = "MergeQueuePullRequests"
 
 # v2 is a separate, test-collection-scoped API rather than a successor to the repository-scoped
-# v1 endpoints: test ids differ between the two, and v1 is still served for orgs that have not
-# moved to collections. So a v2 pin keeps every v1 table on its v1 wire and adds the collection
-# tables on top.
+# v1 endpoints: test ids differ between the two, and Trunk retires the v1 list endpoints once an
+# org moves to collections. A v1 pin keeps the flaky-test tables on their v1 wire; a v2 pin reads
+# them from `GET /v2/tests` across every collection and adds the collection tables on top.
 TEST_COLLECTIONS = "TestCollections"
 TESTS = "Tests"
 
 # `GET /v2/test-collections` and `GET /v2/tests` both take `limit` (max 100) and `cursor` query
 # params and return `{data, nextCursor, hasMore}`.
 V2_PAGE_SIZE = 100
+
+TEST_METRICS_PARAMS: dict[str, str] = {"include": "metrics", "period": "7d"}
 
 V1_ENDPOINTS = (
     "UnhealthyTests",
@@ -63,9 +65,9 @@ def endpoints_for_version(api_version: str) -> tuple[str, ...]:
 
 
 DESCRIPTIONS: dict[str, str] = {
-    "UnhealthyTests": "Tests Trunk currently considers flaky or broken, combining both status filters.",
-    "QuarantinedTests": "Tests currently quarantined (failures suppressed) in this repository.",
-    "FailingTests": "Distinct tests that failed at least once within a given time window.",
+    "UnhealthyTests": "Tests Trunk currently considers flaky or broken.",
+    "QuarantinedTests": "Tests currently quarantined (failures suppressed).",
+    "FailingTests": "Tests that failed at least once in a recent time window.",
     MERGE_QUEUE_PULL_REQUESTS: "Pull requests submitted to the merge queue for one target branch, with queue state and priority.",
     TEST_COLLECTIONS: "Test collections in the organization, with test counts and quarantine settings.",
     TESTS: "Tests across every test collection in the organization, with current status and quarantine state.",
@@ -82,12 +84,17 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     TESTS: ["id"],
 }
 
+# A v2 row carries a stable `id`, unlike a v1 quarantined test case.
+V2_PRIMARY_KEYS: dict[str, list[str]] = {**PRIMARY_KEYS, "QuarantinedTests": ["id"]}
+
 # `synced_through` is a synthetic per-row field (not part of any API response) carrying the point
 # in time the row's endpoint is covered up to, so the pipeline's incremental watermark advances
 # without depending on the order rows arrive in:
 #
-# - `FailingTests` has a server-side `start_time`/`end_time` filter capped at 7 days, so each row
-#   is stamped with the end of the window it was fetched in as the sync walks forward.
+# - `FailingTests` on v1 has a server-side `start_time`/`end_time` filter capped at 7 days, so each
+#   row is stamped with the end of the window it was fetched in as the sync walks forward. On v2
+#   there is only a fixed 7-day metrics window, so every row in a run is stamped with the run's
+#   start time and the merge on `id` keeps the latest metrics.
 # - `MergeQueuePullRequests` has a server-side `since` filter on conclusion time but no documented
 #   ordering, so every row in a run is stamped with the run's start time. The next run re-reads
 #   from there, which overlaps by one run's duration rather than risking a gap; the overlap is

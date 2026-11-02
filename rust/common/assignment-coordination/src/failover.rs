@@ -33,6 +33,26 @@ pub fn is_member_level(err: &etcd_client::Error) -> bool {
     }
 }
 
+/// `connection` for a failure under the call, otherwise etcd's gRPC code.
+pub(crate) fn error_kind(err: &etcd_client::Error) -> &'static str {
+    match err {
+        etcd_client::Error::GRpcStatus(status) if raised_by_connection(status) => "connection",
+        etcd_client::Error::GRpcStatus(status) => match status.code() {
+            Code::Unavailable => "unavailable",
+            Code::DeadlineExceeded => "deadline_exceeded",
+            Code::ResourceExhausted => "resource_exhausted",
+            Code::OutOfRange => "out_of_range",
+            Code::InvalidArgument => "invalid_argument",
+            Code::FailedPrecondition => "failed_precondition",
+            Code::NotFound => "not_found",
+            Code::Cancelled => "cancelled",
+            _ => "other_status",
+        },
+        etcd_client::Error::TransportError(_) | etcd_client::Error::IoError(_) => "connection",
+        _ => "other",
+    }
+}
+
 /// The Unavailable error etcd answers a require-leader request with when the
 /// member has no leader, for the same condition reported another way.
 pub fn no_leader_error(message: impl Into<String>) -> etcd_client::Error {
@@ -350,6 +370,28 @@ mod tests {
 
     fn status(code: Code) -> etcd_client::Error {
         etcd_client::Error::GRpcStatus(tonic::Status::new(code, "test"))
+    }
+
+    #[test]
+    fn error_kinds_separate_broken_connections_from_etcd_answers() {
+        let broken_stream =
+            tonic::Status::from_error(Box::new(h2::Error::from(h2::Reason::STREAM_CLOSED)));
+        assert_eq!(
+            error_kind(&etcd_client::Error::GRpcStatus(broken_stream)),
+            "connection"
+        );
+        assert_eq!(
+            error_kind(&etcd_client::Error::IoError(std::io::Error::from(
+                std::io::ErrorKind::ConnectionReset
+            ))),
+            "connection"
+        );
+        assert_eq!(error_kind(&status(Code::Unavailable)), "unavailable");
+        assert_eq!(
+            error_kind(&status(Code::ResourceExhausted)),
+            "resource_exhausted"
+        );
+        assert_eq!(error_kind(&status(Code::PermissionDenied)), "other_status");
     }
 
     #[test]

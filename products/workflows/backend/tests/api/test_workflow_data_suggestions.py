@@ -40,6 +40,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
     PlannedWorkflow,
+    StepsContext,
     WorkflowIdea,
 )
 from products.workflows.backend.services.data_suggestions.service import (
@@ -48,10 +49,12 @@ from products.workflows.backend.services.data_suggestions.service import (
     _build_key,
     _build_lock_key,
     _cache_key,
+    _event_build_lock_key,
     _generation_lock_key,
     _to_cache,
     build_caller,
     run_data_suggestions,
+    run_event_workflows,
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
@@ -68,6 +71,7 @@ from products.workflows.backend.tests.api.test_hog_flow_action_email import _ema
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
 EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
 VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
+FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
 
 
 def _idea(trigger_event: str) -> WorkflowIdea:
@@ -523,6 +527,84 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
+
+    @parameterized.expand(
+        [
+            ("approved", True, True, 200),
+            ("not_approved", False, True, 403),
+            ("flag_off", True, False, 403),
+        ]
+    )
+    @patch(FLAG)
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_build_for_events_saves_one_draft_per_picked_event(
+        self,
+        _name: str,
+        approved: bool,
+        flag_enabled: bool,
+        status: int,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+        flag: MagicMock,
+    ) -> None:
+        flag.return_value = flag_enabled
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        suggest_ideas.return_value = [
+            _idea("signed_up"),
+            _idea("query executed"),
+            _idea("signed_up"),
+            _idea("trial_started"),
+        ]
+
+        def plan(*, context: StepsContext, **_: object) -> PlannedWorkflow:
+            # The later event fails, and the draft already saved for the first one must still be returned.
+            if context.idea.trigger_event == "trial_started":
+                raise RuntimeError("planner timed out")
+            return PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+
+        plan_steps.side_effect = plan
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build_for_events/"
+
+        responses = [self.client.post(url, {"events": ["signed_up", "trial_started"]}, format="json") for _ in range(2)]
+
+        assert [response.status_code for response in responses] == [status, status]
+        if status == 403:
+            assert plan_steps.call_count == 0
+            assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+            return
+        assert responses[0].json() == responses[1].json()
+        assert plan_steps.call_count == 2
+        assert suggest_ideas.call_args.kwargs["context"].picked_events
+        assert all(call.kwargs["context"].picked_events for call in plan_steps.call_args_list)
+        workflow_ids = responses[0].json()["workflow_ids"]
+        assert responses[0].json()["status"] == "ready"
+        drafts = HogFlow.objects.filter(team_id=self.team.id, id__in=workflow_ids)
+        assert [(draft.status, draft.trigger["filters"]["events"][0]["id"]) for draft in drafts] == [
+            ("draft", "signed_up")
+        ]
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_batch_that_lost_its_lock_makes_no_model_calls(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        events = ("signed_up",)
+        cache.set(_event_build_lock_key(self.team.id, self.user.id, events), "newer-run", 60)
+        save_draft = MagicMock()
+
+        run_event_workflows(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            events=events,
+            lock_token="older-run",
+            validate_draft=lambda team, workflow: validated_draft(team, workflow, EventSource.WEB),
+            save_draft=save_draft,
+        )
+
+        assert (suggest_ideas.call_count, plan_steps.call_count, save_draft.call_count) == (0, 0, 0)
+        assert cache.get(_event_build_lock_key(self.team.id, self.user.id, events)) == "newer-run"
 
     @parameterized.expand(
         [

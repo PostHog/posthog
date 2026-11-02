@@ -19,6 +19,7 @@ import deltalake.exceptions
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
+from temporalio.exceptions import ApplicationError
 
 from posthog.credentials_service.errors import (
     CredentialsServiceUnreachableError,
@@ -852,13 +853,25 @@ async def test_http_401_is_reraised_for_activity_retry():
 
 
 @pytest.mark.asyncio
-async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in():
+@pytest.mark.parametrize(
+    "retry_after, expected_delay",
+    [
+        (None, None),
+        (3600.0, timedelta(hours=1)),
+        (86400.0, module.MAX_SERVER_RETRY_DELAY),
+        (float("inf"), module.MAX_SERVER_RETRY_DELAY),
+        (1e15, module.MAX_SERVER_RETRY_DELAY),
+    ],
+)
+async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in(
+    retry_after: float | None, expected_delay: timedelta | None
+):
     # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
     # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
     # be honored by type even when the source's get_retryable_errors doesn't list the message, so
     # every REST-based source gets this benign, self-recovering failure logged as a warning instead
     # of minting error-tracking noise.
-    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/")
+    error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/", retry_after=retry_after)
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -869,9 +882,15 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     logger.adebug = mock.AsyncMock()
 
     with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
-        with pytest.raises(RESTClientRetryableError):
+        with pytest.raises(NonReportableError) as raised:
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
+    if expected_delay is None:
+        assert raised.value is error
+    else:
+        assert isinstance(raised.value, ApplicationError)
+        assert raised.value.type == "RESTClientRetryableError"
+        assert raised.value.next_retry_delay == expected_delay
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
 

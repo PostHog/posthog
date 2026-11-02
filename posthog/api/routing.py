@@ -9,9 +9,8 @@ from django.db.models.query import QuerySet
 from opentelemetry import trace
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
-from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
-from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.utils import get_token
@@ -56,12 +55,60 @@ else:
     _GenericViewSet = object
 
 
-class DefaultRouterPlusPlus(ExtendedDefaultRouter):
-    """DefaultRouter with optional trailing slash and drf-extensions nesting."""
+# Adapted from drf-extensions 0.8.0 (MIT, Copyright (c) 2013 Gennady Chibisov, github.com/chibisov/drf-extensions).
+PARENT_LOOKUP_KWARG_PREFIX = "parent_lookup_"
+
+
+class NestedRegistryItem:
+    def __init__(
+        self,
+        router: "DefaultRouterPlusPlus",
+        parent_prefix: str,
+        parent_item: Optional["NestedRegistryItem"] = None,
+        parent_viewset: Any = None,
+    ) -> None:
+        self.router = router
+        self.parent_prefix = parent_prefix
+        self.parent_item = parent_item
+        self.parent_viewset = parent_viewset
+
+    def register(
+        self, prefix: str, viewset: Any, basename: str, parents_query_lookups: Sequence[str]
+    ) -> "NestedRegistryItem":
+        self.router.register_flat(
+            self.get_prefix(current_prefix=prefix, parents_query_lookups=parents_query_lookups), viewset, basename
+        )
+        return NestedRegistryItem(router=self.router, parent_prefix=prefix, parent_item=self, parent_viewset=viewset)
+
+    def get_prefix(self, current_prefix: str, parents_query_lookups: Sequence[str]) -> str:
+        return f"{self.get_parent_prefix(parents_query_lookups)}/{current_prefix}"
+
+    def get_parent_prefix(self, parents_query_lookups: Sequence[str]) -> str:
+        prefix = "/"
+        current_item: Optional[NestedRegistryItem] = self
+        i = len(parents_query_lookups) - 1
+        while current_item:
+            lookup_value_regex = getattr(current_item.parent_viewset, "lookup_value_regex", "[^/.]+")
+            kwarg_name = f"{PARENT_LOOKUP_KWARG_PREFIX}{parents_query_lookups[i]}"
+            prefix = f"{current_item.parent_prefix}/(?P<{kwarg_name}>{lookup_value_regex})/{prefix}"
+            i -= 1
+            current_item = current_item.parent_item
+        return prefix.strip("/")
+
+
+class DefaultRouterPlusPlus(DefaultRouter):
+    """DefaultRouter with optional trailing slash and nested registration."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trailing_slash = r"/?"
+
+    def register_flat(self, prefix: str, viewset: Any, basename: str | None = None) -> None:
+        super().register(prefix, viewset, basename)
+
+    def register(self, prefix: str, viewset: Any, basename: str | None = None) -> NestedRegistryItem:  # type: ignore[override]
+        self.register_flat(prefix, viewset, basename)
+        return NestedRegistryItem(router=self, parent_prefix=self.registry[-1][0], parent_viewset=self.registry[-1][1])
 
 
 class RouterRegistry:
@@ -577,13 +624,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def parent_query_kwargs(self) -> dict[str, Any]:
         parent_query_kwargs: dict[str, str] = {}
         for kwarg_name, kwarg_value in self.kwargs.items():
-            # drf-extensions nested parameters are prefixed
-            if kwarg_name.startswith(extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX):
-                query_lookup = kwarg_name.replace(
-                    extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX,
-                    "",
-                    1,
-                )
+            if kwarg_name.startswith(PARENT_LOOKUP_KWARG_PREFIX):
+                query_lookup = kwarg_name.replace(PARENT_LOOKUP_KWARG_PREFIX, "", 1)
                 parent_query_kwargs[query_lookup] = kwarg_value
         return parent_query_kwargs
 

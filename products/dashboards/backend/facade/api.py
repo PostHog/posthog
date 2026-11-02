@@ -13,6 +13,7 @@ response they become.
 
 import re
 from collections.abc import Collection, Sequence
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet
@@ -213,6 +214,22 @@ def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict
     for insight_id, dashboard_id, name in rows:
         refs.setdefault(insight_id, []).append(DashboardRef(id=dashboard_id, name=name))
     return {insight_id: tuple(dashboards) for insight_id, dashboards in refs.items()}
+
+
+def insight_ids_on_dashboards_accessed_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    """Insights with a live tile on a live dashboard of these teams that someone opened since the given time.
+
+    One query. Any access counts: the app, the API, a shared link, or an embed.
+    """
+    if not team_ids:
+        return set()
+    return set(
+        DashboardTile.objects.filter(
+            dashboard__team_id__in=team_ids, dashboard__last_accessed_at__gte=since, insight_id__isnull=False
+        )
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
 
 
 def dashboard_exists(dashboard_id: int) -> bool:

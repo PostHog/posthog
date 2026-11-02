@@ -97,6 +97,7 @@ class MaterializePayloadSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Why the interval is not shorter. source_sync: the view's sources sync no faster. "
         "fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. "
+        "consumer_refresh: the materialized views that read it refresh no more often. "
         "savings: a shorter interval would cost more than it saves. Null on suggestions made before this was "
         "recorded.",
     )
@@ -124,6 +125,10 @@ class MaterializePayloadSerializer(DataclassSerializer):
             "lookback_seconds": {
                 "help_text": "How far before the last refresh's highest incremental_key value each refresh reads "
                 "again, in seconds. The last incremental_key value is always read again."
+            },
+            "recomputed_by_views": {
+                "help_text": "How many materialized views compute this view again on every refresh, because it "
+                "is not stored. 0 when the saving comes only from people's reads."
             },
         }
 

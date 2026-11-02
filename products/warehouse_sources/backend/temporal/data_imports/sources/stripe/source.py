@@ -318,6 +318,7 @@ class StripeSource(
                     ),
                     SourceFieldInputConfig(
                         name="stripe_account_id",
+                        account_selector=True,
                         label="Account id (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -3,7 +3,6 @@ from collections.abc import Iterator
 from contextlib import nullcontext
 from ipaddress import ip_address
 from typing import Literal
-from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
@@ -13,7 +12,6 @@ from django.test import override_settings
 import httpx
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, ScoreAnswer, ScoreQuestion
-from posthog.models import Team
 
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.decisions import (
@@ -21,7 +19,6 @@ from products.ai_observability.backend.llm.decisions import (
     DecisionEndpointBlockedError,
     DecisionRateLimitError,
     DecisionRequestRejectedError,
-    decision_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -47,38 +44,6 @@ def public_endpoint_dns() -> Iterator[None]:
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
     ):
         yield
-
-
-@pytest.mark.parametrize(
-    "base_url,flag,enabled",
-    [
-        ("https://api.typesafe.ai/v1", True, True),
-        ("", True, False),
-        ("https://decisions.example.com/v1", True, True),
-        ("https://decisions.example.com/v1", False, False),
-        ("https://decisions.example.com/v1", None, False),
-        ("https://ai-gateway.us.posthog.com/v1", True, True),
-        ("https://ai-gateway.eu.posthog.com/v1", True, True),
-        ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", True, True),
-        ("https://ａｉ-gateway.us.posthog.com/v1", True, True),
-        ("https://ai-gateway.us.posthog.com/v1", False, False),
-        ("https://ai-gateway.us.posthog.com/v1", None, False),
-    ],
-)
-def test_system_one_connections_require_flag_and_supported_endpoint(
-    base_url: str, flag: bool | None, enabled: bool
-) -> None:
-    team = Team(id=1, organization_id=uuid4(), uuid=uuid4())
-    with (
-        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch(
-            "products.ai_observability.backend.llm.decisions.get_feature_flag_or_none",
-            side_effect=lambda *args, groups, **kwargs: flag if groups["project"] == str(team.uuid) else False,
-        ),
-    ):
-        teams.return_value.get.return_value = team
-        assert decision_evaluations_enabled(team.id, base_url=base_url) is enabled
 
 
 @pytest.mark.parametrize(

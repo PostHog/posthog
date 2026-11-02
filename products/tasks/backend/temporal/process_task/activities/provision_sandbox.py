@@ -23,12 +23,7 @@ from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
-from products.tasks.backend.constants import (
-    DEV_STACK_IMAGE_NAME,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    filter_user_sandbox_env_vars,
-)
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import (
     ComputeBillingLimitError,
     CredentialUnavailableError,
@@ -108,7 +103,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_github_token,
     get_sandbox_name_for_task,
     get_sandbox_otel_env_vars,
-    get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     installation_confirms_repository_denied,
     mcp_exec_skills_env_vars,
@@ -137,7 +131,7 @@ class PrepareSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@dataclass(frozen=True)
 class PrepareSandboxForRepositoryOutput:
     sandbox_name: str
     repository: str | None
@@ -151,7 +145,6 @@ class PrepareSandboxForRepositoryOutput:
     shallow_clone: bool
     image_source: str
     image_source_label: str
-    snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
     sandbox_creation_timeout_seconds: int = 300
@@ -174,6 +167,27 @@ class CreateSandboxForRepositoryOutput:
     jwt_kid: str | None = None
     ttl_expires_at: str | None = None
     dev_stack_preview_sized: bool = False
+
+
+@frozen
+class GetSandboxForRepositoryOutput:
+    sandbox_id: str
+    sandbox_url: str
+    connect_token: str | None
+    used_snapshot: bool
+    should_create_snapshot: bool
+    jwt_kid: str | None = None
+    agent_server_launched: bool = False
+    boot_path: str = "classic"
+    image_source: str | None = None
+    create_ms: int | None = None
+    clone_ms: int | None = None
+    checkout_ms: int | None = None
+    launch_ms: int | None = None
+    agent_prepare_ms: int | None = None
+    agent_invoke_ms: int | None = None
+    dev_stack_preview_sized: bool = False
+    agent_shadow_launched: bool = False
 
 
 @dataclass
@@ -354,9 +368,9 @@ def _prewarmed_resume_needs_fresh_agent(
 ) -> bool:
     """Whether a restored full snapshot bundled an agent that cannot idle before the resumed prompt.
 
-    A repository snapshot (``snapshot_id``) restores the same filesystem as a resume snapshot
-    (``snapshot_external_id``), so it supplies the snapshot's own agent binary too and needs the
-    same probe. Only a directory restore keeps the vetted image's agent.
+    A repository snapshot (``snapshot_id``) restores a full filesystem, so it supplies the
+    snapshot's own agent binary too and needs the same probe. A directory resume keeps the
+    vetted image's agent.
     """
     # `prewarmedResumeMessageDriven` is an ACP capability, advertised and consumed only by the
     # ACP agent server. The Pi server dispatches no startup turn and downloads its session
@@ -366,8 +380,7 @@ def _prewarmed_resume_needs_fresh_agent(
         return False
     if (
         not used_snapshot
-        or (prepared.snapshot_external_id is None and prepared.snapshot_id is None)
-        or prepared.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
+        or prepared.snapshot_external_id is not None
         or not (ctx.state or {}).get("prewarmed")
         or not (ctx.state or {}).get("resume_from_run_id")
     ):
@@ -436,6 +449,7 @@ def _resolve_sandbox_github_token(
     """
     if ctx.github_read_access:
         github_token = get_readonly_github_token(ctx.team_id, repositories=ctx.repositories) or ""
+        TaskRun.update_state_atomic(ctx.run_id, updates={"github_read_access_available": bool(github_token)})
         if github_token:
             log_with_activity_context("Read-only GitHub token minted for evidence gathering", run_id=ctx.run_id)
         else:
@@ -713,7 +727,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         snapshot = None
         used_snapshot = False
         snapshot_source = "none"
-        snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop a custom base image or a non-default template. Resume snapshots were taken from
@@ -729,14 +742,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
-                snapshot_metadata = get_sandbox_snapshot_metadata(snapshot)
-                if not snapshot_metadata.is_usable:
-                    snapshot = None
-                    used_snapshot = False
-                else:
-                    snapshot_source = "repository"
-                    snapshot_kind = snapshot_metadata.kind
-                    snapshot_mount_path = snapshot_metadata.mount_path
+                snapshot_source = "repository"
         elif not has_repo:
             log_with_activity_context("Creating environment without repository", run_id=ctx.run_id)
 
@@ -762,9 +768,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
-        # VM and gVisor both resume from snapshots. A run's stored snapshot kind
-        # determines the restore mechanism; the rollout flag only chooses the
-        # kind of new snapshot created after this run.
         resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
             if not run_state.resume_snapshot_is_usable():
@@ -777,7 +780,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             else:
                 used_snapshot = True
                 snapshot_source = "resume"
-                snapshot_kind = run_state.resume_snapshot_kind()
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         is_resume = bool(run_state.same_run_resume or run_state.resume_from_run_id)
@@ -795,9 +797,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 "run_id": ctx.run_id,
                 "resume_mode": resume_mode,
                 "state_snapshot_external_id": run_state.snapshot_external_id,
-                "state_snapshot_kind": run_state.snapshot_kind,
                 "effective_snapshot_external_id": resume_snapshot_external_id,
-                "effective_snapshot_kind": snapshot_kind,
                 "effective_snapshot_mount_path": snapshot_mount_path,
                 "same_run_resume": run_state.same_run_resume,
                 "same_run_resume_idle": run_state.same_run_resume_idle,
@@ -839,7 +839,6 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             shallow_clone=shallow_clone,
             image_source=image_source,
             image_source_label=image_source_label,
-            snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
             sandbox_creation_timeout_seconds=sandbox_class.creation_timeout_seconds,
@@ -850,7 +849,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 def _pin_governs_sandbox_agent(ctx: TaskProcessingContext, config: SandboxConfig, *, used_snapshot: bool) -> bool:
     if ctx.sandbox_backend == "hogland" or config.custom_image_name:
         return False
-    return not used_snapshot or config.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
+    return not used_snapshot or config.resume_snapshot_external_id is not None
 
 
 @StepTimer("sandbox_agent_version")
@@ -933,8 +932,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
-            snapshot_external_id=prepared.snapshot_external_id,
-            snapshot_kind=prepared.snapshot_kind,
+            resume_snapshot_external_id=prepared.snapshot_external_id,
             snapshot_mount_path=prepared.snapshot_mount_path,
             snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
@@ -996,8 +994,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                     )
                     sandbox.destroy()
                     config.snapshot_id = None
-                    config.snapshot_external_id = None
-                    config.snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
+                    config.resume_snapshot_external_id = None
                     config.snapshot_mount_path = None
                     config.snapshot_source = "none"
                     config.snapshot_restored = False
@@ -1043,13 +1040,8 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
             snapshot_outcome = (
                 "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
             )
-            metrics_snapshot_kind = prepared.snapshot_kind if prepared.snapshot_source != "none" else "none"
-            increment_snapshot_usage(
-                actual_used_snapshot,
-                snapshot_source=prepared.snapshot_source,
-                snapshot_kind=metrics_snapshot_kind,
-            )
-            increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
+            increment_snapshot_usage(actual_used_snapshot, snapshot_source=prepared.snapshot_source)
+            increment_snapshot_restore(prepared.snapshot_source, snapshot_outcome)
 
             record_sandbox_created(
                 runtime,
@@ -1333,7 +1325,7 @@ def _installation_behind_sandbox_token(ctx: TaskProcessingContext) -> GitHubInte
         return None
     if get_pr_authorship_mode(_load_task(ctx), ctx.state) != PrAuthorshipMode.BOT:
         return None
-    return resolve_installation_github_integration(ctx.github_integration_id)
+    return resolve_installation_github_integration(ctx.team_id, ctx.github_integration_id)
 
 
 def _is_repository_access_denied_clone_error(result: ExecutionResult) -> bool:

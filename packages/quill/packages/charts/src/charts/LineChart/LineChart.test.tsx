@@ -275,6 +275,17 @@ describe('LineChart', () => {
             expect(tooltip.seriesData).toHaveLength(SERIES.length)
         })
 
+        it('shows new values when the series change under the hovered index', async () => {
+            const { chart, rerender } = renderChart(<LineChart series={SERIES} labels={LABELS} theme={THEME} />)
+            chart.hoverAtIndex(1)
+            await chart.waitForTooltip()
+            const updated: Series[] = SERIES.map((s) => ({ ...s, data: s.data.map((v) => v * 10) }))
+            rerender(<LineChart series={updated} labels={LABELS} theme={THEME} />)
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.seriesData.map((d) => d.value)).toEqual([200, 150])
+        })
+
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
             const { chart } = renderChart(
                 <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />

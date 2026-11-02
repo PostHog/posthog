@@ -25,6 +25,7 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from oauth2_provider.models import AbstractApplication
+from rest_framework import serializers
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.exceptions_capture import capture_exception
@@ -37,11 +38,11 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import filter_to_unprivileged_scopes
+from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
 from posthog.security.pinned_requests import PinnedIPAdapter, select_pinned_ip
-from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
-from .client_name import sanitize_client_name, validate_client_name
+from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
 
 if TYPE_CHECKING:
@@ -141,6 +142,17 @@ CIMDMetadataDocument = TypedDict(
 )
 
 
+def _public_block_reason(what: str, reason: str | None) -> str:
+    """The client-facing reason an SSRF check refused a client-controlled URL.
+
+    Never the raw reason: it can name the address a host resolved to, which would make
+    these errors an oracle for DNS answers inside our network.
+    """
+    if reason == UNRESOLVED_HOST_REASON:
+        return f"{what} host name does not resolve"
+    return f"{what} host is not a public internet address"
+
+
 def validate_fetchable_https_url(
     url: str | None, *, perform_dns_check: bool = False, what: str = "URL"
 ) -> tuple[bool, str | None]:
@@ -171,7 +183,7 @@ def validate_fetchable_https_url(
     if perform_dns_check:
         allowed, reason = is_url_allowed(url)
         if not allowed:
-            return False, f"URL blocked: {reason}"
+            return False, _public_block_reason(what, reason)
 
     return True, None
 
@@ -271,7 +283,7 @@ def fetch_client_json_document(
     # PinnedIPAdapter keeps the original hostname for SNI and certificate verification.
     verdict = validate_url_and_pin_ips(url)
     if not verdict.allowed:
-        raise CIMDValidationError(f"URL blocked: {verdict.reason}")
+        raise CIMDValidationError(_public_block_reason(what, verdict.reason))
 
     adapter = PinnedIPAdapter()
     hostname = (urlparse(url).hostname or "").lower()
@@ -296,15 +308,21 @@ def fetch_client_json_document(
         )
     except requests.RequestException as e:
         session.close()
-        raise CIMDFetchError(f"Failed to fetch {what}: {e}") from e
+        # The exception text can carry the pinned IP and connection internals, so the client
+        # gets the kind of failure and the full exception stays on the chained cause.
+        if isinstance(e, requests.Timeout):
+            raise CIMDFetchError(f"{what} fetch timed out after {CIMD_FETCH_TIMEOUT_SECONDS} seconds") from e
+        if isinstance(e, requests.exceptions.SSLError):
+            raise CIMDFetchError(f"{what} fetch failed: the TLS certificate could not be verified") from e
+        if isinstance(e, requests.ConnectionError):
+            raise CIMDFetchError(f"{what} fetch failed: could not connect") from e
+        raise CIMDFetchError(f"{what} fetch failed") from e
 
     try:
         if response.is_redirect or response.is_permanent_redirect:
-            raise CIMDFetchError(
-                f"{what} endpoint returned redirect (HTTP {response.status_code}), redirects are not allowed"
-            )
+            raise CIMDFetchError(f"{what} endpoint returned a redirect, and redirects are not allowed")
         if response.status_code != 200:
-            raise CIMDFetchError(f"{what} endpoint returned HTTP {response.status_code}")
+            raise CIMDFetchError(f"{what} endpoint did not return HTTP 200")
 
         # Early reject if Content-Length exceeds limit
         content_length = response.headers.get("Content-Length")
@@ -337,7 +355,7 @@ def fetch_client_json_document(
     try:
         parsed = json.loads(body)
     except Exception as e:
-        raise CIMDValidationError(f"Invalid JSON in {what}: {e}") from e
+        raise CIMDValidationError(f"{what} is not valid JSON") from e
 
     if not isinstance(parsed, dict):
         raise CIMDValidationError(f"{what} must be a JSON object")
@@ -358,7 +376,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
 
     # client_id MUST match the URL (simple string comparison per spec)
     if metadata.get("client_id") != url:
-        raise CIMDValidationError(f"client_id in metadata ({metadata.get('client_id')!r}) does not match URL ({url!r})")
+        raise CIMDValidationError("client_id in the metadata document does not match the URL it was fetched from")
 
     # redirect_uris required
     redirect_uris = metadata.get("redirect_uris")
@@ -379,7 +397,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     # itself, so nothing secret has to be delivered out of band.
     auth_method = metadata.get("token_endpoint_auth_method", "none")
     if auth_method not in CIMD_SUPPORTED_AUTH_METHODS:
-        raise CIMDValidationError(f"CIMD clients cannot use token_endpoint_auth_method '{auth_method}'")
+        raise CIMDValidationError("token_endpoint_auth_method must be 'none' or 'private_key_jwt' for a CIMD client")
 
     jwks_uri = metadata.get("jwks_uri")
     if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value:
@@ -391,7 +409,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
             raise CIMDValidationError("jwks_uri must be an https URL")
         # A second client-controlled URL we will dereference, so it gets the same SSRF
         # screening as the metadata document itself.
-        jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True)
+        jwks_allowed, jwks_error = validate_cimd_url(jwks_uri, perform_dns_check=True, what="jwks_uri")
         if not jwks_allowed:
             raise CIMDValidationError(f"jwks_uri is not allowed: {jwks_error}")
     elif jwks_uri is not None:
@@ -511,7 +529,8 @@ def _capture_verification_rejected(
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     """Resolve the allow-listed `com.posthog.scopes` for an app, or None when the field
     is absent so callers leave existing scopes untouched. A present field returns a
-    (possibly empty) list, capped to grantable scopes by `filter_to_unprivileged_scopes`.
+    (possibly empty) list, capped to grantable scopes by `filter_self_registered_ceiling`. A list of
+    only OIDC identity scopes is a sign-in-only client and keeps them as its ceiling.
 
     Raises CIMDValidationError when the field is present and non-empty but every entry is
     non-grantable. An empty ceiling falls back to the broad UNPRIVILEGED_SCOPES default
@@ -527,11 +546,12 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     raw_scopes: object = com_posthog.get("scopes")
     if not isinstance(raw_scopes, list):
         return None
-    filtered = filter_to_unprivileged_scopes(raw_scopes)
+    filtered = filter_self_registered_ceiling(raw_scopes)
     if raw_scopes and not filtered:
         raise CIMDValidationError(
-            "None of the declared com.posthog.scopes are available to self-registered clients. "
-            "Remove the field to register with the default scope set."
+            "com.posthog.scopes has no scope a CIMD client can be granted. "
+            f"Use scopes from scopes_supported in the authorization server metadata, list only "
+            f"{', '.join(OIDC_SCOPES)} for a sign-in-only client, or remove the field to use the default scope set"
         )
     return filtered
 
@@ -601,6 +621,18 @@ def _resolve_client_authentication(
     return AbstractApplication.CLIENT_PUBLIC, metadata.get("jwks_uri")
 
 
+def _logo_uri_for(metadata: CIMDMetadataDocument, url: str) -> str | None:
+    """The document's logo, or else the touch icon at the root of the host that serves the document.
+
+    Many clients publish no `logo_uri`. The fallback comes from the client_id host, which the
+    document was fetched from, and not from the self-asserted `client_uri`, so a client cannot
+    borrow another site's icon. Where the host has no icon, the screens show the client's initial.
+    """
+    if logo_uri := metadata.get("logo_uri"):
+        return logo_uri
+    return usable_logo_uri(f"https://{urlparse(url).netloc}/apple-touch-icon.png")
+
+
 def _create_cimd_application(
     url: str,
     metadata: CIMDMetadataDocument,
@@ -614,19 +646,26 @@ def _create_cimd_application(
     ``allow_confidential`` is the caller's only say in whether a declared private_key_jwt is
     honored on creation; see ``_resolve_client_authentication``.
     """
-    client_name = metadata.get("client_name", "CIMD Client")
-    try:
-        validate_client_name(client_name)
-    except Exception:
+    client_name = metadata.get("client_name")
+    if not isinstance(client_name, str) or not client_name:
         client_name = "CIMD Client"
+    else:
+        try:
+            validate_cimd_client_name(client_name, url)
+        except serializers.ValidationError as e:
+            raise CIMDValidationError(f"client_name is not allowed: {' '.join(str(d) for d in e.detail)}") from e
     # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
     client_name = sanitize_client_name(client_name)
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
-    logo_uri = metadata.get("logo_uri") or None
+    logo_uri = _logo_uri_for(metadata, url)
     verification = _resolve_verification_token(metadata, url, capture_ph_event=capture_ph_event)
     resolved_scopes = _resolve_scopes(metadata)
     resolved_optional_scopes = _resolve_optional_scopes(metadata)
+    if resolved_optional_scopes and not any(":" in scope for scope in resolved_scopes or []):
+        raise CIMDValidationError(
+            "com.posthog.optional_scopes requires at least one resource scope in com.posthog.scopes"
+        )
 
     client_type, jwks_uri = _resolve_client_authentication(metadata, allow_confidential=allow_confidential)
 
@@ -707,13 +746,15 @@ def _update_cimd_application(
     client_name = metadata.get("client_name")
     if client_name:
         try:
-            validate_client_name(client_name)
+            validate_cimd_client_name(client_name, app.client_id)
             app.name = sanitize_client_name(client_name)
         except Exception:
             pass  # Keep existing name if new one is invalid
 
     app.redirect_uris = " ".join(metadata.get("redirect_uris", []))
-    app.logo_uri = new_uri if (new_uri := metadata.get("logo_uri")) is not None else app.logo_uri
+    # A document without a logo keeps the stored one, and only an app with none gets the host icon
+    if metadata.get("logo_uri") is not None or not app.logo_uri:
+        app.logo_uri = _logo_uri_for(metadata, app.client_id)
     app.cimd_metadata_last_fetched = timezone.now()
 
     # Re-derived on every refresh, in both directions: a registered partner that starts
@@ -902,7 +943,7 @@ def fetch_and_upsert_cimd_application(
                 },
             )
             return new_app
-        except (IntegrityError, ValidationError):
+        except (IntegrityError, ValidationError) as e:
             app = OAuthApplication.objects.filter(client_id=url).first()
             if app:
                 logger.debug("cimd_app_race_resolved", url=url, app_id=str(app.pk))
@@ -910,6 +951,11 @@ def fetch_and_upsert_cimd_application(
                 # document, so the declaration in it still speaks for this client.
                 _register_partner_if_declared(app, metadata, register_provisioning=register_provisioning)
                 return app
+            if isinstance(e, ValidationError):
+                # Field names only: the messages can echo document values, and whoever calls
+                # /authorize chooses which URL PostHog fetches.
+                fields = sorted(getattr(e, "message_dict", {}) or {"document": []})
+                raise CIMDValidationError(f"Metadata document was rejected: invalid {', '.join(fields)}") from e
             raise
     finally:
         cache.delete(fetch_lock)
@@ -995,12 +1041,7 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     the same thing.
     """
     return app.provisioning.model_copy(
-        update={
-            "active": True,
-            "can_create_accounts": True,
-            "can_provision_resources": True,
-            "partner_since": timezone.now(),
-        }
+        update={"active": True, "can_create_accounts": True, "can_provision_resources": True}
     )
 
 

@@ -37,6 +37,7 @@ import {
     IconList,
     IconListCheck,
     IconListTree,
+    IconLetter,
     IconLive,
     IconLlmAnalytics,
     IconLlmPromptManagement,
@@ -254,6 +255,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     broadcasts: {
         icon: <IconSend />,
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
+    },
+    transactional: {
+        icon: <IconLetter />,
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
     },
     notebook: {
         icon: <IconNotebook />,

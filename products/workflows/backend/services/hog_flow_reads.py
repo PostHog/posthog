@@ -33,7 +33,7 @@ from products.workflows.backend.facade.enums import HogFlowScheduleStatus, Workf
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
-from products.workflows.backend.services.batch_jobs import hog_flow_ids_with_broadcast_status
+from products.workflows.backend.services.batch_jobs import annotate_latest_send, filter_by_broadcast_status
 from products.workflows.backend.services.hog_flow_schedules import list_schedules_oldest_first
 from products.workflows.backend.services.hog_flow_secrets import TemplateCache, mask_workflow_fields
 from products.workflows.backend.services.publish_impact import build_publish_impact
@@ -239,7 +239,7 @@ def _list_queryset(
     user_access_control: "UserAccessControl | None",
     include_all_if_admin: bool,
 ) -> QuerySet:
-    queryset = (
+    queryset: QuerySet = (
         HogFlow.objects.filter(team_id=team_id)
         .select_related("created_by")
         # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
@@ -266,6 +266,10 @@ def _list_queryset(
     # otherwise repeat on one page and never appear on another.
     if query.suggestions_first:
         queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
+    elif query.latest_send_first:
+        queryset = annotate_latest_send(queryset).order_by(
+            F("_latest_send_at").desc(nulls_last=True), "-updated_at", "-id"
+        )
     else:
         queryset = queryset.order_by("-updated_at", "-id")
 
@@ -287,9 +291,7 @@ def _list_queryset(
         )
 
     if query.broadcast_statuses:
-        queryset = queryset.filter(
-            id__in=hog_flow_ids_with_broadcast_status(team_id=team_id, statuses=query.broadcast_statuses)
-        )
+        queryset = filter_by_broadcast_status(queryset, query.broadcast_statuses)
 
     # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
     # this param and ships on its own release cadence, so installed builds keep sending it.

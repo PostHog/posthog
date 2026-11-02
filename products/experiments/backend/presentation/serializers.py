@@ -54,6 +54,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentValidationError,
     HealthExposureInputsStatus,
     RunningTimeMode,
 )
@@ -219,6 +220,15 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
             "'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case."
         ),
     )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "A stable qualifier below the subcode: where a sample ratio mismatch is located ('library', 'page'), "
+            "what leaves nobody exposed ('test_account_filter'), what made a metric reach a query limit "
+            "('metric', 'exposure_criteria'), or why a check could not read what it needs ('no_history_access'). "
+            "Null when the finding names none."
+        ),
+    )
     severity = serializers.ChoiceField(
         choices=ExperimentHealthFindingSeverity.choices,
         help_text="How much the problem affects the results: critical, warning, or info.",
@@ -255,7 +265,7 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "finding code."
         ),
     )
-    name = serializers.CharField(help_text="What the check looks at, for example 'Feature flag variants'.")
+    name = serializers.CharField(help_text="The problem the check looks for, for example 'Metrics not set up'.")
     status = serializers.ChoiceField(
         choices=ExperimentHealthCheckStatus.choices,
         help_text=(
@@ -1083,11 +1093,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Route through facade
         team = Team.objects.get(id=self.context["team_id"])
-        experiment_dto = create_experiment(
-            team=team,
-            user=self.context["request"].user,
-            input_dto=input_dto,
-        )
+        try:
+            experiment_dto = create_experiment(
+                team=team,
+                user=self.context["request"].user,
+                input_dto=input_dto,
+            )
+        except ExperimentValidationError as error:
+            raise ValidationError(str(error)) from error
 
         # Load instance for return (DRF expects model instance)
         instance = Experiment.objects.get(id=experiment_dto.id)
@@ -1571,7 +1584,7 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
         help_text="Status of this metric's calculation in the run",
     )
     # JSONField mirrors the ExperimentMetricResult.result column; concrete shape comes from
-    # posthog.schema.ExperimentQueryResponse (variants/baseline/credible intervals/etc., depending on metric type).
+    # posthog.schema.ExperimentQueryResponse (baseline, variant_results, and breakdown_results for a breakdown).
     result = serializers.JSONField(
         read_only=True,
         allow_null=True,
@@ -1637,9 +1650,11 @@ class _ExperimentMetricsRecalculationBaseSerializer(serializers.Serializer):
     metric_errors = serializers.JSONField(
         read_only=True,
         help_text=(
-            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is "
-            "true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can "
-            "succeed; false when the metric config, the data, or a resource limit must change first"
+            "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. "
+            "retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry "
+            "can succeed; false when the metric config, the data, or a resource limit must change first. "
+            "exposures_path is where the query read the exposures, and is missing when the query failed before it "
+            "was built"
         ),
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
@@ -3440,6 +3455,45 @@ class ExperimentHealthInputsMetricCompilesSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthInputsMetricCalculationFailureSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The metric's name as the experiment shows it.")
+    role = serializers.CharField(help_text="'primary' or 'secondary'.")
+    error_type = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The class that the calculation stored for the error, such as 'timeout' or 'rate_limited'. Null for a "
+            "failure stored without a class."
+        ),
+    )
+    step = serializers.CharField(
+        allow_null=True,
+        help_text="The step of the calculation that failed, such as 'calculation'. Null when the failure names none.",
+    )
+    retriable = serializers.BooleanField(
+        help_text=(
+            "Whether the results page shows a button to try the metric again, which it does for a retriable error."
+        )
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The stored message as the results page shows it, without the names that HogQL suggests and the list of "
+            "a scope's fields. Null when it can hold evaluation rules that the AI evaluation markers keep out of the "
+            "browser."
+        ),
+    )
+
+
+class ExperimentHealthInputsLatestCalculationSerializer(serializers.Serializer):
+    finished_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the latest calculation that the results page shows finished. Null when none has finished.",
+    )
+    failures = ExperimentHealthInputsMetricCalculationFailureSerializer(
+        many=True, help_text="The metrics whose latest calculation failed, with the error that the results page shows."
+    )
+
+
 class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
     can_read_flag_history = serializers.BooleanField(
         help_text="Whether the reader may read the flag's history, which the flag-change checks need."
@@ -3577,9 +3631,16 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     metric_compiles = ExperimentHealthInputsMetricCompilesSerializer(
         allow_null=True,
         help_text=(
-            "The compile of each metric's query without running it, as the reader, which the metric queries check "
-            "reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on "
-            "every request. Null when the compile itself failed."
+            "The compile of each metric's query without running it, as the reader, which the 'Invalid metric "
+            "definitions' check reads. A metric that compiles is cached per reader for a day, and a failing metric "
+            "compiles again on every request. Null when the compile itself failed."
+        ),
+    )
+    latest_calculation = ExperimentHealthInputsLatestCalculationSerializer(
+        allow_null=True,
+        help_text=(
+            "The latest finished calculation of the metrics, which the metric results check reads. Null before "
+            "launch, on an archived experiment, or when the read failed."
         ),
     )
     flag_history = ExperimentHealthInputsFlagHistorySerializer(

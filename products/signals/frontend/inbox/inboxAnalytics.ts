@@ -30,13 +30,13 @@ export const INBOX_CLIENT = 'cloud' as const
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
-    WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
     VALUE_SUMMARY_DISMISSED: 'Inbox value summary dismissed',
     PANEL_LOAD_TIMED_OUT: 'Inbox panel load timed out',
+    WRITE_TIMED_OUT: 'Inbox write timed out',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
@@ -176,6 +176,7 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
     | 'open_pr'
@@ -230,10 +231,13 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
  * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
  * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
+export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+
+/** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
+export type InboxWrite = 'claim' | 'priority' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -376,9 +380,6 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
-/** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
-export type InboxWelcomeCopySurface = 'takeover' | 'banner'
-
 /**
  * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
  * takeover replaces the report list), so this is the top-of-funnel event for setup conversion.
@@ -388,22 +389,9 @@ export function captureInboxWelcomeViewed(): void {
 }
 
 /**
- * The wizard setup command was copied. Previously only recoverable from autocapture (and
- * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
- * conversion step gets its own event.
- */
-export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcomeCopySurface }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
-        surface: params.surface,
-    })
-}
-
-/**
- * The takeover's "Set up manually" escape hatch was pressed. Sits next to
- * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
- * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
- * the wizard copy never fires, and the sources and scouts that follow look like they came from
- * nowhere.
+ * The welcome page's "Start manually" link was pressed, the exit from the welcome page that bypasses
+ * quick activation. Without it a manual setup is invisible: the sources and scouts that follow look
+ * like they came from nowhere.
  */
 export function captureInboxWelcomeManualSetupClicked(): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
@@ -855,12 +843,13 @@ export function captureSignalSourceInterest(source: string): void {
 
 export type SignalSourceCatalogOrigin = 'catalog' | 'recommendation'
 
-/** The add-source catalog opened. Pairs with {@link captureSignalSourceConnected} to show how many opens end in a connection. */
+/** Pairs catalog visits with source connections; the event name stays fixed for existing funnels. */
 export function captureSignalSourceCatalogOpened(params: {
     recommendationCount: number
     connectedCount: number
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, {
+        surface: 'sources_tab',
         recommendation_count: params.recommendationCount,
         connected_count: params.connectedCount,
     })
@@ -959,6 +948,14 @@ export function captureInboxPanelViewed(params: { panel: InboxPanelName; itemCou
 export function capturePanelLoadTimedOut(params: { load: InboxPanelLoad; timeoutMs: number }): void {
     captureInboxEvent(INBOX_EVENTS.PANEL_LOAD_TIMED_OUT, {
         load: params.load,
+        timeout_ms: params.timeoutMs,
+    })
+}
+
+/** A report write was aborted for taking too long. Like a stalled panel read, it records no `client_request_failure`. */
+export function captureWriteTimedOut(params: { write: InboxWrite; timeoutMs: number }): void {
+    captureInboxEvent(INBOX_EVENTS.WRITE_TIMED_OUT, {
+        write: params.write,
         timeout_ms: params.timeoutMs,
     })
 }
@@ -1259,6 +1256,23 @@ export function captureScoutCreatePathSwitched(params: {
         actionType: 'switch_create_path',
         surface: params.surface,
         extra: { direction: params.direction },
+    })
+}
+
+/** Which link opened the scratchpad, so each entry point's pull reads separately. */
+export type ScratchpadEntryPoint = 'told_tab' | 'learned_tab' | 'roster_stats' | 'roster_footer'
+
+/** A person followed a link to the scratchpad. The panel view itself is captured on open. */
+export function captureScratchpadLinkClicked(params: {
+    entryPoint: ScratchpadEntryPoint
+    surface: ScoutSurface
+    skillName?: string | null
+}): void {
+    captureScoutAction({
+        actionType: 'open_memory',
+        surface: params.surface,
+        skillName: params.skillName,
+        extra: { entry_point: params.entryPoint },
     })
 }
 

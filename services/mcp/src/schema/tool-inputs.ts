@@ -585,7 +585,7 @@ const ExplainChartEvidenceSchema = z.object({
         .record(z.string(), z.unknown())
         .optional()
         .describe(
-            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.'
+            'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
         ),
     url: z
         .string()
@@ -737,6 +737,15 @@ const EventDefinitionTagSchema = z
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
+    owner: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
+        .optional()
+        .describe(
+            'Numeric user ID of the person responsible for the event. Must be a member of the organization. To find the ID from an email, call `org-members-list` and use `user.id`. Pass null to remove the owner.'
+        ),
     tags: z
         .array(EventDefinitionTagSchema)
         .optional()
@@ -756,6 +765,10 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionGetSchema = z.object({
+    eventName: z.string().min(1).describe('The exact name of the event (e.g. "$pageview", "user_signed_up")'),
 })
 
 export const EventDefinitionCreateSchema = z.object({

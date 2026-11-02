@@ -38,6 +38,7 @@ class EvaluationResultRow:
     score: str | None
     categories: str | None
     backfill_id: str | None
+    start_time: str | None
 
 
 _PROPERTY_COLUMNS = {
@@ -54,6 +55,7 @@ _PROPERTY_COLUMNS = {
     "score": "$ai_evaluation_numeric_result",
     "categories": "$ai_evaluation_categorical_result",
     "backfill_id": "$ai_evaluation_backfill_id",
+    "start_time": "$ai_evaluation_start_time",
 }
 
 

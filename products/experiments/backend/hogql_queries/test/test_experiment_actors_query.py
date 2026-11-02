@@ -16,7 +16,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -30,10 +29,12 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentQuery,
+    ExperimentWarehouseNativeExposureConfig,
     HogQLPropertyFilter,
 )
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 
@@ -42,6 +43,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import print_cohort_hogql_query
 from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -228,6 +230,26 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         with self.assertRaisesMessage(ValidationError, "Persons are not available for evaluation pass rate metrics."):
             ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
+    def test_experiment_actors_refuses_warehouse_native_exposure_override(self) -> None:
+        # The override skips the save-time validation, so the runner must reject it as a query error.
+        _feature_flag, _experiment, experiment_query = self._create_experiment_with_funnel()
+        actors_query = ActorsQuery(
+            source=ExperimentActorsQuery(
+                kind="ExperimentActorsQuery",
+                source=experiment_query,
+                funnelStep=1,
+                funnelStepBreakdown="control",
+                exposureConfig=ExperimentWarehouseNativeExposureConfig(
+                    connection_id="00000000-0000-0000-0000-000000000000",
+                    query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                ),
+            ),
+            select=["id", "person"],
+        )
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Warehouse-native sources cannot be calculated yet."):
+            ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
     @time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=4), tick=False)
     def test_experiment_funnel_actors_resolves_explicit_default_exposure_event(self) -> None:
         feature_flag, experiment, experiment_query = self._create_experiment_with_funnel()
@@ -263,7 +285,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             select=["id", "person"],
         )
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
+        with patch_exposure_event_flag(enabled=True):
             response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         assert [row[1]["distinct_ids"][0] for row in response.results] == [distinct_id]

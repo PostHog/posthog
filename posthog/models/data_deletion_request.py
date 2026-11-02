@@ -1,8 +1,8 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -127,6 +127,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False, hogql_tabl
         # A deletion predicate must match rows regardless of retention; the events-retention floor would otherwise
         # narrow an events sub-query here and leave events older than the window un-deleted.
         apply_events_retention_floor=False,
+        rewrite_flag_calls_to_flag_evaluations=False,
     )
     try:
         sql = translate_hogql(
@@ -666,8 +667,8 @@ class DataDeletionRequest(UUIDModel):
         return f"DataDeletionRequest({self.request_type}, team={self.team_id}, status={self.status})"
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._loaded_team_id = instance.team_id
         return instance
 

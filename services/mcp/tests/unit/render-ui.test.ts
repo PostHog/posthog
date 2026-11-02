@@ -60,6 +60,15 @@ describe('render-ui tool', () => {
         expect(schema.safeParse({ tool_name: 'debug-tool' }).success).toBe(false)
     })
 
+    it('points trends explanations at explain-chart only when it can render it', () => {
+        const explainChartTool = makeTool('explain-chart', URI_MAP['explain-chart'])
+
+        expect(createRenderUiTool([queryTrendsTool, explainChartTool], mockContext)!.description).toContain(
+            'end by rendering `explain-chart`'
+        )
+        expect(createRenderUiTool([queryTrendsTool], mockContext)!.description).not.toContain('explain-chart')
+    })
+
     it('advertises the render-ui input schema', () => {
         const tool = createRenderUiTool([surveyTool, queryTrendsTool, debugTool, plainTool], mockContext)
         expect(tool).not.toBeNull()

@@ -7,7 +7,7 @@ import { expect, test, PlaywrightWorkspaceSetupResult } from '../utils/workspace
 async function goToSavedSqlInsight(page: Page, insightShortId: InsightShortId): Promise<void> {
     await page.goto(`/sql#insight=${insightShortId}`, { waitUntil: 'domcontentloaded' })
     await expect(page).toHaveURL(/\/sql#.*insight=/)
-    await expect(page.locator('.DataVisualization canvas').last()).toBeVisible({ timeout: 60_000 })
+    await expect(page.locator('.DataVisualization canvas[role="img"]').last()).toBeVisible({ timeout: 60_000 })
     await expect(page.getByRole('button', { name: 'Update insight' })).toBeVisible({ timeout: 30_000 })
 }
 
@@ -18,7 +18,7 @@ test.describe('SQL editor axis labels', () => {
 
     test.beforeAll(async ({ playwrightSetup }) => {
         workspace = await playwrightSetup.createWorkspace({
-            use_current_time: true,
+            no_demo_data: true,
             skip_onboarding: true,
             insights: [
                 {
@@ -27,7 +27,7 @@ test.describe('SQL editor axis labels', () => {
                         kind: NodeKind.DataVisualizationNode,
                         source: {
                             kind: NodeKind.HogQLQuery,
-                            query: 'SELECT event, count() AS events, uniq(distinct_id) AS people FROM events GROUP BY event ORDER BY events DESC LIMIT 5',
+                            query: "SELECT 'sample' AS event, 10 AS events, 5 AS people",
                         },
                         display: ChartDisplayType.ActionsBar,
                         chartSettings: {
