@@ -128,6 +128,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",
     "products.conversations.backend.api.signing_secret.SigningSecretViewSet",
+    # extend_schema_view only sets the list operation_id; the list itself stays the stock paginated one,
+    # with -usage_count, -created_at, -id ordering and a page-boundary test.
+    "products.conversations.backend.api.ticket_macros.TicketMacroViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",
