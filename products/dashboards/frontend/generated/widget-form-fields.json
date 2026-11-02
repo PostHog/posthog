@@ -77,7 +77,7 @@
             "formSchemaExport": "notebookWidgetFormSchema",
             "formFields": [],
             "live": false,
-            "creationFlag": "notebook-generated-widgets"
+            "creationFlag": null
         },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",
