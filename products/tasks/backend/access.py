@@ -271,11 +271,21 @@ def get_posthog_ai_access_decision(user: User, organization: "Organization") -> 
         return PostHogAIAccessDecision.UNRESOLVED
 
     person_properties = _posthog_ai_person_properties(user)
-    if any(_resolve_flag(flag, user, organization, person_properties) for flag in POSTHOG_AI_GRANDFATHERED_FLAGS):
-        return PostHogAIAccessDecision.GRANDFATHERED
+    # A failed lookup reads as None. It must not become a cacheable denial, or a flag outage would look like
+    # a deliberate one.
+    flag_unresolved = False
+    for flag in POSTHOG_AI_GRANDFATHERED_FLAGS:
+        enabled = _resolve_flag(flag, user, organization, person_properties)
+        if enabled:
+            return PostHogAIAccessDecision.GRANDFATHERED
+        flag_unresolved = flag_unresolved or enabled is None
+    if flag_unresolved:
+        return PostHogAIAccessDecision.UNRESOLVED
 
     beta = _resolve_beta(user, organization)
-    if beta is None or not beta.enabled:
+    if beta is None:
+        return PostHogAIAccessDecision.UNRESOLVED
+    if not beta.enabled:
         return PostHogAIAccessDecision.BETA_OFF
     rules = _posthog_ai_beta_rules(beta.payload)
     if rules is None:

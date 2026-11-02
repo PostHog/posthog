@@ -17,7 +17,7 @@ from products.tasks.backend.access import (
     get_posthog_ai_access_decision,
 )
 
-from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState
+from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState, StartupProgramLabel
 
 RULES = {"cutoff_date": "2026-06-01T00:00:00+00:00", "min_trust_score": 5}
 
@@ -112,7 +112,7 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
         grandfathered_flags: set[str],
         beta_enabled: bool,
         rules: dict[str, Any] | None,
-        startup_program_label: str | None,
+        startup_program_label: StartupProgramLabel | None,
         has_prepaid_credits: bool,
         trust_score: int,
         org_created: str,
@@ -146,32 +146,47 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("resolved_decision_is_reused", True, 1),
-            ("unresolved_decision_is_not_cached", False, 2),
+            ("resolved_decision_is_reused", False, RULES, True, PostHogAIAccessDecision.ALLOWED, 1),
+            ("beta_without_rules_is_not_cached", False, None, True, PostHogAIAccessDecision.UNRESOLVED, 2),
+            ("failed_override_lookup_is_not_cached", None, RULES, True, PostHogAIAccessDecision.UNRESOLVED, 2),
+            ("failed_beta_lookup_is_not_cached", False, RULES, False, PostHogAIAccessDecision.UNRESOLVED, 2),
         ]
     )
-    def test_cached_decision(self, _name: str, beta_has_rules: bool, expected_evaluations: int) -> None:
+    def test_cached_decision(
+        self,
+        _name: str,
+        override_value: bool | None,
+        rules: dict[str, Any] | None,
+        beta_resolves: bool,
+        expected: PostHogAIAccessDecision,
+        expected_evaluations: int,
+    ) -> None:
         cache.clear()
-        organization = Organization(name="Fixture org", created_at=datetime(2025, 1, 1, tzinfo=UTC))
+        organization = Organization(
+            name="Fixture org", created_at=datetime(2025, 1, 1, tzinfo=UTC), customer_trust_scores={"events": 9}
+        )
         user = User(pk=1, email="fixture@example.com", distinct_id="fixture-distinct-id")
-        beta = FeatureFlagResult(
-            key="phai-2-beta", enabled=True, variant=None, payload=RULES if beta_has_rules else None, reason=None
+        beta = (
+            FeatureFlagResult(key="phai-2-beta", enabled=True, variant=None, payload=rules, reason=None)
+            if beta_resolves
+            else None
         )
 
         with (
-            patch("products.tasks.backend.access.get_feature_flag_or_none", return_value=False),
-            patch(
-                "products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=beta
-            ) as mock_beta,
+            patch("products.tasks.backend.access.get_feature_flag_or_none", return_value=override_value),
+            patch("products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=beta),
             patch(
                 "products.tasks.backend.access._get_funding_status",
                 return_value=OrganizationFundingStatus(
                     startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
                 ),
             ),
+            patch(
+                "products.tasks.backend.access.get_posthog_ai_access_decision", wraps=get_posthog_ai_access_decision
+            ) as mock_decision,
         ):
             first = get_cached_posthog_ai_access_decision(user, organization)
             second = get_cached_posthog_ai_access_decision(user, organization)
 
-        self.assertEqual(first, second)
-        self.assertEqual(mock_beta.call_count, expected_evaluations)
+        self.assertEqual((first, second), (expected, expected))
+        self.assertEqual(mock_decision.call_count, expected_evaluations)

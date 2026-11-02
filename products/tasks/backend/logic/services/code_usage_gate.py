@@ -131,16 +131,22 @@ def code_access_required_response(
     *,
     task_id: str | UUID | None = None,
     origin_product: str | None = None,
+    posthog_ai_task_id: str | UUID | None = None,
     fail_open_on_resolution_error: bool = False,
 ) -> Response | None:
     """Also applies the PostHog AI 2.0 gate to PostHog AI tasks, so every sandbox entry point that
-    checks Desktop access checks that too. Pass `origin_product` when no task exists yet."""
+    checks Desktop access checks that too. Pass `origin_product` when no task exists yet.
+
+    `posthog_ai_task_id` names the task for the PostHog AI gate only. Use it where a sandbox token bound to
+    the task must still pass the Desktop gate, which a `task_id` would let it skip."""
     if _task_bound_internal_run(request, task_id):
         return None
     # A Desktop fail-open must not skip the AI gate, which resolves on its own.
     if desktop_response := _desktop_access_required_response(request, organization, fail_open_on_resolution_error):
         return desktop_response
-    return posthog_ai_access_required_response(request, organization, task_id=task_id, origin_product=origin_product)
+    return posthog_ai_access_required_response(
+        request, organization, task_id=task_id or posthog_ai_task_id, origin_product=origin_product
+    )
 
 
 def _desktop_access_required_response(
