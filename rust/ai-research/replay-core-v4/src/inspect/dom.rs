@@ -17,6 +17,7 @@ use super::rrweb::{
     ADOPTED_STYLE_SHEET, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, MUTATION, STYLE_DECLARATION,
     STYLE_SHEET_RULE,
 };
+use super::srcset;
 use super::stats::BlockStats;
 use crate::scan::cv::{self, Expansion};
 use crate::scan::message::Event;
@@ -97,7 +98,8 @@ enum Media {
 struct HiddenSources {
     src: Option<String>,
     rr_src: Option<String>,
-    srcset: Vec<String>,
+    fetchable_srcset_candidate: Option<String>,
+    srcset_usable: bool,
 }
 
 impl HiddenSources {
@@ -117,15 +119,12 @@ impl HiddenSources {
             self.rr_src = url(span);
         }
         if let Some(span) = attributes.srcset {
-            self.srcset.clear();
-            if let Some(srcset) = text(bytes, Some(span)) {
-                // One message sends at most MAX_IMAGE_URLS URLs, so the img that shows needs no more.
-                srcset_urls(&srcset, &mut |url| {
-                    if self.srcset.len() < MAX_IMAGE_URLS {
-                        self.srcset.extend(fetchable(url).map(str::to_owned));
-                    }
-                });
-            }
+            let srcset = text(bytes, Some(span));
+            self.fetchable_srcset_candidate = srcset
+                .as_deref()
+                .and_then(srcset::kept_candidate)
+                .and_then(|(_, url)| fetchable(url).map(str::to_owned));
+            self.srcset_usable = srcset.as_deref().is_some_and(srcset::has_usable_candidate);
         }
     }
 
@@ -135,27 +134,27 @@ impl HiddenSources {
     }
 
     fn is_empty(&self) -> bool {
-        self.src.is_none() && self.rr_src.is_none() && self.srcset.is_empty()
+        self.src.is_none() && self.rr_src.is_none() && self.fetchable_srcset_candidate.is_none()
     }
 
     fn heap_bytes(&self) -> usize {
         let string = |s: &Option<String>| s.as_ref().map_or(0, String::capacity);
-        string(&self.src)
-            + string(&self.rr_src)
-            + self.srcset.capacity() * std::mem::size_of::<String>()
-            + self.srcset.iter().map(String::capacity).sum::<usize>()
+        string(&self.src) + string(&self.rr_src) + string(&self.fetchable_srcset_candidate)
     }
 
     fn push_revealed(self, set: &Attributes, walk: &mut Walk) {
-        for (url, replaced) in [(self.src, set.src), (self.rr_src, set.rr_src)] {
-            if let Some(url) = url.filter(|_| replaced.is_none()) {
-                walk.push_url_text(&url);
+        if !self.srcset_usable {
+            for (url, replaced) in [(self.src, set.src), (self.rr_src, set.rr_src)] {
+                if let Some(url) = url.filter(|_| replaced.is_none()) {
+                    walk.push_url_text(&url);
+                }
             }
         }
-        if set.srcset.is_none() {
-            for url in &self.srcset {
-                walk.push_url_text(url);
-            }
+        if let Some(url) = self
+            .fetchable_srcset_candidate
+            .filter(|_| set.srcset.is_none())
+        {
+            walk.push_url_text(&url);
         }
     }
 }
@@ -484,9 +483,14 @@ impl Walk<'_> {
         }
     }
 
+    /// Only the kept candidate gets a fetch job. The block holds the others until the writer drops them, so the writer
+    /// needs their URLs too.
     fn push_srcset(&mut self, bytes: &[u8], value: Option<Span>) {
         if let Some(srcset) = text(bytes, value) {
-            srcset_urls(&srcset, &mut |url| self.push_url_text(url));
+            srcset_urls(&srcset, &mut |url| self.image_urls.push_remote(url));
+            if let Some((_, url)) = srcset::kept_candidate(&srcset) {
+                self.push_url_text(url);
+            }
         }
     }
 
@@ -668,8 +672,13 @@ impl Attributes {
     fn push_urls(&self, bytes: &[u8], media: Option<Media>, walk: &mut Walk) {
         match media {
             Some(Media::Img { visibility }) if !visibility.hides() => {
-                walk.push_url(bytes, self.src);
-                walk.push_url(bytes, self.rr_src);
+                if text(bytes, self.srcset).is_some_and(|s| srcset::has_usable_candidate(&s)) {
+                    walk.push_remote(bytes, self.src, false);
+                    walk.push_remote(bytes, self.rr_src, false);
+                } else {
+                    walk.push_url(bytes, self.src);
+                    walk.push_url(bytes, self.rr_src);
+                }
                 walk.push_srcset(bytes, self.srcset);
                 walk.push_srcset_value(bytes, self.srcset, false);
             }
@@ -1810,11 +1819,10 @@ mod tests {
                 None,
                 &mut stats,
             );
-            // Remote image URLs go to the fetcher. The inline image in the srcset is the image scan's to move.
+            // The img shows its kept srcset candidate, so its src is not fetched.
             assert_eq!(
                 dom.take_image_urls(),
                 [
-                    "https://cdn.example.com/a.png",
                     "https://cdn.example.com/a@2x.png",
                     "//cdn.example.com/p.jpg"
                 ]
@@ -2067,6 +2075,8 @@ mod tests {
             "shown-later",
             "lazy",
             "set-1x",
+            "w_640,q_auto/srcset-comma",
+            "srcset-second",
         ] {
             assert!(remote.contains(&url(name)), "{name}");
         }
@@ -2109,9 +2119,6 @@ mod tests {
             "declaration",
             "custom-declaration",
             "adopted",
-            "w_640,q_auto/srcset-comma",
-            "srcset-second",
-            "shown-later",
             "shown-later-2x",
             "style-object",
             "style-object-plain",
@@ -2131,10 +2138,10 @@ mod tests {
     }
 
     #[test]
-    fn caps_the_sources_a_hidden_img_keeps() {
+    fn keeps_one_srcset_candidate_of_a_hidden_img() {
         let srcset = |count: usize| {
             (0..count)
-                .map(|i| format!("https://cdn.example.com/{i}.png {}w", i + 1))
+                .map(|i| format!("https://cdn.example.com/{i:05}.png {}w", i + 1))
                 .collect::<Vec<_>>()
                 .join(", ")
         };
@@ -2146,8 +2153,7 @@ mod tests {
             );
             dom.retained_bytes()
         };
-        assert!(retained(1) < retained(MAX_IMAGE_URLS));
-        assert_eq!(retained(MAX_IMAGE_URLS), retained(10 * MAX_IMAGE_URLS));
+        assert_eq!(retained(1), retained(10 * MAX_IMAGE_URLS));
     }
 
     #[test]
