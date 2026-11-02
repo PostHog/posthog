@@ -35,11 +35,9 @@ _JAVASCRIPT_URL_MESSAGE = "contains disallowed javascript: protocol"
 _VBSCRIPT_URL_MESSAGE = "contains disallowed vbscript: protocol"
 _DATA_HTML_URL_MESSAGE = "contains disallowed data:text/html"
 _NESTING_MESSAGE = "contains markup nested too deeply to check"
-# Legitimate content never nests markup in comments or attribute values this deep.
 _MAX_NESTED_CHECKS = 8
 
-# Browsers ignore ASCII whitespace and control characters inside a URL scheme, so
-# "java\tscript:" still runs. The list separators cover SVG animation "values" lists.
+# Browsers ignore whitespace and control characters in a URL scheme; ";" and "," split SVG "values" lists.
 _URL_CONTROL_CHARS = re.compile(r"[\x00-\x20]+")
 _JAVASCRIPT_URL = re.compile(r"(?:^|[;,])javascript:")
 _VBSCRIPT_URL = re.compile(r"(?:^|[;,])vbscript:")
@@ -60,8 +58,7 @@ class _UnsafeHTMLFinder(HTMLParser):
         self.problem: str | None = None
 
     def set_cdata_mode(self, *args: Any, **kwargs: Any) -> None:
-        # The stdlib parser reads <script> and <style> bodies as raw text. Inside <svg> a
-        # browser parses <style> as markup, so the finder reads every body as markup.
+        # Read <script> and <style> bodies as markup, because a browser does so inside <svg>.
         return
 
     def _report(self, message: str) -> None:
@@ -69,9 +66,8 @@ class _UnsafeHTMLFinder(HTMLParser):
             self.problem = message
 
     def _check_nested(self, content: str) -> None:
-        # A browser can close a raw-text element such as <style> inside a comment or an
-        # attribute value and parse the remainder as markup, so the finder also checks the
-        # raw source of comments and tags.
+        # A browser can end a raw-text element such as <style> inside a comment or an attribute
+        # value and parse the rest as markup, so the raw source of comments and tags is checked too.
         if "<" not in content:
             return
         if self.depth >= _MAX_NESTED_CHECKS:
