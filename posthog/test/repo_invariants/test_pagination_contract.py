@@ -5,7 +5,6 @@ from django.urls import URLPattern, URLResolver, get_resolver
 
 from rest_framework.generics import GenericAPIView
 from rest_framework.pagination import BasePagination, CursorPagination
-from rest_framework.settings import api_settings
 from rest_framework.viewsets import ViewSetMixin
 
 from posthog.api.pagination import BoundedLimitOffsetPagination, BoundedPageNumberPagination, StableCursorPagination
@@ -62,9 +61,7 @@ def test_paginators_extend_the_shared_bases() -> None:
         if view is None or not issubclass(view, GenericAPIView):
             continue
         pagination_class = _pagination_class(pattern.callback, view)
-        # The project default is DRF's unbounded paginator. Moving it onto a bounded base caps `limit` on every list
-        # that uses it, so that needs its own change.
-        if pagination_class is None or pagination_class is api_settings.DEFAULT_PAGINATION_CLASS:
+        if pagination_class is None:
             continue
         base = _base_to_use(pagination_class)
         if base is not None:
