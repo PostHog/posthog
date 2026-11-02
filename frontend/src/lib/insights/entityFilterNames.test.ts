@@ -1,8 +1,8 @@
-import { Entity, EntityFilter } from '~/types'
+import { EntityFilter } from '~/types'
 
 import { getDisplayNameFromEntityFilter } from './entityFilterNames'
 
-const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
+const createFilter = (id?: EntityFilter['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
         custom_name,
         name: name ?? null,
