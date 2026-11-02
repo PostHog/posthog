@@ -3,21 +3,24 @@ import type { LogicWrapper } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import type { PhaiViewMode } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import type { teamLogicValues } from 'scenes/teamLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, SidePanelTab } from '~/types'
@@ -27,11 +30,8 @@ import {
     getToolOutputRecord,
     resolveToolCall,
     runStreamLogic,
-    runnerPanelLogic,
     toolStreamEventsLogic,
 } from 'products/posthog_ai/frontend/api/logics'
-import type { ActiveCreation } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'

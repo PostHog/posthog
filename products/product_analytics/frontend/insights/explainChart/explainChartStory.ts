@@ -1,6 +1,7 @@
 import type { insightLogicValues } from 'scenes/insights/insightLogic'
 
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
 
