@@ -490,7 +490,7 @@ def _reads_from_credentials(source: ExternalDataSource) -> bool:
 
 def _needs_row(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
     try:
-        return _typed_in_connection(source, inputs) is not None
+        return _reads_typed_in_row(source, inputs)
     except Exception:
         # A shape that the OAuth walk does not read. `_merge` counts it, and the read keeps `job_inputs`.
         return False
@@ -502,7 +502,7 @@ def _merge(
     stored: dict[str, Any] | CredentialsUnreadable | None,
 ) -> tuple[str, dict[str, Any]]:
     """The counter result and the inputs to return."""
-    if _typed_in_connection(source, inputs) is None:
+    if not _reads_typed_in_row(source, inputs):
         return _merge_oauth_reference(source, inputs)
     if stored is None:
         return "fallback_missing", inputs
@@ -608,6 +608,18 @@ def _typed_in_connection(source: ExternalDataSource, inputs: Mapping[str, Any]) 
     if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
         return None
     return _typed_in_connection_fields(source.source_type, inputs) or None
+
+
+def _reads_typed_in_row(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
+    """Whether the read takes the connection fields from the typed-in row of the source.
+
+    Once `job_inputs` no longer holds the connection fields, the column alone tells that the source has a row.
+    """
+    if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
+        return False
+    if not has_typed_in_credentials(str(source.source_type)):
+        return False
+    return source.credentials_integration_id is not None or bool(_connection_fields(source.source_type, inputs))
 
 
 def _typed_in_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
