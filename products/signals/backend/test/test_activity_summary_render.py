@@ -16,6 +16,7 @@ from products.signals.backend.activity_summary.prompt import (
     EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
+    summary_profile_text,
     summary_text,
     user_message,
 )
@@ -539,13 +540,34 @@ def test_without_products_drops_inbox_rows_and_views_and_counts_them() -> None:
     assert drops == {Drop.EXCLUDED_PRODUCT: 2}
 
 
-def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:
+@parameterized.expand(
+    [
+        (
+            "equal weights keep the newest",
+            [Unit(at=_at(1, minutes=minute), text=f"unit {minute}") for minute in range(MAX_UNITS_PER_DAY + 2)],
+            [f"unit {minute}" for minute in range(2, MAX_UNITS_PER_DAY + 2)],
+        ),
+        (
+            "a heavy unit keeps its slot over newer light ones",
+            [
+                Unit(at=_at(1), text="investigation", weight=3.0),
+                *(
+                    Unit(at=_at(1, minutes=minute), text=f"lookup {minute}")
+                    for minute in range(1, MAX_UNITS_PER_DAY + 2)
+                ),
+            ],
+            ["investigation", *(f"lookup {minute}" for minute in range(3, MAX_UNITS_PER_DAY + 2))],
+        ),
+    ]
+)
+def test_burst_cap_keeps_the_heaviest_then_newest_units_of_a_day(
+    _name: str, units: list[Unit], expected: list[str]
+) -> None:
     drops: Counter[str] = Counter()
-    units = [Unit(at=_at(1, minutes=minute), text=f"unit {minute}") for minute in range(MAX_UNITS_PER_DAY + 2)]
 
     kept = burst_cap(units, drops)
 
-    assert [unit.text for unit in kept] == [f"unit {minute}" for minute in range(2, MAX_UNITS_PER_DAY + 2)]
+    assert [unit.text for unit in kept] == expected
     assert drops[Drop.BURST_CAP] == 2
 
 
@@ -611,6 +633,14 @@ def test_sampling_is_deterministic_and_favors_recent_units() -> None:
         for unit in sample_units(units, limit=TASK_LINES, as_of=AS_OF, seed=sampling_seed(str(partition), 2, 7))
     ]
     assert sum(1 for age in picked_ages if age < 7) > sum(1 for age in picked_ages if age >= 21)
+
+    weighted = [Unit(at=_at(1), text=f"unit {n}", weight=4.0 if n % 2 else 1.0) for n in range(20)]
+    picked_weights = [
+        unit.weight
+        for partition in range(50)
+        for unit in sample_units(weighted, limit=5, as_of=AS_OF, seed=sampling_seed(str(partition), 2, 7))
+    ]
+    assert picked_weights.count(4.0) > 2 * picked_weights.count(1.0) > 0
 
 
 def test_build_input_renders_the_four_sections_in_order() -> None:
@@ -699,6 +729,43 @@ def test_mcp_units_assemble_each_session_in_order_and_cap_a_long_chain() -> None
         "intent 7",
     ]
     assert len(long_chain) <= DEFAULT_LIMITS.mcp_line_chars
+
+
+INVESTIGATION = [
+    _mcp("investigation", "find the failed export", minutes=0),
+    _mcp("investigation", "read the export logs", minutes=1),
+    _mcp("investigation", "query the rows it skipped", minutes=2),
+]
+POLL_LOOP = [_mcp("poll", "poll the export status", minutes=10 + n) for n in range(64)]
+LOOKUPS = [_mcp(f"lookup {n}", f"count signups {n}", minutes=100 + 10 * n) for n in range(3)]
+
+
+@parameterized.expand(
+    [
+        ("default limits", DEFAULT_LIMITS, (3, 2, 0, 0), 3),
+        ("a sample cap of one line", RenderLimits(mcp_lines=1), (3, 2, 2, 0), 1),
+        ("a budget below the section overhead", RenderLimits(sections_max_chars=1), (3, 2, 0, 3), 0),
+    ]
+)
+def test_build_input_keeps_the_richest_mcp_sessions_of_a_day_and_counts_their_drops(
+    _name: str, limits: RenderLimits, expected_counts: tuple[int, int, int, int], expected_lines: int
+) -> None:
+    rendered = build_input([], [], as_of=AS_OF, seed=1, limits=limits, mcp=[*INVESTIGATION, *POLL_LOOP, *LOOKUPS])
+
+    assert rendered is not None
+    assert (
+        rendered.mcp_pool,
+        rendered.mcp_burst_cap_drops,
+        rendered.mcp_sample_cap_drops,
+        rendered.mcp_budget_drops,
+    ) == expected_counts
+    assert rendered.n_mcp_lines == expected_lines
+    if limits == DEFAULT_LIMITS:
+        assert rendered.text.split("\n")[1:] == [
+            "- m1 2026-10-18, 3 calls: find the failed export --> read the export logs --> query the rows it skipped",
+            "- m2 2026-10-18, 64 calls: poll the export status",
+            "- m3 2026-10-18, 1 call: count signups 2",
+        ]
 
 
 KEEPER = _mcp("k", "why signups dropped", days_ago=3)
@@ -1219,6 +1286,13 @@ def test_summary_text_is_the_headline_and_the_theme_labels_in_order() -> None:
     reloaded = json.loads(json.dumps(summary, sort_keys=True))
     assert summary_text(summary) == summary_text(reloaded) == "Builds the signup funnel.\nThemes: b; a"
     assert summary_text({**summary, "themes": []}) == "Builds the signup funnel."
+    assert (
+        summary_profile_text(reloaded)
+        == "Builds the signup funnel.\nThemes: b; a\n\n## Funnels\n- Builds the signup funnel."
+    )
+    without_profile = {key: value for key, value in summary.items() if key != "profile"}
+    for profile in ({}, {"profile": None}, {"profile": "  "}):
+        assert summary_profile_text({**without_profile, **profile}) is None
 
 
 _PRICES = SummaryPrices(input_price_per_million_tokens=0.1, output_price_per_million_tokens=0.5)

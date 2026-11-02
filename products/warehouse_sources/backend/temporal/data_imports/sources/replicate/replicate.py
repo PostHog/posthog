@@ -2,11 +2,13 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
@@ -27,7 +29,7 @@ class ReplicateRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ReplicateResumeConfig:
     # Full next-page URL returned by the API (carries the opaque cursor and any created_after filter).
     # None means "start the endpoint from its first page".
@@ -35,6 +37,8 @@ class ReplicateResumeConfig:
     # The `created_after` watermark this cursor was built against. A run whose watermark has since
     # advanced must not resume from this cursor (see `get_rows`), so we can tell the two apart.
     created_after: str | None = None
+    # Fan-out endpoints only: the parent (`owner/name` model or collection slug) the cursor belongs to.
+    fan_out_parent: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -175,6 +179,143 @@ def _page_predates_cutoff(items: list[dict[str, Any]], incremental_field: str, c
     return max(dated) <= cutoff
 
 
+def _walk_pages(
+    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Yield each page's rows with the URL of the page after it."""
+    next_url: str | None = url
+    while next_url:
+        try:
+            data = _fetch_page(session, next_url, headers, logger)
+        except requests.HTTPError as e:
+            # Same 416-as-empty-page handling as the main pagination loop in `get_rows`.
+            if e.response is not None and e.response.status_code == 416:
+                return
+            raise
+        next_url = _next_url(data)
+        yield (data.get("results", []) if isinstance(data, dict) else []), next_url
+
+
+def _is_skippable_child_error(error: requests.HTTPError) -> bool:
+    # A referenced model can be deleted or made private after a deployment or training used it.
+    return error.response is not None and error.response.status_code in (403, 404)
+
+
+@frozen(order=True)
+class ModelRef:
+    owner: str
+    name: str
+
+
+def _parse_model_ref(value: Any) -> ModelRef | None:
+    """Parse `owner/name` or `owner/name:version_id` into a model reference."""
+    if not isinstance(value, str):
+        return None
+    owner, sep, name = value.split(":", 1)[0].partition("/")
+    if not sep or not owner or not name or "/" in name:
+        return None
+    return ModelRef(owner=owner, name=name)
+
+
+def _referenced_models(row: dict[str, Any]) -> list[ModelRef]:
+    release = row.get("current_release")
+    output = row.get("output")
+    candidates = [
+        release.get("model") if isinstance(release, dict) else None,
+        row.get("model"),
+        # A finished training's output.version is the destination version, as owner/name:version_id.
+        output.get("version") if isinstance(output, dict) else None,
+    ]
+    return [ref for ref in map(_parse_model_ref, candidates) if ref is not None]
+
+
+def _get_model_version_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ReplicateResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    models: set[ModelRef] = set()
+    for parent_path in ("/deployments", "/trainings"):
+        for page, _ in _walk_pages(session, f"{REPLICATE_BASE_URL}{parent_path}", headers, logger):
+            for item in page:
+                models.update(_referenced_models(item))
+            resumable_source_manager.safe_point()
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_parent = resume.fan_out_parent if resume is not None else None
+    resume_url = _sanitize_next_url(resume.next_url) if resume is not None else None
+
+    # Sorted, so a resumed run can skip every model that sorts before the saved one.
+    for model in sorted(models):
+        owner, name = model.owner, model.name
+        parent = f"{owner}/{name}"
+        url = f"{REPLICATE_BASE_URL}/models/{quote(owner, safe='')}/{quote(name, safe='')}/versions"
+        if resume_parent is not None and parent <= resume_parent:
+            if parent < resume_parent or resume_url is None:
+                continue
+            url = resume_url
+        try:
+            for page, next_url in _walk_pages(session, url, headers, logger):
+                if not page:
+                    resumable_source_manager.safe_point()
+                    continue
+                resumable_source_manager.save_state(ReplicateResumeConfig(next_url=next_url, fan_out_parent=parent))
+                yield [{**version, "model_owner": owner, "model_name": name} for version in page]
+        except requests.HTTPError as e:
+            if not _is_skippable_child_error(e):
+                raise
+            logger.info(f"Replicate: skipping versions of {owner}/{name}: {e}")
+            resumable_source_manager.safe_point()
+
+
+def _get_collection_model_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ReplicateResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resumed_url = _sanitize_next_url(resume.next_url) if resume is not None else None
+    page_url = resumed_url or f"{REPLICATE_BASE_URL}/collections"
+    # The cursor names the collections page and the last slug on it whose models were yielded.
+    skip_through = resume.fan_out_parent if resume is not None else None
+
+    for page, next_url in _walk_pages(session, page_url, headers, logger):
+        slugs = [c["slug"] for c in page if isinstance(c.get("slug"), str) and c["slug"]]
+        if skip_through in slugs:
+            slugs = slugs[slugs.index(skip_through) + 1 :]
+        skip_through = None
+        for slug in slugs:
+            try:
+                detail = _fetch_page(
+                    session, f"{REPLICATE_BASE_URL}/collections/{quote(slug, safe='')}", headers, logger
+                )
+            except requests.HTTPError as e:
+                if not _is_skippable_child_error(e):
+                    raise
+                logger.info(f"Replicate: skipping collection {slug}: {e}")
+                resumable_source_manager.safe_point()
+                continue
+            models = detail.get("models") if isinstance(detail, dict) else None
+            rows = [{**model, "collection_slug": slug} for model in models or [] if isinstance(model, dict)]
+            if rows:
+                resumable_source_manager.save_state(ReplicateResumeConfig(next_url=page_url, fan_out_parent=slug))
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+        resumable_source_manager.safe_point()
+        if next_url is None:
+            break
+        page_url = next_url
+
+
+_FAN_OUT_ITERATORS = {
+    "model_versions": _get_model_version_rows,
+    "collection_models": _get_collection_model_rows,
+}
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -190,6 +331,11 @@ def get_rows(
     # it never lands in tracked HTTP logs, and disable capture entirely: prediction responses carry
     # user-authored model inputs, outputs, and logs that the generic scrubber can't reliably sanitize.
     session = make_tracked_session(redact_values=(api_key,), capture=False)
+
+    fan_out = _FAN_OUT_ITERATORS.get(endpoint)
+    if fan_out is not None:
+        yield from fan_out(session, headers, logger, resumable_source_manager)
+        return
 
     # Single-request endpoints (bare array / single object) have no pagination or resume state.
     if config.response_shape != "paginated":

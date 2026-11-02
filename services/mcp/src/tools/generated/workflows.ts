@@ -673,6 +673,7 @@ const workflowsLogs = (): ToolBase<ReturnType<typeof WorkflowsLogsSchema>, unkno
                 instance_id: params.instance_id,
                 level: params.level,
                 limit: params.limit,
+                offset: params.offset,
                 search: params.search,
             },
         })

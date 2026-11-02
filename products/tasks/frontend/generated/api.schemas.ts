@@ -1475,6 +1475,7 @@ export interface PaginatedTaskListItemListApi {
  * * `business_knowledge` - Business Knowledge
  * * `metrics_import` - Metrics Import
  * * `knowledge_writer` - Knowledge Writer
+ * * `context_layer` - Context Layer
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1506,6 +1507,7 @@ export const TaskOriginProductEnumApi = {
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
 } as const
 
 /**
@@ -1587,7 +1589,8 @@ export interface TaskCreateApi {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
-     * * `knowledge_writer` - Knowledge Writer */
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1824,7 +1827,8 @@ export interface TaskWriteApi {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
-     * * `knowledge_writer` - Knowledge Writer */
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1962,7 +1966,8 @@ export interface PatchedTaskWriteApi {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
-     * * `knowledge_writer` - Knowledge Writer */
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer */
     origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -4996,6 +5001,7 @@ export interface SlackThreadContextResponseApi {
 
 /**
  * * `autoresearch` - autoresearch
+ * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
@@ -5026,6 +5032,7 @@ export type TaskListSourceEnumApi = (typeof TaskListSourceEnumApi)[keyof typeof 
 
 export const TaskListSourceEnumApi = {
     Autoresearch: 'autoresearch',
+    ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
@@ -5241,6 +5248,7 @@ export type SandboxCustomImagesListParams = {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5277,6 +5285,7 @@ export const SandboxCustomImagesListOriginProduct = {
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
 } as const
 
 export type SandboxListParams = {
@@ -5425,6 +5434,7 @@ export type TasksListParams = {
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5576,6 +5586,7 @@ export const TasksListExcludeOriginProduct = {
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
     KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5604,6 +5615,7 @@ export const TasksListPrState = {
 
 /**
  * * `autoresearch` - autoresearch
+ * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
@@ -5634,6 +5646,7 @@ export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof Ta
 
 export const TasksListSourcesItem = {
     Autoresearch: 'autoresearch',
+    ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
