@@ -1,8 +1,8 @@
 import type { ComponentType } from 'react'
 
-import { IconCalculator, IconDatabase, IconEndpoints, IconGraph } from '@posthog/icons'
+import { IconCalculator, IconDatabase, IconEndpoints, IconGraph, IconPeople } from '@posthog/icons'
 
-export type SaveAsTargetId = 'insight' | 'view' | 'endpoint' | 'metric'
+export type SaveAsTargetId = 'insight' | 'view' | 'endpoint' | 'metric' | 'cohort'
 
 export interface SaveAsTargetMetadata {
     label: string
@@ -52,5 +52,12 @@ export const SAVE_AS_TARGETS: Record<SaveAsTargetId, SaveAsTargetMetadata> = {
         helpText: 'Create a governed measure that people and tools can use from one shared definition.',
         docsUrl: 'https://posthog.com/docs/semantic-layer/metrics',
         icon: IconCalculator,
+    },
+    cohort: {
+        label: 'Cohort',
+        description: 'Save the matching people as a static cohort.',
+        helpText: 'Create a snapshot of the people who match this query when you save it.',
+        docsUrl: 'https://posthog.com/docs/data/cohorts',
+        icon: IconPeople,
     },
 }

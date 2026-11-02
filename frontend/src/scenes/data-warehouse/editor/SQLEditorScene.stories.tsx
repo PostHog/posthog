@@ -573,6 +573,7 @@ export const EditedInsightLegacySaveMenu: Story = {
             'aria-disabled',
             'false'
         )
+        await expect(menu.getByRole('menuitem', { name: 'Save as cohort...' })).toHaveAttribute('aria-disabled', 'true')
         await expect(menu.getByRole('menuitem', { name: 'Save as new view...' })).toHaveAttribute(
             'aria-disabled',
             'true'
