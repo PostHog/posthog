@@ -5,8 +5,8 @@
 //! A srcset is rebuilt instead: a declined candidate leaves the list, and so does each remote candidate of a picture
 //! source whose type the fetcher does not store. An inline image, such as an SVG data URI, stays. A browser skips a
 //! source with no candidates, so it falls back to a source or an img that can load, where a marker in the list would
-//! show a broken image. The writer rebuilds each srcset in the bytes it stores, after inline images left and escapes
-//! were written again, so the rebuild never depends on a prediction of those bytes.
+//! show a broken image. The writer rebuilds each srcset in the bytes it stores, after escapes were written again and
+//! inline images left, so the rebuild never depends on a prediction of those bytes.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -14,79 +14,19 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
-use replay_core_v4::bytescan::{unescape, write_json_string, Span};
+use replay_core_v4::bytescan::{canonical_strings, unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::{escape_in_identifier, rewrite_functions, CssRewrite};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, RemoteKind, RemoteUrl, Srcset};
 use replay_core_v4::refs::{bundled_font_ref, declined_url_ref, UrlAsset};
-use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
+use replay_core_v4::scan::images::{
+    extract_images, Declined, ImageLimits, ImageSink, DECLINED_PREFIX,
+};
 use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
 use crate::scrub::{Scrub, Scrubber};
 use crate::urls::url_reference;
-
-/// The bytes with each JSON string that holds an escape `write_json_string` does not write, such as `\/` or `\u0041`,
-/// written again as it writes them. Capture writes events that way, but the JSON inside a `cv` payload arrives as the
-/// page wrote it, so a URL could hide from the rewrite behind an escape.
-pub fn canonical_strings(bytes: &[u8]) -> Cow<'_, [u8]> {
-    if !bytes.contains(&b'\\') {
-        return Cow::Borrowed(bytes);
-    }
-    let mut out: Option<Vec<u8>> = None;
-    let mut copied_to = 0;
-    let mut position = 0;
-    while let Some(start) = bytes[position..]
-        .iter()
-        .position(|&b| b == b'"')
-        .map(|at| position + at)
-    {
-        let mut end = start + 1;
-        let mut canonical = true;
-        while end < bytes.len() && bytes[end] != b'"' {
-            if bytes[end] == b'\\' {
-                match bytes.get(end + 1) {
-                    Some(b'"' | b'\\' | b'b' | b'f' | b'n' | b'r' | b't') => {}
-                    Some(b'u') => canonical &= is_written_escape(bytes.get(end + 2..end + 6)),
-                    _ => canonical = false,
-                }
-                end += 1;
-            }
-            end += 1;
-        }
-        if end >= bytes.len() {
-            break;
-        }
-        if !canonical {
-            if let Ok(text) = unescape(bytes, (start, end + 1)) {
-                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
-                out.extend_from_slice(&bytes[copied_to..start]);
-                write_json_string(&text, out);
-                copied_to = end + 1;
-            }
-        }
-        position = end + 1;
-    }
-    match out {
-        Some(mut out) => {
-            out.extend_from_slice(&bytes[copied_to..]);
-            Cow::Owned(out)
-        }
-        None => Cow::Borrowed(bytes),
-    }
-}
-
-/// Whether `write_json_string` writes this `\u` escape: a control character without a short escape, in lowercase hex.
-fn is_written_escape(hex: Option<&[u8]>) -> bool {
-    let Some(&[b'0', b'0', high, low]) = hex else {
-        return false;
-    };
-    let digit = |b: u8| matches!(b, b'0'..=b'9' | b'a'..=b'f');
-    digit(high)
-        && digit(low)
-        && high <= b'1'
-        && !matches!((high, low), (b'0', b'8' | b'9' | b'a' | b'c' | b'd'))
-}
 
 /// What a declined URL becomes. The reason is the policy's metric label.
 pub fn declined_marker(reason: &str) -> String {
@@ -298,8 +238,8 @@ pub struct UrlRewrite {
     css_texts: HashMap<String, usize>,
     /// Remote URLs that the block names only in picture sources of a type the fetcher does not store.
     unfetched: HashSet<String>,
-    /// Each inspected srcset value as the stored block holds it. Only these are rebuilt, so a srcset key outside an
-    /// image slot, such as in a custom event's payload, stays as it is.
+    /// Each inspected srcset value as the stored block holds it, under [`without_image_ids`]. Only these are rebuilt, so
+    /// a srcset key outside an image slot, such as in a custom event's payload, stays as it is.
     stored_srcsets: HashSet<Vec<u8>>,
     url_targets: HashMap<String, usize>,
     team_id: i64,
@@ -320,7 +260,7 @@ pub struct PassCounters {
     srcset_rewrites: BTreeMap<&'static str, u64>,
     css_rewrites: BTreeMap<(&'static str, &'static str), u64>,
     url_rewrites: BTreeMap<(&'static str, &'static str, &'static str), u64>,
-    pub removed_avif: u64,
+    pub removed_images: [u64; Declined::ALL.len()],
 }
 
 impl PassCounters {
@@ -346,8 +286,10 @@ impl PassCounters {
             )
             .increment(count);
         }
-        counter!("ai_research_v4_recorder_removed_images_total", "format" => "avif")
-            .increment(self.removed_avif);
+        for (reason, &count) in Declined::ALL.iter().zip(&self.removed_images) {
+            counter!("ai_research_v4_recorder_removed_images_total", "reason" => reason.label())
+                .increment(count);
+        }
     }
 }
 
@@ -450,7 +392,7 @@ impl UrlRewrite {
             .filter(|&(_, unfetched)| unfetched)
             .map(|(url, _)| url.to_owned())
             .collect();
-        // The writer takes the inline images out of the raw event and then writes its escapes again, so each value
+        // The writer writes the escapes of the raw event again and then takes its inline images out, so each value
         // goes through the same two steps.
         let content_key = image_content_key(team_key);
         let stored_srcsets = srcsets
@@ -458,8 +400,9 @@ impl UrlRewrite {
             .map(|srcset| {
                 let mut sink =
                     ImageSink::new(&content_key, team_id, key_month, ImageLimits::default());
-                let extracted = extract_images(&srcset.raw, &mut sink);
-                canonical_strings(&extracted).into_owned()
+                let canonical = canonical_strings(&srcset.raw);
+                let stored = extract_images(&canonical, &mut sink);
+                without_image_ids(&stored).into_owned()
             })
             .collect();
         let matcher = (!patterns.is_empty())
@@ -589,7 +532,10 @@ impl UrlRewrite {
             let Some(end) = string_end(bytes, start) else {
                 continue;
             };
-            if !self.stored_srcsets.contains(&bytes[start..end]) {
+            if !self
+                .stored_srcsets
+                .contains(without_image_ids(&bytes[start..end]).as_ref())
+            {
                 continue;
             }
             let Ok(text) = unescape(bytes, (start, end)) else {
@@ -904,6 +850,38 @@ fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
+/// The bytes with each image reference and declined marker cut to its `image:v4:` prefix. The image caps of a message
+/// decide whether an image becomes a reference or `over_limit`, and the srcset prediction in [`UrlRewrite::new`]
+/// cannot see the other images of that message.
+fn without_image_ids(bytes: &[u8]) -> Cow<'_, [u8]> {
+    const PREFIX: &[u8] = b"image:v4:";
+    let find = |bytes: &[u8]| {
+        bytes
+            .windows(PREFIX.len())
+            .position(|window| window == PREFIX)
+    };
+    let Some(mut at) = find(bytes) else {
+        return Cow::Borrowed(bytes);
+    };
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut rest = bytes;
+    loop {
+        out.extend_from_slice(&rest[..at + PREFIX.len()]);
+        rest = &rest[at + PREFIX.len()..];
+        let id_length = rest
+            .iter()
+            .position(|&b| !(b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b':')))
+            .unwrap_or(rest.len());
+        rest = &rest[id_length..];
+        match find(rest) {
+            Some(next) => at = next,
+            None => break,
+        }
+    }
+    out.extend_from_slice(rest);
+    Cow::Owned(out)
+}
+
 /// The srcset with only the candidates the block keeps, each remote URL as its reference, how it was rebuilt, and the
 /// URL targets of the remote URLs it held. `None` when every candidate stays, because the URL targets then replace it.
 fn rebuilt_srcset(
@@ -929,7 +907,7 @@ fn rebuilt_srcset(
         }
     };
     for_each_srcset_candidate(text, |url, descriptors| {
-        if url == AVIF_MARKER {
+        if url.starts_with(DECLINED_PREFIX) {
             removed = true;
         } else if !is_remote(url) {
             keep(url, descriptors);
@@ -954,6 +932,9 @@ fn rebuilt_srcset(
 
 #[cfg(test)]
 mod tests {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+
     use super::*;
 
     const TEAM_KEY: [u8; 32] = [6; 32];
@@ -1022,6 +1003,31 @@ mod tests {
             )
         );
         assert!(rewrite.finish().safe);
+    }
+
+    #[test]
+    fn rebuilds_a_srcset_whose_image_the_message_cap_declined() {
+        let png = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(b"\x89PNG\r\n\x1a\nbytes")
+        );
+        let svg = "data:image/svg+xml,%3Csvg%2F%3E";
+        let text = format!("{png} 1x, {svg} 2x");
+        let srcset = Srcset {
+            raw: serde_json::to_vec(&text).unwrap(),
+            text,
+            unfetched_type: false,
+        };
+        let mut rewrite = UrlRewrite::new(&[], &[srcset], &[], 7, "2026-10", &TEAM_KEY);
+        // A message past its image cap stores the PNG as `over_limit`, where a fresh sink takes it.
+        let stored = format!(
+            r#"{{"srcset":"{} 1x, {svg} 2x"}}"#,
+            Declined::OverLimit.marker()
+        );
+        assert_eq!(
+            String::from_utf8(rewrite.apply(stored.as_bytes(), true).into_owned()).unwrap(),
+            format!(r#"{{"srcset":"{svg} 2x"}}"#)
+        );
     }
 
     #[test]
