@@ -1,9 +1,6 @@
-//! Per-element framework overhead. The steps do trivial work (`v + 1`), so the numbers are the
-//! cost of the framework itself. The workloads and sizes match
-//! `nodejs/src/ingestion/framework/benchmarks/framework-bench.ts`, so the two can be compared.
-//!
-//! Every workload runs on a current-thread runtime, which matches the single Node event loop.
-//! The `*_multi_thread` variants show what the spawned tasks gain on a work-stealing runtime.
+//! Per-element framework overhead with trivial steps (`v + 1`). Workloads and sizes match
+//! `nodejs/src/ingestion/framework/benchmarks/framework-bench.ts`. A current-thread runtime matches
+//! the single Node event loop, and the `*_multi_thread` variants show what spawned tasks gain.
 
 use std::sync::Arc;
 
@@ -238,8 +235,7 @@ criterion_group!(
     concurrently_per_group,
     batching
 );
-/// Installs the Prometheus recorder with the default buckets of `common-metrics`. Without a
-/// recorder every metric call is a no-op, and Node updates real `prom-client` metrics.
+/// Without a recorder every metric call is a no-op, while Node updates real `prom-client` metrics.
 fn install_metrics_recorder() {
     const BUCKETS: &[f64] = &[
         1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,

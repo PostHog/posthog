@@ -1,7 +1,5 @@
-//! Port of `steps.ts` and the `ChunkProcessingStep` type from `base-chunk-pipeline.ts`.
-//!
-//! Node reads a step's name from the function's `.name`. Rust closures have no name, so a
-//! step carries its name explicitly.
+//! Port of `steps.ts` and `ChunkProcessingStep` from `base-chunk-pipeline.ts`. Node reads a step's
+//! name from the function's `.name`, and Rust closures have none, so a step carries its name.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -14,8 +12,7 @@ use crate::results::PipelineResult;
 pub type StepFuture<U> = BoxFuture<'static, anyhow::Result<PipelineResult<U>>>;
 pub type ChunkStepFuture<U> = BoxFuture<'static, anyhow::Result<Vec<PipelineResult<U>>>>;
 
-/// An asynchronous step that takes a value and returns a pipeline result. An `Err` is the
-/// Node `throw`: it propagates and is not converted into a DLQ.
+/// An `Err` is the Node `throw`: it propagates and is not converted into a DLQ.
 pub struct ProcessingStep<T, U> {
     name: Arc<str>,
     f: Arc<dyn Fn(T) -> StepFuture<U> + Send + Sync>,
@@ -114,8 +111,7 @@ impl<T: 'static, U: 'static> ChunkProcessingStep<T, U> {
 }
 
 impl<T: Send + 'static, U: Send + 'static> ChunkProcessingStep<T, U> {
-    /// Runs a per-item step over each value of the chunk concurrently, keeping the per-item
-    /// step's name. Same as the `perMessage` helper in the Node metrics pipeline.
+    /// Same as the `perMessage` helper in the Node metrics pipeline.
     pub fn per_item(step: ProcessingStep<T, U>) -> Self {
         crate::per_element::per_element(step, None)
     }

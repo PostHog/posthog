@@ -1,9 +1,6 @@
-//! A Node side effect is a `Promise`. An async function runs its body up to the first
-//! `await` when it is called, and the rest runs on the event loop. `SideEffect::spawn`
-//! keeps that: it polls the future once on the caller's thread, and only moves the
-//! unfinished rest to a tokio task. So produce calls start in the order that the side
-//! effects are created, as they do in Node. Dropping a `SideEffect` detaches the task, as
-//! an unhandled Node promise does.
+//! A Node async function runs up to its first `await` when it is called. `SideEffect::spawn`
+//! keeps that: it polls once on the caller's thread and spawns only the rest, so produce calls
+//! start in creation order as in Node. Dropping it detaches the task, like an unhandled promise.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -35,8 +32,7 @@ impl SideEffect {
     {
         let mut fut = Box::pin(fut);
         let mut cx = Context::from_waker(futures::task::noop_waker_ref());
-        // A Node async function that throws before its first await rejects its promise. It
-        // does not throw to the caller, so a panic here becomes a failed side effect.
+        // A Node async function that throws before its first await rejects instead of throwing.
         match std::panic::catch_unwind(AssertUnwindSafe(|| fut.as_mut().poll(&mut cx))) {
             Ok(Poll::Ready(result)) => Self::settled(result),
             // The task polls again with a real waker, so the no-op waker loses no wake-up.
@@ -68,8 +64,7 @@ impl SideEffect {
         }
     }
 
-    /// Returns the result if the work has finished, and `None` while it runs. After it
-    /// returns `Some`, the side effect has no result left and waits as a success.
+    /// `None` while the work runs. After a `Some`, no result is left and `wait()` succeeds.
     pub fn try_take(&mut self) -> Option<anyhow::Result<()>> {
         match &mut self.state {
             State::Settled(result) => result.take(),
@@ -77,8 +72,7 @@ impl SideEffect {
                 if !handle.is_finished() {
                     return None;
                 }
-                // Unconstrained: a JoinHandle poll spends the task's coop budget, and a
-                // prune of many handles would run it out and read finished tasks as pending.
+                // Unconstrained: a long prune exhausts the coop budget and reads done tasks as pending.
                 let result = match tokio::task::unconstrained(handle).now_or_never()? {
                     Ok(result) => result,
                     Err(join_error) => Err(join_failure(join_error)),
@@ -120,21 +114,16 @@ pub trait SideEffectScheduler: Send + Sync {
     fn schedule(&self, side_effect: SideEffect);
 }
 
-/// Node removes a promise from its set when it settles. Here a settled side effect is
-/// removed at the next `schedule()` that finds the set grown, at `pending_count()`, or
-/// when a `wait_for_all()` sees it settle, so the set stays proportional to the work that
-/// still runs.
-///
-/// Unlike Node, it keeps the first failure, as the `FailureLatchingPromiseScheduler` in the
-/// metrics consumer does. A failure that settles before `wait_for_all()` is otherwise
-/// lost, and the consumer would then store the offsets of a batch whose side effect failed.
+/// Node drops a promise from its set when it settles. Here a grown `schedule()`,
+/// `pending_count()` and `wait_for_all()` prune settled entries instead.
+/// Unlike Node, it latches the first failure, as the metrics consumer's `FailureLatchingPromiseScheduler`
+/// does, so the consumer never stores offsets for a batch whose side effect failed early.
 #[derive(Default, Clone)]
 pub struct PromiseScheduler {
     inner: Arc<Mutex<SchedulerState>>,
 }
 
-// Pruning runs when the set reaches this size, then at twice the size that survived the
-// last prune. This keeps the cost of a schedule() constant on average.
+// Prune at this size, then at twice the surviving size, so schedule() is amortized O(1).
 const MIN_PRUNE_AT: usize = 64;
 
 type Pending = Shared<BoxFuture<'static, Result<(), Arc<anyhow::Error>>>>;
@@ -161,8 +150,7 @@ fn poll_settled(pending: &Pending) -> Option<Result<(), Arc<anyhow::Error>>> {
     if let Some(result) = pending.peek() {
         return Some(result.clone());
     }
-    // Unconstrained: a JoinHandle poll spends the task's coop budget, and a prune of many
-    // side effects would run it out and read finished tasks as pending.
+    // Unconstrained: a long prune exhausts the coop budget and reads done tasks as pending.
     tokio::task::unconstrained(pending.clone()).now_or_never()
 }
 
@@ -202,11 +190,8 @@ impl PromiseScheduler {
         state.pending.len()
     }
 
-    /// Waits for the side effects that are pending now, as Node's `Promise.all` over the
-    /// current set does. Returns the first failure, if any.
-    ///
-    /// A side effect stays in the set until it settles, as a Node promise does. So an
-    /// overlapping call also waits for it, and a cancelled call leaves it for the next one.
+    /// Node's `Promise.all` over the current set. Entries leave only when they settle, so an
+    /// overlapping call also waits for them and a cancelled call leaves them for the next one.
     pub async fn wait_for_all(&self) -> anyhow::Result<()> {
         let snapshot: Vec<(u64, Pending)> = self
             .inner
@@ -227,8 +212,7 @@ impl PromiseScheduler {
                 first_failure.get_or_insert(error);
             }
         }
-        // An overlapping call can take the latched failure first, so a failure seen here
-        // is still returned.
+        // An overlapping call can take the latched failure first, so keep the one seen here.
         match self.inner.lock().unwrap().failure.take().or(first_failure) {
             Some(error) => Err(crate::errors::shared_error(error)),
             None => Ok(()),
@@ -242,8 +226,7 @@ impl PromiseScheduler {
 
 impl SideEffectScheduler for PromiseScheduler {
     fn schedule(&self, mut side_effect: SideEffect) {
-        // A side effect that settled on creation never enters the set, as a Node promise
-        // that settles leaves it.
+        // Settled on creation, so it skips the set, as a settled Node promise leaves it.
         match side_effect.try_take() {
             Some(Ok(())) => return,
             Some(Err(error)) => {

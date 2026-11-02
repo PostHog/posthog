@@ -1,5 +1,4 @@
-//! Port of `ingestion-warning-handling-chunk-pipeline.ts` and the emit half of
-//! `~/ingestion/common/ingestion-warnings.ts`.
+//! Port of `ingestion-warning-handling-chunk-pipeline.ts` and the emit half of `ingestion-warnings.ts`.
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
@@ -14,13 +13,9 @@ use crate::outputs::{HasTeamId, IngestionOutputs, OutputMessage, INGESTION_WARNI
 use crate::results::{NonOk, Outcome};
 use crate::side_effects::SideEffect;
 
-/// Decides whether to emit a warning and sends it. Node rate-limits per
-/// `team:type:key` with `IngestionWarningLimiter`; that limiter is an app concern, so it
-/// sits behind this trait.
-///
-/// `Ok(false)` means not sent: rate-limited, or the produce failed, which Node logs and
-/// does not reject. `Err` fails the side effect, as a throw in Node's
-/// `emitIngestionWarning` rejects its promise.
+/// Node rate-limits per `team:type:key` with `IngestionWarningLimiter`, an app concern, so it
+/// sits behind this trait. `Ok(false)` means not sent: rate-limited, or a failed produce, which
+/// Node logs and does not reject. `Err` fails the side effect, as Node's `emitIngestionWarning` rejects.
 #[async_trait]
 pub trait IngestionWarningEmitter: Send + Sync {
     async fn emit(&self, team_id: i64, warning: PipelineWarning) -> anyhow::Result<bool>;
@@ -77,10 +72,7 @@ pub fn warning_classification(warning_type: &str) -> Option<WarningClassificatio
 /// Port of `serializeIngestionWarning`, byte for byte: the keys in Node's order, the
 /// caller's details in insertion order, then `category`, `severity` and a non-empty
 /// `pipelineStep`. A key that the caller already set keeps its place and takes the new
-/// value, as in a JavaScript object spread.
-///
-/// Fails for a type that is not in the registry. Node's type system forbids that type,
-/// and at run time its registry lookup throws.
+/// value, as in a JavaScript object spread. Fails for an unregistered type, as Node's lookup throws.
 pub fn serialize_ingestion_warning(
     team_id: i64,
     warning: &PipelineWarning,
@@ -149,8 +141,7 @@ impl IngestionWarningEmitter for OutputsWarningEmitter {
     }
 }
 
-/// Turns the warnings each result carries into side effects. A timed-out result drops its
-/// warnings, because the redelivery emits them again.
+/// A timed-out result drops its warnings, because the redelivery emits them again.
 pub struct IngestionWarningHandlingChunkPipeline<I, O, CI, CO> {
     emitter: Arc<dyn IngestionWarningEmitter>,
     previous: DynChunkPipeline<I, O, CI, CO>,

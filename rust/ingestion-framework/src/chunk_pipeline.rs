@@ -1,6 +1,5 @@
-//! Port of `chunk-pipeline.interface.ts`, `buffering-chunk-pipeline.ts`,
-//! `base-chunk-pipeline.ts`, `sequential-chunk-pipeline.ts`, `gathering-chunk-pipeline.ts`
-//! and `chunk-pipeline-unwrapper.ts`.
+//! Port of `chunk-pipeline.interface.ts`, `buffering-chunk-pipeline.ts`, `base-chunk-pipeline.ts`,
+//! `sequential-chunk-pipeline.ts`, `gathering-chunk-pipeline.ts` and `chunk-pipeline-unwrapper.ts`.
 
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -13,8 +12,7 @@ use crate::pipeline::DynPipeline;
 use crate::results::{NonOk, Outcome};
 use crate::steps::ChunkProcessingStep;
 
-/// Both methods take `&self`: a stage must accept a `feed()` while a `next()` is parked,
-/// as in Node. A stage must not get two overlapping `next()` calls.
+/// `&self`, because a stage takes a `feed()` while a `next()` is parked, as in Node. Never overlap two `next()` calls.
 #[async_trait]
 pub trait ChunkPipeline<I, O, CI, CO>: Send + Sync {
     fn feed(&self, elements: Vec<OkResultWithContext<I, CI>>);
@@ -62,9 +60,7 @@ impl<T: Send + 'static, C: Send + 'static> ChunkPipeline<T, T, C, C>
     }
 }
 
-/// Runs the step over the OK values, checks the one-result-per-value contract, and zips the
-/// results back onto their contexts. Non-OK results pass through. The budget check runs per
-/// element, because one chunk can hold elements from batches with different budgets.
+/// The budget check runs per element, because one chunk can hold elements of batches with different budgets.
 pub async fn apply_chunk_step_to_results<T, U, C>(
     step: &ChunkProcessingStep<T, U>,
     items: ChunkResults<T, C>,

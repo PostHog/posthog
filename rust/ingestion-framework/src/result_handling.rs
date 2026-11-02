@@ -19,8 +19,7 @@ use crate::side_effects::{SideEffect, SideEffectScheduler};
 pub struct PipelineConfig {
     pub outputs: Arc<dyn IngestionOutputs>,
     pub scheduler: Arc<dyn SideEffectScheduler>,
-    /// Fail the side effect when the DLQ produce fails. Set it only when the consumer stores
-    /// no offsets after a failed side effect.
+    /// Set it only when the consumer stores no offsets after a failed side effect.
     pub reject_on_dlq_failure: bool,
 }
 
@@ -28,8 +27,7 @@ fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// Port of `copyAndExtendHeaders`. A Node header value that is not a buffer or a string is
-/// stringified, so a null value becomes `"null"`.
+/// Port of `copyAndExtendHeaders`. Node stringifies a non-buffer, non-string value, so null is `"null"`.
 pub fn copy_and_extend_headers(message: &KafkaMessage, additional: Headers) -> Headers {
     let mut headers = Headers::new();
     for (key, value) in &message.headers {
@@ -103,8 +101,7 @@ pub fn redirect_output_message(
     let mut extra = Headers::new();
     extra.set("redirect-step", step);
     extra.set("redirect-timestamp", now_iso());
-    // Dropping the key spreads the redirected stream across partitions; keep the original
-    // key recoverable for consumers of the stream.
+    // Dropping the key spreads the stream across partitions, so keep the original key recoverable.
     if !preserve_key {
         if let Some(key) = &message.key {
             extra.set(
@@ -131,8 +128,7 @@ async fn produce_redirect(
     out: OutputMessage,
     await_ack: bool,
 ) -> anyhow::Result<()> {
-    // The produce starts here, before the scheduler sees it, as Node calls
-    // `outputs.produce` before it schedules the promise.
+    // Node calls `outputs.produce` before it schedules the promise, so the produce starts here.
     let produce = async move { outputs.produce(&output, out).await }
         .map(|result| result.map_err(|error| SharedError(Arc::new(error))))
         .boxed()
@@ -173,9 +169,7 @@ fn result_details(result: &NonOk) -> (&'static str, String) {
     }
 }
 
-/// Wraps a chunk pipeline and turns each non-OK result into its side effect: a DLQ produce,
-/// a drop log, or a redirect produce. A timeout produces nothing, because the redelivery
-/// produces it.
+/// A timeout produces nothing, because the redelivery produces it.
 pub struct ResultHandlingPipeline<I, O, CI, CO> {
     pipeline: DynChunkPipeline<I, O, CI, CO>,
     config: PipelineConfig,
@@ -231,8 +225,7 @@ where
             )
             .increment(1);
 
-            // Each side effect starts its produce on creation, so produces are issued in
-            // item order, as Node issues them inside this loop.
+            // Produces start on creation, so they are issued in item order, as in Node's loop.
             let side_effect = match non_ok {
                 NonOk::Dlq { reason, error } => {
                     let error_text = match error {

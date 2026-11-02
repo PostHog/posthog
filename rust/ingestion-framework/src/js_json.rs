@@ -1,8 +1,6 @@
-//! A JSON writer with the output of JavaScript's `JSON.stringify`.
-//!
-//! `serde_json` writes `1.0` and `1e21` where JavaScript writes `1` and `1e+21`, and its
-//! object key order depends on the `preserve_order` feature of the whole build. Kafka
-//! messages that must equal the Node bytes are written with this module instead.
+//! A JSON writer with the output of JavaScript's `JSON.stringify`. `serde_json` writes `1.0` and
+//! `1e21` where JavaScript writes `1` and `1e+21`, and its key order depends on the build's
+//! `preserve_order` feature, so Kafka messages that must equal the Node bytes use this module.
 
 use std::fmt::Write;
 
@@ -57,8 +55,7 @@ pub fn write_object<'a>(out: &mut String, entries: impl Iterator<Item = (&'a Str
     out.push('}');
 }
 
-/// A canonical decimal string below 2^32 - 1 is an array index, which a JavaScript
-/// object enumerates before its other keys.
+/// A canonical decimal below 2^32 - 1 is an array index, which a JavaScript object lists first.
 fn array_index(key: &str) -> Option<u32> {
     if key.is_empty() || key.len() > 10 || !key.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -90,8 +87,7 @@ pub fn write_string(out: &mut String, s: &str) {
     out.push('"');
 }
 
-/// `Number.prototype.toString` for a finite number. JavaScript holds every number as an
-/// f64, so an integer above 2^53 prints as Node would print it.
+/// `Number.prototype.toString`. JavaScript numbers are f64, so an integer above 2^53 prints as in Node.
 pub fn write_number(out: &mut String, f: f64) {
     if !f.is_finite() {
         out.push_str("null");
@@ -131,9 +127,8 @@ pub fn write_number(out: &mut String, f: f64) {
     }
 }
 
-/// `{:e}` gives the shortest digit count that round-trips. ECMAScript breaks a tie between two
-/// equally close shortest candidates toward the even digit, so an odd last digit is checked
-/// against the exactly rounded form, which rounds ties to even.
+/// `{:e}` gives the shortest round-trip digits. ECMAScript breaks a tie between two shortest
+/// candidates toward even, so an odd last digit is checked against the exactly rounded form.
 fn shortest_scientific(value: f64) -> String {
     let shortest = format!("{value:e}");
     let mantissa = shortest.split_once('e').map_or("", |(m, _)| m);

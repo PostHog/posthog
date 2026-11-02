@@ -51,8 +51,7 @@ struct GroupingShared<K, M, O, C> {
     processor: GroupChunkProcessor<M, O, C>,
     limit: Option<Arc<FifoLimiter>>,
     state: Mutex<GroupState<K, M, O, C>>,
-    // Resolved whenever any group finishes, so a parked drain wakes even for a group that
-    // started after it parked.
+    // Resolves when any group finishes, so a parked drain also wakes for a group started later.
     group_completed: ResettableSignal,
 }
 
@@ -63,10 +62,8 @@ where
     O: Send + 'static,
     C: Send + 'static,
 {
-    /// Starts the queued items of `key` when the key is free. The completion of a group
-    /// calls it for its own key, so the remove is a `swap_remove`: when a group completes,
-    /// every key still in `queues` belongs to a running group, and their relative order no
-    /// longer decides anything.
+    /// A completing group calls this for its own key. Every key left in `queues` then belongs to a
+    /// running group, so their order no longer matters and the remove can be a `swap_remove`.
     fn start_group_if_queued(self: &Arc<Self>, state: &mut GroupState<K, M, O, C>, key: &K) {
         if state.active.contains(key) {
             return;
@@ -80,8 +77,7 @@ where
         self.spawn_group(state, key.clone(), queue);
     }
 
-    /// Starts every queued group whose key is free, in the order the keys first arrived.
-    /// One pass over the queues, so a pull costs O(keys) and not O(keys²).
+    /// One pass in key-arrival order, so a pull costs O(keys) and not O(keys²).
     fn start_available(self: &Arc<Self>, state: &mut GroupState<K, M, O, C>) {
         let mut ready = Vec::new();
         let GroupState { queues, active, .. } = &mut *state;
@@ -113,8 +109,7 @@ where
                 Some(permit) => Some(permit.await),
                 None => None,
             };
-            // The processor call is inside the guarded block, so a panic before it returns
-            // its future also fails the group.
+            // The processor call is guarded, so a panic before it returns its future fails the group.
             let outcome = AssertUnwindSafe(async { (shared.processor)(queue).await })
                 .catch_unwind()
                 .await;

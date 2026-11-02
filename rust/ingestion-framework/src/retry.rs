@@ -40,9 +40,8 @@ where
     retry_with_input((), |()| f(), options).await
 }
 
-/// `retry_if_retriable` for an `f` that consumes its input. Every attempt but the last
-/// possible one gets a clone, and the last one gets `input` itself, so `tries: 1` clones
-/// nothing. The first attempt cannot take `input`, because a retry needs it again.
+/// Every attempt but the last possible one gets a clone, so `tries: 1` clones nothing. The first
+/// attempt cannot take `input`, because a retry needs it again.
 pub async fn retry_with_input<V, T, F, Fut>(
     input: V,
     mut f: F,
@@ -99,8 +98,7 @@ where
 // Node's `TIMEOUT_MAX`, the largest delay that `setTimeout` keeps.
 const NODE_TIMEOUT_MAX_MS: f64 = 2_147_483_647.0;
 
-/// The delay of Node's `setTimeout(fn, ms)`. Node uses 1 ms for a delay that is NaN, below
-/// 1 or above `TIMEOUT_MAX`, so options such as a negative backoff cannot fail a retry.
+/// Node's `setTimeout` uses 1 ms for a NaN, sub-1 or over-`TIMEOUT_MAX` delay, so bad options cannot fail a retry.
 fn node_timer_delay(ms: f64) -> Duration {
     let ms = if (1.0..=NODE_TIMEOUT_MAX_MS).contains(&ms) {
         ms

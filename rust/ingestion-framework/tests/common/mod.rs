@@ -15,8 +15,7 @@ pub fn items<T>(values: impl IntoIterator<Item = T>) -> Vec<OkResultWithContext<
         .collect()
 }
 
-/// Port of `consumeAll`: every OK value, flattened. With a paused clock, tokio advances time
-/// by itself when all tasks wait, which replaces `jest.advanceTimersByTimeAsync`.
+/// Port of `consumeAll`. A paused tokio clock advances when all tasks wait, like `jest.advanceTimersByTimeAsync`.
 pub async fn consume_all<I, O, CI, CO>(pipeline: &dyn ChunkPipeline<I, O, CI, CO>) -> Vec<O> {
     let mut values = Vec::new();
     while let Some(chunk) = pipeline.next().await.expect("next") {
@@ -29,10 +28,8 @@ pub async fn consume_all<I, O, CI, CO>(pipeline: &dyn ChunkPipeline<I, O, CI, CO
     values
 }
 
-/// Port of `consumeAll(pipeline, advanceTimeMs)` for a paused clock. Node advances the
-/// fake clock by `advance_ms` only, so a pipeline that needs longer never drains. The
-/// bound is 1 ms past `advance_ms`, because tokio fires a timer and this timeout in the
-/// same millisecond tick and could then reject work that Node completes at `advance_ms`.
+/// Port of `consumeAll(pipeline, advanceTimeMs)` for a paused clock. The bound is 1 ms past
+/// `advance_ms`, because tokio fires a timer and this timeout in the same millisecond tick.
 pub async fn consume_all_within<I, O, CI, CO>(
     pipeline: &dyn ChunkPipeline<I, O, CI, CO>,
     advance_ms: u64,
@@ -40,8 +37,7 @@ pub async fn consume_all_within<I, O, CI, CO>(
     within_ms(advance_ms, consume_all(pipeline)).await
 }
 
-/// Awaits `fut` with the time bound of a `jest.advanceTimersByTimeAsync(advance_ms)`.
-/// See `consume_all_within` for the extra millisecond.
+/// The time bound of `jest.advanceTimersByTimeAsync(advance_ms)`; see `consume_all_within`.
 pub async fn within_ms<T>(advance_ms: u64, fut: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_millis(advance_ms + 1), fut)
         .await

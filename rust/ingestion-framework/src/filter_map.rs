@@ -1,9 +1,5 @@
-//! Port of `filter-map-chunk-pipeline.ts`.
-//!
-//! In Node the output context type is `COutput | CIntermediate`: OK results come out with
-//! the sub-pipeline's context, non-OK passthroughs keep the earlier context. Rust has no
-//! union types, so the sub-pipeline's output context must implement `From` the earlier one,
-//! and passthroughs are converted with it.
+//! Port of `filter-map-chunk-pipeline.ts`. Node's output context is `COutput | CIntermediate`, and
+//! Rust has no union types, so the output context implements `From` the earlier one for passthroughs.
 
 use std::sync::Arc;
 

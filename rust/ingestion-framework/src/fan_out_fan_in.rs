@@ -1,7 +1,5 @@
-//! Port of `fan-out-fan-in-chunk-pipeline.ts`.
-//!
-//! Node tags each sub-element context with a symbol-keyed parent token. Here the
-//! sub-context type is `FanOutSubContext`, which holds an opaque parent id.
+//! Port of `fan-out-fan-in-chunk-pipeline.ts`. Node tags each sub-context with a symbol-keyed
+//! parent token; here `FanOutSubContext` holds an opaque parent id.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,8 +13,7 @@ use crate::errors::{call_user_fn, AggregateError};
 use crate::interleaving::{InterleavingCallbacks, InterleavingChunkPipeline, PullOutcome};
 use crate::results::{NonOk, Outcome};
 
-/// Splits one element into its sub-elements. Must be cheap: heavy work belongs in the
-/// sub-pipeline.
+/// Must be cheap, because heavy work belongs in the sub-pipeline.
 pub type FanOutFunction<T, S> = Arc<dyn Fn(&T) -> Vec<S> + Send + Sync>;
 
 pub type FanInFunction<T, SO, U> = Arc<dyn Fn(T, Vec<SO>) -> U + Send + Sync>;
@@ -72,8 +69,7 @@ struct FanCallbacks<I, T, S, SO, U, CI, C> {
 }
 
 impl<I, T, S, SO, U, CI, C> FanCallbacks<I, T, S, SO, U, CI, C> {
-    /// Runs the fan-in. Call it with no lock held: a panic in user code must not poison
-    /// the stage state.
+    /// Call it with no lock held, so a panic in user code cannot poison the stage state.
     fn complete_parent(
         &self,
         original: T,

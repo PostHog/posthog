@@ -6,8 +6,7 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-/// Uses `tokio::time::Instant`, so a paused test clock controls it, as Jest fake timers
-/// control `Date.now()` in Node.
+/// Uses `tokio::time::Instant`, so a paused test clock controls it, as Jest fake timers do in Node.
 #[derive(Clone, Debug)]
 pub struct BatchBudget {
     inner: Arc<BudgetInner>,
@@ -50,8 +49,7 @@ impl BatchBudget {
         self.inner.soft_at
     }
 
-    /// Reads the clock rather than a timer flag, so a step that holds the thread past the
-    /// deadline still sees the budget as spent. The flag stays set once read as spent.
+    /// Reads the clock, not a timer flag, so a step that holds the thread past the deadline sees it spent.
     pub fn exhausted(&self) -> bool {
         if self.inner.expired.load(Ordering::Relaxed) {
             return true;

@@ -1,9 +1,6 @@
-//! Port of `batching-pipeline.ts`.
-//!
-//! Node spreads the batch context into each element value (`TInput & CBatch`). Here a
-//! sub-pipeline value is `WithBatch<T, CB>`: the value plus a shared batch context, with
-//! `Deref` to the value. Node merges the caller's feed context into the batch context;
-//! here it comes back as its own field on `BatchResult`.
+//! Port of `batching-pipeline.ts`. Node spreads the batch context into each value
+//! (`TInput & CBatch`); here a value is `WithBatch<T, CB>`, which derefs to the value. Node
+//! merges the feed context into the batch context; here it is its own `BatchResult` field.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::{Deref, DerefMut};
@@ -75,8 +72,7 @@ pub struct BeforeBatchInput<T, CI> {
     pub batch_id: u64,
 }
 
-/// A beforeBatch hook may enrich elements and build the batch context, but must return
-/// exactly as many elements as it received, or `feed()` fails.
+/// beforeBatch must return exactly as many elements as it received, or `feed()` fails.
 pub struct BeforeBatchOutput<T, CI, CB> {
     pub elements: Vec<OkResultWithContext<T, CI>>,
     pub batch_context: CB,
@@ -112,8 +108,7 @@ impl Default for BatchingPipelineOptions {
     }
 }
 
-// The overrun is the tail the checkpoints cannot cut, because they only stop work from
-// starting. It includes afterBatch, which flushes the batch's writes.
+// The overrun includes afterBatch, because the checkpoints only stop work from starting.
 fn record_budget_overrun(budget: &BatchBudget) {
     if !budget.exhausted() {
         return;
@@ -149,15 +144,11 @@ pub struct BatchingPipeline<T, O, CI, CO, CB, CF> {
     after: DynPipeline<AfterBatchInput<O, CO, CB>, AfterBatchOutput<O, CO, CB>, ()>,
     options: BatchingPipelineOptions,
     state: Mutex<BatchingState<O, CO, CB, CF>>,
-    // Incremented in the same critical section that registers a batch and feeds it, so the
-    // pump can tell a feed that raced its pull from messages that vanished.
+    // Bumped where a batch is fed, so the pump can tell a feed that raced its pull from lost messages.
     feed_epoch: AtomicU64,
-    // Concurrent callers must not interleave inside the stages, which assume one caller.
-    // tokio's Mutex is fair (FIFO), like `pLimit(1)`.
+    // The stages assume one caller. tokio's Mutex is FIFO-fair, like `pLimit(1)`.
     feed_lock: tokio::sync::Mutex<()>,
-    // The pump's work in progress lives under the pump lock, not in the `next()` future.
-    // A dropped `next()` then loses nothing: the next call resumes the stored pull, the
-    // results not yet routed, and the afterBatch run.
+    // Pump progress lives here, not in the `next()` future, so a dropped `next()` loses nothing.
     pump: tokio::sync::Mutex<PumpState<O, CO, CB, CF>>,
 }
 
@@ -271,8 +262,7 @@ where
             }
         };
 
-        // A changed element count would leave a batch that never completes. That is a broken
-        // invariant, not an outcome, so it fails before anything is registered.
+        // A changed count leaves a batch that never completes, so fail before registering it.
         if output.elements.len() != fed_count {
             anyhow::bail!(
                 "batching_pipeline beforeBatch changed element count ({} -> {}) for batch {}",
@@ -320,14 +310,12 @@ where
             },
         );
         self.sub.feed(tagged);
-        // The epoch moves only after the elements are buffered. A pump that reads the new
-        // epoch then finds them, and a pump that pulled before them sees the epoch change.
+        // Bump after buffering, so a pump that reads the new epoch also finds the elements.
         self.feed_epoch.fetch_add(1, Ordering::SeqCst);
         Ok(FeedResult::Ok)
     }
 
-    /// Cancel-safe: a dropped call keeps its pull, its unrouted results and its afterBatch
-    /// run in the pipeline, and the next call resumes them.
+    /// Cancel-safe: the next call resumes a dropped call's pull, results and afterBatch run.
     pub async fn next(&self) -> anyhow::Result<Option<BatchResult<O, CO, CB, CF>>> {
         let mut pump = self.pump.lock().await;
         self.pump(&mut pump).await

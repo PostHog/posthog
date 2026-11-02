@@ -10,8 +10,7 @@ use crate::budget::BatchBudget;
 use crate::results::{NonOk, Outcome, PipelineResult};
 use crate::side_effects::SideEffect;
 
-/// The details of a warning. Keys keep insertion order, as a JavaScript object does, and
-/// `insert` of a present key keeps its place.
+/// Keys keep insertion order, as in a JavaScript object, and re-inserting a key keeps its place.
 pub type WarningDetails = IndexMap<String, serde_json::Value>;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,9 +29,8 @@ pub struct PipelineWarning {
 }
 
 impl PipelineWarning {
-    /// Takes the keys of `details` in the order of its map. A `json!` object has sorted
-    /// keys unless the build enables serde_json's `preserve_order`, so use `with_detail`
-    /// where the key order of the message matters.
+    /// A `json!` object has sorted keys unless the build enables serde_json's `preserve_order`,
+    /// so use `with_detail` where the key order of the message matters.
     pub fn new(warning_type: impl Into<String>, details: serde_json::Value) -> Self {
         Self {
             warning_type: warning_type.into(),
@@ -57,11 +55,9 @@ impl PipelineWarning {
     }
 }
 
-/// Port of `PipelineContext<C>`. Node spreads the user context `C` into the same object
-/// as the framework fields. Here `C` lives in `data`, and `Deref` exposes its fields.
-///
-/// `message_id` is part of `BatchingContext` in Node. It lives here so that the
-/// batching pipeline does not change the context type.
+/// Port of `PipelineContext<C>`. Node spreads `C` into the object with the framework fields; here
+/// `C` lives in `data`, and `Deref` exposes its fields. `message_id` belongs to Node's
+/// `BatchingContext`, and lives here so that batching does not change the context type.
 pub struct PipelineContext<C> {
     pub data: C,
     pub last_step: Option<Arc<str>>,
@@ -159,8 +155,7 @@ impl<T, C> ResultWithContext<T, C> {
         self.result.value()
     }
 
-    // The split moves the context by value on every step; boxing the error side would
-    // allocate for each non-OK result.
+    // Boxing the error side would allocate for each non-OK result on every step.
     #[allow(clippy::result_large_err)]
     pub fn into_ok(self) -> Result<OkResultWithContext<T, C>, (NonOk, PipelineContext<C>)> {
         match self.result {

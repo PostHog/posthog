@@ -1,7 +1,5 @@
-//! Node steps signal retriability with an `isRetriable` property on the thrown error.
-//! Here a step returns an `anyhow::Error` that wraps a `PipelineError`, and
-//! `is_retriable` reads it from the top-level error only, as Node reads the property of
-//! the thrown object and not of its `cause`.
+//! Node steps flag retriability with `isRetriable` on the thrown error. Here `is_retriable` reads
+//! a `PipelineError` from the top-level error only, as Node reads the thrown object, not its `cause`.
 
 use std::fmt;
 use std::sync::Arc;
@@ -30,12 +28,10 @@ impl PipelineError {
     }
 }
 
-/// The Node `error.isRetriable` lookup. An error that wraps a `PipelineError` with
-/// `context()` has no flag of its own, so it reads as `None`. A `SharedError` is the same
-/// error object shared by more than one caller, so it reads through.
+/// The Node `error.isRetriable` lookup: a `context()` wrapper has no flag of its own, so it reads
+/// as `None`. A `SharedError` is one error object shared by several callers, so it reads through.
 pub fn is_retriable(error: &anyhow::Error) -> Option<bool> {
-    // `anyhow::Error::downcast_ref` also finds the inner error of a context wrapper, so
-    // look at the outermost error with the standard `TypeId` check instead.
+    // `anyhow`'s `downcast_ref` also finds a context wrapper's inner error, so check the outermost.
     let outermost: &(dyn std::error::Error + 'static) = error.chain().next()?;
     if let Some(pipeline_error) = outermost.downcast_ref::<PipelineError>() {
         return pipeline_error.retriable;
@@ -46,8 +42,7 @@ pub fn is_retriable(error: &anyhow::Error) -> Option<bool> {
     None
 }
 
-/// An error that more than one caller must see. A poisoned pipeline rejects every later
-/// `next()` with the same error, and `anyhow::Error` cannot be cloned.
+/// A poisoned pipeline rejects every later `next()` with the same error, and `anyhow::Error` is not `Clone`.
 #[derive(Clone)]
 pub struct SharedError(pub Arc<anyhow::Error>);
 
@@ -77,9 +72,8 @@ pub fn join_error(error: tokio::task::JoinError) -> anyhow::Error {
     anyhow::anyhow!("pipeline task failed: {error}")
 }
 
-/// Port of JavaScript's `AggregateError(errors, message)`: its message is `message` only,
-/// and it keeps every sub error. A `None` sub error stands for a sub result that had no
-/// error, which Node keeps as `undefined`.
+/// Port of JavaScript's `AggregateError(errors, message)`: its message is `message` only. A `None`
+/// sub error is a sub result without an error, which Node keeps as `undefined`.
 pub struct AggregateError {
     pub message: String,
     pub errors: Vec<Option<Arc<anyhow::Error>>>,
@@ -112,8 +106,7 @@ pub fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
-/// Runs a user callback. A panic becomes an error, as a throw from a Node callback
-/// becomes a rejected `next()`, and is logged with the origin of the element.
+/// A panic becomes an error logged with the element's origin, as a Node callback throw rejects `next()`.
 pub fn call_user_fn<R>(
     kind: &str,
     name: &str,

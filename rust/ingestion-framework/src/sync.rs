@@ -1,5 +1,4 @@
-//! Synchronization helpers: `ResettableSignal` (port of `resettable-signal.ts`) and
-//! `FifoLimiter` (the `p-limit` semantics the Node stages rely on).
+//! `ResettableSignal` (port of `resettable-signal.ts`) and `FifoLimiter` (Node's `p-limit` semantics).
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -7,8 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::{oneshot, watch};
 
-/// A one-shot wake-up that can be re-armed. A `resolve()` that arrives after `reset()` and
-/// before `wait()` is not lost.
+/// A re-armable wake-up. A `resolve()` between `reset()` and `wait()` is not lost.
 pub struct ResettableSignal {
     tx: watch::Sender<u64>,
     baseline: Mutex<u64>,
@@ -46,9 +44,8 @@ impl ResettableSignal {
     }
 }
 
-/// A concurrency cap with FIFO admission, like `p-limit`. A caller takes its place in the
-/// queue when it calls `acquire()`, not when it first polls the returned future, so the
-/// admission order is the call order.
+/// A FIFO concurrency cap like `p-limit`. A caller queues when it calls `acquire()`, not when it
+/// first polls the future, so admission order is call order.
 pub struct FifoLimiter {
     max: usize,
     state: Mutex<LimiterState>,
@@ -59,15 +56,12 @@ struct LimiterState {
     waiters: VecDeque<oneshot::Sender<LimiterPermit>>,
 }
 
-/// A held slot. The slot is a value from the moment `acquire()` reserves it, so a dropped
-/// `acquire()` future, or a dropped permit in transit to a waiter, releases it.
+/// Reserved at `acquire()`, so a dropped future or a permit dropped in transit releases the slot.
 pub struct LimiterPermit {
     limiter: Option<Arc<FifoLimiter>>,
 }
 
 impl FifoLimiter {
-    /// # Panics
-    ///
     /// Panics when `max` is 0, as `pLimit(0)` throws when the Node pipeline is built.
     pub fn new(max: usize) -> Arc<Self> {
         assert!(

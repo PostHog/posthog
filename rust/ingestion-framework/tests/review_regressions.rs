@@ -18,9 +18,7 @@ const AWAIT: SideEffectHandlingConfig = SideEffectHandlingConfig {
     await_side_effects: true,
 };
 
-// Node: `{...details, category, severity, ...(pipelineStep && {pipelineStep})}` inside
-// `JSON.stringify({team_id, type, source, details, timestamp})`. The expected prefix is
-// the output of that expression in Node.
+// The expected prefix is Node's `JSON.stringify({team_id, type, source, details, timestamp})`.
 #[test]
 fn warning_message_bytes_match_node() {
     let mut w = PipelineWarning::new("client_ingestion_warning", serde_json::json!({}))
@@ -162,8 +160,7 @@ async fn redirect_without_await_ack_has_called_produce_when_next_returns() {
     assert_eq!(outputs.calls().len(), 1);
 }
 
-// Node has no cancellation, so a batch always comes back. A dropped `next()` (for example
-// a client that disconnects from an HTTP handler) must not lose it.
+// Node has no cancellation, so a batch always comes back, even after a dropped `next()`.
 #[tokio::test(start_paused = true)]
 async fn dropped_batching_next_does_not_lose_the_batch() {
     let after_runs = Arc::new(AtomicU32::new(0));
@@ -196,7 +193,6 @@ async fn dropped_batching_next_does_not_lose_the_batch() {
     assert!(pipeline.next().await.unwrap().is_none());
 }
 
-// Node's PromiseScheduler removes a promise from its set once it settles.
 #[tokio::test]
 async fn scheduler_releases_settled_side_effects() {
     let scheduler = PromiseScheduler::new();
@@ -254,8 +250,7 @@ async fn wrapped_non_retriable_error_is_retried_like_node() {
     assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
-// A throw in a Node fan-in rejects next() and poisons the stage; it never takes the
-// process down with a poisoned lock.
+// A Node fan-in throw rejects next() and poisons the stage without crashing the process.
 #[tokio::test]
 async fn fan_in_panic_rejects_next_and_keeps_rejecting() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -285,8 +280,7 @@ fn zero_max_concurrency_fails_like_p_limit() {
     );
 }
 
-// Starting a group must stay O(1) amortized: a quadratic start makes 4x the distinct keys
-// cost 16x the time.
+// A quadratic start makes 4x the distinct keys cost 16x the time.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn grouping_start_scales_linearly_in_distinct_keys() {
     async fn run(n: i64) -> Duration {
@@ -313,8 +307,7 @@ async fn grouping_start_scales_linearly_in_distinct_keys() {
     );
 }
 
-// Node keeps a promise in the scheduler until it settles. An overlapping waitForAll() sees
-// it, and a cancelled one does not take it away from the next one.
+// Node keeps a promise in the scheduler until it settles.
 #[tokio::test]
 async fn scheduler_keeps_in_flight_side_effects_for_every_waiter() {
     let scheduler = PromiseScheduler::new();
@@ -334,8 +327,7 @@ async fn scheduler_keeps_in_flight_side_effects_for_every_waiter() {
     assert!(scheduler.wait_for_all().await.is_ok());
 }
 
-// A Node fan-in throw leaves the parents completed before it in readyResults, and the
-// poisoned stage returns them before it rejects.
+// A Node fan-in throw leaves the parents completed before it in readyResults.
 #[tokio::test]
 async fn fan_in_panic_keeps_the_parents_completed_before_it() {
     let pipeline = new_chunk_pipeline::<i64, ()>()
@@ -397,8 +389,7 @@ async fn limiter_releases_the_slot_of_a_dropped_acquire() {
         .expect("the slot was released");
 }
 
-// Node's setTimeout uses 1 ms for a delay that is negative, NaN or too large, so these
-// options retry and do not panic.
+// Node's setTimeout uses 1 ms for a negative, NaN or too-large delay.
 #[tokio::test(start_paused = true)]
 async fn retry_with_out_of_range_sleep_options_does_not_panic() {
     let cases = [

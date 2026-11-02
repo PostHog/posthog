@@ -97,9 +97,7 @@ impl HasMessage for MessageContext {
     }
 }
 
-/// Port of `createBatch`: wraps each Kafka message as an OK element with a
-/// `MessageContext` and a Kafka debug context. The value is a copy of the context, as in
-/// Node, where the value is `{ message }` too.
+/// Port of `createBatch`. The value is a copy of the context, as in Node, where it is `{ message }` too.
 pub fn create_batch(
     messages: Vec<KafkaMessage>,
 ) -> Vec<OkResultWithContext<MessageContext, MessageContext>> {

@@ -121,9 +121,8 @@ impl<T> Outcome<T> {
     }
 }
 
-/// In Node the result keeps its own copy of the side effects after the pipeline merges
-/// them into the context. A `SideEffect` here is a task handle and cannot be copied, so
-/// the pipeline moves them into the context instead.
+/// Node's result keeps its own copy of the side effects after the merge into the context. A
+/// `SideEffect` is a task handle and cannot be copied, so the pipeline moves them instead.
 pub struct PipelineResult<T> {
     pub outcome: Outcome<T>,
     pub side_effects: Vec<SideEffect>,

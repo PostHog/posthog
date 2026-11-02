@@ -1,10 +1,7 @@
-//! Port of `interleaving-chunk-pipeline.ts`.
-//!
-//! The Node class races the pending sub-pipeline pull against a feed wake-up, and keeps the
-//! pending pull across `next()` calls. Here the pending pull is a boxed `'static` future that
-//! owns an `Arc` of the callbacks, so it can wait in a field between calls and `select!` can
-//! race it. It is not a spawned task: the pull only waits for work that already runs in its
-//! own tasks, and a spawn per `next()` costs a cross-thread wake on a multi-thread runtime.
+//! Port of `interleaving-chunk-pipeline.ts`. Node races the pending sub-pipeline pull against a
+//! feed wake-up and keeps the pull across `next()` calls. Here the pull is a boxed `'static` future
+//! that owns an `Arc` of the callbacks, so it can wait in a field and `select!` can race it. It is
+//! not spawned, because a spawn per `next()` costs a cross-thread wake on a multi-thread runtime.
 
 use std::sync::{Arc, Mutex};
 

@@ -1,9 +1,6 @@
-//! Port of `builders/pipeline-builders.ts`, `builders/chunk-pipeline-builders.ts` and
-//! `builders/helpers.ts`.
-//!
-//! The Node builders check at compile time that every branch is supplied and that every
-//! redirect output is configured. Branch names and output names are strings here, so those
-//! two checks happen at run time: an unknown branch becomes a DLQ, as in Node.
+//! Port of `builders/pipeline-builders.ts`, `builders/chunk-pipeline-builders.ts` and `builders/helpers.ts`.
+//! Node checks at compile time that every branch and redirect output is configured. The names are
+//! strings here, so those checks run at run time, and an unknown branch becomes a DLQ, as in Node.
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -223,8 +220,6 @@ where
         self.pipe_chunk(with_chunk_retry(step, retry))
     }
 
-    /// # Panics
-    ///
     /// Panics on `Some(0)`, as Node's `pLimit(0)` throws.
     pub fn concurrently<U: Send + 'static>(
         self,
@@ -293,8 +288,6 @@ where
         }
     }
 
-    /// # Panics
-    ///
     /// Panics on `Some(0)`, as Node's `pLimit(0)` throws.
     pub fn concurrently_per_group<K, U>(
         self,
@@ -488,8 +481,7 @@ where
     }
 }
 
-/// After `handle_results` the only next step is `handle_side_effects`, so side effects are
-/// always handled before the pipeline is built.
+/// The only next step is `handle_side_effects`, so side effects are always handled before build.
 pub struct ResultHandledChunkPipelineBuilder<I, O, CI, CO> {
     pipeline: DynChunkPipeline<I, O, CI, CO>,
 }
