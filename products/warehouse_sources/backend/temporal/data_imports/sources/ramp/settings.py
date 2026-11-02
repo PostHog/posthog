@@ -13,7 +13,7 @@ TOKEN_SCOPES = "transactions:read reimbursements:read users:read cards:read depa
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class RampEndpointConfig:
     name: str
     # Path under {host}/developer/v1.

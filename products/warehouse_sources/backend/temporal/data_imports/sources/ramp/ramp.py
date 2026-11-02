@@ -37,7 +37,7 @@ RAMP_HOSTS = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RampResumeConfig:
     # Ramp paginates via the self-contained page.next URL. Optional/defaulted so previously
     # saved state (which always carried next_url) still parses via dataclass(**saved).
