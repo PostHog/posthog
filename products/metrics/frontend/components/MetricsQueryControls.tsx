@@ -4,13 +4,14 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { type MetricsQuery, type MetricsQueryLanguage, NodeKind } from '~/queries/schema/schema-general'
+import { type MetricsQuery, type MetricsQueryLanguage } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MetricsChartSettings } from './MetricsChartSettings'
 import { MetricsDateRangeFilter } from './MetricsDateRangeFilter'
 import { MetricsDisplayTypeSelect } from './MetricsDisplayTypeSelect'
 import { MetricsIntervalPicker } from './MetricsIntervalPicker'
+import { metricsQueryForLanguageSwitch, runMetricsQueryDraft } from './metricsQueryDraft'
 import { MetricsQueryLanguagePicker } from './MetricsQueryLanguagePicker'
 import { MetricsQueryTextEditor } from './MetricsQueryTextEditor'
 import { MetricsSeriesBuilder } from './MetricsSeriesBuilder'
@@ -45,15 +46,9 @@ export function MetricsQueryControls({
     const logic = useMountedLogic(metricsViewerLogic)
     const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
 
-    // A changed query runs through the query node. An unchanged one (after a failure) runs again in place.
-    const runQuery = (): void => (logic.values.queryTextChanged ? logic.actions.runQueryText() : onRerun?.())
-
-    const switchLanguage = (to: MetricsQueryLanguage): void => {
-        // Read the logic at click time, so a draft the user has not run yet still converts.
-        const { metricsQueryNode: node, queryDraft } = logic.values
-        const current = node ?? fallbackQuery ?? { kind: NodeKind.MetricsQuery, clauses: [] }
-        onSwitchLanguage?.(language === 'builder' ? current : { ...current, [language]: queryDraft.trim() }, to)
-    }
+    const runQuery = (): void => runMetricsQueryDraft(logic, onRerun)
+    const switchLanguage = (to: MetricsQueryLanguage): void =>
+        onSwitchLanguage?.(metricsQueryForLanguageSwitch(logic, fallbackQuery), to)
 
     const dateControls = (
         <div className="flex flex-wrap items-center gap-2">

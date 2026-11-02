@@ -591,6 +591,7 @@ export interface metricsViewerLogicValues {
     queryTextChanged: boolean
     rangeFunction: MetricRangeFunction | null
     reduce: MetricsReducer
+    refreshCount: number
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
@@ -729,6 +730,9 @@ export interface metricsViewerLogicActions {
         payload?: any
     }
     openAddToDashboardModal: () => {
+        value: true
+    }
+    refresh: () => {
         value: true
     }
     removeClause: (index: number) => {
@@ -970,6 +974,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         // One auto-refresh cycle. The chart and the facet rail both reload on it.
         liveRefreshTick: true,
+        // Reloads everything the chart area shows: the series, the anomaly badge and the heatmap.
+        refresh: true,
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         // Narrows the chart to one label value, from the anomaly panel's ranked movers.
         addAttributeFilter: (key: string, value: string) => ({ key, value }),
@@ -1187,6 +1193,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             { setInterval: (_, { interval }) => interval },
         ],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
+        // The heatmap loads through its own query node, which remounts when this changes.
+        refreshCount: [0, { refresh: (count) => count + 1 }],
         // Free-text search backing the group-by attribute-key autocomplete.
         groupBySearch: ['' as string, { setGroupBySearch: (_, { groupBySearch }) => groupBySearch }],
         queryAbortController: [
@@ -1475,6 +1483,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }, LIVE_REFRESH_KEY)
             },
             liveRefreshTick: () => {
+                actions.refresh()
+            },
+            refresh: () => {
                 actions.fetchQueryResults({})
                 actions.fetchAnomaly({})
             },

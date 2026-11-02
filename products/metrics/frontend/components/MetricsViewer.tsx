@@ -13,7 +13,7 @@ import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { type MetricsQueryLanguage, NodeKind } from '~/queries/schema/schema-general'
+import { type MetricsQueryLanguage } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
@@ -30,6 +30,7 @@ import { type MetricsExemplar } from './MetricsExemplarMarkers'
 import { MetricsIntervalPicker } from './MetricsIntervalPicker'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
 import { MetricsPercentileResolutionHint } from './MetricsPercentileResolutionHint'
+import { metricsQueryForLanguageSwitch, runMetricsQueryDraft } from './metricsQueryDraft'
 import { MetricsQueryLanguagePicker } from './MetricsQueryLanguagePicker'
 import { switchMetricsQueryLanguage } from './metricsQueryLanguageSwitch'
 import { MetricsQueryTextEditor } from './MetricsQueryTextEditor'
@@ -172,22 +173,12 @@ export const MetricsViewer = (): JSX.Element => {
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // The rail writes builder filter chips, which PromQL and SQL queries do not read.
     const facetRailEnabled = useFeatureFlag('METRICS') && language === 'builder'
-    const { interval, queryDraft } = useValues(logic)
-    const { setInterval, runQueryText: runQueryTextAction } = useActions(logic)
+    const { interval, queryDraft, refreshCount } = useValues(logic)
+    const { setInterval } = useActions(logic)
     const mountedLogic = useMountedLogic(logic)
-    // A changed query runs through the query node. An unchanged one (after a failure) runs again in place.
-    const runQueryText = (): void =>
-        mountedLogic.values.queryTextChanged ? runQueryTextAction() : fetchQueryResults({})
-    const switchLanguage = (to: MetricsQueryLanguage): void => {
-        // Read the logic at click time, so a draft the user has not run yet still converts.
-        const { metricsQueryNode: node, queryDraft: draft } = mountedLogic.values
-        const current = node ?? { kind: NodeKind.MetricsQuery, clauses: [] }
-        switchMetricsQueryLanguage(
-            language === 'builder' ? current : { ...current, [language]: draft.trim() },
-            to,
-            applyQuery
-        )
-    }
+    const runQueryText = (): void => runMetricsQueryDraft(mountedLogic, () => fetchQueryResults({}))
+    const switchLanguage = (to: MetricsQueryLanguage): void =>
+        switchMetricsQueryLanguage(metricsQueryForLanguageSwitch(mountedLogic), to, applyQuery)
 
     return (
         <div
@@ -229,6 +220,7 @@ export const MetricsViewer = (): JSX.Element => {
                         type="primary"
                         size="small"
                         onClick={runQueryText}
+                        loading={queryLoading}
                         disabledReason={
                             metricsViewerDisabledReason ?? (queryDraft.trim() ? undefined : 'Write a query first')
                         }
@@ -302,7 +294,11 @@ export const MetricsViewer = (): JSX.Element => {
                         // It comes before the error/loading branches: the shared time-series
                         // request still runs for the samples panel, and its failure must not
                         // mask an independently loaded histogram.
-                        <MetricsHistogramQueryNode query={histogramQueryNode} context={{}} />
+                        <MetricsHistogramQueryNode
+                            query={histogramQueryNode}
+                            context={{}}
+                            refreshCount={refreshCount}
+                        />
                     ) : queryError ? (
                         <div className="h-full flex items-center justify-center">
                             <LemonBanner type="error" className="w-full max-w-md">

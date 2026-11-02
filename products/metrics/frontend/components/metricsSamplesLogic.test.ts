@@ -183,6 +183,24 @@ describe('metricsSamplesLogic', () => {
         ])
     })
 
+    it('shows the series that loaded when another series fails', async () => {
+        mockSamplesCreate.mockImplementation(async (_, { query }) => {
+            if (query.metricName === 'demo_checkout_errors_total') {
+                throw new Error('timeout')
+            }
+            return { results: [SAMPLE] }
+        })
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        metricsViewerLogic.actions.addClause()
+        metricsViewerLogic.actions.setMetricName('demo_checkout_errors_total')
+
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        expect(logic.values.samples).toEqual([{ ...SAMPLE, clauses: ['a'] }])
+        expect(logic.values.failedSampleClauses).toEqual(['b'])
+    })
+
     // Regression: the panel listing emissions the chart above it excludes, because
     // the request went out with only the metric name and date range.
     it('scopes the request to the viewer filter bar and the picked metric type', async () => {
@@ -255,6 +273,24 @@ describe('metricsSamplesLogic', () => {
     // Regression: an always-on error-spikes fetch would spam Error Tracking on
     // every chart redraw for every metrics viewer, whether or not the overlay is
     // visible — the toggle must gate the request, not just the chart markers.
+    // Regression: every auto-refresh tick sent one samples request per series while nobody looked at them.
+    it('skips the samples reload on an unchanged chart query while the tab is hidden', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
+
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).delay(400)
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
+
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(3)
+    })
+
     it('does not fetch error spikes until the toggle is enabled', async () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
 

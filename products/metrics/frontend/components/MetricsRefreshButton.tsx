@@ -13,7 +13,7 @@ export function MetricsRefreshButton({
     noQueryReason: string | undefined
 }): JSX.Element {
     const { liveRefresh, queryLoading } = useValues(metricsViewerLogic)
-    const { setLiveRefresh, fetchQueryResults } = useActions(metricsViewerLogic)
+    const { setLiveRefresh, refresh } = useActions(metricsViewerLogic)
     const refreshSeconds = LIVE_REFRESH_MS / 1000
 
     return (
@@ -21,7 +21,7 @@ export function MetricsRefreshButton({
             size="small"
             type="secondary"
             icon={<IconRefresh />}
-            onClick={() => fetchQueryResults({})}
+            onClick={() => refresh()}
             loading={queryLoading}
             tooltip={liveRefresh ? `Refreshing every ${refreshSeconds}s` : 'Refresh'}
             disabledReason={disabledReason ?? noQueryReason}

@@ -1,5 +1,5 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -24,6 +24,8 @@ export function MetricsHistogramQueryNode(props: {
     attachTo?: LogicWrapper | BuiltLogic
     /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
     embedded?: boolean
+    /** Each change after the first render reloads the heatmap, bypassing the cache. */
+    refreshCount?: number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `MetricsHistogramQueryNode.${uniqueNode++}`)
@@ -44,6 +46,14 @@ export function MetricsHistogramQueryNode(props: {
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
+    const loadedRefreshCount = useRef(props.refreshCount)
+    useEffect(() => {
+        if (props.refreshCount !== loadedRefreshCount.current) {
+            loadedRefreshCount.current = props.refreshCount
+            loadData('force_blocking')
+        }
+    }, [props.refreshCount, loadData])
     const histogram = response as MetricsHistogramQueryResponse | undefined
     const unit = props.query.unit
 

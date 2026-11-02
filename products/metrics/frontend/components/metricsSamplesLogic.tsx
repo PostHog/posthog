@@ -7,13 +7,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { AccessControlLevel, AccessControlResourceType, UniversalFiltersGroup } from '~/types'
 
 import { metricsErrorSpikesRetrieve, metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
-import type {
-    _MetricErrorSpikeApi,
-    _MetricEventSampleApi,
-    _MetricSamplesBodyApi,
-} from 'products/metrics/frontend/generated/api.schemas'
+import type { _MetricErrorSpikeApi } from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
+import { buildSampleRequests, type MetricsSampleRow, mergeSamples } from './metricsSamplesMerge'
 import {
     type SeriesLabel,
     distinctSeriesLabels,
@@ -24,10 +21,16 @@ import {
 import {
     type MetricsViewerClause,
     type MetricsViewerSeries,
-    metricFiltersForGroup,
     metricsViewerLogic,
     resolveDate,
 } from './metricsViewerLogic'
+
+/** What a samples load depends on, with the date range unresolved, so an auto-refresh tick keeps the same key. */
+const samplesRequestKey = (
+    namedClauses: MetricsViewerClause[],
+    dateFrom: string | null,
+    dateTo: string | null
+): string => JSON.stringify([buildSampleRequests(namedClauses), dateFrom, dateTo])
 
 // The side panel next to the chart: per-series totals, or the raw emissions
 // behind the chart with their trace linkage (the metric->trace pivot).
@@ -35,9 +38,6 @@ import {
 export type MetricsPanelTab = 'aggregates' | 'samples'
 
 export const SAMPLES_LIMIT = 50
-
-/** A raw emission, with the aliases of the clauses whose query returned it. */
-export type MetricsSampleRow = _MetricEventSampleApi & { clauses: string[] }
 
 // One row of the Series tab: a series with its headline numbers.
 export interface MetricsSeriesRow {
@@ -75,6 +75,7 @@ export interface metricsSamplesLogicValues {
     activeTab: MetricsPanelTab
     errorSpikes: _MetricErrorSpikeApi[]
     errorSpikesLoading: boolean
+    failedSampleClauses: string[]
     samples: MetricsSampleRow[]
     samplesLoading: boolean
     seriesRows: MetricsSeriesRow[]
@@ -144,6 +145,9 @@ export interface metricsSamplesLogicActions {
     setActiveTab: (activeTab: MetricsPanelTab) => {
         activeTab: MetricsPanelTab
     }
+    setFailedSampleClauses: (failedSampleClauses: string[]) => {
+        failedSampleClauses: string[]
+    }
     toggleShowErrorSpikes: () => {
         value: true
     }
@@ -156,7 +160,7 @@ export interface metricsSamplesLogicMeta {
             queryResults: import('products/metrics/frontend/generated/api.schemas')._MetricSeriesApi[],
             metricName: string
         ) => MetricsSeriesRow[]
-        traceExemplars: (samples: _MetricEventSampleApi[]) => MetricsTraceExemplar[]
+        traceExemplars: (samples: MetricsSampleRow[]) => MetricsTraceExemplar[]
     }
 }
 
@@ -192,12 +196,18 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
     actions({
         setActiveTab: (activeTab: MetricsPanelTab) => ({ activeTab }),
         toggleShowErrorSpikes: true,
+        setFailedSampleClauses: (failedSampleClauses: string[]) => ({ failedSampleClauses }),
     }),
     reducers({
         activeTab: ['aggregates' as MetricsPanelTab, { setActiveTab: (_, { activeTab }) => activeTab }],
         showErrorSpikes: [false, { toggleShowErrorSpikes: (state) => !state }],
+        // Series whose samples failed to load, while the others loaded.
+        failedSampleClauses: [
+            [] as string[],
+            { setFailedSampleClauses: (_, { failedSampleClauses }) => failedSampleClauses },
+        ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions, cache }) => ({
         samples: [
             [] as MetricsSampleRow[],
             {
@@ -207,47 +217,38 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                     }
                     const dateFrom = resolveDate(values.dateFrom, values.timezone)
                     if (!values.namedClauses.length || !dateFrom) {
+                        actions.setFailedSampleClauses([])
                         return []
                     }
                     await breakpoint(300)
                     const dateTo = resolveDate(values.dateTo, values.timezone) ?? undefined
-                    // Two clauses that read the same emissions share one request, so a sample shows once.
-                    const requests = new Map<string, { query: _MetricSamplesBodyApi; clauses: string[] }>()
-                    for (const clause of values.namedClauses) {
-                        const filters = metricFiltersForGroup(clause.filterGroup)
-                        const query: _MetricSamplesBodyApi = {
-                            metricName: clause.metricName.trim(),
-                            dateFrom,
-                            ...(dateTo ? { dateTo } : {}),
-                            ...(clause.selectedMetricType ? { metricType: clause.selectedMetricType } : {}),
-                            ...(filters.length ? { filters } : {}),
-                            limit: SAMPLES_LIMIT,
-                        }
-                        const key = JSON.stringify(query)
-                        const existing = requests.get(key)
-                        if (existing) {
-                            existing.clauses.push(clause.name)
-                        } else {
-                            requests.set(key, { query, clauses: [clause.name] })
-                        }
-                    }
+                    const requests = buildSampleRequests(values.namedClauses)
                     const responses = await Promise.allSettled(
-                        [...requests.values()].map(async ({ query, clauses }) => {
-                            const response = await metricsSamplesCreate(String(values.currentTeamId), { query })
-                            return response.results.map((sample): MetricsSampleRow => ({ ...sample, clauses }))
-                        })
+                        requests.map(({ query }) =>
+                            metricsSamplesCreate(String(values.currentTeamId), {
+                                query: { ...query, dateFrom, ...(dateTo ? { dateTo } : {}), limit: SAMPLES_LIMIT },
+                            })
+                        )
                     )
                     breakpoint()
-                    const loaded = responses.filter((response) => response.status === 'fulfilled')
-                    // One failed clause must not hide the samples of the others.
-                    if (!loaded.length) {
-                        const failure = responses.find((response) => response.status === 'rejected')
-                        throw failure?.reason
+                    const failedClauses = requests.flatMap((request, index) =>
+                        responses[index].status === 'rejected' ? request.clauses : []
+                    )
+                    actions.setFailedSampleClauses(failedClauses)
+                    const failure = responses.find((response) => response.status === 'rejected')
+                    if (failure && failedClauses.length === values.namedClauses.length) {
+                        throw failure.reason
                     }
-                    return loaded
-                        .flatMap((response) => response.value)
-                        .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
-                        .slice(0, SAMPLES_LIMIT)
+                    cache.loadedSamplesKey = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
+                    return mergeSamples(
+                        requests.flatMap((request, index) => {
+                            const response = responses[index]
+                            return response.status === 'fulfilled'
+                                ? [{ clauses: request.clauses, samples: response.value.results }]
+                                : []
+                        }),
+                        SAMPLES_LIMIT
+                    )
                 },
             },
         ],
@@ -321,7 +322,7 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                     })),
         ],
     }),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
         // The viewer's filters are the samples' filters: any change that redraws
         // the chart refreshes the visible samples too, but only when they're shown.
         const reloadWhenShown = (): void => {
@@ -340,7 +341,12 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             // overlays stay in sync with the chart's own window. Both dispatches are
             // unconditional — the loaders' own guards are the single gate.
             fetchQueryResultsSuccess: () => {
-                actions.loadSamples({})
+                // The chart's trace dots need samples even while the tab is hidden. An auto-refresh
+                // tick leaves the query unchanged, so it reloads them only while the tab is shown.
+                const key = samplesRequestKey(values.namedClauses, values.dateFrom, values.dateTo)
+                if (values.activeTab === 'samples' || key !== cache.loadedSamplesKey) {
+                    actions.loadSamples({})
+                }
                 actions.loadErrorSpikes({})
             },
             toggleShowErrorSpikes: () => {
