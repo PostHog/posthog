@@ -12,6 +12,16 @@ class ScoreReport(BaseModel):
     scored_trials: int
 
 
+class UsageReport(BaseModel):
+    """The agent's mean cost per trial, over the trials whose agent ran."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", allow_inf_nan=False)
+
+    trials: int
+    mean_duration_seconds: float
+    mean_token_usage: dict[str, float]
+
+
 class ExperimentReport(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -22,6 +32,7 @@ class ExperimentReport(BaseModel):
     timeouts: int
     scores: dict[str, ScoreReport]
     log_dir: str
+    usage: UsageReport | None = None
 
 
 class RunReport(BaseModel):
@@ -32,6 +43,7 @@ class RunReport(BaseModel):
     model: str
     reasoning_effort: str | None
     provider: str
+    mcp_surface: str = "mcp"
     trials: int
     suite_ids: list[str]
     suite_kinds: list[str]

@@ -15,7 +15,7 @@ from posthog.dataclasses import frozen
 
 from ..engines.types import EvalSummary
 from .progress import TrialPhase, TrialProgress
-from .run_report import ExperimentReport, RunReport, ScoreReport
+from .run_report import ExperimentReport, RunReport, ScoreReport, UsageReport
 from .transcript import write_console
 from .trial_stats import ScorerTrialStats
 
@@ -30,6 +30,48 @@ EVAL_RESULTS_JSONL = "eval_results.jsonl"
 """Machine-readable per-experiment summary export, opt-in via ``EXPORT_EVAL_RESULTS``."""
 
 CaseStatus = Literal["ok", "timeout", "error"]
+
+_TOKEN_LABELS = {
+    "inputTokens": "input",
+    "outputTokens": "output",
+    "cachedReadTokens": "cache read",
+    "cachedWriteTokens": "cache write",
+    "reasoningTokens": "reasoning",
+    "totalTokens": "total",
+}
+
+
+def summarize_usage(case_results: Sequence[CaseResult]) -> UsageReport | None:
+    """Mean agent time and caller tokens per trial. A trial whose agent never ran, such as a
+    timeout or an infrastructure error, has no duration and would pull the means toward zero."""
+    outputs = [
+        result.output
+        for result in case_results
+        if result.error is None and isinstance(result.output, dict) and result.output.get("duration_seconds")
+    ]
+    if not outputs:
+        return None
+    token_totals: Counter[str] = Counter()
+    for output in outputs:
+        token_totals.update(output.get("token_usage") or {})
+    return UsageReport(
+        trials=len(outputs),
+        mean_duration_seconds=sum(output["duration_seconds"] for output in outputs) / len(outputs),
+        mean_token_usage={key: total / len(outputs) for key, total in sorted(token_totals.items())},
+    )
+
+
+def format_usage(usage: UsageReport) -> str:
+    keys = [*_TOKEN_LABELS, *sorted(usage.mean_token_usage.keys() - _TOKEN_LABELS.keys())]
+    tokens = ", ".join(
+        f"{usage.mean_token_usage[key]:,.0f} {_TOKEN_LABELS.get(key, key)}"
+        for key in keys
+        if usage.mean_token_usage.get(key)
+    )
+    return (
+        f"{_format_duration(usage.mean_duration_seconds)} and {tokens or 'no recorded'} tokens "
+        f"per trial ({usage.trials} trials)"
+    )
 
 
 def _emit(text: str) -> None:
@@ -100,6 +142,7 @@ class ProgressReporter:
         self._case_selections: dict[str, dict[str, int]] = {}
         self._scored_trial_counts: dict[str, Counter[str]] = {}
         self._scorer_names: dict[str, frozenset[str]] = {}
+        self._usage: dict[str, UsageReport | None] = {}
         self._posthog_urls: dict[str, str] = {}
         self._posthog_offline_statuses: dict[str, str] = {}
         self._log_dirs: dict[str, Path] = {}
@@ -226,6 +269,7 @@ class ProgressReporter:
         max_sandboxes: int,
         trials: int,
         case_timeout_seconds: int,
+        mcp_surface: str = "mcp",
     ) -> None:
         if self._dashboard:
             self._dashboard.configure(
@@ -236,6 +280,7 @@ class ProgressReporter:
             f"Suites: {self._total_suites}",
             f"Provider: {provider}",
             f"Agent: {agent_runtime} / {agent_model}",
+            f"MCP surface: /{mcp_surface}",
             f"Sandbox concurrency: {max_sandboxes}",
             f"Trials per case: {trials}",
             f"Case timeout: {case_timeout_seconds}s",
@@ -359,6 +404,7 @@ class ProgressReporter:
             self._scorer_names[experiment_name] = frozenset(summary.scores).union(
                 *(result.scores for result in case_results)
             )
+            self._usage[experiment_name] = summarize_usage(case_results)
             self._scored_trial_counts[experiment_name] = Counter(
                 name
                 for result in case_results
@@ -400,12 +446,14 @@ class ProgressReporter:
                 if summary is not None
                 else {},
                 log_dir=str(self._log_dirs[name].resolve()),
+                usage=self._usage.get(name),
             )
         report = RunReport(
             runtime=options.agent_runtime,
             model=options.agent_model,
             reasoning_effort=options.reasoning_effort,
             provider=options.provider,
+            mcp_surface=options.mcp_surface,
             trials=options.trials,
             suite_ids=[suite.id for suite in suites],
             suite_kinds=sorted({suite.kind.value for suite in suites}),
@@ -516,6 +564,8 @@ class ProgressReporter:
             (f"  Cases: {statuses['ok']} done, {statuses['timeout']} timed out, {error_count} errors"),
             f"  Case time: {_format_duration(self._case_durations[experiment_name])}",
         ]
+        if usage := self._usage.get(experiment_name):
+            lines.append(f"  Agent usage: {format_usage(usage)}")
         stats_by_scorer = {stats.name: stats for stats in self._trial_stats.get(experiment_name, ())}
         scores = [(score.name, score.score) for score in summary.scores.values() if score.score is not None]
         if scores:

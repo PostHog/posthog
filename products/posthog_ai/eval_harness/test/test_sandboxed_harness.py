@@ -521,6 +521,25 @@ def test_provider_routes_model_calls_to_a_gateway_the_host_worker_can_mint_throu
     assert overrides["SANDBOX_LLM_GATEWAY_URL"] == fallback_url
 
 
+@parameterized.expand(
+    [
+        ("docker", DockerProviderStrategy, "http://host.docker.internal:"),
+        ("modal", ModalProviderStrategy, "https://mcp.funnel.example.com"),
+    ]
+)
+def test_provider_points_the_sandbox_at_the_selected_mcp_surface(
+    _name: str, strategy: type[SandboxProviderStrategy], url_prefix: str
+) -> None:
+    provider = strategy(mcp_surface="ask")
+    if isinstance(provider, ModalProviderStrategy):
+        provider._tunnels = cast(Any, SimpleNamespace(url_for=lambda name: f"https://{name}.funnel.example.com"))
+
+    url = provider.settings_overrides()["SANDBOX_MCP_URL"]
+
+    assert url.startswith(url_prefix)
+    assert url.endswith("/ask")
+
+
 class TestAgentRunFailureDetection:
     # An agent-server failure reaches the log as a session error, and the workflow still finishes
     # cleanly afterwards. Miss it and a run where no agent ever spoke reports exit_code_zero=1 with

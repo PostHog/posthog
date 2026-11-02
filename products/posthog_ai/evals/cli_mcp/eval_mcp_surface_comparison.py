@@ -28,8 +28,8 @@ def _case(
     )
 
 
-# Scored only on the final answer, so the same cases can compare MCP setups that expose different tools.
-# Results go to one experiment until the harness can say which setup ran, so they are the ordinary MCP baseline.
+# Scored only on the final answer, so the same cases can compare MCP surfaces that expose different tools.
+# Run once per `--mcp-surface`; the runs share this experiment and differ in their `mcp_surface` metadata.
 _CASES: list[SandboxedEvalCase] = [
     _case(
         "running_experiments",

@@ -64,6 +64,7 @@ from .services import (
     LONG_LIVED_SUBPROCESSES,
     build_local_skills,
     ensure_ai_gateway_binary,
+    ensure_mcp_surface_served,
     ensure_personhog_binaries,
     maintain_ai_gateway_mint_key,
     provision_ai_gateway_mint_key,
@@ -197,6 +198,7 @@ class SandboxedEvalHarness:
             max_sandboxes=self.options.max_sandboxes,
             trials=self.options.trials,
             case_timeout_seconds=self.options.per_case_timeout_seconds,
+            mcp_surface=self.options.mcp_surface,
         )
 
         started = time.monotonic()
@@ -216,6 +218,7 @@ class SandboxedEvalHarness:
                         self.options.provider,
                         keep_containers=self.options.keep_sandbox_containers,
                         rebuild_image=self.options.rebuild_sandbox_image,
+                        mcp_surface=self.options.mcp_surface,
                     )
                     self._validate_agent_options()
                     self.provider.preflight()
@@ -426,7 +429,8 @@ class SandboxedEvalHarness:
             reporter.set_skill_snapshot(self._skills_snapshot)
             skill_archive_url: str | None = None
             skill_archive_sha256: str | None = None
-            if self.options.skill_delivery == "exec":
+            # ask-posthog-how recommends skills from the same archive exec delivery serves.
+            if self.options.skill_delivery == "exec" or self.options.mcp_surface == "ask":
                 skill_archive = self._skills_snapshot.archive_path
                 skill_archive_sha256 = hashlib.sha256(skill_archive.read_bytes()).hexdigest()
                 skill_archive_url, stop_skill_archive = start_skill_archive_server(skill_archive)
@@ -437,8 +441,10 @@ class SandboxedEvalHarness:
                     skill_archive_url,
                     exec_skills_enabled=self.options.skill_delivery == "exec",
                     skill_archive_sha256=skill_archive_sha256,
+                    ask_posthog_how_enabled=self.options.mcp_surface == "ask",
                 )
             )
+            ensure_mcp_surface_served(self.options.mcp_surface)
 
         if Infra.SANDBOX in required:
             reporter.setup_started("prepare sandbox provider")
@@ -534,10 +540,11 @@ class SandboxedEvalHarness:
 
             if Infra.SANDBOX in required:
                 logger.info(
-                    "Running %d suite(s) on provider=%s with skill_delivery=%s and %d sandbox slot(s)",
+                    "Running %d suite(s) on provider=%s with skill_delivery=%s, mcp_surface=%s and %d sandbox slot(s)",
                     len(suites),
                     self.options.provider,
                     self.options.skill_delivery,
+                    self.options.mcp_surface,
                     self.options.max_sandboxes,
                 )
             else:
@@ -568,6 +575,7 @@ class SandboxedEvalHarness:
             agent_model=self.options.agent_model,
             agent_runtime=self.options.agent_runtime,
             skill_delivery=self.options.skill_delivery,
+            mcp_surface=self.options.mcp_surface,
             reasoning_effort=self.options.reasoning_effort,
             case_filter=self.options.case_filter,
             demo_data=self._demo_data,

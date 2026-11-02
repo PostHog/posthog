@@ -44,9 +44,16 @@ from .ports import (
     PERSONHOG_ROUTER_PORT,
     SKILL_ARCHIVE_PORT,
 )
-from .providers import PreflightError
+from .providers import McpSurface, PreflightError
 
 logger = logging.getLogger(__name__)
+
+ASK_POSTHOG_HOW_FEATURE_FLAG = "mcp-ask-posthog-how"
+"""Gates the ``/ask`` MCP surface, mirrored from ``services/mcp/src/hono/constants.ts``."""
+
+_MCP_SURFACE_SOURCES: dict[McpSurface, str] = {
+    "agent": "The agent surface comes from PostHog/posthog#117125; run this arm on a checkout that includes it.",
+}
 
 LONG_LIVED_SUBPROCESSES = LongLivedSubprocessManager()
 _ZIP_FIXED_TIME = (2020, 1, 1, 0, 0, 0)
@@ -289,6 +296,7 @@ def start_mcp_server(
     *,
     exec_skills_enabled: bool,
     skill_archive_sha256: str | None = None,
+    ask_posthog_how_enabled: bool = False,
 ) -> Callable[[], None]:
     """Start the MCP server as a subprocess for the eval session.
 
@@ -301,8 +309,8 @@ def start_mcp_server(
     """
     if exec_skills_enabled and skill_archive_url is None:
         raise ValueError("skill_archive_url is required when exec skills are enabled")
-    if exec_skills_enabled and skill_archive_sha256 is None:
-        raise ValueError("skill_archive_sha256 is required when exec skills are enabled")
+    if skill_archive_url is not None and skill_archive_sha256 is None:
+        raise ValueError("skill_archive_sha256 is required with a skill archive")
 
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
@@ -332,12 +340,14 @@ def start_mcp_server(
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
         # skill delivery mode. dashboard-widgets gates the widget batch tools that
-        # the dashboard widget evals exercise.
+        # the dashboard widget evals exercise. mcp-ask-posthog-how serves the /ask
+        # surface, on only when the run selects it.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
                 "revamped-py-notebooks": True,
                 "dashboard-widgets": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+                ASK_POSTHOG_HOW_FEATURE_FLAG: ask_posthog_how_enabled,
             }
         ),
     }
@@ -346,7 +356,7 @@ def start_mcp_server(
     env.pop("POSTHOG_MCP_SKILLS_URL", None)
     env.pop("POSTHOG_MCP_SKILLS_SHA256", None)
     env.pop("POSTHOG_MCP_LOCAL_SKILLS_URL", None)
-    if exec_skills_enabled and skill_archive_url is not None:
+    if skill_archive_url is not None:
         env["POSTHOG_MCP_SKILLS_URL"] = skill_archive_url
         assert skill_archive_sha256 is not None
         env["POSTHOG_MCP_SKILLS_SHA256"] = skill_archive_sha256
@@ -365,11 +375,23 @@ def start_mcp_server(
         env=env,
         log_prefix="mcp",
         # Cover the 60-second skill warmup, an in-flight download, and the development build.
-        readiness_timeout=120 if exec_skills_enabled else 30,
+        readiness_timeout=120 if skill_archive_url is not None else 30,
     )
 
     logger.info("MCP server ready on port %d", MCP_PORT)
     return stop
+
+
+def ensure_mcp_surface_served(surface: McpSurface) -> None:
+    """Fail before any sandbox starts when the MCP server has no route for the selected surface.
+
+    An unknown path is a 404 from the router, while a served surface rejects the
+    unauthenticated probe with 401, so the status alone tells them apart.
+    """
+    response = requests.post(f"http://localhost:{MCP_PORT}/{surface}", timeout=10)
+    if response.status_code == 404:
+        hint = _MCP_SURFACE_SOURCES.get(surface, "")
+        raise PreflightError(f"--mcp-surface {surface}: the MCP server does not serve /{surface}. {hint}".rstrip())
 
 
 def _personhog_target_dir(rust_dir: Path) -> Path:

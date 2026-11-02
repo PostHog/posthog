@@ -368,6 +368,7 @@ class _BaseEvalRun:
                 continue
             trial_index = rows_by_trial.get(case_name, 0)
             rows_by_trial[case_name] = trial_index + 1
+            output = case_result.output if isinstance(case_result.output, dict) else {}
             rows.append(
                 {
                     "run_id": self.experiment_id,
@@ -378,6 +379,8 @@ class _BaseEvalRun:
                     "scores": case_result.scores,
                     "error": case_result.error,
                     "phase_durations": case_result.metadata.get("phase_durations"),
+                    "duration_seconds": output.get("duration_seconds"),
+                    "token_usage": output.get("token_usage"),
                 }
             )
         path = Path(self.run_log_dir) / "case_results.jsonl"
@@ -701,7 +704,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         if result.trace_id:
             hooks.metadata["trace_id"] = result.trace_id
             self.agent_trace_id_lookup[trial_id] = result.trace_id
-        hooks.metadata["artifacts"] = result.artifacts.model_dump()
+        artifacts = result.artifacts
 
         # Parse the log once for local output and PostHog trace capture
         last_message = ""
@@ -710,6 +713,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             parsed = parse_log(result.raw_log, initial_prompt=eval_case.prompt)
             last_message = _get_last_assistant_text(parsed)
             messages = parsed.messages
+            artifacts = artifacts.model_copy(update={"token_usage": parsed.total_token_usage})
 
             if self.posthog_client:
                 try:
@@ -726,25 +730,27 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     # Store metadata for emit_trace_root (called after scoring)
                     self.case_trace_meta[trial_id] = {
                         "prompt": eval_case.prompt,
-                        "duration": result.artifacts.duration_seconds,
+                        "duration": artifacts.duration_seconds,
                         "first_timestamp": parsed.first_timestamp,
                         "last_message": last_message,
-                        "artifacts_summary": result.artifacts.model_dump(),
+                        "artifacts_summary": artifacts.model_dump(),
                         "token_usage": parsed.total_token_usage,
                     }
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
+
+        hooks.metadata["artifacts"] = artifacts.model_dump()
 
         try:
             write_case_logs(
                 case_dir=self.run_log_dir,
                 case_name=eval_case.name,
                 raw_log=result.raw_log or "",
-                artifacts=result.artifacts.model_dump(),
+                artifacts=artifacts.model_dump(),
                 prompt=eval_case.prompt,
-                duration=result.artifacts.duration_seconds,
+                duration=artifacts.duration_seconds,
                 last_message=last_message,
-                token_usage=self.case_trace_meta.get(trial_id, {}).get("token_usage"),
+                token_usage=artifacts.token_usage,
                 trial_id=hooks.metadata.get("trial_id"),
                 trace_id=result.trace_id,
             )
@@ -752,12 +758,10 @@ class _SandboxedEvalRun(_BaseEvalRun):
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)
 
         # After the logs are on disk, so a failed run is still there to read.
-        if agent_never_ran(result.artifacts):
-            raise AgentNeverRanError(
-                f"Eval case '{eval_case.name}' failed before doing any work: {result.artifacts.stderr}"
-            )
+        if agent_never_ran(artifacts):
+            raise AgentNeverRanError(f"Eval case '{eval_case.name}' failed before doing any work: {artifacts.stderr}")
 
-        return result.artifacts.model_dump() | {
+        return artifacts.model_dump() | {
             "last_message": last_message,
             "messages": messages,
             "raw_log": result.raw_log,
@@ -791,6 +795,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             **super()._experiment_metadata(),
             "agent_runtime": self.ctx.agent_runtime,
             "skill_delivery": self.ctx.skill_delivery,
+            "mcp_surface": self.ctx.mcp_surface,
             "reasoning_effort": self.ctx.reasoning_effort,
         }
 

@@ -9,7 +9,7 @@ from posthoganalytics import Posthog
 from ..engines.base import EvalEngine
 from .cli import SkillDelivery
 from .demo_data import SandboxedDemoData
-from .providers import SandboxProvider, SandboxProviderStrategy
+from .providers import DEFAULT_MCP_SURFACE, McpSurface, SandboxProvider, SandboxProviderStrategy
 from .reporting import ProgressReporter
 
 if TYPE_CHECKING:
@@ -97,6 +97,9 @@ class EvalContext:
     posthog_trace_project_id: int | None = None
 
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
+
+    mcp_surface: McpSurface = DEFAULT_MCP_SURFACE
+    """MCP endpoint the sandboxed agent connects to, recorded so runs on different surfaces stay separable."""
 
     skills_sha256: str | None = None
     skills_source_sha256: str | None = None

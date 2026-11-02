@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from ..log_sink import LOGS_ROOT
 from .cli import HarnessOptions, ModelTarget
+from .reporting import format_usage
 from .run_report import RunReport
 from .transcript import write_console
 
@@ -54,6 +55,8 @@ class ModelComparison:
             options.provider,
             "--skill-delivery",
             options.skill_delivery,
+            "--mcp-surface",
+            options.mcp_surface,
             "--trials",
             str(options.trials),
             "--max-sandboxes",
@@ -228,6 +231,12 @@ class ModelComparison:
                     else "n/a"
                 )
             rows.append([f"{name} / {scorer}", *values])
+        for name in sorted({name for run in self.runs if run.report is not None for name in run.report.experiments}):
+            values = []
+            for run in self.runs:
+                experiment = run.report.experiments.get(name) if run.report else None
+                values.append(format_usage(experiment.usage) if experiment and experiment.usage else "n/a")
+            rows.append([f"{name} / agent usage", *values])
         widths = [max(len(row[index]) for row in rows) for index in range(len(self.runs) + 1)]
         lines = [
             "Model comparison (model + runtime)",
@@ -246,6 +255,7 @@ class ModelComparison:
                 "provider": self.options.provider,
                 "trials": self.options.trials,
                 "skill_delivery": self.options.skill_delivery,
+                "mcp_surface": self.options.mcp_surface,
                 "reasoning_effort": self.options.reasoning_effort,
                 "max_sandboxes": self.options.max_sandboxes,
                 "case_timeout": self.options.per_case_timeout_seconds,
