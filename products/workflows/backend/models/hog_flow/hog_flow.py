@@ -359,7 +359,8 @@ def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
 def report_workflow_created(team_id: int, workflow_id: str, origin_product: str | None, actions_count: int) -> None:
     try:
         team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-        with ph_scoped_capture(event_region=get_instance_region()) as capture:
+        # raise_on_error surfaces SDK upload failures at exit, so the handler below logs them with the workflow.
+        with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
             capture(
                 distinct_id=str(team.uuid),
                 event="workflows workflow created",

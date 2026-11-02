@@ -11,6 +11,7 @@ from products.actions.backend.models.action import Action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 SCOPED_CAPTURE = "products.workflows.backend.models.hog_flow.hog_flow.ph_scoped_capture"
+LOGGER = "products.workflows.backend.models.hog_flow.hog_flow.logger"
 
 
 def captured_events(scoped_capture: MagicMock) -> list[dict]:
@@ -59,13 +60,33 @@ class TestHogFlow(TestCase):
     def test_creation_reports_from_the_instance_region(self, scoped_capture: MagicMock) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             HogFlow.objects.create(name="Welcome", team=self.team)
-        scoped_capture.assert_called_once_with(event_region="EU")
+        assert scoped_capture.call_args.kwargs["event_region"] == "EU"
 
     @patch(SCOPED_CAPTURE, side_effect=RuntimeError("Analytics unavailable"))
     def test_analytics_failure_does_not_fail_creation(self, scoped_capture: MagicMock) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             flow = HogFlow.objects.create(name="Welcome", team=self.team)
         scoped_capture.assert_called_once()
+        assert HogFlow.objects.filter(id=flow.id, team=self.team).exists()
+
+    @patch("posthog.ph_client.is_cloud", return_value=True)
+    @patch("posthog.ph_client.get_client")
+    def test_failed_upload_is_logged_and_does_not_fail_creation(
+        self, get_client: MagicMock, _is_cloud: MagicMock
+    ) -> None:
+        def client_whose_upload_fails(region: str, on_error=None, **kwargs) -> MagicMock:
+            client = MagicMock(super_properties={})
+            if on_error is not None:
+                client.shutdown.side_effect = lambda: on_error(RuntimeError("Upload failed"), [])
+            return client
+
+        get_client.side_effect = client_whose_upload_fails
+        with patch(LOGGER) as logger, self.captureOnCommitCallbacks(execute=True):
+            flow = HogFlow.objects.create(name="Welcome", team=self.team)
+
+        logger.exception.assert_called_once_with(
+            "Failed to report workflow creation", team_id=self.team.id, workflow_id=str(flow.id)
+        )
         assert HogFlow.objects.filter(id=flow.id, team=self.team).exists()
 
     @patch(SCOPED_CAPTURE)
