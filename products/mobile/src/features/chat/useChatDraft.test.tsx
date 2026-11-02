@@ -34,7 +34,7 @@ jest.mock('./draftPersistence', () => {
 })
 
 import { chatDrafts } from './draftPersistence'
-import { queueActions } from './messageQueue'
+import { canDrain, queueActions } from './messageQueue'
 import { useChatDraft } from './useChatDraft'
 
 beforeEach(async () => {
@@ -282,6 +282,26 @@ describe('chat draft persistence', () => {
             await stopped
         })
         expect(hook.result.current.queue.hold).toBe('cancelled')
+        hook.unmount()
+    })
+    it('keeps Stop in effect when its device write fails and the error is dismissed', async () => {
+        const hook = renderHook(() => useChatDraft('task-1', undefined))
+        await waitFor(() => expect(hook.result.current.ready).toBe(true))
+        await act(async () => {
+            await hook.result.current.updateQueue(queueActions.enqueue('Stay queued'), true)
+        })
+        mockWriteFailure = true
+        await act(async () => {
+            expect(await hook.result.current.updateQueue(queueActions.hold('cancelled'))).toBe(false)
+        })
+        expect(hook.result.current.queueError).toBeDefined()
+        act(() => hook.result.current.dismissQueueError())
+        expect(hook.result.current.queueError).toBeUndefined()
+        expect(hook.result.current.queue.hold).toBe('cancelled')
+        expect(canDrain({ phase: 'idle', sending: false, decisionPending: false }, hook.result.current.queue)).toBe(
+            false
+        )
+        mockWriteFailure = false
         hook.unmount()
     })
 })

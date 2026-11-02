@@ -187,6 +187,10 @@ export function useChatDraft(
             setQueuePending(true)
             setQueueError(undefined)
             const next = queueReducer(queueRef.current, action)
+            if (action.type === 'hold') {
+                queueRef.current = next
+                setQueue(next)
+            }
             const typed = latest.current
             const cleared = { text: '', reportIds: typed.reportIds }
             try {
