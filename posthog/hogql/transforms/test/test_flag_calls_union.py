@@ -293,6 +293,15 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 ["events"],
                 ["it uses SAMPLE"],
             ),
+            *(
+                (
+                    f"sample_{value}",
+                    f"SELECT count() FROM events SAMPLE {value} WHERE {MIXED}",
+                    ["events"],
+                    ["it uses SAMPLE"],
+                )
+                for value in ("inf", "nan")
+            ),
             (
                 "sample_with_offset",
                 f"SELECT count() FROM events SAMPLE 0.1 OFFSET 0.5 WHERE {MIXED}",
@@ -679,10 +688,15 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "outer_query_swapped_by_phase_1",
                 "SELECT count() FROM events WHERE event = '$feature_flag_called' AND person_id IN COHORT {cohort}",
             ),
+            (
+                "left_join_cohort",
+                "SELECT count() FROM events WHERE person_id IN COHORT {cohort}",
+                InCohortVia.LEFTJOIN,
+            ),
         ]
     )
     def test_mode_2_raises_when_an_inline_cohort_reads_a_field_the_union_cannot_supply(
-        self, _name: str, outer_query: str
+        self, _name: str, outer_query: str, via: InCohortVia | None = None
     ):
         PropertyDefinition.objects.create(
             team=self.team, name="probe", property_type="Numeric", type=PropertyDefinition.Type.EVENT
@@ -697,7 +711,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             patch("posthog.hogql_queries.hogql_cohort_query.HogQLCohortQuery.get_query", return_value=cohort_query),
             pytest.raises(QueryError, match="Numeric event property probe"),
         ):
-            self._sql(outer_query.format(cohort=cohort.pk), mode=ONLY, inline_cohorts=True)
+            self._sql(outer_query.format(cohort=cohort.pk), mode=ONLY, inline_cohorts=True, in_cohort_via=via)
 
     @parameterized.expand(
         [

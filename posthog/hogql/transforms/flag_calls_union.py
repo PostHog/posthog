@@ -159,6 +159,18 @@ def read_flag_calls_in_inline_cohort(
     return query
 
 
+def require_inline_cohort_join_readable(resolved: ast.JoinExpr, context: HogQLContext) -> None:
+    """Raises a QueryError when an organization with flag calls only in `flag_evaluations` has a resolved inline
+    cohort join that reads a field the union cannot supply. `IN COHORT` resolves the join after the rename and before
+    lazy table resolution builds the union, so this is the last point where ClickHouse has not yet rejected it."""
+    database = _union_database(context)
+    if database is None or not database.flag_calls_only_in_flag_evaluations:
+        return
+    unreadable = union_unreadable_reason(resolved, context)
+    if unreadable is not None:
+        raise flag_calls_only_in_flag_evaluations_error(unreadable)
+
+
 def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     """Why the union cannot read a scan in the resolved `node`, or None when it can read them all.
 

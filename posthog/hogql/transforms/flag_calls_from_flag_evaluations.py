@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from fractions import Fraction
 from functools import partial
+from math import isfinite
 from typing import TYPE_CHECKING, Generic, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -677,7 +678,9 @@ def ratio_sample_fraction(sample: ast.SampleExpr) -> Fraction | None:
         return None
     ratio = sample.sample_value
     constants = [ratio.left, ratio.right or ast.Constant(value=1)]
-    if not all(isinstance(c.value, int | float) and not isinstance(c.value, bool) for c in constants):
+    if not all(
+        isinstance(c.value, int | float) and not isinstance(c.value, bool) and isfinite(c.value) for c in constants
+    ):
         return None
     numerator, denominator = (Fraction(str(c.value)) for c in constants)
     fraction = numerator / denominator if denominator else None
