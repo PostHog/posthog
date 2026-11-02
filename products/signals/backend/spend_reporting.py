@@ -15,6 +15,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery, _signals_query_context
 
@@ -138,6 +139,7 @@ class SpendReporting:
             FROM ({_deduped_signals_subquery(include_content=False, extra_where="timestamp >= {period_start} AND timestamp < {period_end} AND rendering = 'plain'")})
             GROUP BY source_product, source_type
             ORDER BY total_spend DESC, source_product, source_type
+            LIMIT {{source_group_limit}}
         """
         end = timezone.now()
         response = execute_hogql_query(
@@ -151,6 +153,7 @@ class SpendReporting:
                 "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
                 "period_start": ast.Constant(value=end - timedelta(days=30)),
                 "period_end": ast.Constant(value=end),
+                "source_group_limit": ast.Constant(value=len(SignalSourceProduct) * len(SignalSourceType)),
             },
         )
         return [

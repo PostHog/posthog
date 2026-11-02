@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from itertools import islice, product
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, FuzzyInt
@@ -22,6 +23,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
 
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import (
     SignalSourceSlicePullRequest,
     get_outcomes_for_signal_source_slice,
@@ -797,6 +799,25 @@ class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
 
 
 class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
+    def test_source_usage_includes_groups_beyond_the_default_query_limit(self) -> None:
+        groups = list(islice(product(SignalSourceProduct, SignalSourceType), 101))
+        for index, (source_product, source_type) in enumerate(groups):
+            self._emit_version(
+                document_id=f"usage-group-{index}",
+                report_id="report",
+                source_product=source_product,
+                source_type=source_type,
+                inserted_at=self.base,
+                spend_metadata={"total_spend": index + 1},
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/source_spend/")
+        assert response.status_code == 200, response.content
+        rows = response.json()
+        assert len(rows) == 101
+        assert {(row["source_product"], row["source_type"]) for row in rows} == set(groups)
+        assert sum(row["spend"]["total_spend"] for row in rows) == sum(range(1, 102))
+
     @parameterized.expand([False, True])
     def test_sources_use_latest_receipt_and_distinguish_missing_spend(self, child_environment: bool) -> None:
         if child_environment:
