@@ -4,7 +4,7 @@ import django.db.models.deletion
 import django.contrib.postgres.fields
 from django.db import migrations, models
 
-import posthog.uuidt
+from posthog.models.utils import uuid7
 
 
 class Migration(migrations.Migration):
@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
                 (
                     "id",
                     models.UUIDField(
-                        default=posthog.uuidt.UUIDT,
+                        default=uuid7,
                         editable=False,
                         primary_key=True,
                         serialize=False,

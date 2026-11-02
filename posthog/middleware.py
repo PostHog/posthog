@@ -239,7 +239,7 @@ def pop_mcp_client_ip(request: HttpRequest) -> str | None:
     if outcome is SignedClientIPOutcome.VALID:
         # Keep the verified end-user IP on the request for the IP restriction checks, which run
         # after this middleware but still need to judge the MCP caller rather than the pod address.
-        request.verified_mcp_client_ip = ip
+        setattr(request, "verified_mcp_client_ip", ip)  # noqa: B010 — dynamic attr the stubs don't know
         return ip
     return None
 

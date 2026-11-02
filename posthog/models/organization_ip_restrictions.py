@@ -3,12 +3,12 @@ from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 MAX_IP_RESTRICTIONS = 100
 
 
-class OrganizationIPRestrictions(UUIDTModel):
+class OrganizationIPRestrictions(UUIDModel):
     """The IP allowlist for an organization, when the `ip_restrictions` entitlement is enabled.
 
     A separate table keeps a rarely read, security-sensitive list off the hot `posthog_organization`
