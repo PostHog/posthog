@@ -447,12 +447,12 @@ class CITrustPolicyRequestResolutionPermission(BasePermission):
 
 
 def resolve_ci_trust_policy_request(
-    *, request_id: str, approve: bool, resolver: User, policy_serializer_context: dict[str, Any]
+    *, team_id: int, request_id: str, approve: bool, resolver: User, policy_serializer_context: dict[str, Any]
 ) -> CITrustPolicyRequest:
     """Approve or reject a pending request. Approving creates the policy from the request's own values,
     checked again against today's rules, in the same transaction that marks the request approved."""
     with transaction.atomic():
-        policy_request = CITrustPolicyRequest.objects.select_for_update().get(pk=request_id)
+        policy_request = CITrustPolicyRequest.objects.select_for_update().get(pk=request_id, team_id=team_id)
         if policy_request.effective_status != CITrustPolicyRequest.Status.PENDING:
             raise serializers.ValidationError(f"This request is {policy_request.effective_status} and can't change.")
         if approve:
@@ -535,6 +535,7 @@ class CITrustPolicyRequestViewSet(
     def _resolve(self, approve: bool) -> Response:
         policy_request = self.get_object()
         resolved = resolve_ci_trust_policy_request(
+            team_id=policy_request.team_id,
             request_id=str(policy_request.pk),
             approve=approve,
             resolver=cast(User, self.request.user),
