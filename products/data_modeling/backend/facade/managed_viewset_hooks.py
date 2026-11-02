@@ -22,6 +22,8 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS
+
 if TYPE_CHECKING:
     from posthog.hogql.database.models import FieldOrTable
 
@@ -49,6 +51,10 @@ class ProvidedView:
     # watermark instead of rebuilding the table. None keeps every run a full refresh. A dict rather
     # than IncrementalConfig because that class imports Django, which this module must not.
     incremental_config: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.sync_frequency not in SCHEDULABLE_BUCKETS:
+            raise ValueError(f"{self.name}: sync_frequency {self.sync_frequency} is not a schedulable cadence bucket")
 
 
 ExpectedViewsProvider = Callable[["Team"], list[ProvidedView]]

@@ -313,6 +313,10 @@ class TestManagedViewSetProviders(BaseTest):
 
         self.assertEqual(self._views(viewset), [])
 
+    def test_a_provider_cannot_declare_an_unschedulable_cadence(self):
+        with self.assertRaisesRegex(ValueError, "not a schedulable cadence"):
+            _fake_view(sync_frequency=timedelta(minutes=45))
+
     def test_sync_views_raises_for_unregistered_kind(self):
         with patch.dict(_expected_views_providers, clear=True):
             viewset = self._viewset()
