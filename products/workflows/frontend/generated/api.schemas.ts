@@ -3120,6 +3120,7 @@ export type HogFlowsListParams = {
     latest_send_first?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3533,6 +3534,7 @@ export const HogFlowsMetricsVersionRetrieveInterval = {
 export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**
@@ -3557,6 +3559,7 @@ export const HogFlowsProposalsListStatus = {
 export type HogFlowsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number
     /**

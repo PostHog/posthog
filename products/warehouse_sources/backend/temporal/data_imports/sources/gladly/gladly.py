@@ -41,8 +41,10 @@ REPORT_ROW_WARNING_THRESHOLD = 90_000
 # windows are paced instead of riding the 429 backoff.
 REPORT_REQUEST_INTERVAL_SECONDS = 6.0
 # Gladly rejects an events startAt older than 24 hours. The margin keeps the
-# first window inside that limit by the time its request arrives.
-EVENTS_RETENTION = timedelta(hours=24) - timedelta(minutes=5)
+# first window inside that limit by the time its request arrives; a 5-minute
+# margin was observed too tight against clock skew and latency between here
+# and Gladly's own check, so it 400'd on a first sync.
+EVENTS_RETENTION = timedelta(hours=24) - timedelta(minutes=30)
 EVENTS_WINDOW = timedelta(hours=1)
 VOICE_ITEM_TYPES = ("PHONE_CALL", "VOICEMAIL")
 
