@@ -5,10 +5,13 @@ import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/top
 
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
+import dropRuleVector from './drop-rule-vector-v4.json'
 import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED, URL_TOO_OLD } from './fetch-runner'
 import { FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishFlushResult, RepublishResult } from './frontier-publisher'
+import { RefreshingImageSink } from './image-sink'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { RawImageStore } from './raw-image-store'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
@@ -100,7 +103,7 @@ interface Harness {
     topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
-function build(dryRun = false, deadLettersEnabled = true): Harness {
+function build(dryRun = false, deadLettersEnabled = true, refreshingSink?: RefreshingImageSink): Harness {
     const history = new FakeCrawlHistory()
     const run = jest.fn((candidates: FetchCandidate[], _stored: Map<string, CrawlHistoryItem>) =>
         Promise.resolve(candidates.map((item) => terminal(item)))
@@ -113,7 +116,7 @@ function build(dryRun = false, deadLettersEnabled = true): Harness {
     const consumer = new UrlFetchConsumer(
         history,
         { createRepublishBatch: () => ({ republish, flush }) } as unknown as FrontierPublisher,
-        { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun },
+        { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun, refreshingSink },
         dryRun ? undefined : ({ run } as FetchPass),
         deadLettersEnabled ? ({ park } as FrontierDeadLetterSink) : null,
         topHogMetrics
@@ -348,6 +351,30 @@ describe('UrlFetchConsumer', () => {
 
         expect(harness.run.mock.calls[0][0]).toEqual([{ ...fresh, sourcePartitions: [0] }])
     })
+
+    it.each(dropRuleVector.cases)(
+        'decides $name as replay-recorder-v4 expects',
+        async ({ nextFetchInMs, storedAgoMs, dropped }) => {
+            const job = candidate('a')
+            const store = new RawImageStore({ get: jest.fn() }, { send: jest.fn() }, 'images-v4', 1)
+            const refresh = jest.spyOn(store, 'refreshImage').mockResolvedValue(true)
+            const harness = build(false, true, store)
+            harness.history.items.set(job.originalRef, {
+                kind: 'url',
+                key: job.originalRef,
+                nextFetchAtMs: NOW_MS + nextFetchInMs,
+                storageExpiresAtMs: NOW_MS + nextFetchInMs,
+                outcome: 'ok',
+                ...(storedAgoMs === null ? {} : { storedAtMs: NOW_MS - storedAgoMs }),
+            })
+
+            await harness.consumer.handleBatch([message([job])], NOW_MS)
+
+            const handled =
+                harness.run.mock.calls.flatMap(([candidates]) => candidates).length + refresh.mock.calls.length
+            expect(handled === 0).toBe(dropped)
+        }
+    )
 
     it('republishes a job that arrives before its durable not-before time', async () => {
         const harness = build()

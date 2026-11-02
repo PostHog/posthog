@@ -14,7 +14,6 @@ import { parseV4UrlRef } from './v4-url-ref'
 
 const S3_WRITE_TIMEOUT_MS = 30_000
 /** The `images-v4` lifecycle is 98 days: the 90-day raw window plus this interval and one day. */
-// `replay-recorder-v4/src/history.rs` repeats this interval, so shorten both together.
 const REFRESH_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000
 const CONTENT_TYPE = 'application/octet-stream'
 

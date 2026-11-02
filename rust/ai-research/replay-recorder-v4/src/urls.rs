@@ -23,37 +23,44 @@ const MAX_RECORD_BYTES: usize = 512 * 1024;
 /// How many redirects a job may follow, as in v3.
 const REMAINING_HOPS: u32 = 10;
 
+/// A block's remote image URLs that the URL policy accepts, with their references. Empty when the flush has no keys
+/// for the block's session.
+pub fn remote_images(
+    block: &Block,
+    keys: &FlushKeys,
+    key_month: &str,
+) -> Vec<(CanonicalUrl, String)> {
+    let id = SessionId {
+        team_id: block.session.team_id,
+        session_id: block.session.session_id.clone(),
+    };
+    let (Some(_), Some(team_key)) = (
+        keys.sessions.get(&id),
+        keys.team_months.get(&block.session.team_id),
+    ) else {
+        return Vec::new();
+    };
+    let url_key = image_url_key(team_key);
+    block
+        .image_urls
+        .iter()
+        .filter_map(|raw| url_reference(raw, block.session.team_id, key_month, &url_key).ok())
+        .collect()
+}
+
 /// Builds one job per new remote image URL, grouped by registrable domain, the topic's key. Counts each block's URLs
 /// in the stats paired with it. `already_sent` names references this process sent or found fresh today.
 pub fn fetch_jobs<'b>(
-    blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats)>,
-    keys: &FlushKeys,
-    key_month: &str,
+    blocks: impl IntoIterator<Item = (&'b Block, &'b mut BlockStats, &'b [(CanonicalUrl, String)])>,
     now_ms: i64,
     already_sent: &dyn Fn(&str) -> bool,
 ) -> BTreeMap<String, Vec<Value>> {
     let mut jobs: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut seen = HashSet::new();
-    for (block, stats) in blocks {
-        let id = SessionId {
-            team_id: block.session.team_id,
-            session_id: block.session.session_id.clone(),
-        };
-        let (Some(_), Some(team_key)) = (
-            keys.sessions.get(&id),
-            keys.team_months.get(&block.session.team_id),
-        ) else {
-            continue;
-        };
-        let url_key = image_url_key(team_key);
-        for raw in &block.image_urls {
-            let Ok((url, reference)) =
-                url_reference(raw, block.session.team_id, key_month, &url_key)
-            else {
-                continue;
-            };
+    for (block, stats, images) in blocks {
+        for (url, reference) in images {
             stats.image_urls += 1;
-            if already_sent(&reference) || !seen.insert(reference.clone()) {
+            if already_sent(reference) || !seen.insert(reference.clone()) {
                 continue;
             }
             jobs.entry(url.domain.clone()).or_default().push(json!({
@@ -235,10 +242,9 @@ mod tests {
         );
         let sent = image_url_ref(7, "2026-10", &sent_hash);
 
+        let images = remote_images(&block, &keys, "2026-10");
         let jobs = fetch_jobs(
-            [(&block, &mut stats)],
-            &keys,
-            "2026-10",
+            [(&block, &mut stats, images.as_slice())],
             1_000,
             &|reference| reference == sent,
         );

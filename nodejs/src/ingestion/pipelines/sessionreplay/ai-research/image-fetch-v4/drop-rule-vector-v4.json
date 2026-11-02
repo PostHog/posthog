@@ -1,0 +1,35 @@
+{
+    "description": "When the v4 fetcher drops a job because of its crawl history. replay-recorder-v4/src/history.rs repeats this rule to send no job that the fetcher drops, and the tests on both sides read these cases. Times are relative to the moment of the decision.",
+    "cases": [
+        {
+            "name": "a stored copy one day old",
+            "nextFetchInMs": 1728000000,
+            "storedAgoMs": 86400000,
+            "dropped": true
+        },
+        {
+            "name": "no stored copy, before the refetch time",
+            "nextFetchInMs": 1728000000,
+            "storedAgoMs": null,
+            "dropped": true
+        },
+        {
+            "name": "a stored copy 1 ms younger than the refresh interval",
+            "nextFetchInMs": 1728000000,
+            "storedAgoMs": 604799999,
+            "dropped": true
+        },
+        {
+            "name": "a stored copy as old as the refresh interval",
+            "nextFetchInMs": 1728000000,
+            "storedAgoMs": 604800000,
+            "dropped": false
+        },
+        {
+            "name": "a stored copy at its refetch time",
+            "nextFetchInMs": 0,
+            "storedAgoMs": 86400000,
+            "dropped": false
+        }
+    ]
+}

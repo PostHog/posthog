@@ -249,8 +249,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sent_urls: replay_recorder_v4::urls::sent_urls(500_000),
             fetch_history: (!config.image_fetch_history_table.is_empty()).then(
                 || -> Arc<dyn FetchHistory> {
+                    // A failed read only sends its jobs unchecked, so SDK retries would only use up the retry quota
+                    // that this process's key table reads share.
+                    let client = aws_sdk_dynamodb::Client::from_conf(
+                        aws_sdk_dynamodb::config::Builder::from(&aws)
+                            .retry_config(aws_sdk_dynamodb::config::retry::RetryConfig::disabled())
+                            .build(),
+                    );
                     Arc::new(AwsFetchHistory::new(
-                        aws_sdk_dynamodb::Client::new(&aws),
+                        client,
                         config.image_fetch_history_table.clone(),
                     ))
                 },
