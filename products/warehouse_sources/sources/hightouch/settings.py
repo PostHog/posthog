@@ -21,7 +21,7 @@ STARTED_AT_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class HightouchEndpointConfig:
     name: str
     path: str

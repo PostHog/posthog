@@ -24,7 +24,7 @@ class GitGuardianRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GitGuardianResumeConfig:
     # The full URL used to FETCH the page we last yielded (the initial params URL or a
     # Link-header cursor URL). We checkpoint the current page's URL (not the next one) so a

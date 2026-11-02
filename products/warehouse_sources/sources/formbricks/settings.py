@@ -13,7 +13,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class FormbricksEndpointConfig:
     name: str
     # Full request path including the /api/v1 or /api/v2 prefix. v1 and v2 management APIs

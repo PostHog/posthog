@@ -21,7 +21,7 @@ TIMESTAMP_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class UbidotsEndpointConfig:
     name: str
     path: str  # Full path including the API version prefix, e.g. "/api/v2.0/devices/"

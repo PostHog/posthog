@@ -26,7 +26,7 @@ class CoupaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CoupaResumeConfig:
     # Offset of the next unfetched page within the current sync.
     next_offset: int

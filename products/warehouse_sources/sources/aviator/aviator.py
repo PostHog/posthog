@@ -45,7 +45,7 @@ class AviatorRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AviatorResumeConfig:
     # Stable "org/name" keys of the fan-out repositories already fully processed in an earlier
     # attempt of this job. We resume by processing any repo NOT in this set, so a repo added between
@@ -182,7 +182,7 @@ def _parse_date(value: Any) -> date:
 
 def _analytics_window(
     config: AviatorEndpointConfig, should_use_incremental_field: bool, db_incremental_field_last_value: Any
-) -> tuple[str, str]:
+) -> tuple[str, str]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Compute the (start, end) YYYY-MM-DD window for a GET /analytics request."""
     today = datetime.now(UTC).date()
     if should_use_incremental_field and db_incremental_field_last_value:

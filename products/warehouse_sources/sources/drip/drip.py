@@ -27,7 +27,7 @@ DRIP_BASE_URL = "https://api.getdrip.com/v2"
 REQUEST_TIMEOUT_SECONDS = 30.0
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DripResumeConfig:
     next_page: int
 

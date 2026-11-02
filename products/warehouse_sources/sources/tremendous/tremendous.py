@@ -33,7 +33,7 @@ DEFAULT_PROBE_PATH = "/organizations"
 INCREMENTAL_START_PARAM = "created_at[gte]"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TremendousResumeConfig:
     # Number of rows already yielded for the current offset/limit page chain. Tremendous paginates
     # by creation date DESC, so rows created mid-sync shift the window and can re-appear on a later

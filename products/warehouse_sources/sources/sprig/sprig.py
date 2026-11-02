@@ -17,7 +17,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.sprig.settings import SPRIG_API_BASE_URL, SPRIG_ENDPOINTS
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SprigResumeConfig:
     next_cursor: str
 

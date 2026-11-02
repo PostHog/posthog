@@ -107,7 +107,7 @@ def _read_capped_body(response: requests.Response) -> bytes:
     return b"".join(chunks)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FormbricksResumeConfig:
     # Full URL of the next page to fetch. limit/skip and any incremental window params are baked
     # into the URL, so a crashed sync resumes the exact request sequence it was running; merge

@@ -22,7 +22,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PostscriptResumeConfig:
     page: int
 

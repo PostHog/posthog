@@ -61,7 +61,7 @@ class GerritResponseTooLargeError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GerritResumeConfig:
     # Number of rows already fetched for the endpoint — Gerrit paginates with an `S` skip offset.
     offset: int = 0

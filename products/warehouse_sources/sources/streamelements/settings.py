@@ -43,7 +43,7 @@ ACTIVITY_TYPES = [
 EndpointKind = Literal["offset", "activities", "single"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class StreamElementsEndpointConfig:
     name: str
     # "{channel}" is replaced with the channel id resolved from GET /channels/me.

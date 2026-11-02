@@ -301,7 +301,7 @@ def _resolve_window(
     start_date: Optional[str],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> tuple[Optional[str], Optional[str]]:
+) -> tuple[Optional[str], Optional[str]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Resolve the `start_date`/`end_date` months to request, or `(None, None)` for the API default."""
     start_month = coerce_month(start_date)
 

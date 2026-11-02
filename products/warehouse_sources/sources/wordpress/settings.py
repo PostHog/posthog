@@ -13,7 +13,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class WordpressEndpointConfig:
     name: str
     path: str  # Path under /wp-json/wp/v2, e.g. "/posts"

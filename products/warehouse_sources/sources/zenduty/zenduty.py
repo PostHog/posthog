@@ -27,7 +27,7 @@ class ZendutyRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ZendutyResumeConfig:
     # The next page URL (DRF returns absolute `next` URLs that already carry the page cursor).
     next_url: str | None = None

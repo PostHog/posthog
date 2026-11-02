@@ -25,7 +25,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HightouchResumeConfig:
     # Opaque framework checkpoint (offset state for top-level endpoints, per-parent fan-out
     # state for sync_runs), round-tripped into `initial_paginator_state` on resume.

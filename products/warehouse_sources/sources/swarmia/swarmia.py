@@ -28,7 +28,7 @@ class SwarmiaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SwarmiaResumeConfig:
     # ISO date (YYYY-MM-DD) of the start of the next window to fetch. Saved after each window's rows
     # are yielded, so a crash resumes at the first window whose rows may not have been committed.
@@ -261,7 +261,9 @@ def _next_month(day: date) -> date:
     return date(day.year, day.month + 1, 1)
 
 
-def _build_windows(config: SwarmiaEndpointConfig, range_start: date, today: date) -> list[tuple[date, date]]:
+def _build_windows(
+    config: SwarmiaEndpointConfig, range_start: date, today: date
+) -> list[tuple[date, date]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Build the complete (fully in the past) windows covering `range_start`..yesterday.
 
     Only complete windows are fetched: a partial window's end date shifts every day, which would

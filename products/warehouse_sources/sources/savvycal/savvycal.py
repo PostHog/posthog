@@ -23,7 +23,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/me"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SavvyCalResumeConfig:
     # Cursor for the next page, taken verbatim from the API's `metadata.after`. `None` means start
     # from the first page. A crashed sync resumes from the page after the last one yielded; merge

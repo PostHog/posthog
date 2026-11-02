@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class JenkinsEndpointConfig:
     name: str
     incremental_fields: list[IncrementalField]

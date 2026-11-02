@@ -153,7 +153,9 @@ def _probe_endpoint(session: requests.Session, region: str, path: str) -> int:
     return response.status_code
 
 
-def validate_credentials(api_key: str, api_secret: str, region: str, endpoint: str | None = None) -> tuple[bool, bool]:
+def validate_credentials(
+    api_key: str, api_secret: str, region: str, endpoint: str | None = None
+) -> tuple[bool, bool]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Probe the API and return ``(authenticated, authorized)``.
 
     Secureframe returns 401 for a bad key/secret pair and 403 when the pair is valid but

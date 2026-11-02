@@ -15,7 +15,7 @@ _CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CoverallsEndpointConfig:
     name: str
     primary_keys: list[str]

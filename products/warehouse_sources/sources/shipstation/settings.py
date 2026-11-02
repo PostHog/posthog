@@ -14,7 +14,7 @@ SHIPSTATION_SUPPORTED_VERSIONS = (SHIPSTATION_V1, SHIPSTATION_V2)
 SHIPSTATION_DEFAULT_VERSION = SHIPSTATION_V2
 
 
-@dataclass
+@dataclass(frozen=False)
 class ShipStationEndpointConfig:
     name: str
     path: str

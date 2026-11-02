@@ -35,7 +35,7 @@ class LinkrunnerRateLimitError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LinkrunnerResumeConfig:
     # Next page (1-indexed) to fetch for the current resource / campaign.
     page: int = 1

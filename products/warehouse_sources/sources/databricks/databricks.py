@@ -143,6 +143,7 @@ def _connect_with_transient_retry(**kwargs: Any) -> Any:
 
 def filter_databricks_incremental_fields(
     columns: list[tuple[str, str, bool]],
+    # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
 ) -> list[tuple[str, IncrementalFieldType, bool]]:
     results: list[tuple[str, IncrementalFieldType, bool]] = []
     for column_name, type, nullable in columns:
@@ -264,7 +265,7 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
         conn: Any,
         config: DatabricksSourceConfig,
         names: list[str] | None,
-    ) -> dict[str, list[tuple[str, str, bool]]]:
+    ) -> dict[str, list[tuple[str, str, bool]]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
         selected_schema = normalize_namespace(config.schema)
         qualify = selected_schema is None
 

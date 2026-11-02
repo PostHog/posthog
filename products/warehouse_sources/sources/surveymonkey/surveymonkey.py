@@ -25,7 +25,7 @@ from products.warehouse_sources.sources.surveymonkey.settings import DEFAULT_PAG
 _SURVEYS_INCLUDE = "date_created,date_modified,response_count,question_count"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SurveyMonkeyResumeConfig:
     # Legacy fields from the pre-framework implementation, kept (with defaults) so a checkpoint
     # written by the old code still parses via ``dataclass(**saved)``. They are no longer written; a

@@ -21,7 +21,7 @@ _PUBLISHED_AT_INCREMENTAL: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class GNewsEndpointConfig:
     name: str
     path: str

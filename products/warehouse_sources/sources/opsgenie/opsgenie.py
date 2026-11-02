@@ -182,7 +182,9 @@ def _flatten_team_member(row: dict[str, Any]) -> dict[str, Any]:
 _CHILD_ROW_MAPS = {"team_members": _flatten_team_member}
 
 
-def validate_credentials(api_key: str, region: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
+def validate_credentials(
+    api_key: str, region: str, endpoint: Optional[str] = None
+) -> tuple[bool, int, str | None]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Probe Opsgenie with a cheap single-row request.
 
     Returns ``(ok, status_code, error_message)``. ``status_code`` is 0 on transport failure.

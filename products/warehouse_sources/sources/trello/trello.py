@@ -24,7 +24,7 @@ from products.warehouse_sources.sources.trello.settings import TRELLO_ENDPOINTS,
 TRELLO_BASE_URL = "https://api.trello.com/1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TrelloResumeConfig:
     # Legacy resume fields kept (with defaults) so state saved by the old transport still parses via
     # ``dataclass(**saved)``. A resumed run that only carries these starts the fan-out fresh.

@@ -16,7 +16,7 @@ AFTERSHIP_BASE_URL = "https://api.aftership.com/tracking"
 PAGE_SIZE = 200
 
 
-@dataclass
+@dataclass(frozen=False)
 class AftershipEndpointConfig:
     name: str
     """Table name we expose to the user."""

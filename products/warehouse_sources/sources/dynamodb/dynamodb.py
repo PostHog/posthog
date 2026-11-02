@@ -52,7 +52,7 @@ class DynamoDBRetryableError(DynamoDBAPIError):
     """Throttling, capacity, and transient server errors — retried in-source."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DynamoDBResumeConfig:
     # Scan's `LastEvaluatedKey`, kept in DynamoDB's own attribute-value encoding so it can go
     # straight back out as `ExclusiveStartKey`.

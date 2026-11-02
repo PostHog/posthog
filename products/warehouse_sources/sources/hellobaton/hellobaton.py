@@ -27,7 +27,7 @@ HELLOBATON_API_PATH = "/api"
 _COMPANY_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HellobatonResumeConfig:
     # Next 1-indexed page to fetch. None means "start from page 1".
     next_page: int | None = None

@@ -47,7 +47,7 @@ def _base_url(api_version: str) -> str:
     return f"{GREENHOUSE_BASE_HOST}/{api_version}"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GreenhouseResumeConfig:
     # Harvest paginates with RFC 5988 `Link` headers. We persist the full `rel="next"` URL
     # (it already carries `per_page` plus any timestamp filter) so a resumed run continues

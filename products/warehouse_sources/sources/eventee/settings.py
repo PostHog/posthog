@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class EventeeEndpointConfig:
     name: str
     # Path under https://api.eventee.com/public/v1.

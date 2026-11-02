@@ -30,7 +30,7 @@ PAGE_SIZE = 100
 COMPANY_ID_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InflowInventoryResumeConfig:
     # The `after` cursor is the ID of the last row yielded. inFlow returns rows ordered by ID, so a
     # crashed full-refresh sync resumes from the record after the last one persisted; merge dedupes

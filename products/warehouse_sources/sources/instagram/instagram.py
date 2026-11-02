@@ -109,7 +109,7 @@ class InstagramRequestBudgetError(InstagramAPIError):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InstagramResumeConfig:
     # Fully-built next request URL. Every stream — plain edges, the parent listing of a
     # fan-out, and the per-metric insight windows — checkpoints as a URL, so one field
@@ -655,7 +655,9 @@ def _breakdown_points(entry: dict[str, Any]) -> list[tuple[str, Any]]:
     return points
 
 
-def _insight_windows(since: int, until: int, window_days: int = ACCOUNT_INSIGHTS_WINDOW_DAYS) -> list[tuple[int, int]]:
+def _insight_windows(
+    since: int, until: int, window_days: int = ACCOUNT_INSIGHTS_WINDOW_DAYS
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Split a range into windows Meta will accept (it rejects spans over 30 days)."""
     if until <= since:
         return []

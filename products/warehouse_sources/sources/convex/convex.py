@@ -203,7 +203,9 @@ def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     return response.json()
 
 
-def iter_component_tables(schemas_response: dict[str, Any]) -> Generator[tuple[str, str]]:
+def iter_component_tables(
+    schemas_response: dict[str, Any],
+) -> Generator[tuple[str, str]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Yield `(component_path, table_name)` for every table; root tables yield `""`.
 
     `byComponent=true` groups as {component_path: {table: schema}}; older deployments ignore the flag
@@ -236,7 +238,9 @@ def qualified_table_name(component_path: str, table_name: str) -> str:
     return f"{component_path}{_COMPONENT_TABLE_DELIMITER}{table_name}"
 
 
-def split_qualified_table_name(name: str) -> tuple[str, str]:
+def split_qualified_table_name(
+    name: str,
+) -> tuple[str, str]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Inverse of `qualified_table_name`. Returns `(component_path, table_name)`.
 
     Splits on the final ".": component path segments join with "/" and table names contain no ".".

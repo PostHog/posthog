@@ -82,7 +82,7 @@ class ClockifyTimeOffPaginator(ClockifyPageNumberPaginator):
         super().init_request(request)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ClockifyResumeConfig:
     # Opaque paginator/fan-out state handed back by the rest_source framework (paginator page for
     # workspaces, per-parent completed-path progress for single-level fan-out). Retained as a single

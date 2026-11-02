@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class BloggerEndpointConfig:
     name: str
     # Path under the Blogger v3 base URL, with a `{blog_id}` placeholder where needed.

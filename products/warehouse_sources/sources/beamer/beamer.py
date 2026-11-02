@@ -27,7 +27,7 @@ BEAMER_BASE_URL = "https://api.getbeamer.com/v0"
 FIRST_PAGE = 1
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BeamerResumeConfig:
     # Next page to fetch (1-based, see FIRST_PAGE). Used by the top-level (non-fan-out) endpoints.
     page: int = FIRST_PAGE

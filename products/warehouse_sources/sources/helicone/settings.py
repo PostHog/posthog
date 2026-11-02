@@ -30,7 +30,7 @@ PROMPTS_PAGE_SIZE = 100
 REQUESTS_DEFAULT_LOOKBACK_DAYS = 365
 
 
-@dataclass
+@dataclass(frozen=False)
 class HeliconeEndpointConfig:
     name: str
     path: str

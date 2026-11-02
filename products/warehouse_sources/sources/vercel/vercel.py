@@ -67,7 +67,7 @@ class VercelRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class VercelResumeConfig:
     # The `until` pagination cursor (Unix ms) for the next page. None means "start at page one".
     # The `since` lower bound is reconstructed from db_incremental_field_last_value on resume, so

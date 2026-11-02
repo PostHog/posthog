@@ -36,7 +36,7 @@ DATE_WINDOW_START = date(2000, 1, 1)
 DEFAULT_PROBE_PATH = "/v1/work-platforms"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PhylloResumeConfig:
     # Legacy fields from the hand-rolled fan-out (a per-stream offset plus the account whose rows
     # were in flight). Kept (now with defaults) so state written by the previous implementation

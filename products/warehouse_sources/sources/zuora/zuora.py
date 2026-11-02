@@ -29,7 +29,7 @@ from products.warehouse_sources.sources.zuora.settings import (
 ZUORA_INCOMPLETE_LIST_ERROR = "Zuora returned a full page for a list that has no next-page token"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ZuoraResumeConfig:
     # The nextPage cursor of the next unfetched Object Query page.
     cursor: str

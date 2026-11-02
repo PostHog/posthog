@@ -35,7 +35,7 @@ FORMS_ENDPOINT = "forms"
 NON_SECRET_HEADERS = {"Accept": "application/json"}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PaperformResumeConfig:
     # `after_id` cursor for the next page of a top-level list (forms, spaces). None starts at page one.
     cursor: str | None = None

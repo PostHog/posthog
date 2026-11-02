@@ -39,7 +39,7 @@ _TIMESTAMP_INCREMENTAL_FIELD: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CoralogixEndpointConfig:
     name: str
     # The DataPrime data source this table streams (`source logs` / `source spans`).

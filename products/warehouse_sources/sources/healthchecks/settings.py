@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class HealthchecksEndpointConfig:
     name: str
     # Path relative to the API base (e.g. "/checks/"). Fan-out child paths carry a

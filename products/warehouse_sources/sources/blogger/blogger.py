@@ -24,7 +24,7 @@ BLOGGER_BASE_URL = "https://www.googleapis.com/blogger/v3"
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BloggerResumeConfig:
     # Blogger paginates with an opaque `pageToken`; persisting it lets a heartbeat-timed-out sync pick
     # back up at the next page instead of restarting the endpoint.

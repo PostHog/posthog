@@ -16,7 +16,7 @@ _DOWNLOADS_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class NpmRegistryEndpointConfig:
     name: str
     primary_keys: list[str]

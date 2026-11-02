@@ -21,7 +21,7 @@ THINKIFIC_BASE_URL = "https://api.thinkific.com/api/public/v1"
 _SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9-]+$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ThinkificResumeConfig:
     # 1-based page number to fetch next. Thinkific paginates by page number (meta.pagination), so the
     # page index is the only state needed to resume an endpoint mid-sync.

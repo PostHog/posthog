@@ -55,7 +55,7 @@ class HatchetTokenError(ValueError):
     """The API token could not be decoded, or is missing the tenant / server URL claims we need."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HatchetResumeConfig:
     # Offset to resume paginating from. The `since` used when the sync started is pinned here so a
     # resumed run keeps paging the same time window (a different `since` would shift what each

@@ -19,7 +19,7 @@ QUERY_PATH = "/serving-layer/query"
 PAGE_SIZE = 1000
 
 
-@dataclass
+@dataclass(frozen=False)
 class OrcaEndpointConfig:
     name: str
     # Orca Serving Layer model queried in the object_set body (e.g. "Alert", "Inventory").

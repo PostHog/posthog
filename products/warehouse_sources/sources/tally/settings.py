@@ -33,7 +33,7 @@ SUBMISSION_FILTER_ALL: Literal["all"] = "all"
 FORM_METRICS_PERIOD = "all"
 
 
-@dataclass
+@dataclass(frozen=False)
 class TallyEndpointConfig:
     name: str
     path: str

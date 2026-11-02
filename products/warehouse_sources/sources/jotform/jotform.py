@@ -30,7 +30,7 @@ JOTFORM_REGION_BASE_URLS = {
 FILTER_GT_SUFFIX = ":gt"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JotformResumeConfig:
     # Offset of the page to (re)fetch when resuming a list endpoint. The framework saves the offset
     # of the NEXT page here after each page is committed (merge dedupes on the primary key).

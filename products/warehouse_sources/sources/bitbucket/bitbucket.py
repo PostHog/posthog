@@ -185,7 +185,7 @@ def _build_initial_params(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     params: list[tuple[str, str]] = [("pagelen", str(config.page_size))]
     params.extend(config.extra_params)
 

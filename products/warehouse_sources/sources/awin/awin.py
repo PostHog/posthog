@@ -187,7 +187,9 @@ def _to_datetime(value: Any) -> Optional[datetime]:
     return None
 
 
-def _iter_windows(start: datetime, end: datetime, max_days: int) -> Iterator[tuple[datetime, datetime]]:
+def _iter_windows(
+    start: datetime, end: datetime, max_days: int
+) -> Iterator[tuple[datetime, datetime]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Yield ascending (start, end) windows no wider than `max_days`, covering [start, end]."""
     cursor = start
     step = timedelta(days=max_days)
@@ -222,7 +224,7 @@ def _windows_for_account(
     config: AwinEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> list[Optional[tuple[datetime, datetime]]]:
+) -> list[Optional[tuple[datetime, datetime]]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Build the ordered list of date windows to fetch for one account.
 
     Non-windowed endpoints (programmes) collapse to a single `None` window (one plain request).

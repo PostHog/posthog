@@ -9,7 +9,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 
 
-@dataclass
+@dataclass(frozen=False)
 class GiphyEndpointConfig:
     name: str
     # Path under the API base (https://api.giphy.com/v1).

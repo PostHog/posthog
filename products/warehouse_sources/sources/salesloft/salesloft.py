@@ -24,7 +24,7 @@ SALESLOFT_BASE_URL = "https://api.salesloft.com/v2"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SalesloftResumeConfig:
     # ``next_url`` is the legacy field: earlier runs saved the full next-page URL. It's kept (with a
     # default) so previously-persisted state still parses; new runs save the page number in

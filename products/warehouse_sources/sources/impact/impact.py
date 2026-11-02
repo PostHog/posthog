@@ -116,7 +116,9 @@ def _format_datetime(value: datetime) -> str:
     return value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _iter_windows(start: datetime, end: datetime, max_days: int) -> Iterator[tuple[datetime, datetime]]:
+def _iter_windows(
+    start: datetime, end: datetime, max_days: int
+) -> Iterator[tuple[datetime, datetime]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Yield ascending (start, end) windows no wider than `max_days`, covering [start, end]."""
     cursor = start
     step = timedelta(days=max_days)
@@ -167,7 +169,7 @@ def _paginate_endpoint(
 def _windows_for_actions(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> list[tuple[datetime, datetime]]:
+) -> list[tuple[datetime, datetime]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     now = datetime.now(UTC)
     max_lookback_start = now - timedelta(days=MAX_LOOKBACK_DAYS)
 

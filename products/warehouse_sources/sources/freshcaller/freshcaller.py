@@ -23,7 +23,7 @@ from products.warehouse_sources.sources.sdk import (
 VALIDATE_TIMEOUT = 10
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FreshcallerResumeConfig:
     # The next page number to fetch. Freshcaller uses page/per_page pagination, so a single
     # integer is enough to pick back up. The time window (by_time[from]/by_time[to]) is rebuilt

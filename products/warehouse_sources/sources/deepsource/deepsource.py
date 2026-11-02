@@ -64,7 +64,7 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     return _DEEPSOURCE_FALLBACK_WAIT(retry_state)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DeepsourceResumeConfig:
     # Repositories whose fan-out walk finished in this job; skipped on resume.
     completed_repositories: list[str] = dataclasses.field(default_factory=list)
@@ -156,6 +156,7 @@ def _iter_connection(
     logger: FilteringBoundLogger,
     start_cursor: str | None = None,
     missing_parent_error: str | None = None,
+    # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
 ) -> Iterator[tuple[dict[str, Any], list[dict[str, Any]], str | None, bool]]:
     """Walk one Relay connection, yielding (parent_object, nodes, end_cursor, has_next_page) pages.
 

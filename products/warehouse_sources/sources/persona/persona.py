@@ -55,7 +55,7 @@ def _refuse_redirect(response: requests.Response) -> None:
     raise PersonaRedirectError(f"Persona redirected the API request to {target}; refusing to follow")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PersonaResumeConfig:
     # `page[after]` cursor (the id of the last list object whose rows we durably yielded). On resume
     # we re-window the request with the same created-at filter and continue from this object.

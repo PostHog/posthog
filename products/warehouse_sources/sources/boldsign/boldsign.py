@@ -29,7 +29,7 @@ BOLDSIGN_HOSTS = {
 RECORD_CURSOR_THRESHOLD = 10_000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BoldSignResumeConfig:
     # Page-number position for standard pagination.
     page: int = 1

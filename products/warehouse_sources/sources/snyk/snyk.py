@@ -51,7 +51,7 @@ _PARENT_COLLECTION_ID_KEY = f"_{_PARENT_COLLECTIONS}_id"
 _PARENT_COLLECTION_ORG_KEY = f"_{_PARENT_COLLECTIONS}_organization_id"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SnykResumeConfig:
     # Next page URL (from the JSON:API ``links.next``) to fetch on resume, for the single-collection
     # (organizations / single-org) endpoints. Optional so old saved states and the fan-out shape below

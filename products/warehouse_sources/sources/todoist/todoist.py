@@ -22,7 +22,7 @@ from products.warehouse_sources.sources.todoist.settings import (
 PAGE_LIMIT = 200
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TodoistResumeConfig:
     # Body cursor for the next page of a standard (non-fan-out) endpoint. None means "start at page one".
     next_cursor: str | None = None

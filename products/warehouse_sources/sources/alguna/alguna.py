@@ -23,7 +23,7 @@ ALGUNA_BASE_URL = "https://api.alguna.io"
 ALGUNA_API_VERSION = "2026-04-01"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AlgunaResumeConfig:
     # Row offset of the next unfetched page — Alguna list endpoints paginate with limit/offset.
     offset: int = 0

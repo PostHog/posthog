@@ -43,7 +43,7 @@ _PARENT_SENSOR_ID_KEY = f"_{_SENSOR_IDS_RESOURCE}_id"
 _PARENT_LOCATION_ID_KEY = f"_{_LOCATION_IDS_RESOURCE}_id"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OpenAQResumeConfig:
     # Next page to fetch (1-based) for the list/sensors endpoints — seeded into the page paginator.
     page: int = 1

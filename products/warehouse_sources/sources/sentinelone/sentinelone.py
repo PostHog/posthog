@@ -28,7 +28,7 @@ class SentinelOneHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SentinelOneResumeConfig:
     next_url: str
 

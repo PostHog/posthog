@@ -77,7 +77,7 @@ _ACCOUNTS_RESOURCE = "accounts"
 _PARENT_ID_KEY = f"_{_ACCOUNTS_RESOURCE}_id"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LeadfeederResumeConfig:
     # The account currently being paginated — retained so an old saved state (written before the
     # rest_source migration) still parses via `dataclass(**saved)`. New fan-out runs persist the

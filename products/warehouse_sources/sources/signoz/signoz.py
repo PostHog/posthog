@@ -52,7 +52,7 @@ class SigNozNonJSONResponseError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SigNozResumeConfig:
     """Position within a telemetry sync: the current time window plus the row offset into it.
 

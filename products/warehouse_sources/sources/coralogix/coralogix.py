@@ -42,7 +42,7 @@ class CoralogixRetryableError(Exception):
     """Raised for Coralogix responses that are safe to retry (429 / 5xx / mid-stream breaks)."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CoralogixResumeConfig:
     # ISO timestamp of the last fully-yielded window's end. Windows are half-open [start, end),
     # so resuming inclusively from this boundary neither skips nor re-yields rows.

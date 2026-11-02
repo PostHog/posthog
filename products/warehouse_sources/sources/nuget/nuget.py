@@ -48,7 +48,7 @@ class NugetPackageNotFoundError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class NugetResumeConfig:
     # catalog_events: commitTimeStamp (ISO string) of the last fully processed catalog page.
     commit_cursor: str | None = None

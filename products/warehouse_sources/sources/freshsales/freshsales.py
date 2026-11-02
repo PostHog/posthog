@@ -326,7 +326,7 @@ def freshsales_source(
 
 def check_credentials(
     api_key: str, domain: str, schema_name: Optional[str] = None
-) -> tuple[bool, Optional[str], Optional[int]]:
+) -> tuple[bool, Optional[str], Optional[int]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Probe Freshsales credentials. Returns ``(ok, error_message, status_code)``.
 
     With ``schema_name=None`` (source create) it hits a cheap account-level endpoint. With a schema

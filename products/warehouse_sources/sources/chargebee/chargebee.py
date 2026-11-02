@@ -14,7 +14,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ChargebeeResumeConfig:
     next_offset: str
 

@@ -34,7 +34,7 @@ from products.warehouse_sources.sources.sdk import (
 _DOMAIN_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AgileCRMResumeConfig:
     # The cursor returned on the last item of the most recently yielded page. `None` starts at the
     # first page.

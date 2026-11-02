@@ -84,7 +84,9 @@ def _to_date(value: Any) -> date | None:
         return None
 
 
-def _date_windows(start: date, end: date, window_days: int) -> Iterator[tuple[date, date]]:
+def _date_windows(
+    start: date, end: date, window_days: int
+) -> Iterator[tuple[date, date]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Yield inclusive [win_start, win_end] date windows from start to end, oldest first."""
     cursor = start
     step = max(1, window_days)

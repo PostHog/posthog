@@ -57,7 +57,7 @@ class JenkinsRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JenkinsResumeConfig:
     # The next job (by stable URL) to fetch builds for. A URL bookmark rather than a positional index
     # so jobs added/removed between a crash and the retry can't resume us into the wrong job. None for

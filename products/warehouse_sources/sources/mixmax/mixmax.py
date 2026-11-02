@@ -49,7 +49,7 @@ logger = structlog.get_logger(__name__)
 MIXMAX_BASE_URL = "https://api.mixmax.com/v1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MixmaxResumeConfig:
     # Fully-built URL of the next page to fetch. None means "start at the endpoint's first page".
     next_url: str | None = None

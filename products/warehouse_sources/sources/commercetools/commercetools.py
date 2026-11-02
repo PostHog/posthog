@@ -33,7 +33,7 @@ class CommercetoolsRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CommercetoolsResumeConfig:
     # Where to pick the lastModifiedAt-ordered scan back up: the current window
     # anchor (None until the first re-anchor on a full scan) plus the offset

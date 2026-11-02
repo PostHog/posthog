@@ -22,7 +22,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/clients"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RuddrResumeConfig:
     # Cursor for the next page: Ruddr paginates by passing the last item's `id` as `startingAfter`.
     # A crashed full-refresh sync resumes from the page after the last one yielded; merge dedupes on

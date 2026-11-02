@@ -14,7 +14,7 @@ PAGE_SIZE = 100
 DEFAULT_LOOKBACK_DAYS = 365
 
 
-@dataclass
+@dataclass(frozen=False)
 class WritesonicEndpointConfig:
     name: str
     path: str

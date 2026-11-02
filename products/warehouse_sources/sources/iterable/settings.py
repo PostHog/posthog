@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class IterableEndpointConfig:
     name: str
     path: str

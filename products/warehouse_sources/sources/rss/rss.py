@@ -29,7 +29,7 @@ FIRST_PAGE = 1
 DEFAULT_PROBE_PATH = "/podcasts"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RssResumeConfig:
     """Resume state for the per-podcast episodes fan-out.
 

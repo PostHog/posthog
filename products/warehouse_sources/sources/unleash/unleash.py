@@ -34,7 +34,7 @@ class UnleashHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class UnleashResumeConfig:
     # Offset of the next feature-search page to fetch. Only the features endpoint paginates;
     # a crashed sync resumes from the page after the last one yielded and merge dedupes the

@@ -30,7 +30,7 @@ class TestrailRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TestrailResumeConfig:
     # Position of the NEXT page to fetch within the deterministic parent walk. `parent_path`
     # identifies the fan-out parent: [] for instance-level endpoints, [project_id],
@@ -235,7 +235,7 @@ def _list_project_ids(session: requests.Session, base_url: str, logger: Filterin
 
 def _list_suite_units(
     session: requests.Session, base_url: str, project_ids: list[int], logger: FilteringBoundLogger
-) -> list[tuple[int, int]]:
+) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Every (project_id, suite_id) pair, ascending. get_suites also returns the default suite
     of single-suite-mode projects, so the same walk covers every suite mode."""
     units: list[tuple[int, int]] = []

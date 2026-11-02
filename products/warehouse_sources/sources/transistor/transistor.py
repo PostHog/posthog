@@ -42,7 +42,7 @@ _TRANSISTOR_RETRY = DEFAULT_RETRY.new(total=5, backoff_factor=5)
 _DOWNLOAD_DATE_FORMATS = ("%d-%m-%Y", "%Y-%m-%d", "%m-%d-%Y")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TransistorResumeConfig:
     # Index into the show list (sorted by show id) of the next show still to fetch. Always 0
     # for `shows`, which is the parent list itself.
@@ -218,7 +218,9 @@ def _coerce_date(value: Any) -> date | None:
     return None
 
 
-def date_windows(start: date, end: date, window_days: int = ANALYTICS_WINDOW_DAYS) -> Iterator[tuple[date, date]]:
+def date_windows(
+    start: date, end: date, window_days: int = ANALYTICS_WINDOW_DAYS
+) -> Iterator[tuple[date, date]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     cursor = start
     while cursor <= end:
         window_end = min(cursor + timedelta(days=window_days - 1), end)

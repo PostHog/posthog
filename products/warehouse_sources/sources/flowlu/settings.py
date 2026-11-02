@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class FlowluEndpointConfig:
     name: str
     # Path under `https://{subdomain}.flowlu.com/api/v1/module` (e.g. "/crm/account/list").

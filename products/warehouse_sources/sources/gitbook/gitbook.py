@@ -39,7 +39,7 @@ _INTERMEDIATE_PARENTS: dict[str, tuple[str, str]] = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GitBookResumeConfig:
     # Legacy fan-out checkpoint fields, retained so pre-migration saved state still parses. The
     # framework now owns fan-out resume via `fanout_state`; these are only read for the top-level

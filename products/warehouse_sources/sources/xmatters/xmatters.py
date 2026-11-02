@@ -160,7 +160,7 @@ def _build_params(
 
 def validate_credentials(
     subdomain: str, username: str, password: str, endpoint: Optional[str] = None
-) -> tuple[bool, int | None, str | None]:
+) -> tuple[bool, int | None, str | None]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Probe xMatters with a cheap single-row request.
 
     Returns ``(ok, status_code, error_message)``. ``status_code`` is ``None`` on transport failure.

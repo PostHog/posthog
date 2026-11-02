@@ -23,7 +23,7 @@ from products.warehouse_sources.sources.sdk import (
 CLOUDZERO_BASE_URL = "https://api.cloudzero.com"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CloudzeroResumeConfig:
     next_cursor: str
 

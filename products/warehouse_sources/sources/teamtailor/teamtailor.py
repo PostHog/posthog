@@ -27,7 +27,7 @@ DEFAULT_API_VERSION = API_VERSION_20240904
 DEFAULT_PROBE_PATH = "/users"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TeamtailorResumeConfig:
     # Absolute URL of the next page to fetch, taken verbatim from the JSON:API `links.next`.
     # `None` starts from the first page. Cursor pagination is deterministic, so a crashed

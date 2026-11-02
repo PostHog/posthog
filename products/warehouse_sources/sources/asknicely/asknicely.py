@@ -30,7 +30,7 @@ TIMESTAMP_FIELDS = ("sent", "opened", "responded", "lastemailed", "created", "ca
 UNSUBSCRIBED_TIMESTAMP_FIELDS = ("unsubscribetime",)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AskNicelyResumeConfig:
     # 1-based next page to fetch. Page numbering is only stable relative to the since_time
     # cutoff the run started with, so the cutoff is persisted alongside it.

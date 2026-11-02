@@ -45,7 +45,7 @@ class DatadogFanOutLimitError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DatadogResumeConfig:
     next_url: str
 

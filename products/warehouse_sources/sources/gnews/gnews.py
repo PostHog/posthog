@@ -32,7 +32,7 @@ class GNewsRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GNewsResumeConfig:
     # The page to re-fetch on resume. Checkpointed as the current (in-flight) page, not the next one,
     # so a crash re-fetches and re-yields it — merge dedupes the overlap on the `url` primary key.

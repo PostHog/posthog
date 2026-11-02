@@ -30,7 +30,7 @@ _DATA_SELECTOR = "items"
 _PARENT_ID_KEY = "_promotions_id"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class EasypromosResumeConfig:
     # Simple (top-level) endpoints checkpoint the cursor of the next page to fetch.
     cursor: int | None = None

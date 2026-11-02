@@ -63,7 +63,7 @@ class AppdynamicsError(Exception):
     """Non-retryable AppDynamics transport error (bad credentials, unexpected redirect)."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AppdynamicsResumeConfig:
     # Fan-out bookmark: the application currently being processed. A stable application-ID
     # bookmark (not a positional index) so applications added/removed between a crash and
@@ -409,7 +409,9 @@ class AppdynamicsClient:
             headers["Authorization"] = f"Bearer {self._get_token()}"
         return headers
 
-    def _basic_auth(self) -> Optional[tuple[str, str]]:
+    def _basic_auth(
+        self,
+    ) -> Optional[tuple[str, str]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
         if self._auth.uses_oauth:
             return None
         return (f"{self._auth.username}@{self._auth.account_name}", self._auth.password or "")
@@ -543,7 +545,9 @@ def _watermark_to_epoch_ms(value: Any) -> int:
     return int(value)
 
 
-def _iter_windows(start_ms: int, end_ms: int, chunk_days: int) -> Iterator[tuple[int, int]]:
+def _iter_windows(
+    start_ms: int, end_ms: int, chunk_days: int
+) -> Iterator[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Yield `[start, end)` epoch-ms chunks so each request stays bounded and resumable."""
     chunk_ms = chunk_days * MILLIS_PER_DAY
     window_start = start_ms

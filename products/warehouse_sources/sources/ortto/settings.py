@@ -41,7 +41,7 @@ ACCOUNT_BUILTIN_FIELDS: list[str] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class OrttoEndpointConfig:
     path: str
     # Key holding the row list in the response body; None when the body is the list.

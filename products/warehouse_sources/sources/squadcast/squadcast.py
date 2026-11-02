@@ -60,7 +60,7 @@ class SquadcastAuthError(Exception):
     """Raised when the refresh token exchange is rejected — a permanent credential failure."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SquadcastResumeConfig:
     # Bookmark of the team currently being processed (fan-out endpoints). A stable team-ID
     # bookmark rather than a positional index, so teams added/removed between a crash and the
@@ -534,7 +534,7 @@ def squadcast_source(
 
 def validate_credentials(
     refresh_token: str, region: str | None, endpoint: Optional[str] = None
-) -> tuple[bool, int, str | None]:
+) -> tuple[bool, int, str | None]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Exchange the refresh token, then probe a cheap list endpoint.
 
     Returns ``(ok, status_code, error_message)``. ``status_code`` is 0 on transport failure.

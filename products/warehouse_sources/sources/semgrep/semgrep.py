@@ -21,7 +21,7 @@ from products.warehouse_sources.sources.semgrep.settings import SEMGREP_ENDPOINT
 SEMGREP_BASE_URL = "https://semgrep.dev/api/v1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SemgrepResumeConfig:
     # Legacy fields kept so state persisted by the pre-framework implementation still parses
     # (ResumableSourceManager rehydrates via ``dataclass(**saved)``); a state carrying only these
@@ -164,7 +164,9 @@ def _fanout_paginator(config: SemgrepEndpointConfig) -> BasePaginator:
     return _PageNumberPaginator(page_size=config.page_size)
 
 
-def _child_resolve_param(config: SemgrepEndpointConfig) -> tuple[str, str]:
+def _child_resolve_param(
+    config: SemgrepEndpointConfig,
+) -> tuple[str, str]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     # Path templates bind the deployment slug (projects/findings) or id (secrets); the resolve param
     # name must match the path placeholder.
     if "{deployment_id}" in config.path:

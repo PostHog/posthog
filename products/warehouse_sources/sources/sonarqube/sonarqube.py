@@ -69,7 +69,7 @@ class SonarqubeRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SonarqubeResumeConfig:
     # Next 1-indexed page to fetch. None means "start from page 1".
     next_page: int | None = None
@@ -134,7 +134,9 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     return f"{base_url}{path}?{urlencode(params)}"
 
 
-def _extract_paging(data: dict[str, Any]) -> tuple[int, int, int]:
+def _extract_paging(
+    data: dict[str, Any],
+) -> tuple[int, int, int]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Return (pageIndex, pageSize, total) from either SonarQube paging shape.
 
     Most endpoints wrap it in a `paging` object; /api/metrics/search returns `p`, `ps`, `total`

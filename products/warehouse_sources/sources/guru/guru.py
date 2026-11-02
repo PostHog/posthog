@@ -28,7 +28,7 @@ GURU_BASE_URL = "https://api.getguru.com/api/v1"
 GURU_API_HOST = "api.getguru.com"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GuruResumeConfig:
     # Guru pagination follows a `Link: <url>; rel="next-page"` header whose URL is
     # self-contained (opaque continuation token), so the URL is all we persist.

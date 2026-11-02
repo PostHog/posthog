@@ -51,7 +51,7 @@ NETLIFY_BASE_URL = "https://api.netlify.com/api/v1"
 _NETLIFY_PARSED_BASE = urlparse(NETLIFY_BASE_URL)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class NetlifyResumeConfig:
     # Next URL to fetch for a top-level list (HeaderLinkPaginator resume state). Kept as the first,
     # defaulted field so previously-persisted `{"next_url": ...}` state still parses.

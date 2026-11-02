@@ -285,7 +285,9 @@ def _probe_analytics(api_token: str, url: str) -> tuple[bool, int | None]:
     return response.status_code == 200, response.status_code
 
 
-def validate_credentials(api_token: str, endpoint: Optional[str] = None) -> tuple[bool, int, str | None]:
+def validate_credentials(
+    api_token: str, endpoint: Optional[str] = None
+) -> tuple[bool, int, str | None]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Probe PagerDuty with a cheap single-row request.
 
     Returns ``(ok, status_code, error_message)``. ``status_code`` is 0 on transport failure.

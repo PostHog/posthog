@@ -18,7 +18,7 @@ SINGLE_PAGE = "single"  # the whole collection comes back in one response
 DNS_ANALYTICS_WINDOW = timedelta(hours=6)
 
 
-@dataclass
+@dataclass(frozen=False)
 class CloudflareEndpointConfig:
     name: str
     # Path under https://api.cloudflare.com/client/v4; `{zone_id}` / `{account_id}`

@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class ThinkificCoursesEndpointConfig:
     name: str
     path: str

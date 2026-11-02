@@ -38,7 +38,7 @@ class DynatraceHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DynatraceResumeConfig:
     # Cursor from the last yielded page. Follow-up URLs are rebuilt from the configured
     # environment URL, so tampered resume state can't redirect the authenticated request.

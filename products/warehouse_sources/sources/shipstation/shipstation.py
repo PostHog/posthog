@@ -91,7 +91,7 @@ def _build_auth(api_key: str, api_secret: str | None, dialect: ShipStationDialec
     return HttpBasicAuth(api_key, api_secret)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ShipStationResumeConfig:
     # ShipStation paginates with a 1-based page number; the framework's PageNumberPaginator resume
     # state is a single ``{"page": <next page>}`` dict, so it maps straight onto this existing field.

@@ -53,7 +53,7 @@ def _validate_pagination_url(url: str) -> str:
     return url
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ShippoResumeConfig:
     # Opaque `next` URL of the page to fetch next; Shippo documents these links as subject to
     # change in format, so we follow them verbatim rather than reconstructing page numbers.

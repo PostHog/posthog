@@ -13,7 +13,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class StatusCakeEndpointConfig:
     name: str
     # Path template relative to the API base. Top-level endpoints are absolute (e.g. "/uptime");

@@ -49,7 +49,7 @@ class MentionRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MentionResumeConfig:
     # Remaining alert ids for the per-alert fan-out endpoints (current alert first). None means the
     # endpoint is not a fan-out one (or the alert list hasn't been captured yet).

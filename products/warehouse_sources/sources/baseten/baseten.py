@@ -26,7 +26,7 @@ BASETEN_BASE_URL = "https://api.baseten.co"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BasetenResumeConfig:
     # Cursor for the current page of a cursor-paginated endpoint (users, model_apis).
     cursor: str | None = None

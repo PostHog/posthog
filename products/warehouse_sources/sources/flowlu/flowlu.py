@@ -21,7 +21,7 @@ BASE_PAGE = 1
 DEFAULT_PROBE_PATH = "/task/tasks/list"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FlowluResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.

@@ -24,7 +24,7 @@ from products.warehouse_sources.sources.sdk import (
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FirecrawlResumeConfig:
     # team_activity cursor-pagination bookmark: the cursor for the next page to fetch.
     cursor: str | None = None

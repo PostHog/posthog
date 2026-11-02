@@ -32,7 +32,7 @@ class TaboolaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TaboolaResumeConfig:
     # Reports: the start date (yyyy-mm-dd) of the next unfetched window.
     # campaign_items: the index of the next campaign to fetch items for.

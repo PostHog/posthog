@@ -41,7 +41,7 @@ class BrazeHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BrazeResumeConfig:
     # Page index (page pagination) or row offset (offset pagination) to resume from.
     # Old checkpoints stored the last-yielded cursor, so re-loading one re-fetches that

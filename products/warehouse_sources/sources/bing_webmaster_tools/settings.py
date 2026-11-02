@@ -19,7 +19,7 @@ _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class BingWebmasterToolsEndpoint:
     # JSON API operation name, e.g. "GetQueryStats" (https://ssl.bing.com/webmaster/api.svc/json/{method}).
     method: str

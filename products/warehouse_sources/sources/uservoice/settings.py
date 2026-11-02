@@ -21,7 +21,7 @@ def _updated_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class UservoiceEndpointConfig:
     name: str
     # Path under /api/v2/admin, e.g. "/suggestions".

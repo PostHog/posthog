@@ -17,7 +17,7 @@ _PROCESSED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CultureAmpEndpointConfig:
     name: str
     path: str

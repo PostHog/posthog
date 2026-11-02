@@ -12,7 +12,7 @@ _TIMESTAMP_INCREMENTAL_FIELD: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class NewRelicEndpointConfig:
     name: str
     # NRQL event table to `SELECT * FROM` via NerdGraph (Transaction, Log, ...).

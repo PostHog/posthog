@@ -33,7 +33,7 @@ class ChartHopAPIError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ChartHopResumeConfig:
     # ``next`` token of the last fully-yielded page, re-sent as ``from`` on resume.
     from_token: str

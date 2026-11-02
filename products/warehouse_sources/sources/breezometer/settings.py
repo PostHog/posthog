@@ -16,7 +16,7 @@ _DT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class BreezometerEndpointConfig:
     name: str
     # "air_quality" -> POST with a JSON body; "pollen" -> GET with query params.

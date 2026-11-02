@@ -26,7 +26,7 @@ API_KEY_HEADER = "as-api-key"
 VALIDATION_TIMEOUT_SECONDS = 15
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AftershipResumeConfig:
     # Cursor of the next unread page, replayed as `cursor` on the resumed request.
     cursor: str

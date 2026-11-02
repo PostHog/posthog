@@ -46,7 +46,7 @@ WORK_TIMES_ENDPOINT = "work_times"
 USER_REPORTS_ENDPOINT = "user_reports"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ClockodoResumeConfig:
     # Next 1-indexed page to fetch. Only meaningful for paginated endpoints.
     next_page: int

@@ -30,7 +30,7 @@ PLANS_WINDOW_YEARS_AHEAD = 5
 DEFAULT_PROBE_ENDPOINT = "worklogs"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TempoResumeConfig:
     # Full URL of the next page, taken verbatim from the API's `metadata.next` (it embeds limit,
     # offset, and any filters). A crashed sync resumes from the page after the last one yielded;

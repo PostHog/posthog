@@ -22,7 +22,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/customers"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StiggResumeConfig:
     # Cursor for the next page: Stigg returns it as `pagination.next` and accepts it back as
     # the `after` query param. A crashed full-refresh sync resumes from the page after the last

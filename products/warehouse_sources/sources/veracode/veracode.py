@@ -44,7 +44,7 @@ class VeracodeRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class VeracodeResumeConfig:
     # Next zero-based HAL page to fetch. For fan-out endpoints this is the page within `app_guid`.
     page: int = 0

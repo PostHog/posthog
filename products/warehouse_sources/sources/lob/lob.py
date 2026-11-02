@@ -28,7 +28,7 @@ class LobRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LobResumeConfig:
     # The fully-formed `next_url` returned by Lob (already carries `limit` and the `after` cursor).
     # None means "start from the first page".

@@ -85,7 +85,7 @@ class UbidotsResponseTooSlowError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class UbidotsResumeConfig:
     # Full URL of the next page to fetch, verbatim from the API's ``next`` link (Ubidots uses
     # DRF-style page-number pagination with count/next/previous/results). For the values stream

@@ -95,7 +95,7 @@ class NotionAdminTokenMissingError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class NotionResumeConfig:
     # Cursor-paginated streams (search, users) persist the next page cursor.
     next_cursor: str | None = None

@@ -21,7 +21,7 @@ SIMPLESAT_HOST = "api.simplesat.io"
 DEFAULT_PROBE_PATH = "/surveys"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SimplesatResumeConfig:
     # Absolute URL of the next page to fetch, taken verbatim from the response body's `next`
     # field. Cursor pagination is deterministic, so a crashed full-refresh sync resumes from the

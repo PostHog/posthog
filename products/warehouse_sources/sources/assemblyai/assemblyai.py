@@ -31,7 +31,7 @@ DEFAULT_REGION = "us"
 PAGE_SIZE = 200
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AssemblyAIResumeConfig:
     # Absolute URL of the next list page to fetch (from page_details.next_url). Following it walks
     # newest-to-oldest through the transcript list via the API's before_id cursor.

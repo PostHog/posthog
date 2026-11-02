@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from products.warehouse_sources.sources.sdk import PartitionFormat, PartitionMode
 
 
-@dataclass
+@dataclass(frozen=False)
 class ImaggaEndpointConfig:
     name: str
     # Fields the rows are merged on. Imagga's /usage endpoint has no record ids, so the keys are

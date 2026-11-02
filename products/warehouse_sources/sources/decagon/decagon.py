@@ -70,7 +70,7 @@ class DecagonContractError(Exception):
     """The response does not match the contract the endpoint is configured against."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DecagonResumeConfig:
     # Position of the next unfetched page, one field per pagination mode: the next-page
     # cursor ("cursor"), the next page number ("page"), or the next row offset ("offset").

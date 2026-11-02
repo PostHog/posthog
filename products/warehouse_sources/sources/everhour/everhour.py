@@ -39,7 +39,7 @@ class EverhourRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class EverhourResumeConfig:
     # Base request URLs (with limit + from/to baked in, but no offset) not yet started. For fan-out
     # endpoints there's one per project; for top-level endpoints just the single list URL.

@@ -73,7 +73,7 @@ def _build_finish_date_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class TeamCityEndpointConfig:
     name: str
     path: str  # Path under /app/rest, e.g. "/builds"

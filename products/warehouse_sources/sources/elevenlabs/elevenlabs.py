@@ -25,7 +25,7 @@ ELEVENLABS_BASE_URL = "https://api.elevenlabs.io"
 REDACTED = "[REDACTED]"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ElevenLabsResumeConfig:
     # Next-page cursor for whichever endpoint this job syncs. Only one endpoint runs per job, so a
     # single opaque cursor slot is enough; each endpoint sends it under its own cursor param.

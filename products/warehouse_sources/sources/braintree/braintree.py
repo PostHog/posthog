@@ -42,7 +42,7 @@ class BraintreeGraphQLError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BraintreeResumeConfig:
     # Relay-style pagination: `after` is the cursor of the last edge consumed;
     # the search input is rebuilt deterministically from job inputs on resume.

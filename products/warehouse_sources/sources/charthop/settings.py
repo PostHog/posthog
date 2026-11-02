@@ -13,7 +13,7 @@ SUPPORTED_VERSIONS = (CHARTHOP_V1, CHARTHOP_V2)
 DEFAULT_VERSION = CHARTHOP_V2
 
 
-@dataclass
+@dataclass(frozen=False)
 class ChartHopEndpointVersionOverride:
     """Per-version request differences for a resource ChartHop serves under more than one API
     version. Unset fields fall through to the endpoint's base (v1) values."""
@@ -22,7 +22,7 @@ class ChartHopEndpointVersionOverride:
     incremental_param: Optional[str] = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class ChartHopEndpointConfig:
     name: str
     """Table name we expose to the user (snake_case)."""

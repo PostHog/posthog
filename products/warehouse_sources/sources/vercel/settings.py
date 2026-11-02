@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class VercelEndpointConfig:
     name: str
     # Versioned path on https://api.vercel.com (Vercel pins each resource to its own API version).

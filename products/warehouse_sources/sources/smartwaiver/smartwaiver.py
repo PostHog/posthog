@@ -30,7 +30,7 @@ DEFAULT_FROM_DTS = "2000-01-01T00:00:00"
 DEFAULT_PROBE_PATH = "/v4/templates"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SmartwaiverResumeConfig:
     # Next zero-based page to fetch. The `fromDts`/`toDts` window is persisted alongside it so a
     # resumed job continues the exact query it was paging through; merge dedupes any re-pulled page

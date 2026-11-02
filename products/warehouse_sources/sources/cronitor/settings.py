@@ -22,7 +22,7 @@ METRICS_WINDOW_SECONDS = 30 * 24 * 3600
 METRICS_FIELDS = ("duration_p50", "duration_p90", "success_rate", "run_count")
 
 
-@dataclass
+@dataclass(frozen=False)
 class CronitorEndpointConfig:
     name: str
     primary_keys: list[str]

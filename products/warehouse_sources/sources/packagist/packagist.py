@@ -52,7 +52,7 @@ class PackagistRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PackagistResumeConfig:
     # Index into the expanded package list (advisories: into its batch walk) of the next
     # package still to fetch.

@@ -20,7 +20,7 @@ _END_DATE_INCREMENTAL: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SwarmiaEndpointConfig:
     name: str
     path: str

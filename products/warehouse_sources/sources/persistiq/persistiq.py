@@ -23,7 +23,7 @@ PERSISTIQ_BASE_URL = "https://api.persistiq.com/v1"
 DEFAULT_PROBE_PATH = "/users"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PersistiqResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.

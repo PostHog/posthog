@@ -66,7 +66,7 @@ TWILIO_MAIN_KEY_REQUIRED_REASON = "Twilio grants this resource only to your Auth
 TWILIO_UNREACHABLE_MESSAGE = "Could not reach Twilio to validate credentials."
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TwilioResumeConfig:
     next_url: str
 

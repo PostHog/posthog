@@ -40,7 +40,7 @@ INVALID_WORKSPACE_ERROR = "Enter a valid Cloudsmith workspace slug (letters, num
 INCREMENTAL_INITIAL_VALUE = "1970-01-01T00:00:00Z"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CloudsmithResumeConfig:
     # Opaque framework checkpoint (the page number for top-level endpoints, per-parent fan-out
     # state for repository-scoped ones), round-tripped into `initial_paginator_state` on resume.

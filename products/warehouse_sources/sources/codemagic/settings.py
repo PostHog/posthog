@@ -17,7 +17,7 @@ V3_PAGE_SIZE = 100
 V3_TEAMS_PATH = "/api/v3/user/teams"
 
 
-@dataclass
+@dataclass(frozen=False)
 class CodemagicEndpointConfig:
     name: str
     path: str

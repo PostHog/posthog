@@ -29,7 +29,7 @@ class SegmentRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SegmentResumeConfig:
     # Opaque base64 cursor (`data.pagination.next`) for the next page of the endpoint being synced.
     cursor: str

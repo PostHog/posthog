@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class VeracodeEndpointConfig:
     name: str
     # Path to the resource. Fan-out endpoints carry a `{application_guid}` placeholder that is filled

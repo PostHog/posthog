@@ -30,7 +30,7 @@ from products.warehouse_sources.sources.sdk import (
 EVENTBRITE_BASE_URL = "https://www.eventbriteapi.com/v3"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class EventbriteResumeConfig:
     # Continuation token for the next page of a top-level list endpoint (organizations/categories/
     # formats). Fan-out endpoints (org/event scoped) instead persist the framework's dependent-resource

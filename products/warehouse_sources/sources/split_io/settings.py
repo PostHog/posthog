@@ -22,7 +22,7 @@ DEFAULT_VERSION = SPLIT_IO_API_VERSION_V2
 PaginationStyle = Literal["offset", "marker", "none"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SplitIoEndpointConfig:
     name: str
     # Path under the API root. A ``{workspace_id}`` placeholder marks a fan-out endpoint

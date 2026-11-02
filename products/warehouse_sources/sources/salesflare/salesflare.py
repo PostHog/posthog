@@ -21,7 +21,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/me"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SalesflareResumeConfig:
     # Offset of the next page to fetch. Offset pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.

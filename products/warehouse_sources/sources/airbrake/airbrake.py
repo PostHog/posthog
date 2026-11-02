@@ -34,7 +34,7 @@ class AirbrakeRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AirbrakeResumeConfig:
     # Next page to fetch within the current collection.
     page: int = 1

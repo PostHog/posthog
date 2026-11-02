@@ -74,7 +74,9 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{base}?{urlencode(params)}"
 
 
-def _month_windows(today: date, lookback_months: int = DEFAULT_LOOKBACK_MONTHS) -> list[tuple[date, date]]:
+def _month_windows(
+    today: date, lookback_months: int = DEFAULT_LOOKBACK_MONTHS
+) -> list[tuple[date, date]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Calendar-month `[first day, last day]` windows from `lookback_months` ago through today.
 
     The current month's window is clipped to today. `end_date` is assumed inclusive (the API is

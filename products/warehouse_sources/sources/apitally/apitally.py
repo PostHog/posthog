@@ -27,7 +27,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ApitallyResumeConfig:
     """Resume state for Apitally endpoints.
 

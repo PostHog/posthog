@@ -15,7 +15,7 @@ def _timestamp_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SigNozEndpointConfig:
     name: str
     kind: Literal["telemetry", "config"]

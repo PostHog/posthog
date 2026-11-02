@@ -28,7 +28,7 @@ class RollbarRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RollbarResumeConfig:
     # Page-paginated endpoints persist the 1-indexed page; the occurrences
     # keyset walk persists the last (lowest) occurrence id seen instead.

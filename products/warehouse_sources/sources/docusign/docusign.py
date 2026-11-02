@@ -52,7 +52,7 @@ class DocusignAuthError(Exception):
     """Raised when DocuSign refuses to issue an access token."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DocusignResumeConfig:
     """Resume cursor: the 0-based offset of the next page to request."""
 

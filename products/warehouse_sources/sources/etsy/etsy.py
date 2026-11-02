@@ -84,7 +84,7 @@ def _validate_shop_id(shop_id: str) -> str:
     return shop_id
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class EtsyResumeConfig:
     """Where a resumed run picks the walk back up.
 
@@ -265,7 +265,7 @@ def _max_offset(config: EtsyEndpointConfig) -> int:
 
 def _fetch_page(
     client: EtsyClient, path: str, params: dict[str, Any], offset: int, config: EtsyEndpointConfig
-) -> tuple[list[dict[str, Any]], int, int]:
+) -> tuple[list[dict[str, Any]], int, int]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """One offset page. Returns (rows, raw result count on the page, total rows matching the query)."""
     body = client.request(path, {**params, "limit": PAGE_SIZE, "offset": offset})
     results = body.get("results") or []

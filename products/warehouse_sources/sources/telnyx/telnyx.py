@@ -17,7 +17,7 @@ TELNYX_BASE_URL = "https://api.telnyx.com"
 PAGE_SIZE = 50
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TelnyxResumeConfig:
     next_page: int
 

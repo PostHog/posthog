@@ -24,7 +24,7 @@ PER_PAGE = 50
 DEFAULT_PROBE_PATH = "/api/v1/products"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SendowlResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.

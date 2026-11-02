@@ -36,7 +36,7 @@ class HeliconeRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HeliconeResumeConfig:
     # Where to resume the endpoint being paged: for offset-based endpoints (requests, sessions)
     # it's the next request's `offset` (rows already yielded); for the page-based prompts endpoint

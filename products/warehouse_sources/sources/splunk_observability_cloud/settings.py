@@ -32,7 +32,7 @@ _TIMESTAMP_INCREMENTAL_FIELD: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SplunkObservabilityCloudEndpointConfig:
     name: str
     # Path under /v2 on the realm API host. Empty for the SignalFlow-backed endpoint.

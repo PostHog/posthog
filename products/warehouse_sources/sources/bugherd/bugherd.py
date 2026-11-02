@@ -30,7 +30,7 @@ from products.warehouse_sources.sources.sdk import (
 REQUEST_TIMEOUT_SECONDS = 30
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BugherdResumeConfig:
     page: int
 

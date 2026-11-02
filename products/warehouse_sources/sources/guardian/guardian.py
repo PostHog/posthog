@@ -22,7 +22,7 @@ GUARDIAN_BASE_URL = "https://content.guardianapis.com"
 PAGE_SIZE = 200
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GuardianResumeConfig:
     # The next page number to fetch. The API is 1-indexed. With `order-by=oldest` the result set is
     # ordered ascending and stable within a run, so a page number is a safe resume cursor.

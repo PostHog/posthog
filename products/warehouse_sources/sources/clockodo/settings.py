@@ -16,7 +16,7 @@ CLOCKODO_SUPPORTED_VERSIONS = (CLOCKODO_API_VERSION_V2, CLOCKODO_API_VERSION_V3)
 CLOCKODO_DEFAULT_API_VERSION = CLOCKODO_API_VERSION_V3
 
 
-@dataclass
+@dataclass(frozen=False)
 class ClockodoEndpointConfig:
     name: str  # schema name shown to the user (matches the warehouse table)
     path: str  # API path relative to the base URL, e.g. "v2/customers"

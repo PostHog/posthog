@@ -32,7 +32,7 @@ class BugsnagRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BugsnagResumeConfig:
     # Next page URL (from the Link header) to fetch. None means "start the current parent at its
     # first page" — used when the bookmark advances to a new fan-out parent whose first page URL

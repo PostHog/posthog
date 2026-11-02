@@ -39,7 +39,7 @@ class AircallTruncationError(Exception):
     """
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AircallResumeConfig:
     next_url: str
 

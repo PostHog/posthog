@@ -23,7 +23,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/search/people"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JustSiftResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on the

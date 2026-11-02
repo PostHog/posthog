@@ -33,7 +33,7 @@ LARGE_ROW_CHUNK_SIZE_BYTES = 100 * 1024 * 1024
 INGESTED_AT_LOOKBACK = datetime.timedelta(days=2)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OpenAlexResumeConfig:
     cursor: str
 

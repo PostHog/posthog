@@ -20,7 +20,7 @@ KATANA_BASE_URL = "https://api.katanamrp.com/v1"
 PAGE_SIZE = 250
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class KatanaResumeConfig:
     # Page to fetch on resume. Katana paginates by page number and exposes no next-page cursor, so a
     # restart re-issues from this page; the delta merge dedupes any overlap with already-written rows.

@@ -33,7 +33,7 @@ from products.warehouse_sources.sources.sdk import (
 LINODE_BASE_URL = "https://api.linode.com/v4"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LinodeResumeConfig:
     # Next page (1-indexed) to fetch. The X-Filter header (built from the run's fixed watermark) and
     # page_size are constant across a run, so the page number alone is enough to resume.

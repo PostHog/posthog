@@ -34,7 +34,7 @@ class LinearbRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LinearbResumeConfig:
     # Offset of the next page to fetch for list endpoints. Measurements is a single windowed query
     # and does not resume.

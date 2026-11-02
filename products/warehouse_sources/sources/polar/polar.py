@@ -21,7 +21,7 @@ _VERSION_HEADER: dict[str, str] = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PolarResumeConfig:
     next_url: str
 

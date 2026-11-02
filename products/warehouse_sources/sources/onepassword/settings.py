@@ -12,7 +12,7 @@ _TIMESTAMP_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class OnePasswordEndpointConfig:
     name: str
     path: str

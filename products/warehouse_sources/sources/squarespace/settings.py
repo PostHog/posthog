@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, SortMode
 
 
-@dataclass
+@dataclass(frozen=False)
 class SquarespaceEndpointConfig:
     name: str
     # Per-API version segment of the URL (e.g. "1.0", "v2"). Squarespace versions each

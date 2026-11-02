@@ -18,7 +18,7 @@ _UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 _COMMON_FIELD_IDS = ["identifier", "created_at", "updated_at"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CrunchbaseEndpointConfig:
     name: str
     # Collection slug in POST /v4/data/searches/{collection}.

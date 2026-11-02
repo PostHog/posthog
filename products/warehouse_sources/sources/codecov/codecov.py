@@ -30,7 +30,7 @@ class CodecovRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CodecovResumeConfig:
     # Next page URL to fetch. None means "start the bookmarked repo's endpoint at its first
     # page" — used when the bookmark advances to a repo whose first page URL isn't built yet.

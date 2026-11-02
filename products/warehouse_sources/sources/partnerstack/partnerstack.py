@@ -26,7 +26,7 @@ STARTING_AFTER_PARAM = "starting_after"
 DEFAULT_PROBE_PATH = "/partnerships"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PartnerStackResumeConfig:
     # The `key` of the last object yielded. On resume the next request passes it as `starting_after`,
     # so a crashed full-refresh sync continues after the last object persisted; merge dedupes on `key`.

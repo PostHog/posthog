@@ -32,7 +32,7 @@ _POD_RE = re.compile(r"^[a-z0-9]+$")
 _POD_FROM_URL_RE = re.compile(r"api\.([a-z0-9]+)\.insightly\.com")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InsightlyResumeConfig:
     # Offset (`skip`) of the next page to fetch. The `updated_after_utc` filter is rebuilt from the
     # job's incremental value at resume time, so it never needs to be persisted here.

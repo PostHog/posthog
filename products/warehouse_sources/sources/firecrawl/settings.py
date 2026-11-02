@@ -9,7 +9,7 @@ PaginationMode = Literal["cursor", "offset", "none"]
 PartitionFormat = Literal["month", "week", "day", "hour"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class FirecrawlEndpointConfig:
     name: str
     path: str

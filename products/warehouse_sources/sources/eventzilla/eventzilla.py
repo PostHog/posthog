@@ -58,7 +58,7 @@ MAX_PAGES = 10_000
 _PARENT_EVENT_ID_KEY = "_events_id"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class EventzillaResumeConfig:
     # Offset of the next page to fetch within the current top-level list.
     offset: int = 0

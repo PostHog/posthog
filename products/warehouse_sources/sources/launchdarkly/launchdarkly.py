@@ -33,7 +33,7 @@ ENVIRONMENTS_PARENT_NAME = "environment"
 TEAMS_PARENT_NAME = "team"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LaunchDarklyResumeConfig:
     # Full URL of the next page to fetch for a top-level endpoint ("" once exhausted).
     next_url: str = ""

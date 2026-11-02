@@ -28,7 +28,7 @@ REQUEST_TIMEOUT_SECONDS = 30
 DEFAULT_BASE_URL = "https://api.codescene.io/v2"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CodesceneResumeConfig:
     # 1-indexed next page to fetch. Only used for the flat (non-fan-out) "Projects"
     # endpoint — dependent (fan-out) resources don't currently support resume.

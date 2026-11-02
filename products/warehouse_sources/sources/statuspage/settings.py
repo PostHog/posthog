@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class StatuspageEndpointConfig:
     name: str
     # Path template. Top-level endpoints are absolute (e.g. "/pages"); page-scoped

@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class InstatusEndpointConfig:
     name: str
     # Full path including the version prefix. Instatus is inconsistent here: the status-page

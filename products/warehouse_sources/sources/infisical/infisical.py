@@ -102,7 +102,7 @@ class InfisicalPaginationBudgetExceededError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InfisicalResumeConfig:
     # Offset of the next unfetched page within the (window_start, window_end) query.
     offset: int = 0

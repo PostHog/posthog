@@ -34,7 +34,7 @@ from products.warehouse_sources.sources.sdk import (
 SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class EZOfficeInventoryResumeConfig:
     # v1 page-number paginator: next page (1-indexed) to fetch when resuming an interrupted sync.
     next_page: Optional[int] = None

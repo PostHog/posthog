@@ -324,7 +324,7 @@ def _normalize_row(row: Mapping[Any, Any], int_columns: tuple[str, ...]) -> dict
 
 def bulk_windows(
     start: datetime, end: datetime, window_days: int = BULK_WINDOW_DAYS
-) -> list[tuple[datetime, datetime]]:
+) -> list[tuple[datetime, datetime]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Split [start, end) into windows Marketo's 31-day export filter cap will accept."""
     windows: list[tuple[datetime, datetime]] = []
     cursor = start

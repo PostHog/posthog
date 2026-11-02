@@ -11,7 +11,7 @@ CAMPAIGNS_PAGE_SIZE = 20
 CONTACT_MEMBERS_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=False)
 class TinyemailEndpointConfig:
     name: str
     path: str

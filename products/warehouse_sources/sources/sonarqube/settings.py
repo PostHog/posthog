@@ -26,7 +26,7 @@ def _created_at_incremental_fields() -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SonarqubeEndpointConfig:
     name: str
     path: str  # Path under the instance base URL, e.g. "/api/issues/search"

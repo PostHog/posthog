@@ -38,7 +38,7 @@ class InngestRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InngestResumeConfig:
     # Cursor into the /v1/events walk: the internal_id (ULID) of the last event of the last page
     # already yielded downstream.

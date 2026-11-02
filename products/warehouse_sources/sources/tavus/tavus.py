@@ -23,7 +23,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/replicas"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TavusResumeConfig:
     # Next page to fetch (0-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on the id.

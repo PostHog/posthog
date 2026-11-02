@@ -41,7 +41,7 @@ class RunPodRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RunPodResumeConfig:
     # RFC 3339 start of the next unfetched billing window. Windows before it are fully yielded.
     window_start: str

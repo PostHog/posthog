@@ -27,7 +27,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LeexiResumeConfig:
     # Framework paginator / fan-out resume snapshot for the current endpoint.
     paginator_state: Optional[dict[str, Any]] = None

@@ -31,7 +31,7 @@ class CoverallsRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CoverallsResumeConfig:
     # The repository ("owner/repo") currently being walked. A stable name bookmark (not a positional
     # index) so repositories added/removed between a crash and the retry can't resume us into the

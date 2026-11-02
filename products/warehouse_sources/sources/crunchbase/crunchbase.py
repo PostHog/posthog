@@ -20,7 +20,7 @@ PAGE_SIZE = 1000
 REQUEST_TIMEOUT_SECONDS = 120
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CrunchbaseResumeConfig:
     # Keyset pagination: `after_id` is the uuid of the last entity of the
     # previous page; static body parts are rebuilt from job inputs on resume.

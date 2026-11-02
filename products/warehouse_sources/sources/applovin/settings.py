@@ -34,7 +34,7 @@ def cohort_metrics(prefixes: tuple[str, ...]) -> list[str]:
     return [f"{prefix}_{offset}" for prefix in prefixes for offset in COHORT_DAY_OFFSETS]
 
 
-@dataclass
+@dataclass(frozen=False)
 class AppLovinEndpointConfig:
     name: str
     # Path under `https://r.applovin.com`.

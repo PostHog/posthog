@@ -32,7 +32,7 @@ RESPONSE_TYPE_COMPLETED_ONLY = "completed"
 RESPONSE_TYPE_ALL = "completed,partial,started"
 
 
-@dataclass
+@dataclass(frozen=False)
 class TypeformEndpointConfig:
     name: str
     path: str

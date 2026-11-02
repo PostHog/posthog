@@ -5,7 +5,7 @@ from products.warehouse_sources.sources.sdk import DependentEndpointConfig, Incr
 SMARTENGAGE_BASE_URL = "https://api.smartengage.com"
 
 
-@dataclass
+@dataclass(frozen=False)
 class SmartEngageEndpointConfig:
     name: str
     path: str

@@ -12,7 +12,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 EndpointKind = Literal["list", "logs", "analytics"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class DenoDeployEndpointConfig:
     name: str
     path: str  # Path template; fan-out endpoints carry a {app} placeholder.

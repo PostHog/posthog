@@ -38,7 +38,7 @@ _TIMESTAMP_INCREMENTAL_FIELD: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class ConfluentCloudEndpointConfig:
     name: str
     kind: Literal["descriptors", "metrics"]

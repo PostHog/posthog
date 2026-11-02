@@ -18,7 +18,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class SurveyMonkeyEndpointConfig:
     name: str
     # Path for top-level endpoints, or a `{survey_id}` template for fan-out endpoints.

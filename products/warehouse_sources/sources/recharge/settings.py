@@ -14,7 +14,7 @@ DEFAULT_PAGE_SIZE = 250
 PAYMENT_METHODS_PAGE_SIZE = 50
 
 
-@dataclass
+@dataclass(frozen=False)
 class RechargeEndpointConfig:
     """Declarative metadata for a single Recharge list endpoint.
 

@@ -13,7 +13,7 @@ SPOT_IO_BASE_URL = "https://api.spotinst.io"
 DEFAULT_COST_LOOKBACK_DAYS = 30
 
 
-@dataclass
+@dataclass(frozen=False)
 class SpotIoEndpointConfig:
     name: str
     path: str

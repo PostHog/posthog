@@ -29,7 +29,7 @@ QUERY_PATH = "/api/v2/query"
 DEFAULT_PAGE_LIMIT = 10000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PlausibleResumeConfig:
     # Offset of the next page to fetch within the current query.
     offset: int = 0

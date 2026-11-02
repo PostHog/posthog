@@ -10,7 +10,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 PaginationStyle = Literal["page", "offset"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class BrazeEndpointConfig:
     name: str
     path: str

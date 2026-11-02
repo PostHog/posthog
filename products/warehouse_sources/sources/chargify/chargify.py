@@ -19,7 +19,7 @@ CHARGIFY_BASIC_PASSWORD = "x"
 BASE_PAGE = 1
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ChargifyResumeConfig:
     next_page: int
 

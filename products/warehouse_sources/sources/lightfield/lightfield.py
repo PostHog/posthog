@@ -162,7 +162,9 @@ def lightfield_source(
     return _source_response(endpoint_config, lambda: resource)
 
 
-def check_token(api_key: str, api_version: str) -> tuple[bool, list[str] | None, str | None]:
+def check_token(
+    api_key: str, api_version: str
+) -> tuple[bool, list[str] | None, str | None]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Probe `/v1/auth/validate` (no scope required). Returns (valid, granted scopes, error)."""
     session = make_tracked_session(redact_values=(api_key,))
     res = session.get(

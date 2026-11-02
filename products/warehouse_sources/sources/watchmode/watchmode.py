@@ -24,7 +24,7 @@ from products.warehouse_sources.sources.watchmode.settings import (
 VALIDATE_CREDENTIALS_TIMEOUT_SECONDS = 15
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WatchmodeResumeConfig:
     page: int
 

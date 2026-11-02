@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, incremental
 DEFAULT_PAGE_SIZE = 200
 
 
-@dataclass
+@dataclass(frozen=False)
 class AdobeCommerceEndpointConfig:
     name: str
     # Path below the `/rest/<store_code>/V1` prefix.

@@ -8,7 +8,7 @@ USERSNAP_BASE_URL = "https://platform.usersnap.com/v0.1"
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=False)
 class UsersnapEndpointConfig:
     name: str
     primary_keys: list[str]

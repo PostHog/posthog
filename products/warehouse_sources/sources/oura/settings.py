@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class OuraEndpointConfig:
     name: str
     # Path under the v2 base URL, e.g. "/usercollection/daily_sleep".

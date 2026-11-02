@@ -34,7 +34,7 @@ class CustomerlyAuthenticationError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CustomerlyResumeConfig:
     page: int
     # Set while walking the knowledge base articles fan-out: collections with a lower id

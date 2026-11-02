@@ -22,7 +22,7 @@ _RUN_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class WeightsAndBiasesEndpointConfig:
     # GraphQL node ids are globally unique (they encode entity + project), so a single-column
     # key stays unique even though fan-out endpoints aggregate rows from every project.

@@ -41,7 +41,7 @@ RECHARGE_API_VERSION = "2021-11"
 # Recharge's max); see `settings.py` for why some endpoints request less.
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RechargeResumeConfig:
     """Cursor state for resumable list iteration.
 

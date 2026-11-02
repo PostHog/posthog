@@ -18,7 +18,7 @@ MAX_PAGE_SIZE = 500
 RESULT_CAP = 10000
 
 
-@dataclass
+@dataclass(frozen=False)
 class SonarCloudEndpointConfig:
     name: str
     # v1 path relative to `<host>/api`, e.g. "issues/search".

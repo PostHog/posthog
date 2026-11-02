@@ -13,7 +13,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class OctopusDeployEndpointConfig:
     name: str
     # For space-scoped endpoints, relative to `/api/{space_id}`; for instance-level endpoints,

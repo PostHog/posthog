@@ -45,7 +45,7 @@ class VapiEndpointVersion:
     pagination: VapiPaginationStyle
 
 
-@dataclass
+@dataclass(frozen=False)
 class VapiEndpointConfig:
     name: str
     path: str

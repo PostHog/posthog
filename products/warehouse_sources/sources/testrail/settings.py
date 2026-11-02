@@ -24,7 +24,7 @@ def _epoch_incremental_field(name: str) -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class TestrailEndpointConfig:
     name: str
     # API method segment, e.g. "get_cases" in index.php?/api/v2/get_cases/{project_id}.

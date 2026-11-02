@@ -12,7 +12,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.torii.settings import PARTITION_KEYS, PRIMARY_KEYS, TORII_BASE_URL, get_resource
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ToriiResumeConfig:
     cursor: str
 

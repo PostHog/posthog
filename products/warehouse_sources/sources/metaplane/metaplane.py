@@ -27,7 +27,7 @@ class MetaplaneRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MetaplaneResumeConfig:
     # Bookmark into the monitor fan-out of the `monitor_evaluations` endpoint. A stable
     # monitor-ID bookmark (not a positional index) so monitors added/removed between a crash

@@ -31,7 +31,7 @@ _CURSOR_PATH = "next_page_token"
 _CURSOR_PARAM = "next_page_token"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ZoomResumeConfig:
     # Top-level (users): the opaque cursor for the next page. Kept under its original name so state
     # saved by the previous implementation still deserializes.

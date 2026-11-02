@@ -34,7 +34,7 @@ _WORKFLOW_NODE_RESPONSE_ACTIONS: list[ResponseAction] = [
 ]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LoopsResumeConfig:
     cursor: str
 

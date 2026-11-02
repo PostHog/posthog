@@ -37,7 +37,7 @@ class SquarespaceInvalidCursorError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SquarespaceResumeConfig:
     # The next-page cursor returned by Squarespace. For incremental syncs the cursor
     # preserves the `modifiedAfter`/`modifiedBefore` window of the original request, so
@@ -114,7 +114,9 @@ def _build_initial_params(
     return params
 
 
-def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, bool]:
+def validate_credentials(
+    api_key: str, schema_name: Optional[str] = None
+) -> tuple[bool, bool]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Probe Squarespace to confirm the token works.
 
     Returns ``(is_valid, is_forbidden)``. ``is_forbidden`` distinguishes a 403 (genuine

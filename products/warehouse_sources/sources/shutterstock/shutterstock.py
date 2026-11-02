@@ -26,7 +26,7 @@ SHUTTERSTOCK_BASE_URL = "https://api.shutterstock.com"
 MAX_PAGES = 100_000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ShutterstockResumeConfig:
     # Next 1-indexed page to fetch.
     page: int

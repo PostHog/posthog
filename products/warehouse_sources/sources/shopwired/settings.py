@@ -21,7 +21,7 @@ _CREATED_INCREMENTAL: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class ShopWiredEndpointConfig:
     name: str
     path: str

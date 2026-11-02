@@ -17,7 +17,7 @@ _ANALYSIS_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class PageSpeedEndpointConfig:
     name: str
     # PageSpeed Insights runs the analysis under one device profile per request; each strategy is

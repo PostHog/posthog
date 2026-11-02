@@ -28,7 +28,7 @@ class RenderRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RenderResumeConfig:
     # Cursor of the last processed item — passed back as `?cursor=` to fetch what follows.
     # None means "start the listing from its first page".

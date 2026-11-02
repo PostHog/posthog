@@ -57,7 +57,7 @@ PAGE_SIZE = 1000
 _MAX_DATE = "99991231"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OpenFDAResumeConfig:
     # Absolute, pre-encoded `Link: rel="next"` URL to fetch next. None means "start from the first
     # page" (the initial URL is rebuilt from the endpoint config + watermark).

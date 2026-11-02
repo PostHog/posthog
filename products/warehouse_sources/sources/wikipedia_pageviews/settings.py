@@ -59,7 +59,7 @@ MEDIA_TYPES = ("image", "video", "audio", "document", "other")
 MEDIA_REQUEST_AGENTS = ("user", "spider", "all-agents")
 
 
-@dataclass
+@dataclass(frozen=False)
 class WikipediaPageviewsEndpointConfig:
     name: str
     primary_keys: list[str]

@@ -24,7 +24,7 @@ RETENTLY_BASE_URL = "https://app.retently.com/api/v2"
 FIRST_PAGE = 1
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RetentlyResumeConfig:
     # Next page to fetch (1-based). Pages are requested in ascending creation order, so rows
     # created mid-sync land on the trailing pages and already-fetched pages stay stable; a crashed

@@ -28,7 +28,7 @@ DEFAULT_PAGE_SIZE = 1000
 ACTIONS_PAGE_SIZE = 2000
 
 
-@dataclass
+@dataclass(frozen=False)
 class NestedTableConfig:
     """A child table derived by flattening a nested array already present on a parent endpoint's
     rows — no extra API call. Impact ships invoice line items inside the Invoices payload, so we

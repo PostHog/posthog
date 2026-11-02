@@ -25,7 +25,7 @@ _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CratesIOEndpointConfig:
     name: str
     primary_keys: list[str]

@@ -19,7 +19,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OkendoResumeConfig:
     # Which sub-request of the endpoint was in flight: a review moderation status, or "" for the
     # endpoints that issue a single request.

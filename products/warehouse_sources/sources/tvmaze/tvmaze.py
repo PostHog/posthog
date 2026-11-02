@@ -18,7 +18,7 @@ from products.warehouse_sources.sources.tvmaze.settings import BASE_URL, ENDPOIN
 UPDATES_CHUNK_SIZE = 5000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TVMazeResumeConfig:
     page: int
 

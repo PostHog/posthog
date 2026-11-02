@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class AirOpsEndpointConfig:
     name: str
     # Partition on a STABLE creation timestamp so partitions don't rewrite on every sync. Apps expose

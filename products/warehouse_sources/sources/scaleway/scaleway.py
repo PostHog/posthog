@@ -131,6 +131,7 @@ def _iter_pages(
     logger: FilteringBoundLogger,
     start_page: int | None,
     start_token: str | None,
+    # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
 ) -> Iterator[tuple[list[dict], bool, dict[str, Any]]]:
     """Page through one scope, yielding ``(items, has_more, next_cursor)`` per response.
 

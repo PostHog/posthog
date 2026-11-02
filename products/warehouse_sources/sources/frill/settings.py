@@ -10,7 +10,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 # fan out over the ideas list (one comments sub-pagination per idea).
 
 
-@dataclass
+@dataclass(frozen=False)
 class FrillEndpointConfig:
     # Path under the API base (https://api.frill.co/v1).
     path: str

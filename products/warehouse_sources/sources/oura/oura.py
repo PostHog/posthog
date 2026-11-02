@@ -26,7 +26,7 @@ DEFAULT_START_DATETIME = f"{DEFAULT_START_DATE}T00:00:00+00:00"
 VALIDATE_TIMEOUT_SECONDS = 10
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OuraResumeConfig:
     # Opaque pagination cursor returned by the API as `next_token`. Resuming re-issues the same
     # date-windowed request with this token appended.

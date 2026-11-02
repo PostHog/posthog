@@ -20,7 +20,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/companies"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PlanhatResumeConfig:
     # Offset of the next page to fetch. Offset pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `_id`.

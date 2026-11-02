@@ -28,7 +28,7 @@ PAGE_SIZE = 200
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PardotResumeConfig:
     # v5 pages via an opaque `nextPageToken` that encapsulates the filters, limit and
     # orderBy of the original query, so the token alone is enough to resume.

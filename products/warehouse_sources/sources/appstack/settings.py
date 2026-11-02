@@ -14,7 +14,7 @@ PAGE_SIZE = 10000
 DEFAULT_INCREMENTAL_LOOKBACK_SECONDS = 24 * 60 * 60
 
 
-@dataclass
+@dataclass(frozen=False)
 class AppstackEndpointConfig:
     name: str
     path: str

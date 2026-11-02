@@ -10,7 +10,7 @@ BASE_URL = "https://api.tvmaze.com"
 TVMazeEndpointKind = Literal["index", "updates"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class TVMazeEndpointConfig:
     name: str
     path: str

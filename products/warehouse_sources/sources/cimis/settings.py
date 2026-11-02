@@ -50,7 +50,7 @@ DEFAULT_HOURLY_DATA_ITEMS = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CimisEndpointConfig:
     name: str
     path: str

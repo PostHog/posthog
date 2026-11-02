@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 TODOIST_BASE_URL = "https://api.todoist.com/api/v1"
 
 
-@dataclass
+@dataclass(frozen=False)
 class TodoistEndpointConfig:
     name: str
     path: str

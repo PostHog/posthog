@@ -19,7 +19,7 @@ PAGE_LIMIT = 100
 REQUEST_TIMEOUT_SECONDS = 30
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SpotlerCRMResumeConfig:
     next_page: int
 

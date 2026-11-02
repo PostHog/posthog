@@ -217,7 +217,9 @@ def _chunk_rows(rows: Iterator[dict[str, Any]]) -> Iterator[list[dict[str, Any]]
         yield chunk
 
 
-def _month_windows(start: date, today: date) -> Iterator[tuple[date, date]]:
+def _month_windows(
+    start: date, today: date
+) -> Iterator[tuple[date, date]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Calendar-month windows from `start` through `today` (inclusive bounds, last one clipped)."""
     window_start = start
     while window_start <= today:

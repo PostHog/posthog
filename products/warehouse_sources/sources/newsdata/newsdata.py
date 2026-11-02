@@ -21,7 +21,7 @@ from products.warehouse_sources.sources.sdk import (
 NEWSDATA_BASE_URL = "https://newsdata.io/api/1"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class NewsDataResumeConfig:
     # Opaque `nextPage` cursor token to resume pagination from. None means "start at the first page".
     next_page: str | None = None

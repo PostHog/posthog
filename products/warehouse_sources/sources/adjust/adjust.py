@@ -47,7 +47,7 @@ class AdjustCredentialsError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AdjustResumeConfig:
     # ISO date (YYYY-MM-DD) of the next date window to request. Lets a multi-window backfill pick up
     # where it stopped after a heartbeat timeout instead of re-walking the whole history.
@@ -277,7 +277,9 @@ def resolve_start_date(
     return earliest
 
 
-def date_windows(start: date, end: date, window_days: int = WINDOW_DAYS) -> list[tuple[date, date]]:
+def date_windows(
+    start: date, end: date, window_days: int = WINDOW_DAYS
+) -> list[tuple[date, date]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Split [start, end] into consecutive inclusive windows of at most `window_days` days."""
     if start > end:
         return []

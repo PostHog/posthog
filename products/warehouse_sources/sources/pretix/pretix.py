@@ -72,7 +72,7 @@ class PretixHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PretixResumeConfig:
     # Full URL of the next page to fetch, taken verbatim from the API's ``next`` link (query params,
     # including any ``modified_since`` filter, are baked into it). Persisted for organizer-level

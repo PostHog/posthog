@@ -24,7 +24,7 @@ class SnykScope(Enum):
     PER_COLLECTION = "per_collection"
 
 
-@dataclass
+@dataclass(frozen=False)
 class SnykEndpointConfig:
     name: str
     scope: SnykScope

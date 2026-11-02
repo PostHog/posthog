@@ -82,7 +82,7 @@ query Organizations($first: Int!) {
 """
 
 
-@dataclass
+@dataclass(frozen=False)
 class SourcegraphEndpointConfig:
     name: str
     query: str

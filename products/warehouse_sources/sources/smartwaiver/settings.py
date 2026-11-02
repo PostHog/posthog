@@ -18,7 +18,7 @@ def _datetime_incremental_fields(field_name: str) -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class SmartwaiverEndpointConfig:
     name: str
     path: str  # Path under https://api.smartwaiver.com, e.g. "/v4/waivers"

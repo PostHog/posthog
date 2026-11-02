@@ -26,7 +26,7 @@ ENV0_BASE_URL = "https://api.env0.com"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class Env0ResumeConfig:
     # Legacy fields from the hand-rolled fan-out (a parent bookmark plus a per-parent offset). Kept
     # (now with defaults) so state written by the previous implementation still deserializes via

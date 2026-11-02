@@ -74,7 +74,7 @@ class DatahubTimeseriesScrollUnsupportedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DatahubResumeConfig:
     # Opaque scroll cursor returned by the OpenAPI v3 entity endpoint; passing it back fetches
     # the next page. None means "start from the first page".

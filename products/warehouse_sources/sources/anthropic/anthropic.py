@@ -518,7 +518,7 @@ def _flatten_claude_code_core(item: dict[str, Any]) -> dict[str, Any]:
     lines_of_code = core.get("lines_of_code") or {}
     tool_actions = item.get("tool_actions") or {}
 
-    def _tool(name: str) -> tuple[Any, Any]:
+    def _tool(name: str) -> tuple[Any, Any]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
         action = tool_actions.get(name) or {}
         return action.get("accepted"), action.get("rejected")
 

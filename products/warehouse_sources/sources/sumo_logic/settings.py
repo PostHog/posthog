@@ -17,7 +17,7 @@ PaginationStyle = Literal["token", "offset", "single", "search_job", "slo_sli", 
 DEFAULT_LOGS_LOOKBACK_DAYS = 7
 
 
-@dataclass
+@dataclass(frozen=False)
 class SumoLogicEndpointConfig:
     name: str
     path: str

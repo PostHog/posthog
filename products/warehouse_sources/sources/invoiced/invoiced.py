@@ -43,7 +43,7 @@ def _validate_pagination_url(url: str) -> str:
     return url
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InvoicedResumeConfig:
     # Full URL of the next page, taken verbatim from the Link header's rel="next". It carries
     # the original request's per_page/sort/updated_after params, so a crashed sync resumes from

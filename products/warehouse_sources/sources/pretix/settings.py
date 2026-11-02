@@ -17,7 +17,7 @@ class EndpointScope(Enum):
     EVENT = "event"
 
 
-@dataclass
+@dataclass(frozen=False)
 class PretixEndpointConfig:
     name: str
     path: str

@@ -66,7 +66,9 @@ def _format_filter_value(dt: datetime) -> str:
     return dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _build_windows(start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+def _build_windows(
+    start: datetime, end: datetime
+) -> list[tuple[datetime, datetime]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Contiguous (start, end] slices of at most MAX_QUERY_RANGE_DAYS covering [start, end]."""
     windows: list[tuple[datetime, datetime]] = []
     window_start = start

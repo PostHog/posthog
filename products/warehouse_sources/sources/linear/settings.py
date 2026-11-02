@@ -24,7 +24,7 @@ INCREMENTAL_DATETIME_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class LinearEndpointConfig:
     incremental_fields: list[IncrementalField]
     graphql_query_name: str | None = None

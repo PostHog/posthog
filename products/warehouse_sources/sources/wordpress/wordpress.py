@@ -49,7 +49,7 @@ class WordpressHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WordpressResumeConfig:
     next_url: str
 

@@ -23,7 +23,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DovetailResumeConfig:
     # Opaque framework checkpoint: `{"cursor": ...}` for a top-level endpoint's
     # JSONResponseCursorPaginator, or the fan-out manager's `{"completed": [...], "current":

@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class TawkToEndpointConfig:
     name: str
     # RPC-style method name appended to the base URL (e.g. "chat.list"). Every tawk.to API

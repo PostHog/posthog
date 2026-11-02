@@ -35,7 +35,7 @@ class WindmillHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WindmillResumeConfig:
     # 1-based page number to fetch on resume. A saved value points at the next page to fetch after
     # the last durably-committed one; on resume the scan restarts there and merge dedupes any overlap.

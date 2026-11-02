@@ -81,7 +81,7 @@ def _read_capped_body(response: requests.Response) -> bytes:
     return b"".join(chunks)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WorkdayResumeConfig:
     offset: int
 

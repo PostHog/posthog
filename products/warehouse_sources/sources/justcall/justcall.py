@@ -25,7 +25,7 @@ PAGE_SIZE = 100
 FIRST_PAGE = 0
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JustCallResumeConfig:
     # Next 0-indexed page to fetch. The cursor filter (`from_datetime`) is recomputed from the
     # unchanged job inputs on resume, so only the page position needs persisting.

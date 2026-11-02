@@ -22,7 +22,7 @@ PAGE_SIZE = 250
 DEFAULT_PROBE_PATH = "/event-type"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SvixResumeConfig:
     # Opaque cursor returned by the previous page. Svix cursor pagination is deterministic, so a
     # crashed full-refresh sync resumes from the page after the last one yielded; merge dedupes on

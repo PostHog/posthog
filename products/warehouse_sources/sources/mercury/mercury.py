@@ -24,7 +24,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MercuryResumeConfig:
     # `page.nextPage` cursor from the last fully-yielded page, replayed as `start_after`.
     cursor: str

@@ -28,7 +28,7 @@ PAGE_SIZE = 100
 MAX_PAGES_PER_WORKFLOW = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SkyvernResumeConfig:
     # Next page number to fetch (1-based) for the simple (non-fan-out) endpoints.
     page: int = 1

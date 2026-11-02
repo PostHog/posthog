@@ -52,7 +52,9 @@ class AblyResumeConfig:
     fanout_state: Optional[dict[str, Any]] = None
 
 
-def split_api_key(api_key: str) -> tuple[str, str]:
+def split_api_key(
+    api_key: str,
+) -> tuple[str, str]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Ably app API keys are `{app-id}.{key-id}:{key-secret}` — Basic auth splits on the
     first colon (https://ably.com/docs/api/rest-api#authentication)."""
     username, _, password = api_key.partition(":")

@@ -19,7 +19,7 @@ XENDIT_BASE_URL = "https://api.xendit.co"
 PAGE_SIZE = 50
 
 
-@dataclass
+@dataclass(frozen=False)
 class XenditEndpointConfig:
     name: str
     path: str

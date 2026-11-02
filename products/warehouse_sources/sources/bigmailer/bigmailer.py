@@ -37,7 +37,7 @@ class BigMailerAuthError(Exception):
     """
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BigMailerResumeConfig:
     # Cursor for the next page to fetch on a top-level (account-wide) endpoint. None starts a list
     # at its first page.

@@ -35,7 +35,7 @@ ANALYTICS_LOOKBACK_SECONDS = 14 * 24 * 60 * 60
 _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [incremental_field("date", IncrementalFieldType.Date)]
 
 
-@dataclass
+@dataclass(frozen=False)
 class TransistorEndpointConfig:
     name: str
     primary_keys: list[str]

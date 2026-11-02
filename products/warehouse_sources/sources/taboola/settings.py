@@ -19,7 +19,7 @@ REPORT_WINDOW_DAYS = 30
 TaboolaEndpointKind = Literal["entity", "campaign_items", "report", "snapshot_report"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class TaboolaEndpointConfig:
     name: str
     kind: TaboolaEndpointKind

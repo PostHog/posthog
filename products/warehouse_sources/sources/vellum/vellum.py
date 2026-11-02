@@ -19,7 +19,7 @@ from products.warehouse_sources.sources.vellum.settings import VELLUM_BASE_URL, 
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class VellumResumeConfig:
     # Next `offset` to request for a simple (non-fan-out) list endpoint. Seeds the OffsetPaginator's
     # resume state; saved after each fully-yielded page so a crash re-fetches the last page (merge

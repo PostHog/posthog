@@ -12,7 +12,7 @@ AUDIT_LOG_RETENTION_DAYS = 90
 AUDIT_LOG_WINDOW_DAYS = 7
 
 
-@dataclass
+@dataclass(frozen=False)
 class TailscaleEndpointConfig:
     name: str
     # Path relative to https://api.tailscale.com/api/v2, with a `{tailnet}` placeholder.

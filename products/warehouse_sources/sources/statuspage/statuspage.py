@@ -54,7 +54,7 @@ class StatuspageAuth(AuthConfigBase):
         return (self.api_key,) if self.api_key else ()
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StatuspageResumeConfig:
     # Legacy fields from the pre-framework implementation, retained (with defaults) so a checkpoint
     # written by the old code still parses via ``dataclass(**saved)``. They are no longer written; a

@@ -13,7 +13,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ChurnkeyResumeConfig:
     # Offset (number of records to skip) for the next page to fetch. The API paginates via
     # `limit`/`skip`, so the offset is the only state we need to resume a full refresh.

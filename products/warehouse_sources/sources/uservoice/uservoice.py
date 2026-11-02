@@ -23,7 +23,7 @@ USERVOICE_API_PATH = "/api/v2/admin"
 _SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class UservoiceResumeConfig:
     # Opaque cursor token from `pagination.cursor`, when the account uses cursor pagination.
     cursor: str | None = None

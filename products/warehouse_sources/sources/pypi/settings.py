@@ -15,7 +15,7 @@ _UPLOAD_TIME_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class PyPIEndpointConfig:
     name: str
     # Where the rows for this stream live inside the JSON project document

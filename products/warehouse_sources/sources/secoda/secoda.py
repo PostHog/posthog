@@ -25,7 +25,7 @@ DEFAULT_PROBE_PATH = "/api/v1/user"
 NEXT_URL_PATH = "(links.next) | next"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SecodaResumeConfig:
     # Full URL of the next page to fetch, taken verbatim from the API's ``links.next``. Secoda uses
     # DRF-style cursor pagination, so a crashed full-refresh sync resumes from the page after the

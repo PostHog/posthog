@@ -31,7 +31,7 @@ from products.warehouse_sources.sources.wasabi.settings import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WasabiResumeConfig:
     # Opaque paginator resume snapshot: {"next_from": ...} for date-windowed endpoints,
     # the framework's {"completed"/"current"/"child_state"} shape for the fan-out.

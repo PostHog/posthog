@@ -77,7 +77,7 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return _EXPONENTIAL_JITTER(retry_state)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WritesonicResumeConfig:
     # Daily endpoints resume at (day, page); config endpoints only use `page`.
     date: Optional[str] = None

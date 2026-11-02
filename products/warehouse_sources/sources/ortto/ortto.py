@@ -23,7 +23,7 @@ class OrttoRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OrttoResumeConfig:
     # Pagination position within a single full-refresh sync. `cursor_id` pins
     # the result set for the people/accounts endpoints; offset-only endpoints

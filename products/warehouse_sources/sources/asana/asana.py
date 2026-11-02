@@ -25,7 +25,7 @@ PAGE_SIZE = 100
 NEXT_URL_PATH = "next_page.uri"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AsanaResumeConfig:
     # Legacy fields from the hand-rolled fan-out. Kept (now with defaults) so state saved by the
     # previous implementation still deserializes via `ResumableSourceManager._load_json`.

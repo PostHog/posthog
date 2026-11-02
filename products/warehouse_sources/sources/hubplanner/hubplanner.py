@@ -24,7 +24,7 @@ HUBPLANNER_BASE_URL = "https://api.hubplanner.com/v1"
 PAGE_SIZE = 1000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HubPlannerResumeConfig:
     # Next 0-indexed page to fetch. Pagination is page-number based, so the page index is the
     # only cursor we need to persist to resume mid-endpoint after a heartbeat timeout.
@@ -127,6 +127,7 @@ def _build_request_plan(
     config: HubPlannerEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
+    # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
 ) -> tuple[str, str, Optional[dict[str, Any]], Optional[str]]:
     """Resolve (http_method, path, body, sort_field) for an endpoint's list request.
 

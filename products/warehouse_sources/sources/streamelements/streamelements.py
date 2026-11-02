@@ -21,7 +21,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.streamelements.settings import STREAMELEMENTS_ENDPOINTS, streamelements_base_url
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StreamElementsResumeConfig:
     # Paginator snapshot: {"offset": int} for offset endpoints, {"before": int} for activities.
     paginator_state: dict[str, Any]

@@ -25,7 +25,7 @@ from products.warehouse_sources.sources.sdk import (
 UNSERVED_TABLE_ERROR = "Census table not served by this API version"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CensusResumeConfig:
     # Opaque framework checkpoint: `{"page": N}` for top-level endpoints, or the fan-out
     # manager's `{"completed": [...], "current": ..., "child_state": {"page": N}}` for

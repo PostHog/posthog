@@ -24,7 +24,7 @@ PAGE_SIZE = 500
 MAX_PAGES = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TeamworkResumeConfig:
     # Next 1-based page number to fetch within the current sync window.
     page: int = 1

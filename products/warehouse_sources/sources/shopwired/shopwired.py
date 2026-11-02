@@ -24,7 +24,7 @@ SHOPWIRED_BASE_URL = "https://api.ecommerceapi.uk/v1"
 DEFAULT_PROBE_PATH = "/products/count"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ShopWiredResumeConfig:
     # Number of rows already yielded — ShopWired paginates with `count`/`offset` query params, so a
     # crashed sync resumes from the page after the last one yielded; merge dedupes on `id`.

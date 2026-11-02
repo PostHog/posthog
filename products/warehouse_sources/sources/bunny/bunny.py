@@ -53,7 +53,7 @@ DATE_FROM_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 STREAM_KEY_FIELDS = ("ReadOnlyApiKey", "ApiKey")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BunnyResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `Id`.

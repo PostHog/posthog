@@ -38,7 +38,7 @@ class LaceworkRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LaceworkResumeConfig:
     # ISO start of the time window currently being paged. Windows are re-derived from this on
     # resume, so boundaries stay consistent across attempts.
@@ -261,7 +261,7 @@ def validate_credentials(account_name: str, key_id: str, secret_key: str) -> tup
 
 def _first_page_request(
     config: LaceworkEndpointConfig, api_base_url: str, window_start: datetime, window_end: datetime
-) -> tuple[str, str, dict[str, Any] | None]:
+) -> tuple[str, str, dict[str, Any] | None]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Build (method, url, body) for the first page of a time window."""
     start = _format_datetime(window_start)
     end = _format_datetime(window_end)

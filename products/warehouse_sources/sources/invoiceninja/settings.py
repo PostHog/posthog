@@ -7,7 +7,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=False)
 class InvoiceNinjaEndpointConfig:
     name: str
     # Path appended to the API base (which already ends in `/api/v1`).

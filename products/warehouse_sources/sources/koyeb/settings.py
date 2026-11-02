@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class KoyebEndpointConfig:
     name: str
     # Path on https://app.koyeb.com (the canonical Koyeb API host; api.prod.koyeb.com is an alias).

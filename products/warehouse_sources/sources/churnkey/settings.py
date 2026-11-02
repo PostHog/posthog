@@ -11,7 +11,7 @@ CHURNKEY_BASE_URL = "https://api.churnkey.co/v1/data"
 DEFAULT_PAGE_SIZE = 1000
 
 
-@dataclass
+@dataclass(frozen=False)
 class ChurnkeyEndpointConfig:
     name: str
     path: str

@@ -35,7 +35,7 @@ class ApolloRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ApolloResumeConfig:
     # Search endpoints paginate with a 1-based page number; static body parts
     # are rebuilt deterministically from job inputs on resume.

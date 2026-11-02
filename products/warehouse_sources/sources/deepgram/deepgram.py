@@ -73,7 +73,7 @@ class DeepgramRequestsPaginator(PageNumberPaginator):
             self._has_next_page = False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DeepgramResumeConfig:
     # Opaque paginator/fan-out state handed back by the rest_source framework (per-parent completed-path
     # progress plus the in-progress project's requests-log page). Retained as a single blob so the shape

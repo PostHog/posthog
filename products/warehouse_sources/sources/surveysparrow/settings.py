@@ -16,7 +16,7 @@ COMPLETED_TIME_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class SurveySparrowEndpointConfig:
     name: str
     path: str

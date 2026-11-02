@@ -21,7 +21,7 @@ GIPHY_BASE_URL = "https://api.giphy.com/v1"
 PAGE_SIZE = 50
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GiphyResumeConfig:
     # GIPHY paginates with a numeric offset. The endpoint and (for search) query
     # are rebuilt deterministically from job inputs on resume, so only the offset

@@ -17,7 +17,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 SALESLOFT_UPDATED_AT_FIELD = "updated_at"
 
 
-@dataclass
+@dataclass(frozen=False)
 class SalesloftEndpointConfig:
     name: str
     path: str

@@ -20,7 +20,7 @@ BLUETALLY_BASE_URL = "https://app.bluetallyapp.com/api/v1"
 PAGE_SIZE = 1000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BluetallyResumeConfig:
     # Offset of the next page to fetch. BlueTally paginates with limit/offset, so persisting the
     # offset is all we need to pick a full-refresh sync back up after a heartbeat timeout.

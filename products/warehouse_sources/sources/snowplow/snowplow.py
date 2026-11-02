@@ -45,7 +45,7 @@ class SnowplowAuthError(Exception):
     """Credential problem (bad org ID, key ID, or key) — permanent, never retried."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SnowplowResumeConfig:
     # End of the last fully-yielded time window (ISO 8601) for the windowed jobs endpoints. The
     # resumed attempt restarts from here; the in-flight window is re-fetched and merge dedupes.
@@ -71,7 +71,9 @@ def _parse_datetime(value: Any) -> datetime:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
-def _iter_windows(start: datetime, end: datetime, step: timedelta) -> Iterator[tuple[datetime, datetime]]:
+def _iter_windows(
+    start: datetime, end: datetime, step: timedelta
+) -> Iterator[tuple[datetime, datetime]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     window_start = start
     while window_start < end:
         window_end = min(window_start + step, end)

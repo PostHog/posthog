@@ -35,7 +35,7 @@ USAGE_WINDOW_START = "2019-01-01T00:00:00Z"
 REDACTED_SECRET = "[redacted by PostHog]"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class KoyebResumeConfig:
     # The `offset` of the next page to fetch. Rows are requested in ascending order (where the
     # endpoint supports `order`), so rows appended mid-sync land after the offset and can't shift

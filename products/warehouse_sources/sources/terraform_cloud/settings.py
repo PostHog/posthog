@@ -14,7 +14,7 @@ CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class TerraformCloudEndpointConfig:
     name: str
     # Path template. `{organization}` is filled from the source config; fan-out endpoints may

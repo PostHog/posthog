@@ -45,7 +45,7 @@ class TeamCityRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TeamCityResumeConfig:
     # Server-relative nextHref of the next page to fetch (for fan-out endpoints, the next
     # page of the parent builds walk). None means "start from the first page".

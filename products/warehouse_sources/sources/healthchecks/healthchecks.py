@@ -25,7 +25,7 @@ class HealthchecksRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HealthchecksResumeConfig:
     # The check we're about to fan out over. A stable check-key bookmark (not a positional
     # index) so checks added/removed between a crash and the retry can't resume into the wrong

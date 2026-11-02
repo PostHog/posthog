@@ -26,7 +26,7 @@ DEFAULT_REGION = "us"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DocusealResumeConfig:
     # The `after` cursor (a record id) used to fetch the page we're currently streaming. We persist
     # *this* page's cursor (not the next page's) so a crash mid-page resumes by re-fetching the same

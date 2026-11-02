@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class ActiveCampaignEndpointConfig:
     name: str
     # Path under /api/3 (e.g. "/contacts").

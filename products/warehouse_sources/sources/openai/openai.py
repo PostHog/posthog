@@ -39,7 +39,7 @@ LOOKBACK_EXCEEDED_CODE = "reporting_lookback_exceeded"
 LOOKBACK_FALLBACK_DAYS = (730, 365, 180, 90, 30, 7)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OpenAIResumeConfig:
     # Opaque pagination cursor: an `after` object id for CURSOR endpoints or a `next_page` token
     # for PAGE endpoints. None means "start at the first page".

@@ -31,7 +31,7 @@ def _date_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class ClickhouseCloudEndpointConfig:
     name: str
     # Path relative to the API host, with {organization_id} / {service_id} placeholders.

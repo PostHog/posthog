@@ -23,7 +23,7 @@ from products.warehouse_sources.sources.xendit.settings import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class XenditResumeConfig:
     after_id: str
 

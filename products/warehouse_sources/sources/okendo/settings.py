@@ -13,7 +13,7 @@ PAGE_LIMIT = 100
 REVIEW_STATUSES = ("approved", "pending", "rejected")
 
 
-@dataclass
+@dataclass(frozen=False)
 class OkendoEndpointConfig:
     path: str
     # Key holding the row array in the response body.

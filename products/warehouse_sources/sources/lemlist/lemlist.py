@@ -34,7 +34,7 @@ LEMLIST_SUPPORTED_VERSIONS = (LEMLIST_API_VERSION_V1, LEMLIST_API_VERSION_V2)
 LEMLIST_DEFAULT_VERSION = LEMLIST_API_VERSION_V2
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LemlistResumeConfig:
     # Offset of the next page to fetch. lemlist uses limit/offset pagination, so a single integer
     # is enough to pick back up where a crashed run left off.

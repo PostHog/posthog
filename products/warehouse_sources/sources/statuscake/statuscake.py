@@ -32,7 +32,7 @@ class StatusCakeRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StatusCakeResumeConfig:
     # Top-level list endpoints: the page number most recently yielded. On resume we re-fetch and
     # re-yield that page (merge dedupes on the primary key) rather than risk skipping rows that

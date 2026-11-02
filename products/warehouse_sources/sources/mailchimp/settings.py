@@ -12,7 +12,7 @@ MailchimpPagination = Literal["offset", "count_only", "none"]
 MAX_PAGE_SIZE = 1000  # Mailchimp caps `count` at 1000 across the API
 
 
-@dataclass
+@dataclass(frozen=False)
 class MailchimpParentConfig:
     """One hop of a fan-out chain.
 

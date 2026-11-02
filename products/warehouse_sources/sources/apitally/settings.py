@@ -16,7 +16,7 @@ APP_ID_FANOUT = DependentEndpointConfig(
 )
 
 
-@dataclass
+@dataclass(frozen=False)
 class ApitallyEndpointConfig:
     name: str
     path: str

@@ -14,7 +14,7 @@ _LAST_MODIFIED_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CommercetoolsEndpointConfig:
     name: str
     path: str

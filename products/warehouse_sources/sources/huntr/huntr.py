@@ -29,7 +29,7 @@ REQUEST_TIMEOUT_SECONDS = 60
 DEFAULT_PROBE_PATH = "/members"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HuntrResumeConfig:
     # Cursor for the next page to fetch — Huntr returns the `id` of the last object on the page as
     # `next`, and passing it back fetches the following page. Cursor pagination is deterministic, so a

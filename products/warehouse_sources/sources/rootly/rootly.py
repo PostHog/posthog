@@ -19,7 +19,7 @@ ROOTLY_BASE_URL = "https://api.rootly.com/v1"
 ROOTLY_JSON_API_MEDIA_TYPE = "application/vnd.api+json"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class RootlyResumeConfig:
     # Full next-page URL from the JSON:API `links.next` field. It already carries the page,
     # sort, and filter params, so following it preserves the incremental window on every page.

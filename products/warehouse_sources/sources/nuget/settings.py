@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 SERVICE_INDEX_URL = "https://api.nuget.org/v3/index.json"
 
 
-@dataclass
+@dataclass(frozen=False)
 class NugetEndpointConfig:
     name: str
     # True only for the catalog: its index exposes per-page commitTimeStamps, so a cursor can skip

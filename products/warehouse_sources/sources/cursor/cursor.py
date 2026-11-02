@@ -45,7 +45,7 @@ ENTERPRISE_PLAN_ERROR = "Cursor Enterprise plan required"
 _ENTERPRISE_PLAN_MARKER = "member of an enterprise team"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class CursorResumeConfig:
     # Start (epoch ms) of the window being processed when the sync was interrupted.
     # None for the non-windowed endpoints (members, spend).

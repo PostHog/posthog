@@ -51,7 +51,7 @@ def _data_selector(data_key: str, api_version: str) -> str:
     return f"data.{data_key}"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SmartreachResumeConfig:
     # Full URL of the next page, taken verbatim from `links.next`. None means "start at the
     # endpoint's first page". The next URL already carries every pagination param, so the original

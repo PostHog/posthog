@@ -26,7 +26,7 @@ BASE_HOST = "https://api.beehiiv.com"
 REQUEST_TIMEOUT_SECONDS = 30.0
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BeehiivResumeConfig:
     # Opaque paginator snapshot: `{"cursor": ...}` for cursor endpoints, `{"page": ...}` for
     # paged ones. The manager is namespaced per endpoint so the two shapes can't cross over.

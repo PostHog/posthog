@@ -69,7 +69,7 @@ class PlaidNoProductDataError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PlaidResumeConfig:
     # /transactions/get paginates with options.offset; static body parts are
     # rebuilt deterministically from job inputs on resume.

@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class TrelloEndpointConfig:
     name: str
     # For ``member`` scope this is the full path under the base URL

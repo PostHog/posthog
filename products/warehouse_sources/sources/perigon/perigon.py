@@ -29,7 +29,7 @@ PAGE_SIZE = 100
 MAX_PAGE = 99
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PerigonResumeConfig:
     # Next zero-based page to fetch, as reported by the framework paginator state.
     page: int

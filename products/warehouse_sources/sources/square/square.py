@@ -76,7 +76,7 @@ class SquareCredentialProbe:
     is_forbidden: bool
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SquareResumeConfig:
     # The next-page pagination cursor returned by Square. Square cursors expire
     # after ~5 minutes, so a resume that lands outside that window will re-fetch

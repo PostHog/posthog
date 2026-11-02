@@ -25,7 +25,7 @@ _TIME_INCREMENTAL_FIELD: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class RunPodEndpointConfig:
     name: str
     path: str

@@ -213,7 +213,7 @@ Then list the IDs of the resources to collect metrics for — for example Kafka 
 
     def _credentials_probe(
         self, config: ConfluentCloudSourceConfig, schema_name: Optional[str]
-    ) -> tuple[str, str, str, bool]:
+    ) -> tuple[str, str, str, bool]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
         """Pick (probe_metric, resource_label, resource_id, is_real_resource) for the credential
         check. Prefers the requested schema's resources, then any configured resource, then a fake
         Kafka cluster id (403 on it still proves the key authenticates)."""

@@ -12,7 +12,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class PipelinerEndpointConfig:
     name: str
     # Entity collection name in the REST path, e.g. `/entities/Accounts`.

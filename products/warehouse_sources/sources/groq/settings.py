@@ -9,7 +9,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 # after ~30 days regardless, so a full refresh each run is cheap and correct.
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class GroqEndpointConfig:
     name: str
     path: str

@@ -32,7 +32,7 @@ from products.warehouse_sources.sources.tally.settings import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TallyResumeConfig:
     # Page bookmark for a top-level endpoint. None means "start at page one".
     next_page: Optional[int] = None

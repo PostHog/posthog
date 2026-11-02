@@ -27,7 +27,7 @@ PAGE_SIZE = 100
 _PARENT_PAGE_ID_KEY = "_pages_id"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InstatusResumeConfig:
     # Next page to fetch for a non-fan-out resource (1-based page-number pagination). Kept with a
     # default so previously saved fan-out state (which never set it) still parses.

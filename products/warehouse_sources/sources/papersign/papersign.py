@@ -21,7 +21,7 @@ BASE_URL = "https://api.paperform.co/v1"
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PapersignResumeConfig:
     # The `skip` (offset) of the page we're currently streaming. We persist *this* page's offset
     # (not the next one) so a crash mid-page resumes by re-fetching the same page rather than

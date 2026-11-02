@@ -35,7 +35,7 @@ class PipelinerHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class PipelinerResumeConfig:
     # `page_info.end_cursor` of the last page yielded; passed back via `after` to resume from the
     # next page. Merge dedupes any re-pulled rows on the primary key.

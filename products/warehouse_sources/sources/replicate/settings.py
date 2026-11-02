@@ -10,7 +10,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 ResponseShape = Literal["paginated", "list", "object"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class ReplicateEndpointConfig:
     name: str
     path: str

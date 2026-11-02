@@ -45,7 +45,7 @@ class TailscaleAuthError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TailscaleResumeConfig:
     # Start of the next unfetched audit-log window (RFC 3339). Only the audit log
     # endpoint checkpoints — the other endpoints are single unpaginated requests.

@@ -26,7 +26,7 @@ METORIAL_API_VERSION = "2025-01-01"
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MetorialResumeConfig:
     # Cursor (a record id) to fetch the next page from. None means "start at the first page".
     after: str | None = None

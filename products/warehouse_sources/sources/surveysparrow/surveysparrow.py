@@ -28,7 +28,7 @@ from products.warehouse_sources.sources.surveysparrow.settings import (
 SURVEY_LIST_PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SurveySparrowResumeConfig:
     # Legacy fields from the pre-framework implementation, kept (with defaults) so a checkpoint
     # written by the old code still parses via ``dataclass(**saved)``. They are no longer written; a

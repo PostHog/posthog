@@ -30,7 +30,7 @@ NEXT_PAGE_TOKEN = "nextPageToken"
 REQUEST_TIMEOUT = (10, 60)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class WrikeResumeConfig:
     next_page_token: str
 

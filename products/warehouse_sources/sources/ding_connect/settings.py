@@ -6,7 +6,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField
 DingConnectMethod = Literal["GET", "POST"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class DingConnectEndpointConfig:
     name: str
     path: str

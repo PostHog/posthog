@@ -37,7 +37,7 @@ class SmailyRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SmailyResumeConfig:
     # Page index within the endpoint (or within the current parent for fan-out endpoints).
     page: int = 0

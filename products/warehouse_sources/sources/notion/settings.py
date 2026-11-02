@@ -9,7 +9,7 @@ NOTION_PAGE_SIZE = 100
 StreamType = Literal["search", "users", "blocks", "comments", "permission_groups"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class NotionEndpointConfig:
     name: str
     stream_type: StreamType

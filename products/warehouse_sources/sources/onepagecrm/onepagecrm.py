@@ -27,7 +27,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/contacts"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OnepagecrmResumeConfig:
     # Next page to fetch (1-based). Page numbering is only stable for a fixed query, so the
     # `modified_since` anchor the run started with is persisted alongside it — resuming with a

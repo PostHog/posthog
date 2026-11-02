@@ -18,7 +18,7 @@ from products.warehouse_sources.sources.sdk import (
 BREVO_BASE_URL = "https://api.brevo.com/v3"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class BrevoResumeConfig:
     # Offset (record index) of the next page to fetch within the current sync.
     offset: int

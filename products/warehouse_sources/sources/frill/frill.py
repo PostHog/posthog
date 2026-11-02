@@ -25,7 +25,7 @@ class FrillRetryableError(Exception):
     """Raised on 429/5xx so tenacity retries; never reaches get_non_retryable_errors."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FrillResumeConfig:
     # `after` cursor into the endpoint's top-level list. For the comments fan-out this is the
     # cursor into /ideas — comments resume at the last fully processed page of parent ideas.

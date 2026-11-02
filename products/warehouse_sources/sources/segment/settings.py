@@ -12,7 +12,7 @@ REGION_BASE_URLS: dict[str, str] = {
 DEFAULT_REGION = "api"
 
 
-@dataclass
+@dataclass(frozen=False)
 class SegmentEndpointConfig:
     name: str
     path: str

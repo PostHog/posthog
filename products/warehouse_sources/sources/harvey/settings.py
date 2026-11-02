@@ -29,7 +29,7 @@ VAULT_PROJECTS_PAGE_SIZE = 100  # `per_page` max on GET /api/v1/vault/workspace/
 VAULT_PROJECT_FILES_PAGE_SIZE = 100  # `limit` max on GET /api/v1/vault/projects/{project_id}/files
 
 
-@dataclass
+@dataclass(frozen=False)
 class HarveyEndpointConfig:
     name: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])

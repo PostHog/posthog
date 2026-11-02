@@ -148,7 +148,7 @@ class SourcegraphQueryError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class SourcegraphResumeConfig:
     # Relay `endCursor` of the last fully-yielded page. None means "start from the first page".
     cursor: str | None = None

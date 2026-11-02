@@ -26,7 +26,7 @@ MESSAGES_PAGE_SIZE = 1000
 MAILOSAUR_HEADERS = {"Accept": "application/json"}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MailosaurResumeConfig:
     # Legacy fields from the hand-rolled fan-out: a stable server-id bookmark (not a positional
     # index) plus the next page to fetch for it. Kept (now with defaults) so state written by the

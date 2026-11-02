@@ -358,7 +358,7 @@ query PostHogValidateCredentials {
 PaginationStyle = Literal["relay", "offset", "none"]
 
 
-@dataclass
+@dataclass(frozen=False)
 class MonteCarloEndpointConfig:
     name: str
     query: str

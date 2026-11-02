@@ -12,7 +12,7 @@ SUPPORTED_VERSIONS = (UNVERSIONED_API_VERSION, SIMPLECAST_API_VERSION_2_0)
 DEFAULT_VERSION = SIMPLECAST_API_VERSION_2_0
 
 
-@dataclass
+@dataclass(frozen=False)
 class SimpleCastEndpointConfig:
     name: str
     path: str

@@ -53,7 +53,7 @@ class VapiRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class VapiResumeConfig:
     # createdAt of the last row already yielded downstream. On resume, descending endpoints
     # request `createdAtLt=<cursor>` and ascending page endpoints restart at page 1 with

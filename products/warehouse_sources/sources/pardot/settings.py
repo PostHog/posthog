@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, incremental_field
 
 
-@dataclass
+@dataclass(frozen=False)
 class PardotEndpointConfig:
     name: str
     # Object path under /api/v5/objects/.

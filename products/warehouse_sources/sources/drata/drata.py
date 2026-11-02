@@ -35,7 +35,7 @@ PAGE_SIZE_PARAM = "size"
 CURSOR_PATH = "pagination.cursor"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class DrataResumeConfig:
     # Opaque `pagination.cursor` pointing at the page after the last one yielded on a top-level
     # (non-fan-out) endpoint. A crashed sync resumes from there; merge dedupes the re-pulled page.

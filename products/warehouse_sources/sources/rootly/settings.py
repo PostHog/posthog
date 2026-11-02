@@ -18,7 +18,7 @@ def _timestamp_field(name: str) -> IncrementalField:
 _UPDATED_THEN_CREATED: list[IncrementalField] = [_timestamp_field("updated_at"), _timestamp_field("created_at")]
 
 
-@dataclass
+@dataclass(frozen=False)
 class RootlyEndpointConfig:
     name: str
     path: str

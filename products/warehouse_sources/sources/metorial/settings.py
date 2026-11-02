@@ -13,7 +13,7 @@ def _incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=False)
 class MetorialEndpointConfig:
     name: str
     path: str

@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class ZendeskSellEndpointConfig:
     name: str
     # Path under the v2 base URL, e.g. "/v2/contacts".

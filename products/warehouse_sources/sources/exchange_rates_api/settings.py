@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExchangeRatesApiEndpointConfig:
     name: str
     # Fields the rows are merged on. The rate endpoints carry one row per (base, currency, date), so

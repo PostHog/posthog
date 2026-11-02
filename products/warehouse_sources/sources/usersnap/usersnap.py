@@ -28,7 +28,7 @@ class UsersnapRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class UsersnapResumeConfig:
     # The project currently being processed in the feedbacks fan-out. A stable project-ID
     # bookmark (not a positional index) so projects added/removed between a crash and the

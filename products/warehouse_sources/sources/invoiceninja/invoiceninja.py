@@ -46,7 +46,7 @@ class InvoiceNinjaHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class InvoiceNinjaResumeConfig:
     # The next page to fetch on resume. Persisted after each page is yielded, so a crash before this
     # write leaves the previous value in place and the last page is re-yielded (merge dedupes on `id`).

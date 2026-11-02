@@ -24,7 +24,7 @@ PAGE_SIZE = 100
 DEFAULT_PROBE_PATH = "/v1/events"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class TicketTailorResumeConfig:
     # Cursor for the next page: Ticket Tailor paginates by passing the last item's object id as
     # `starting_after` (lists are returned newest-first). A crashed sync resumes from the page

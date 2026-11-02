@@ -5,7 +5,7 @@ from products.warehouse_sources.sources.sdk import IncrementalField, incremental
 POSTSCRIPT_BASE_URL = "https://api.postscript.io"
 
 
-@dataclass
+@dataclass(frozen=False)
 class PostscriptEndpointConfig:
     name: str
     # `{api_version}` is filled from the source's resolved version pin, never hardcoded here.

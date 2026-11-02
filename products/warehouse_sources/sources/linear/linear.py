@@ -183,7 +183,7 @@ def _execute_query(sess: requests.Session, query: str, variables: dict[str, Any]
     return _validate_response(response)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LinearResumeConfig:
     cursor: str
 

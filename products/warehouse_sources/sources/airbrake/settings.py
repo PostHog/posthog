@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class AirbrakeEndpointConfig:
     name: str
     # Path template; `{project_id}` / `{group_id}` are resolved during fan-out.

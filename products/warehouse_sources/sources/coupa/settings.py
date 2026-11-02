@@ -15,7 +15,7 @@ _UPDATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class CoupaEndpointConfig:
     name: str
     # Path under {instance}/api.

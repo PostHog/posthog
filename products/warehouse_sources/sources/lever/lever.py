@@ -27,7 +27,7 @@ LEVER_BASE_URL = "https://api.lever.co/v1"
 _TIMESTAMP_FIELDS = ("createdAt", "updatedAt")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class LeverResumeConfig:
     # Lever paginates with an opaque `offset` token returned as `next` in each response.
     offset: str

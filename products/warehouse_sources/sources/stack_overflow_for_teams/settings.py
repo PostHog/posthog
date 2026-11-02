@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.sdk import DependentEndpointConfig, Incr
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=False)
 class StackOverflowForTeamsEndpointConfig:
     name: str
     path: str  # Path under /v3/teams/{team}, e.g. "/questions"

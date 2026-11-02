@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=False)
 class EventzillaEndpointConfig:
     name: str
     path: str  # May contain an `{event_id}` placeholder for fan-out endpoints.

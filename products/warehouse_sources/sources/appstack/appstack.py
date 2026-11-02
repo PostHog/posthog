@@ -16,7 +16,7 @@ from products.warehouse_sources.sources.sdk import (
 VALIDATION_PROBE_WINDOW_SECONDS = 24 * 60 * 60
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AppstackResumeConfig:
     # Next `offset` to request, as reported by the paginator after the last yielded page.
     offset: int

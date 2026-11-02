@@ -46,7 +46,7 @@ class JumpcloudRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class JumpcloudResumeConfig:
     # Offset of the next page for the limit/skip REST entity endpoints.
     skip: int = 0

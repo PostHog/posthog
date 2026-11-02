@@ -34,7 +34,7 @@ PAGE_LIMIT = 1000
 DEFAULT_LOOKBACK_DAYS = 365
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class OnePasswordResumeConfig:
     # The last cursor returned by the API. 1Password cursors are persistent checkpoints into the
     # event stream and remain valid across API sessions, so a resumed attempt just POSTs it back.

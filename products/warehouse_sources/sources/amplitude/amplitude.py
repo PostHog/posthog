@@ -61,7 +61,7 @@ class AmplitudeRetryableError(Exception):
 AMPLITUDE_INVALID_ARCHIVE_ERROR = "Amplitude export response was not a valid zip archive"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AmplitudeResumeConfig:
     # ISO 8601 UTC timestamp marking the start of the next export window to fetch.
     window_start: str

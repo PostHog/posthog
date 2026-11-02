@@ -30,7 +30,7 @@ class KubecostRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class KubecostResumeConfig:
     # The next unfetched day (yyyy-mm-dd) of the day-by-day window walk.
     next_date: Optional[str] = None

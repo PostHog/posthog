@@ -12,7 +12,7 @@ CREATED_AT_UTC_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class PaperformEndpointConfig:
     name: str
     # Path under the v1 base URL. Form-scoped endpoints carry a `{form_id}` placeholder that the

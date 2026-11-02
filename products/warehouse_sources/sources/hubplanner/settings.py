@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class HubPlannerEndpointConfig:
     name: str
     path: str  # e.g. "/booking" (base path, joined onto https://api.hubplanner.com/v1)

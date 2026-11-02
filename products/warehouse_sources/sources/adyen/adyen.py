@@ -58,7 +58,7 @@ class AdyenConfigurationError(Exception):
     """The stored config can't satisfy the requested endpoint (missing or malformed identifier)."""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class AdyenResumeConfig:
     """Checkpoint for whichever pagination style the running endpoint uses.
 
@@ -158,7 +158,9 @@ def _resolve_start(
     return now - timedelta(days=DEFAULT_BACKFILL_DAYS)
 
 
-def iter_windows(start: datetime, end: datetime) -> Iterator[tuple[datetime, datetime]]:
+def iter_windows(
+    start: datetime, end: datetime
+) -> Iterator[tuple[datetime, datetime]]:  # nosemgrep: tuple-return-prefer-dataclass -- pre-existing, file moved
     """Split [start, end] into ascending chunks the Transfers API will accept."""
     if end <= start:
         return
