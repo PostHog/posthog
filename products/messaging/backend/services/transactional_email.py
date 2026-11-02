@@ -532,6 +532,9 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
+    if email.sensitive:
+        # Left out when false, so the retry of a send queued before this field existed matches its idempotency key.
+        accepted["sensitive"] = True
     return accepted
 
 

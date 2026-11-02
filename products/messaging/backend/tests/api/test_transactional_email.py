@@ -498,6 +498,25 @@ class TestTransactionalEmail(APIBaseTest):
                     "tracking": {"captureEngagement": True},
                 },
             ),
+            (
+                "sensitive",
+                {"sensitive": True},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "from": {"isDefault": True},
+                    "tracking": {"captureEngagement": True},
+                    "sensitive": True,
+                },
+            ),
+            (
+                "not_sensitive",
+                {"sensitive": False},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "from": {"isDefault": True},
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
         ]
     )
     def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
@@ -540,11 +559,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["attr"] == attr
         mock_post.assert_not_called()
 
-    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture):
-        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, "subject": "Hi"})
+    @parameterized.expand([("subject", "Hi"), ("sensitive", True)])
+    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value):
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, field: value})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "subject"
+        assert response.json()["attr"] == field
         mock_post.assert_not_called()
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):

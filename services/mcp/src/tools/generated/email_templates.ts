@@ -275,6 +275,9 @@ const workflowsSendEmail = (): ToolBase<ReturnType<typeof WorkflowsSendEmailSche
         if (params.capture_engagement !== undefined) {
             body['capture_engagement'] = params.capture_engagement
         }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         if (params.from !== undefined) {
             body['from'] = params.from
         }

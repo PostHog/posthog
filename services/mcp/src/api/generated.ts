@@ -111363,6 +111363,8 @@ export namespace Schemas {
       reply_to?: string[];
       /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
       capture_engagement?: boolean;
+      /** For an email your code rendered that carries a login code, a reset link or another secret. PostHog keeps no copy of the email's body or subject, clicked links keep only the site address, and the send can't be rerun from its logs. Defaults to false. */
+      sensitive?: boolean;
       /** Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender. */
       from?: string;
     }

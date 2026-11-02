@@ -444,7 +444,16 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
 
-CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+CODE_SEND_FIELDS = (
+    "template_key",
+    "subject",
+    "html",
+    "text",
+    "from",
+    "reply_to",
+    "capture_engagement",
+    "sensitive",
+)
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
@@ -494,6 +503,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
         "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
         "engagement capture off captures nothing, whatever the send says.",
+    )
+    sensitive = serializers.BooleanField(
+        required=False,
+        help_text="For an email your code rendered that carries a login code, a reset link or another secret. "
+        "PostHog keeps no copy of the email's body or subject, clicked links keep only the site address, and the "
+        "send can't be rerun from its logs. Defaults to false.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -1219,6 +1234,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
+            sensitive=data.get("sensitive", False),
         )
         return self._queue_send(
             request,

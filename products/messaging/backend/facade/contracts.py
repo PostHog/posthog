@@ -116,6 +116,7 @@ class CodeEmail:
     sender: str | None
     reply_to: tuple[str, ...]
     capture_engagement: bool
+    sensitive: bool = False
 
 
 class DeliveryUnavailable(Exception):
