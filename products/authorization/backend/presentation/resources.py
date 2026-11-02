@@ -16,6 +16,7 @@ from products.access_control.backend.facade.user_access_control import (
 from ..facade.contracts import Parent, Resource
 from ..facade.enums import ResourceType
 
+# These types answer from the user's membership level, so they carry no team, creator or parent.
 MEMBERSHIP_RESOURCES = frozenset({ResourceType.ORGANIZATION, ResourceType.PROJECT})
 # These types always read the object's own team, so a view team's admin can't reach another environment's object.
 OWN_TEAM_RESOURCES = frozenset({ResourceType.DASHBOARD})
