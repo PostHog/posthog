@@ -19,6 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
