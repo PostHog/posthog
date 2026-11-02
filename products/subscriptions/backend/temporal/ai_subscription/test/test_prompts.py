@@ -2,7 +2,11 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.subscriptions.backend.temporal.ai_subscription.prompts import resolve_prompt
+from products.subscriptions.backend.temporal.ai_subscription.prompts import (
+    HOGQL_FIX_PROMPT,
+    prepend_hogql_query_writing_rules,
+    resolve_prompt,
+)
 
 _P = "products.subscriptions.backend.temporal.ai_subscription.prompts"
 
@@ -69,3 +73,9 @@ def test_resolve_prompt_captures_source_event(
         "team_id": 7,
         "$process_person_profile": False,
     }
+
+
+def test_query_writing_rules_steer_warehouse_account_names_to_groups_join() -> None:
+    rules = prepend_hogql_query_writing_rules(HOGQL_FIX_PROMPT)
+    assert "FROM groups WHERE index = 0" in rules
+    assert "exist only on `events`" in rules
