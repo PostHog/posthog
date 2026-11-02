@@ -4,6 +4,7 @@ from products.conversations.backend.api import (
     AIContextAccountPropertiesViewSet,
     AIReplyPlaybookViewSet,
     SigningSecretViewSet,
+    TicketExternalReferenceViewSet,
     TicketViewSet,
     TicketViewViewSet,
     ZendeskImportViewSet,
@@ -15,6 +16,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/tickets",
         TicketViewSet,
         "project_conversations_tickets",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/external_references",
+        TicketExternalReferenceViewSet,
+        "project_conversations_external_references",
         ["team_id"],
     )
     routers.projects.register(

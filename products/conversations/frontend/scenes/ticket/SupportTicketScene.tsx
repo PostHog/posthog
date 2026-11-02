@@ -49,6 +49,7 @@ import { RecentEventsPanel } from './RecentEventsPanel'
 import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
+import { LinkedIssuesPanel } from './LinkedIssuesPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { SupportTicketSceneMenuBar } from './SupportTicketSceneMenuBar'
 import { useDiscussionTimelineExtras } from './ThreadDiscussions'
@@ -652,6 +653,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}
+
+                    {/* Linked Issues Panel */}
+                    {ticket && <LinkedIssuesPanel ticket={ticket} />}
+
 
                     {/* AI Triage Panel */}
                     {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}

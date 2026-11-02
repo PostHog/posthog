@@ -132,6 +132,21 @@ export interface UserBasic {
     is_email_verified: boolean
 }
 
+
+export interface TicketExternalReference {
+    id: string
+    ticket_id: string
+    integration: {
+        id: number
+        kind: 'github' | 'gitlab' | 'linear' | 'jira'
+        display_name: string
+    }
+    external_url: string
+    external_id?: string
+    title?: string
+    created_at?: string
+}
+
 export interface TicketPerson {
     id: string
     name: string
@@ -186,6 +201,7 @@ export interface Ticket {
     ai_triage?: AITriage
     /** The effective access level the current user has for this ticket. */
     user_access_level?: AccessControlLevel
+    external_references?: TicketExternalReference[]
 }
 
 export interface ConversationTicket {
