@@ -771,7 +771,9 @@ class OauthIntegration:
         elif kind == "google-search-console":
             return OauthConfig(
                 authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
-                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                # `consent` forces a refresh token. `select_account` always shows the account chooser,
+                # so a user whose signed-in account owns no property can reconnect with the one that does.
+                additional_authorize_params={"access_type": "offline", "prompt": "consent select_account"},
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
