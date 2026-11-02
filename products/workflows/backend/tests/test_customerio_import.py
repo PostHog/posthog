@@ -545,6 +545,19 @@ class TestCustomerioLiquid(SimpleTestCase):
         assert rewritten.text == "0123456" + tag * 2
         assert rewritten.missing_snippets == ("big",)
 
+    def test_stops_inlining_the_subject_past_the_budget(self) -> None:
+        source = _onboarding_campaign()
+        templates = {**source.templates, "12": {**source.templates["12"], "body": "{{ message.subject }}" * 3}}
+        translated = translate_campaign(
+            CampaignSource(campaign=source.campaign, actions=source.actions, templates=templates),
+            _OPTIONS,
+            SnippetRoom(remaining=20),
+        )
+
+        steps = {action["id"]: action for action in translated.workflow["actions"]}
+        assert "message.subject" in steps["cio_5"]["config"]["inputs"]["email"]["value"]["html"]
+        assert any(note.step_id == "cio_5" and "`message`" in note.message for note in translated.notes)
+
 
 class TestWorkflowImportAPI(APIBaseTest):
     def setUp(self) -> None:

@@ -461,7 +461,7 @@ class _Builder:
         template = self._template(source, action)
         recipient = template.get("recipient") or source.get("recipient") or "{{customer.email}}"
         subject = template.get("subject") or source.get("subject") or ""
-        body = _with_subject(self._with_layout(template, action), subject)
+        body = self._with_subject(self._with_layout(template, action), _html_subject(subject))
         email: dict[str, Any] = {
             "to": {"email": self._liquid(recipient, action, "recipient"), "name": ""},
             "from": self._sender(template, action),
@@ -471,10 +471,7 @@ class _Builder:
             "html": self._liquid(body, action, "email body"),
         }
         if template.get("body_plain"):
-            plain = (
-                _MESSAGE_SUBJECT.sub(lambda _: subject, template["body_plain"]) if subject else template["body_plain"]
-            )
-            email["text"] = self._liquid(plain, action, "plain-text body")
+            email["text"] = self._liquid(self._with_subject(template["body_plain"], subject), action, "plain-text body")
         if not template:
             # A draft needs a subject and a body to save. The note about the missing content asks for the real ones.
             email["subject"] = email["subject"] or action["name"]
@@ -500,6 +497,14 @@ class _Builder:
         if source.get("tracked") is False:
             config["tracking_enabled"] = False
         return {"type": "function_email", "config": config}
+
+    def _with_subject(self, body: str, subject: str) -> str:
+        """The body with Customer.io's `{{ message.subject }}` replaced by the subject, while the copies fit the room."""
+        count = len(_MESSAGE_SUBJECT.findall(body)) if subject else 0
+        if not count or count * len(subject) > self.snippet_room.remaining:
+            return body
+        self.snippet_room.remaining -= count * len(subject)
+        return _MESSAGE_SUBJECT.sub(lambda _: subject, body)
 
     def _with_layout(self, template: dict[str, Any], action: dict[str, Any]) -> str:
         body = template.get("body") or ""
@@ -1023,17 +1028,15 @@ def _plain_name(name: Any) -> str:
     return text[:400]
 
 
-def _with_subject(body: str, subject: str) -> str:
-    """The body with Customer.io's `{{ message.subject }}` replaced by the subject itself, escaped for HTML."""
-    if not subject or not _MESSAGE_SUBJECT.search(body):
-        return body
+def _html_subject(subject: str) -> str:
+    """The subject escaped for HTML, with its Liquid tags left as they are."""
     escaped: list[str] = []
     position = 0
     for tag in _LIQUID_TAG.finditer(subject):
         escaped += [escape(subject[position : tag.start()]), tag.group()]
         position = tag.end()
     escaped.append(escape(subject[position:]))
-    return _MESSAGE_SUBJECT.sub(lambda _: "".join(escaped), body)
+    return "".join(escaped)
 
 
 def _strip_comments(html: str) -> str:
