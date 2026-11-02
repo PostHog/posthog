@@ -30,6 +30,12 @@ const emailInvocation = (email: unknown, teamId = 2): CyclotronJobInvocationHogF
 
 const emailAction = { type: 'function_email', id: 'act-1' } as any
 
+const cacheErrorCounts = async (): Promise<{ read: number; write: number }> => {
+    const values = (await register.getSingleMetric('cdp_email_mx_cache_errors_total')?.get())?.values ?? []
+    const count = (operation: string): number => values.find((v) => v.labels.operation === operation)?.value ?? 0
+    return { read: count('read'), write: count('write') }
+}
+
 describe('EmailValidationService', () => {
     let service: EmailValidationService
 
@@ -238,6 +244,38 @@ describe('EmailValidationService', () => {
             expect(mockResolveMx).not.toHaveBeenCalled()
         })
 
+        it('falls back to DNS and counts the failure when a Valkey command fails', async () => {
+            // Mirrors RedisV2.useClient: failOpen turns a failed command into null, otherwise it throws.
+            const failingClient = {
+                get: jest.fn().mockRejectedValue(new Error('READONLY')),
+                set: jest.fn().mockRejectedValue(new Error('READONLY')),
+            }
+            const valkey: RedisV2 = {
+                useClient: jest.fn(async (options, callback) => {
+                    try {
+                        return await callback(failingClient as any)
+                    } catch (error) {
+                        if (options.failOpen) {
+                            return null
+                        }
+                        throw error
+                    }
+                }),
+                usePipeline: jest.fn(),
+            }
+            const before = await cacheErrorCounts()
+
+            await expect(
+                new EmailValidationService(valkey).getRecipientSkipReason(2, 'user@command-failure.example')
+            ).resolves.toBeNull()
+
+            expect(mockResolveMx).toHaveBeenCalledTimes(1)
+            expect(failingClient.get).toHaveBeenCalledTimes(1)
+            expect(failingClient.set).toHaveBeenCalledTimes(1)
+            const after = await cacheErrorCounts()
+            expect({ read: after.read - before.read, write: after.write - before.write }).toEqual({ read: 1, write: 1 })
+        })
+
         it('falls back to DNS when no Valkey connection can be acquired', async () => {
             // failOpen covers only the callback: a pool with an acquire timeout rejects before it runs.
             const valkey: RedisV2 = {
@@ -245,15 +283,13 @@ describe('EmailValidationService', () => {
                 usePipeline: jest.fn(),
             }
             const withValkey = new EmailValidationService(valkey)
+            const before = await cacheErrorCounts()
 
             await expect(withValkey.getRecipientSkipReason(2, 'user@example.com')).resolves.toBeNull()
             expect(mockResolveMx).toHaveBeenCalledTimes(1)
             expect(valkey.useClient).toHaveBeenCalledTimes(2)
-            const errors = await register.getSingleMetric('cdp_email_mx_cache_errors_total')?.get()
-            expect(Object.fromEntries((errors?.values ?? []).map((v) => [v.labels.operation, v.value]))).toEqual({
-                read: 1,
-                write: 1,
-            })
+            const after = await cacheErrorCounts()
+            expect({ read: after.read - before.read, write: after.write - before.write }).toEqual({ read: 1, write: 1 })
         })
     })
     describe('out-of-band domain detection', () => {
