@@ -3989,7 +3989,7 @@ class DashboardsViewSet(
             "with its old layout. To take an insight off a dashboard, use delete_tile."
         ),
     )
-    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write", "insight:read"])
     def add_insight(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         dashboard = self.get_object()
         if dashboard.deleted:
