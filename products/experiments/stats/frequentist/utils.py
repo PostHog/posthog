@@ -40,7 +40,6 @@ def calculate_point_estimate(
         denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
         if abs(denominator) < 1e-10:
             raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
-        # Divide by |baseline| so that a negative baseline keeps the sign of the absolute difference.
         return (treatment_mean - control_mean) / abs(denominator)
 
     else:

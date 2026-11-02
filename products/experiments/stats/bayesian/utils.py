@@ -53,7 +53,6 @@ def calculate_effect_size_and_variance(
         if abs(denominator) < 1e-10:
             raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
 
-        # Divide by |μ_C| so that a negative baseline keeps the sign of the absolute difference.
         effect = (treatment_mean - control_mean) / abs(denominator)
 
         # The effect is ±(μ_T / μ_C - 1), so it has the variance of μ_T / μ_C. Keep the signed μ_C for the covariance term.
