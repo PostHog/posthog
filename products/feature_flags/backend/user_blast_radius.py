@@ -160,9 +160,16 @@ def _normalize_property_value(prop: Property) -> None:
 
     if prop.type in ("person", "group"):
         if isinstance(prop.value, list):
-            prop.value = [str(v) for v in prop.value]
+            prop.value = [_as_property_string(v) for v in prop.value]
         elif not isinstance(prop.value, str | list | dict | type(None)):
-            prop.value = str(prop.value)
+            prop.value = _as_property_string(prop.value)
+
+
+def _as_property_string(value: object) -> str:
+    # HogQL reads only "true" and "false" as booleans, so str(True) would match no stored true value.
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
 
 
 def replace_proxy_properties(team: Team, feature_flag_condition: dict, now: Optional[datetime] = None) -> PropertyGroup:
