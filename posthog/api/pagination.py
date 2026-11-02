@@ -4,7 +4,10 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import parse_qs, urlencode
 
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import (
+    ImproperlyConfigured,
+    ValidationError as DjangoValidationError,
+)
 
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import CursorPagination, LimitOffsetPagination, PageNumberPagination
@@ -317,9 +320,13 @@ class StableCursorPagination(CursorPagination):
             raise NotFound(self.invalid_cursor_message)
 
         ordering = _reversed_ordering(self.ordering) if start.reverse else self.ordering
-        rows = read(
-            CursorPageRequest(ordering=ordering, after=start.after, offset=start.offset, limit=self.page_size + 1)
-        )
+        try:
+            rows = read(
+                CursorPageRequest(ordering=ordering, after=start.after, offset=start.offset, limit=self.page_size + 1)
+            )
+        except DjangoValidationError:
+            # The cursor carries a value the ordering field cannot hold, such as a malformed UUID.
+            raise NotFound(self.invalid_cursor_message)
         self.page = rows[: self.page_size]
         has_more = len(rows) > self.page_size
         self.row_past_page = rows[self.page_size] if has_more else None

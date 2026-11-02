@@ -134,6 +134,10 @@ class TestCursorPagination(BaseTest):
         [
             ("negative_offset", b64encode(b"o=-1").decode("ascii")),
             ("deeply_nested_position", b64encode(urlencode({"v": "[" * 100_000}).encode("ascii")).decode("ascii")),
+            (
+                "value_the_field_cannot_hold",
+                b64encode(urlencode({"v": '["not-a-date","1"]'}).encode("ascii")).decode("ascii"),
+            ),
         ]
     )
     def test_rejects_a_malformed_cursor(self, _name: str, cursor: str) -> None:
