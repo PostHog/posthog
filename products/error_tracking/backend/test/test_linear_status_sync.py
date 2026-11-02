@@ -20,7 +20,11 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration, LinearIntegrationError
 
 from products.error_tracking.backend.facade import contracts, issues
-from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
+from products.error_tracking.backend.models import (
+    ErrorTrackingExternalReference,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueChange,
+)
 from products.error_tracking.backend.tasks.linear import process_linear_status_sync
 
 ORGANIZATION_ID = "linear-org-1"
@@ -168,16 +172,6 @@ class TestErrorTrackingLinearWebhook(BaseTest):
 
 
 class TestLinearStatusSync(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.teams_outside_rollout: set[int] = set()
-        rollout_flag = patch(
-            "products.error_tracking.backend.logic.linear_status_sync.team_flag_enabled",
-            side_effect=lambda _flag, team_id: team_id not in self.teams_outside_rollout,
-        )
-        rollout_flag.start()
-        self.addCleanup(rollout_flag.stop)
-
     def _linear_integration(
         self, team: Team, organization_id: str = ORGANIZATION_ID, token: str = "linear-token"
     ) -> Integration:
@@ -292,18 +286,49 @@ class TestLinearStatusSync(BaseTest):
             other_team_issue.id: "resolved",
         }
 
-    def test_skips_only_the_project_outside_the_rollout(self) -> None:
-        issue_outside = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+    @parameterized.expand(
+        [
+            ("flag_off_skips_the_project", False, "active"),
+            ("flag_on_syncs_the_project", True, "resolved"),
+            ("failed_lookup_or_disabled_sdk_syncs_the_project", None, "resolved"),
+            ("raising_lookup_syncs_the_project", RuntimeError("flags are down"), "resolved"),
+        ]
+    )
+    def test_kill_switch_decides_for_each_project(
+        self, _name: str, flag_answer: bool | None | Exception, expected_status: str
+    ) -> None:
+        issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
         other_team = Team.objects.create(organization=self.organization, name="Other project")
-        issue_inside = self._linked_issue(other_team, self._linear_integration(other_team), ["ENG-1"])
-        self.teams_outside_rollout.add(self.team.id)
+        other_team_issue = self._linked_issue(other_team, self._linear_integration(other_team), ["ENG-1"])
 
-        self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
+        def answer(flag: str, distinct_id: str, **_kwargs: object) -> bool | None:
+            if flag != "error-tracking-linear-status-sync" or distinct_id != str(self.team.id):
+                return None
+            if isinstance(flag_answer, Exception):
+                raise flag_answer
+            return flag_answer
 
-        issue_outside.refresh_from_db()
-        issue_inside.refresh_from_db()
-        assert issue_outside.status == "active"
-        assert issue_inside.status == "resolved"
+        with patch(
+            "products.error_tracking.backend.logic.team_flags.posthoganalytics.feature_enabled", side_effect=answer
+        ):
+            self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
+
+        issue.refresh_from_db()
+        other_team_issue.refresh_from_db()
+        assert issue.status == expected_status
+        assert other_team_issue.status == "resolved"
+
+    def test_records_the_sync_as_an_automation_in_the_change_log(self) -> None:
+        issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+
+        with patch("products.error_tracking.backend.logic.issue_changes.issue_change_log_enabled", return_value=True):
+            self._sync(_FakeLinear({"ENG-1": "completed"}, "started"))
+
+        issue.refresh_from_db()
+        assert issue.status == "resolved"
+        change = ErrorTrackingIssueChange.objects.for_team(self.team.id).get(issue_id=issue.id)
+        assert change.actor_type == "automation"
+        assert change.actor_automation_id is not None
 
     @parameterized.expand([("move_job_first", True), ("completion_job_first", False)])
     def test_a_ticket_that_moved_teams_holds_its_issue_open_until_it_closes(
