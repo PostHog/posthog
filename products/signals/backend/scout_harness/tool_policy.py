@@ -130,7 +130,7 @@ _RESTORE_TOOLS = frozenset({"feature-flag-restore"})
 
 
 @lru_cache(maxsize=1)
-def _soft_delete_tools() -> dict[McpToolApiOperation, frozenset[str]]:
+def _soft_delete_and_restore_tools() -> dict[McpToolApiOperation, frozenset[str]]:
     tools: dict[McpToolApiOperation, set[str]] = {}
     for name, definition in get_mcp_tool_definitions().items():
         if name.endswith("-delete") or name in {"delete-feature-flag", "notebooks-destroy"} or name in _RESTORE_TOOLS:
@@ -147,7 +147,7 @@ def _soft_delete_allowed(operation: McpToolApiOperation, held_tools: frozenset[s
     Any other body that sets `deleted` needs a delete tool plus an update tool. A body without
     `deleted` needs an update tool.
     """
-    family = _soft_delete_tools().get(operation)
+    family = _soft_delete_and_restore_tools().get(operation)
     if not family:
         return True
     definitions = get_mcp_tool_definitions()
