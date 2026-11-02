@@ -70,7 +70,7 @@ from products.batch_exports.backend.temporal.destinations.s3_batch_export import
     s3_client,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_absolute_key_prefix
-from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError, MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -83,6 +83,7 @@ from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     cast_record_batch_schema_json_columns,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
 )
 
@@ -656,7 +657,7 @@ def get_redshift_fields_from_record_schema(
             pg_type = "SUPER"
 
         else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+            raise ColumnTypeMappingError("Redshift", name, pa_field.type)
 
         pg_schema.append((name, pg_type))
 
@@ -846,9 +847,10 @@ def _get_table_schemas(
         table_schema = [field for field in table_schema if field[0] in record_batch_schema.names]
 
     else:
-        table_schema = get_redshift_fields_from_record_schema(
-            record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
-        )
+        with handle_column_type_mapping_errors(model):
+            table_schema = get_redshift_fields_from_record_schema(
+                record_batch_schema, known_super_columns=known_super_columns, use_super=properties_type == "SUPER"
+            )
 
     if properties_type == "SUPER":
         # Update stage schema to first load as VARBYTE, and later JSON_PARSE to SUPER

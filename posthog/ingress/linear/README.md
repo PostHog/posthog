@@ -41,16 +41,25 @@ Linear creates the webhook for a workspace when the workspace authorizes the App
 
 One Linear App serves both regions.
 Its webhook URL names the primary region, `https://eu.posthog.com/webhooks/linear`, so every delivery arrives there first.
+Both regions hold the same `LINEAR_APP_WEBHOOK_SECRET`, because the primary region forwards the signed body and the secondary region verifies it again.
 
 ## Quirks
 
 Success answers 200, not the default 202, because Linear counts any other status as a failed delivery.
 Linear retries a failed delivery after 1 minute, 1 hour and 6 hours, and it can disable a webhook that keeps failing.
 `retry_status` is 500, so a consumer that raised or that the request budget skipped asks for that retry.
+A failed ownership lookup and a failed forward to the secondary region ask for it too.
 A missing secret answers 403 rather than 500, because a self-hosted deployment may never set up the Linear App.
 Rejections carry an empty body, so a caller cannot tell a missing secret from a bad signature.
 
+A workspace that teams in both regions connect gets its deliveries in the primary region only, because the ownership lookup there answers `LOCAL` and nothing is forwarded.
+
 ## Consumers
 
-None. The endpoint verifies each delivery and answers 200, and nothing acts on it.
+`error_tracking_linear_status_sync`, declared in `products/error_tracking/backend/webhook_consumers.py`.
+It handles `Issue` updates that change the workflow state, and queues one task per change.
+Its `ownership` lookup reads `organization_id` against the `linear` integration rows, see [Regional forwarding](../README.md#regional-forwarding).
+A state change from a workspace that no team here connects is `ELSEWHERE`, so the primary region forwards it.
+Every other delivery is `UNDECIDED`, so a ticket edit that no region acts on stays in the region it arrived in.
+The task reads the current state of every linked Linear ticket from Linear, so a delivery that arrives late or out of order cannot apply a state the ticket no longer has.
 See the [Endpoints table](../README.md#endpoints).

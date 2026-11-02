@@ -21,7 +21,7 @@ from products.alerts.backend.facade.destinations import (
     unbound_alert_destinations,
 )
 from products.alerts.backend.logic.destination_bucket_report import bucketed_destinations
-from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VALUES
+from products.alerts.backend.logic.destination_eligibility import LOGS_STOCK_INPUT_VALUES, STOCK_INPUT_VALUES
 from products.alerts.backend.logic.insight_alert_destinations import build_insight_alert_slack_config
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -32,7 +32,7 @@ EVENT = "$logs_alert_firing"
 WEBHOOK_INPUTS: dict[str, Any] = {
     "url": {"value": "https://hooks.example.com/hook"},
     "method": {"value": "POST"},
-    "body": {"value": {"type": "logs_alert.firing"}},
+    "body": {"value": LOGS_STOCK_INPUT_VALUES["template-webhook"]["body"][0]},
     "headers": {"value": {"Content-Type": "application/json"}},
 }
 PAGERDUTY_INPUTS: dict[str, Any] = {
@@ -48,7 +48,7 @@ INSIGHT_SLACK_DATA: AlertDestinationData = {
 SLACK_INPUTS: dict[str, Any] = {
     "slack_workspace": {"value": 1},
     "channel": {"value": "C-1"},
-    "text": {"value": "Log alert is firing"},
+    "text": {"value": LOGS_STOCK_INPUT_VALUES["template-slack"]["text"][0]},
 }
 
 
@@ -424,10 +424,19 @@ class TestDestinationEligibility(APIBaseTest):
         (eligibility,) = classify_alert_destinations(team_id=self.team.id, alert_id=ALERT_ID, allowed_event_ids=[event])
         assert eligibility.hold_backs == expected
 
-    def test_a_logs_destination_is_not_compared_with_insight_defaults(self) -> None:
-        self._function("template-slack", _with(SLACK_INPUTS, "text", "Look at this"))
+    @parameterized.expand(
+        [
+            ("logs_default", LOGS_STOCK_INPUT_VALUES["template-slack"]["text"][1], ()),
+            ("own_text", "Look at this", (DestinationHoldBack.MESSAGE,)),
+            ("insight_default", STOCK_INPUT_VALUES["template-slack"]["text"][0], (DestinationHoldBack.MESSAGE,)),
+        ]
+    )
+    def test_a_logs_destination_built_without_a_revision_is_compared_with_logs_defaults(
+        self, _name: str, text: str, expected: tuple[DestinationHoldBack, ...]
+    ) -> None:
+        self._function("template-slack", _with(SLACK_INPUTS, "text", text))
 
-        assert self._classify() == ()
+        assert self._classify() == expected
 
 
 class TestBucketFor(SimpleTestCase):
