@@ -291,12 +291,17 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["top_traces"] == {"items": [], "truncated": False}
 
     def test_summary_reports_cross_product_totals_alongside_scoped(self) -> None:
-        self._create_generation(ai_product="posthog_code", cost=2.0)
-        self._create_generation(ai_product="background_agents", cost=1.0)
-        self._create_generation(ai_product="posthog_code", cost=0.5, event_name="$ai_embedding")
-        self._create_generation(ai_product="posthog_ai", cost=4.0)
-        self._create_generation(ai_product="signals_scout", cost=8.0)
-        self._create_generation(cost=0.25, extra_props={"ai_product": None})
+        billed = {"$ai_billable": True}
+        self._create_generation(ai_product="posthog_code", cost=2.0, extra_props=billed)
+        self._create_generation(ai_product="background_agents", cost=1.0, extra_props=billed)
+        self._create_generation(ai_product="posthog_code", cost=0.5, event_name="$ai_embedding", extra_props=billed)
+        self._create_generation(ai_product="posthog_ai", cost=4.0, extra_props=billed)
+        self._create_generation(ai_product="signals_scout", cost=8.0, extra_props=billed)
+        self._create_generation(cost=0.25, extra_props={"ai_product": None, **billed})
+        self._create_generation(ai_product="posthog_ai", cost=16.0)
+        self._create_generation(
+            ai_product="posthog_ai", cost=32.0, extra_props={"task_origin_product": "task_analysis", **billed}
+        )
         flush_persons_and_events()
 
         response = self.client.get(ENDPOINT_OK)
@@ -304,9 +309,10 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         summary = body["summary"]
         assert summary["product"] == "posthog_code"
         # `event_count` / `total_cost_usd` stay cross-product even with the product filter.
-        assert summary["event_count"] == 6
-        assert summary["total_cost_usd"] == 15.75
-        assert summary["billable_cost_usd"] == 6.5
+        assert summary["event_count"] == 8
+        assert summary["total_cost_usd"] == 63.75
+        # Billing skips embeddings, generations without $ai_billable, and PostHog-funded task origins.
+        assert summary["billable_cost_usd"] == 6.0
         # `scoped_*` is filtered to posthog_code only.
         assert summary["scoped_event_count"] == 2
         assert summary["scoped_cost_usd"] == 2.5
@@ -458,7 +464,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # ai_products still show up.
         self._create_generation(ai_product="a", cost=3.0)
         self._create_generation(ai_product="b", cost=2.0)
-        self._create_generation(ai_product="posthog_code", cost=1.0)
+        self._create_generation(ai_product="posthog_code", cost=1.0, extra_props={"$ai_billable": True})
         flush_persons_and_events()
 
         response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&limit=2")

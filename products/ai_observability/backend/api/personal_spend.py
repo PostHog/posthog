@@ -37,7 +37,7 @@ from rest_framework.response import Response
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import (
@@ -50,7 +50,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
-from posthog.tasks.usage_report import POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
+from posthog.tasks.usage_report import POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS, UNBILLED_TASK_ORIGIN_PRODUCTS
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -388,8 +388,9 @@ class _SummarySerializer(serializers.Serializer):
     )
     billable_cost_usd = serializers.FloatField(
         help_text=(
-            "Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the "
-            "product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount."
+            "Raw LLM cost in USD of the generations that AI or Desktop credit billing charges for, independent of "
+            "the product filter and breakdown limit. Excludes credit markup and trace-level billing exclusions, "
+            "so it can exceed the invoiced amount."
         )
     )
     event_count = serializers.IntegerField(
@@ -563,6 +564,25 @@ def _product_filter(product: str) -> ast.Expr:
     return _ai_product_eq(product)
 
 
+def _billable_filter() -> ast.Expr:
+    # Mirrors the event-level rules of the AI credit usage report. Its trace-level exclusions are not applied.
+    return parse_expr(
+        """
+        event = '$ai_generation'
+        AND properties.ai_product IN {billable_products}
+        AND toString(properties.$ai_billable) IN ('true', '1')
+        AND toFloat(properties.$ai_total_cost_usd) > 0
+        AND ifNull(toString(properties.task_origin_product), '') NOT IN {unbilled_task_origins}
+        """,
+        placeholders={
+            "billable_products": ast.Tuple(exprs=[ast.Constant(value=value) for value in sorted(BILLABLE_AI_PRODUCTS)]),
+            "unbilled_task_origins": ast.Tuple(
+                exprs=[ast.Constant(value=value) for value in UNBILLED_TASK_ORIGIN_PRODUCTS]
+            ),
+        },
+    )
+
+
 def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     """Trim a `limit + 1` row fetch back down to `limit` rows and set the `truncated` flag."""
     return {"items": rows[:limit], "truncated": len(rows) > limit}
@@ -578,7 +598,7 @@ def _fetch_summary(
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd,
-            round(sumIf(toFloat(properties.$ai_total_cost_usd), properties.ai_product IN {billable_products}), 6) AS billable_cost_usd
+            round(sumIf(toFloat(properties.$ai_total_cost_usd), {billable_filter}), 6) AS billable_cost_usd
         FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
@@ -587,7 +607,7 @@ def _fetch_summary(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
-            "billable_products": ast.Tuple(exprs=[ast.Constant(value=value) for value in sorted(BILLABLE_AI_PRODUCTS)]),
+            "billable_filter": _billable_filter(),
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),

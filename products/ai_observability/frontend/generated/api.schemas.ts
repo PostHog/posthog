@@ -16,7 +16,7 @@ export interface _SummaryApi {
     product: string
     /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
     total_cost_usd: number
-    /** Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount. */
+    /** Raw LLM cost in USD of the generations that AI or Desktop credit billing charges for, independent of the product filter and breakdown limit. Excludes credit markup and trace-level billing exclusions, so it can exceed the invoiced amount. */
     billable_cost_usd: number
     /** Total $ai_generation + $ai_embedding events captured across every product. */
     event_count: number
