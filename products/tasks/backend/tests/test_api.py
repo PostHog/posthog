@@ -3108,6 +3108,10 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(
+            (task.signal_report_id, task.source_kind, task.source_id), (report.id, "signal_report", str(report.id))
+        )
         # A manual "start implementation" records the implementation task_run artefact (the
         # task↔report association and work-log entry) and writes the legacy SignalReportTask gate
         # row that blocks the auto-start pipeline from double-starting.

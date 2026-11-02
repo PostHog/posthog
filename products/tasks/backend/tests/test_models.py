@@ -445,7 +445,7 @@ class TestTask(TestCase):
 
         self.assertFalse(Task.objects.filter(team=self.team).exists())
 
-    @parameterized.expand([(SourceKind.SIGNAL_REPORT,), (SourceKind.HOG_FLOW,)])
+    @parameterized.expand([(SourceKind.SIGNAL_REPORT,), (SourceKind.HOG_FLOW,), (SourceKind.LOOP,)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_task_creation_stores_its_source(self, kind: SourceKind, _mock_execute_workflow) -> None:
         from products.signals.backend.models import SignalReport
@@ -463,14 +463,76 @@ class TestTask(TestCase):
         )
 
         task.refresh_from_db()
-        expected = (source_id, None) if kind == SourceKind.SIGNAL_REPORT else (None, source_id)
-        self.assertEqual((task.signal_report_id, task.hog_flow_id), expected)
+        expected_old_columns = {
+            SourceKind.SIGNAL_REPORT: (source_id, None),
+            SourceKind.HOG_FLOW: (None, source_id),
+            SourceKind.LOOP: (None, None),
+        }[kind]
+        self.assertEqual((task.signal_report_id, task.hog_flow_id), expected_old_columns)
+        self.assertEqual((task.source_kind, task.source_id), (kind.value, str(source_id)))
+
+    @parameterized.expand(
+        [
+            ("signal_report_id", {"signal_report_id": "report"}, SourceKind.SIGNAL_REPORT),
+            ("hog_flow_id", {"hog_flow_id": SOURCE_ID}, SourceKind.HOG_FLOW),
+            ("no_source", {}, None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_task_creation_stores_the_source_given_as_old_columns(
+        self, name: str, columns: dict, kind: SourceKind | None, _mock_execute_workflow
+    ) -> None:
+        from products.signals.backend.models import SignalReport
+
+        user = User.objects.create(email=f"{name}@test.com")
+        report_id = SignalReport.objects.create(team=self.team).id
+        columns = {key: str(report_id) if value == "report" else value for key, value in columns.items()}
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
+            **columns,
+        )
+
+        task.refresh_from_db()
+        expected_id = {None: None, SourceKind.SIGNAL_REPORT: str(report_id), SourceKind.HOG_FLOW: str(SOURCE_ID)}[kind]
+        self.assertEqual((task.source_kind, task.source_id), (kind.value if kind else None, expected_id))
+
+    @parameterized.expand([("key", "scout-trial:1"), ("no_key", None)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_task_creation_copies_the_origin_key_to_the_idempotency_key(
+        self, name: str, origin_key: str | None, _mock_execute_workflow
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
+            origin_key=origin_key,
+        )
+
+        task.refresh_from_db()
+        self.assertEqual((task.origin_key, task.idempotency_key), (origin_key, origin_key))
 
     @parameterized.expand(
         [
             (
                 "source_and_column",
                 {"origin_product": Task.OriginProduct.USER_CREATED, "hog_flow_id": SOURCE_ID, "source": FLOW_SOURCE},
+            ),
+            (
+                "both_old_columns",
+                {
+                    "origin_product": Task.OriginProduct.USER_CREATED,
+                    "signal_report_id": str(SOURCE_ID),
+                    "hog_flow_id": SOURCE_ID,
+                },
             ),
             ("profile_takes_no_source", {"profile": BUSINESS_KNOWLEDGE, "source": FLOW_SOURCE}),
             ("profile_takes_no_legacy_source", {"profile": BUSINESS_KNOWLEDGE, "hog_flow_id": SOURCE_ID}),

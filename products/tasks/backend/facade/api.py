@@ -109,6 +109,7 @@ from products.tasks.backend.facade.gateway import mint_private_gateway_token, re
 from products.tasks.backend.facade.profiles import (
     GithubAccess,
     NetworkAccess,
+    SourceKind,
     TaskProfile,
     TaskRunOptions,
     TaskSource,
@@ -2024,7 +2025,9 @@ def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, use
             return
         record_slack_report_discussion(team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id)
         task.signal_report_id = UUID(report_id)
-        task.save(update_fields=["signal_report_id", "updated_at"])
+        task.source_kind = SourceKind.SIGNAL_REPORT.value
+        task.source_id = str(task.signal_report_id)
+        task.save(update_fields=["signal_report_id", "source_kind", "source_id", "updated_at"])
 
 
 def create_and_run_task(
@@ -8380,6 +8383,12 @@ def create_task(
                     }
                 )
             validated_data["github_integration"] = pilot_integration
+
+    if report_ref:
+        validated_data["source_kind"] = SourceKind.SIGNAL_REPORT.value
+        validated_data["source_id"] = str(getattr(report_ref, "id", report_ref))
+    if validated_data.get("origin_key") is not None:
+        validated_data["idempotency_key"] = validated_data["origin_key"]
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():

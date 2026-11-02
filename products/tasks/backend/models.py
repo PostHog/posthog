@@ -82,7 +82,7 @@ from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
 from products.tasks.backend.storage import append_jsonl_object
-from products.tasks.backend.task_sources import apply_task_source, source_from_columns
+from products.tasks.backend.task_sources import apply_task_source
 
 logger = structlog.get_logger(__name__)
 
@@ -1369,6 +1369,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         signal_report_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
+        source: TaskSource | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         sandbox_environment_id: str | None = None,
@@ -1539,6 +1540,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state=initial_state,
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
+            source_kind=source.kind.value if source is not None else None,
+            source_id=source.id if source is not None else None,
+            idempotency_key=origin_key,
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -1718,10 +1722,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=None)
         if profile is not None:
-            check_task_source(
-                profile=profile,
-                source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
-            )
+            check_task_source(profile=profile, source=columns.source)
         runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
         validate_run_options(profile, options)
         if options is not None:
@@ -1755,6 +1756,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             branch=branch,
             signal_report_id=columns.signal_report_id,
             hog_flow_id=columns.hog_flow_id,
+            source=columns.source,
             sandbox_environment_id=sandbox_environment_id,
             internal=origin.internal,
             output_schema=output_schema,
@@ -1858,9 +1860,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         signal_report_id = columns.signal_report_id
         hog_flow_id = columns.hog_flow_id
         if profile is not None:
-            check_task_source(
-                profile=profile, source=source_from_columns(signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
-            )
+            check_task_source(profile=profile, source=columns.source)
         validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
@@ -1917,6 +1917,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             signal_report_id=signal_report_id,
             hog_flow_id=hog_flow_id,
             origin_key=origin_key,
+            source=columns.source,
             sandbox_environment_id=sandbox_environment_id,
             internal=internal,
             client_provenance=client_provenance,
