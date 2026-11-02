@@ -88,27 +88,30 @@ describe('email pacing policies', () => {
         })
 
         it.each([
-            [2, 0, 1000],
-            [2, 0.9999, 1999],
-            [0.1, 0.5, 15000],
-            [0.001, 0, 300000],
-            [0.001, 0.9999, 599970],
-        ])('bounds the unreserved token cadence at refill %s and jitter %s', (refillPerSecond, random, expected) => {
-            jest.spyOn(Math, 'random').mockReturnValue(random)
-            expect(pickTokenBucketRetryDelayMs(refillPerSecond)).toBe(expected)
-        })
+            { refillPerSecond: 2, random: 0, expected: 1000 },
+            { refillPerSecond: 2, random: 0.9999, expected: 1999 },
+            { refillPerSecond: 0.1, random: 0.5, expected: 15000 },
+            { refillPerSecond: 0.001, random: 0, expected: 300000 },
+            { refillPerSecond: 0.001, random: 0.9999, expected: 599970 },
+        ])(
+            'bounds the unreserved token cadence at refill $refillPerSecond and jitter $random',
+            ({ refillPerSecond, random, expected }) => {
+                jest.spyOn(Math, 'random').mockReturnValue(random)
+                expect(pickTokenBucketRetryDelayMs(refillPerSecond)).toBe(expected)
+            }
+        )
 
         it.each([
-            [null, 2, false, 0.5, 1500],
-            [null, 0.001, false, 0.5, 450000],
-            [null, 2, true, 0.5, 1500],
-            [250, 2, true, 0.5, 250],
-            [5400000, 2, true, 0.5, 5400000],
-            [250, 2, false, 0.5, 1500],
-            [3600000, 2, false, 0.5, 5400000],
+            { retryAfterMs: null, refillPerSecond: 2, reserved: false, random: 0.5, expected: 1500 },
+            { retryAfterMs: null, refillPerSecond: 0.001, reserved: false, random: 0.5, expected: 450000 },
+            { retryAfterMs: null, refillPerSecond: 2, reserved: true, random: 0.5, expected: 1500 },
+            { retryAfterMs: 250, refillPerSecond: 2, reserved: true, random: 0.5, expected: 250 },
+            { retryAfterMs: 5400000, refillPerSecond: 2, reserved: true, random: 0.5, expected: 5400000 },
+            { retryAfterMs: 250, refillPerSecond: 2, reserved: false, random: 0.5, expected: 1500 },
+            { retryAfterMs: 3600000, refillPerSecond: 2, reserved: false, random: 0.5, expected: 5400000 },
         ])(
-            'parks horizon %s at refill %s, reserved %s and jitter %s',
-            (retryAfterMs, refillPerSecond, reserved, random, expected) => {
+            'parks horizon $retryAfterMs at refill $refillPerSecond, reserved $reserved and jitter $random',
+            ({ retryAfterMs, refillPerSecond, reserved, random, expected }) => {
                 jest.spyOn(Math, 'random').mockReturnValue(random)
                 expect(pickReservedRetryDelayMs(retryAfterMs, refillPerSecond, reserved)).toBe(expected)
             }
