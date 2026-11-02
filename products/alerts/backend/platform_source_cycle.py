@@ -400,10 +400,14 @@ def _attempt_outlasts(seconds: float) -> bool:
     if activity.is_cancelled():
         return False
     info = activity.info()
-    if info.start_to_close_timeout is None:
-        return True
-    deadline = info.current_attempt_scheduled_time + info.start_to_close_timeout
-    return datetime.now(UTC) + timedelta(seconds=seconds) < deadline
+    # The attempt starts after it is scheduled, so its scheduled time gives a deadline no later than
+    # the real one. Schedule-to-close counts from the first attempt, so it can end a retry sooner.
+    deadlines = []
+    if info.start_to_close_timeout is not None:
+        deadlines.append(info.current_attempt_scheduled_time + info.start_to_close_timeout)
+    if info.schedule_to_close_timeout is not None:
+        deadlines.append(info.scheduled_time + info.schedule_to_close_timeout)
+    return not deadlines or datetime.now(UTC) + timedelta(seconds=seconds) < min(deadlines)
 
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
