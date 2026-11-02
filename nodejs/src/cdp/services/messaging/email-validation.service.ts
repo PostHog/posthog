@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { logger } from '~/common/utils/logger'
 import { noteOobDomain } from '~/common/utils/oob-domains'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
@@ -259,10 +260,17 @@ export class EmailValidationService {
         if (!this.valkey) {
             return null
         }
-        // failOpen: a Valkey outage returns null (treated as a cache miss), never throws.
-        const value = await this.valkey.useClient({ name: 'email-mx-read', failOpen: true }, (client) =>
-            client.get(VALKEY_KEY_PREFIX + domain)
-        )
+        // A Valkey outage is a cache miss, never an error. failOpen covers the callback; the catch
+        // covers the pool, which rejects before the callback when no connection can be acquired.
+        let value: string | null
+        try {
+            value = await this.valkey.useClient({ name: 'email-mx-read', failOpen: true }, (client) =>
+                client.get(VALKEY_KEY_PREFIX + domain)
+            )
+        } catch (error) {
+            logger.warn('Email MX cache read failed - resolving through DNS', { domain, error: String(error) })
+            return null
+        }
         if (value === '1') {
             return true
         }
@@ -277,8 +285,12 @@ export class EmailValidationService {
             return
         }
         const ttlSeconds = Math.floor((deliverable ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS) / 1000)
-        await this.valkey.useClient({ name: 'email-mx-write', failOpen: true }, (client) =>
-            client.set(VALKEY_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
-        )
+        try {
+            await this.valkey.useClient({ name: 'email-mx-write', failOpen: true }, (client) =>
+                client.set(VALKEY_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
+            )
+        } catch (error) {
+            logger.warn('Email MX cache write failed', { domain, error: String(error) })
+        }
     }
 }

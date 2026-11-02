@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
+import { EmailSenderSummary } from './EmailSenderSummary'
 import { NativeEmailIntegrationChoice } from './EmailTemplater'
 
 let mockSenderRotationEnabled = false
@@ -14,6 +15,7 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
+    useActions: () => ({ setEmailTemplateValue: jest.fn() }),
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -85,5 +87,21 @@ describe('NativeEmailIntegrationChoice', () => {
         render(<NativeEmailIntegrationChoice label="From" value={{}} onChange={jest.fn()} />)
 
         expect(screen.getByText('No email senders configured yet')).toBeInTheDocument()
+    })
+})
+
+describe('EmailSenderSummary', () => {
+    afterEach(cleanup)
+
+    it('does not show the sandbox sender as the sender of a transactional email', () => {
+        // make_transactional rejects the sandbox sender, so the transactional editor must not offer it.
+        jest.mocked(useValues).mockReturnValue({
+            emailTemplate: { from: { integrationId: SANDBOX.id } },
+            integrations: [ALICE, SANDBOX],
+        })
+
+        render(<EmailSenderSummary />)
+
+        expect(screen.getByText('Choose who this email comes from')).toBeInTheDocument()
     })
 })

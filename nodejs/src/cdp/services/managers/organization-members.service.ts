@@ -59,7 +59,16 @@ export class OrganizationMembersService {
         })
     }
 
-    public async getBlockedRecipients(teamId: number, recipients: string[]): Promise<BlockedRecipient[]> {
+    // `fresh` skips the cached snapshot, for the check right before delivery: a member removed
+    // while the send was prepared must not receive it.
+    public async getBlockedRecipients(
+        teamId: number,
+        recipients: string[],
+        { fresh = false }: { fresh?: boolean } = {}
+    ): Promise<BlockedRecipient[]> {
+        if (fresh) {
+            this.snapshots.markForRefresh(String(teamId))
+        }
         const snapshot = await this.getFreshSnapshot(String(teamId))
         return recipients
             .filter((email) => !snapshot.verifiedEmails.has(normalizeEmail(email)))
